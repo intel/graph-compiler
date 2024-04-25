@@ -1,21 +1,36 @@
-cmake_minimum_required(VERSION 3.20)
-project(GraphCompiler LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.11)
+project(graph_compiler)
 
-include(FetchContent)
+option(GC_TEST "Enable tests" ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fPIC -ffunction-sections -fdata-sections")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--gc-sections")
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_DEPENDS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(${CMAKE_DEPENDS_DIR}/onednn.cmake)
+include(${CMAKE_DEPENDS_DIR}/simdjson.cmake)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+include_directories(
+        include
+        ${dnnl_BINARY_DIR}/include
+        ${dnnl_SOURCE_DIR}/include
+        ${dnnl_SOURCE_DIR}/src/graph/backend/elyzor/include
+        ${simdjson_SOURCE_DIR}/include
+)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+file(GLOB SOURCES "src/*.*pp")
+add_library(graph_compiler SHARED
+        ${SOURCES}
+)
+add_library(graph_compiler_static STATIC
+        ${SOURCES}
+)
 
-option(GC_LEGACY_ENABLE ON)
+set(LINKED_LIBS
+        # dnnl
+        simdjson
+)
 
-set(GC_ONEDNN_VERSION "main" CACHE STRING "oneDNN version")
-include(onednn)
-add_subdirectory(${onednn_SOURCE_DIR} ${onednn_BINARY_DIR})
+target_link_libraries(graph_compiler PRIVATE ${LINKED_LIBS})
+target_link_libraries(graph_compiler_static PRIVATE ${LINKED_LIBS})
 
-if(GC_LEGACY_ENABLE)
-    add_subdirectory(legacy/core)
-endif()
+add_subdirectory(test)
