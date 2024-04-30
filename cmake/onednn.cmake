@@ -15,7 +15,7 @@ message(STATUS "oneDNN version: ${GC_ONEDNN_VERSION}")
 set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(
         oneDNN
-        GIT_REPOSITORY https://github.com/oneapi-src/oneDNN.git
+        GIT_REPOSITORY https://github.com/intel-ai/oneDNN.git
         GIT_TAG ${ONEDNN_TAG}
         CMAKE_ARGS ${ONEDNN_CMAKE_ARGS}
         GIT_PROGRESS TRUE
