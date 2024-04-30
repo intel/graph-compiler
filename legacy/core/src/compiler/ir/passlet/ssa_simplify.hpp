@@ -36,15 +36,15 @@ namespace passlet {
 // dispatching down ssa_phi. And call visit() for var node to get simplified
 // result
 struct ssa_simplify_t {
-    const bool simplify_const_vec_;
-    bool is_in_phi_ = false;
-    ssa_simplify_t(bool simplify_const_vec)
-        : simplify_const_vec_ {simplify_const_vec} {}
-    void enter_phi() { is_in_phi_ = true; }
-    void leave_phi() { is_in_phi_ = false; }
+  const bool simplify_const_vec_;
+  bool is_in_phi_ = false;
+  ssa_simplify_t(bool simplify_const_vec)
+      : simplify_const_vec_{simplify_const_vec} {}
+  void enter_phi() { is_in_phi_ = true; }
+  void leave_phi() { is_in_phi_ = false; }
 
-    expr_c visit(const ssa_phi_c &v);
-    expr_c visit(const var_c &v);
+  expr_c visit(const ssa_phi_c &v);
+  expr_c visit(const var_c &v);
 };
 
 } // namespace passlet

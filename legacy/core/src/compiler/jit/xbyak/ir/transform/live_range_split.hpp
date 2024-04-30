@@ -30,8 +30,8 @@ namespace xbyak {
  * */
 class live_range_splitter_t : public function_pass_t {
 public:
-    live_range_splitter_t() = default;
-    func_c operator()(func_c v) override;
+  live_range_splitter_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

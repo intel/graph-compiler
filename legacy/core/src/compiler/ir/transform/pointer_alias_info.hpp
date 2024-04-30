@@ -18,9 +18,9 @@
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_POINTER_ALIAS_INFO_HPP
 
 #include <memory>
-#include <vector>
 #include <unordered_set>
 #include <util/weakptr_utils.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -48,22 +48,22 @@ struct alias_set_t;
 // the "noalias" set of this tensor.
 struct tensor_alias_identity_t
     : std::enable_shared_from_this<tensor_alias_identity_t> {
-    // push the clique to alias_cliques_ and add this tensor to the clique
-    void add_to_clique(const std::shared_ptr<alias_set_t> &v);
-    bool has_no_alias() const;
-    tensor_alias_identity_t() = default;
-    bool is_alias_of(tensor_alias_identity_t *) const;
-    std::vector<std::shared_ptr<alias_set_t>> alias_cliques_;
+  // push the clique to alias_cliques_ and add this tensor to the clique
+  void add_to_clique(const std::shared_ptr<alias_set_t> &v);
+  bool has_no_alias() const;
+  tensor_alias_identity_t() = default;
+  bool is_alias_of(tensor_alias_identity_t *) const;
+  std::vector<std::shared_ptr<alias_set_t>> alias_cliques_;
 };
 
 // a set of tensors. tensors in the same set may have pointer alias
 struct alias_set_t {
-    utils::weakptr_hashset_t<tensor_alias_identity_t> set_;
-    // the identifier for sorting to make the resulting IR stable
-    int64_t id_;
+  utils::weakptr_hashset_t<tensor_alias_identity_t> set_;
+  // the identifier for sorting to make the resulting IR stable
+  int64_t id_;
 
-    // copy the alias set, also add the new set to all its tensor_alias_identity
-    std::shared_ptr<alias_set_t> copy() const;
+  // copy the alias set, also add the new set to all its tensor_alias_identity
+  std::shared_ptr<alias_set_t> copy() const;
 };
 
 std::shared_ptr<tensor_alias_identity_t> get_or_create_alias_info(expr_base &v);

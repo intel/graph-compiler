@@ -33,51 +33,51 @@ namespace xbyak {
 //-----------------
 
 stmt_c xbyak_visitor_t::visit(stmts_c v) {
-    const stmt_base_t *previous_scope_ = current_scope_;
-    current_scope_ = v.get();
-    auto vv = ir_visitor_t::visit(std::move(v));
-    current_scope_ = previous_scope_;
-    return vv;
+  const stmt_base_t *previous_scope_ = current_scope_;
+  current_scope_ = v.get();
+  auto vv = ir_visitor_t::visit(std::move(v));
+  current_scope_ = previous_scope_;
+  return vv;
 }
 
 stmt_c xbyak_visitor_t::visit(for_loop_c v) {
-    loop_depth_++;
-    auto vv = ir_visitor_t::visit(std::move(v));
-    loop_depth_--;
-    return vv;
+  loop_depth_++;
+  auto vv = ir_visitor_t::visit(std::move(v));
+  loop_depth_--;
+  return vv;
 }
 
 expr_c xbyak_visitor_t::visit(tensor_c v) {
-    // do not dispatch into tensor
-    return v;
+  // do not dispatch into tensor
+  return v;
 }
 
 expr_c xbyak_visitor_t::visit(low_level_intrin_c v) {
-    switch (v->kind_) {
-        case low_level_intrin_kind::x86_general: {
-            return ir_visitor_t::visit(std::move(v));
-        } break;
-        case low_level_intrin_kind::x86_xbyak: {
-            auto vv = v.checked_as<xbyak_intrin_c>();
-            return visit(std::move(vv));
-        } break;
-        default: {
-            assert(0 && "Invalid intrin kind.");
-            return ir_visitor_t::visit(std::move(v));
-        }
-    }
+  switch (v->kind_) {
+  case low_level_intrin_kind::x86_general: {
+    return ir_visitor_t::visit(std::move(v));
+  } break;
+  case low_level_intrin_kind::x86_xbyak: {
+    auto vv = v.checked_as<xbyak_intrin_c>();
+    return visit(std::move(vv));
+  } break;
+  default: {
+    assert(0 && "Invalid intrin kind.");
+    return ir_visitor_t::visit(std::move(v));
+  }
+  }
 }
 
 expr_c xbyak_visitor_t::visit(xbyak_intrin_c v) {
-    std::vector<expr> new_arr;
-    bool changed = dispatch_expr_vector(v->args_, new_arr);
-    if (changed) {
-        return make_xbyak_intrin(v->dtype_, new_arr,
-                static_cast<xbyak_intrin_type>(v->type_), v->isa_,
-                v->modifier_);
-    } else {
-        return std::move(v);
-    }
+  std::vector<expr> new_arr;
+  bool changed = dispatch_expr_vector(v->args_, new_arr);
+  if (changed) {
+    return make_xbyak_intrin(v->dtype_, new_arr,
+                             static_cast<xbyak_intrin_type>(v->type_), v->isa_,
+                             v->modifier_);
+  } else {
+    return std::move(v);
+  }
 }
 
 } // namespace xbyak

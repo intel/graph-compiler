@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_FUSIBLE_PADDING_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_FUSIBLE_PADDING_HPP
 
-#include <memory>
-#include <vector>
 #include <compiler/ir/graph/fusible_op.hpp>
 #include <compiler/ir/graph/graph_op.hpp>
+#include <memory>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -29,36 +29,36 @@ namespace gc {
 
 class padding_op_t : public movement_op_t, public op_traits::auto_copyable_t {
 public:
-    DECLARE_QUERY_AND_COMPUTE();
+  DECLARE_QUERY_AND_COMPUTE();
 
-    padding_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  padding_op_t(const std::vector<graph_tensor_ptr> &ins,
+               const std::vector<graph_tensor_ptr> &outs,
+               const any_map_t &attrs);
 
-    padding_op_t(graph_tensor_ptr v, sc_dims &pads_begin, sc_dims &pads_end);
+  padding_op_t(graph_tensor_ptr v, sc_dims &pads_begin, sc_dims &pads_end);
 
-    sc_dims infer_out_dims(const sc_dims &input_dims, const sc_dims &pads_begin,
-            const sc_dims &pads_end);
+  sc_dims infer_out_dims(const sc_dims &input_dims, const sc_dims &pads_begin,
+                         const sc_dims &pads_end);
 
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 
-    size_t compute_workload(const std::vector<shape_dtype_pair> &,
-            const std::vector<shape_dtype_pair> &) override;
+  size_t compute_workload(const std::vector<shape_dtype_pair> &,
+                          const std::vector<shape_dtype_pair> &) override;
 
-    std::vector<int> get_real_padding_axis();
+  std::vector<int> get_real_padding_axis();
 
-    std::vector<expr> get_padding_offsets_exprs();
+  std::vector<expr> get_padding_offsets_exprs();
 
-    shape_rl_vec get_dynamic_shape_relations() const override;
+  shape_rl_vec get_dynamic_shape_relations() const override;
 
-    reflection::shared_general_object_t get_dynamic_runtime_info() override;
+  reflection::shared_general_object_t get_dynamic_runtime_info() override;
 
-    void calculate_dynamic_shape_expression() override;
+  void calculate_dynamic_shape_expression() override;
 
-    stmt get_zero_out_stmt(
-            const tensor &out, const slice_range_list &range_list);
+  stmt get_zero_out_stmt(const tensor &out, const slice_range_list &range_list);
 };
 
 } // namespace gc

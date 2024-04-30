@@ -14,51 +14,51 @@
  * limitations under the License.
  *******************************************************************************/
 #include "scope_flatten.hpp"
-#include <utility>
 #include <compiler/ir/builder.hpp>
 #include <compiler/ir/pass/ir_copy.hpp>
+#include <utility>
 
 namespace dnnl {
 namespace impl {
 namespace graph {
 namespace gc {
 
-static void do_scope_flatten(
-        const std::vector<stmt> &seq, std::vector<stmt> &ret, int stmt_index) {
-    if (seq[stmt_index].isa<stmts>()) {
-        for (auto &v : seq[stmt_index].static_as<stmts>()->seq_) {
-            ret.emplace_back(std::move(v));
-        }
-    } else {
-        ret.emplace_back(seq[stmt_index]);
+static void do_scope_flatten(const std::vector<stmt> &seq,
+                             std::vector<stmt> &ret, int stmt_index) {
+  if (seq[stmt_index].isa<stmts>()) {
+    for (auto &v : seq[stmt_index].static_as<stmts>()->seq_) {
+      ret.emplace_back(std::move(v));
     }
+  } else {
+    ret.emplace_back(seq[stmt_index]);
+  }
 }
 void scope_flatten(std::vector<stmt> &seq, int stmt_index) {
-    std::vector<stmt> ret;
-    ret.reserve(seq.size());
-    if (stmt_index < 0) {
-        for (unsigned i = 0; i < seq.size(); i++) {
-            do_scope_flatten(seq, ret, i);
-        }
-    } else {
-        assert(seq.size() > unsigned(stmt_index));
-        for (int i = 0; i < stmt_index; i++) {
-            ret.emplace_back(seq[i]);
-        }
-        do_scope_flatten(seq, ret, stmt_index);
-        for (unsigned i = stmt_index + 1; i < seq.size(); i++) {
-            ret.emplace_back(seq[i]);
-        }
+  std::vector<stmt> ret;
+  ret.reserve(seq.size());
+  if (stmt_index < 0) {
+    for (unsigned i = 0; i < seq.size(); i++) {
+      do_scope_flatten(seq, ret, i);
     }
-    seq = std::move(ret);
+  } else {
+    assert(seq.size() > unsigned(stmt_index));
+    for (int i = 0; i < stmt_index; i++) {
+      ret.emplace_back(seq[i]);
+    }
+    do_scope_flatten(seq, ret, stmt_index);
+    for (unsigned i = stmt_index + 1; i < seq.size(); i++) {
+      ret.emplace_back(seq[i]);
+    }
+  }
+  seq = std::move(ret);
 }
 
 void scope_flatten(const stmt &seq, int stmt_index) {
-    if (seq.isa<stmts>()) {
-        scope_flatten(seq.static_as<stmts>()->seq_, stmt_index);
-    } else {
-        SC_WARN << "Flattening requires a stmts node";
-    }
+  if (seq.isa<stmts>()) {
+    scope_flatten(seq.static_as<stmts>()->seq_, stmt_index);
+  } else {
+    SC_WARN << "Flattening requires a stmts node";
+  }
 }
 
 } // namespace gc

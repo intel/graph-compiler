@@ -25,8 +25,8 @@ namespace graph {
 namespace gc {
 
 // check whether open quantized optimzation passes.
-void analysis_quantized(
-        sc_graph_t &graph, const context_ptr &ctx = get_default_context());
+void analysis_quantized(sc_graph_t &graph,
+                        const context_ptr &ctx = get_default_context());
 } // namespace gc
 } // namespace graph
 } // namespace impl

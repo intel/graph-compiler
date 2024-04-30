@@ -1157,44 +1157,76 @@ void gen_managed_matmul_core_t::single_thread_matmul_call(
               _if_(n_s < N_anchor_info[0]) {
                 // 0-4
                 _if_(m_b < m_b_bigger_num) {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(0); }
-                  _else_ { anchor_iter = UINT64_C(1); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(0);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(1);
+                  }
                 }
                 _else_ {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(2); }
-                  _else_ { anchor_iter = UINT64_C(3); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(2);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(3);
+                  }
                 }
               }
               _else_ {
                 _if_(m_b < m_b_bigger_num) {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(4); }
-                  _else_ { anchor_iter = UINT64_C(5); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(4);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(5);
+                  }
                 }
                 _else_ {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(6); }
-                  _else_ { anchor_iter = UINT64_C(7); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(6);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(7);
+                  }
                 }
               }
             }
             _else_ {
               _if_(n_s < N_anchor_info[0]) {
                 _if_(m_b < m_b_bigger_num) {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(8); }
-                  _else_ { anchor_iter = UINT64_C(9); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(8);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(9);
+                  }
                 }
                 _else_ {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(10); }
-                  _else_ { anchor_iter = UINT64_C(11); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(10);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(11);
+                  }
                 }
               }
               _else_ {
                 _if_(m_b < m_b_bigger_num) {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(12); }
-                  _else_ { anchor_iter = UINT64_C(13); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(12);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(13);
+                  }
                 }
                 _else_ {
-                  _if_(n_b < n_b_bigger_num) { anchor_iter = UINT64_C(14); }
-                  _else_ { anchor_iter = UINT64_C(15); }
+                  _if_(n_b < n_b_bigger_num) {
+                    anchor_iter = UINT64_C(14);
+                  }
+                  _else_ {
+                    anchor_iter = UINT64_C(15);
+                  }
                 }
               }
             }
@@ -1476,7 +1508,9 @@ func_t gen_managed_matmul_core_t::get_single_core_func(context_ptr ctx,
                   _if_(k_b == 0) {
                     call_init_update_brgemm(bs, iik_block_, aidx, bidx);
                   }
-                  _else_ { call_update_brgemm(bs, iik_block_, aidx, bidx); }
+                  _else_ {
+                    call_update_brgemm(bs, iik_block_, aidx, bidx);
+                  }
                 }
                 if (input_plain) {
                   auto k_tail_idx = k_start_idx + bs * iik_block_;
@@ -1701,7 +1735,9 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                   _if_(m_s < M_blk_num) {
                     commit_reorder_A_anchor(M_block_size, 0);
                   }
-                  _else_ { commit_reorder_A_anchor(M_ib_block_size, 0); }
+                  _else_ {
+                    commit_reorder_A_anchor(M_ib_block_size, 0);
+                  }
                 }
               } else {
                 // has padding on M axis
@@ -1711,7 +1747,9 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                         + in_tensors_[0].get_plain_dims()[0] % iim_block_,
                       0);
                   }
-                  _else_ { commit_reorder_A_anchor(M_block_size, 0); }
+                  _else_ {
+                    commit_reorder_A_anchor(M_block_size, 0);
+                  }
                 } else {
                   _if_(m_s < M_blk_num) {
                     commit_reorder_A_anchor(M_block_size, 0);
@@ -1722,7 +1760,9 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                           + in_tensors_[0].get_plain_dims()[0] % iim_block_,
                         0);
                     }
-                    _else_ { commit_reorder_A_anchor(M_ib_block_size, 0); }
+                    _else_ {
+                      commit_reorder_A_anchor(M_ib_block_size, 0);
+                    }
                   }
                 }
               }
@@ -1788,8 +1828,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
               builder::ir_builder_t bd_helper;
               bd_helper.push_scope();
               _var_init_(middle_anchor_iter, datatypes::index, UINT64_C(0));
-              _if_(n_s < N_blk_num) { middle_anchor_iter = UINT64_C(0); }
-              _else_ { middle_anchor_iter = UINT64_C(1); }
+              _if_(n_s < N_blk_num) {
+                middle_anchor_iter = UINT64_C(0);
+              }
+              _else_ {
+                middle_anchor_iter = UINT64_C(1);
+              }
               auto scope_helper = bd_helper.pop_scope();
               return std::make_pair(middle_anchor_iter, scope_helper);
             };
@@ -1809,8 +1853,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
               builder::ir_builder_t bd_helper;
               bd_helper.push_scope();
               _var_init_(middle_anchor_iter, datatypes::index, UINT64_C(0));
-              _if_(m_s < M_blk_num) { middle_anchor_iter = UINT64_C(0); }
-              _else_ { middle_anchor_iter = UINT64_C(1); }
+              _if_(m_s < M_blk_num) {
+                middle_anchor_iter = UINT64_C(0);
+              }
+              _else_ {
+                middle_anchor_iter = UINT64_C(1);
+              }
               auto scope_helper = bd_helper.pop_scope();
               return std::make_pair(middle_anchor_iter, scope_helper);
             };
@@ -1828,12 +1876,20 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
               bd_helper.push_scope();
               _var_init_(middle_anchor_iter, datatypes::index, UINT64_C(0));
               _if_(m_s < M_blk_num) {
-                _if_(n_s < N_blk_num) { middle_anchor_iter = UINT64_C(0); }
-                _else_ { middle_anchor_iter = UINT64_C(1); }
+                _if_(n_s < N_blk_num) {
+                  middle_anchor_iter = UINT64_C(0);
+                }
+                _else_ {
+                  middle_anchor_iter = UINT64_C(1);
+                }
               }
               _else_ {
-                _if_(n_s < N_blk_num) { middle_anchor_iter = UINT64_C(2); }
-                _else_ { middle_anchor_iter = UINT64_C(3); }
+                _if_(n_s < N_blk_num) {
+                  middle_anchor_iter = UINT64_C(2);
+                }
+                _else_ {
+                  middle_anchor_iter = UINT64_C(3);
+                }
               }
               auto scope_helper = bd_helper.pop_scope();
               return std::make_pair(middle_anchor_iter, scope_helper);
@@ -1878,8 +1934,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
             builder::ir_builder_t bd_helper;
             bd_helper.push_scope();
             _var_init_(outer_anchor_iter, datatypes::index, UINT64_C(0));
-            _if_(m_s < M_blk_num) { outer_anchor_iter = UINT64_C(0); }
-            _else_ { outer_anchor_iter = UINT64_C(1); }
+            _if_(m_s < M_blk_num) {
+              outer_anchor_iter = UINT64_C(0);
+            }
+            _else_ {
+              outer_anchor_iter = UINT64_C(1);
+            }
             auto scope_helper = bd_helper.pop_scope();
             return std::make_pair(outer_anchor_iter, scope_helper);
           };
@@ -2003,7 +2063,9 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                       + in_tensors_[0].get_plain_dims()[1] % iik_block_,
                     0);
                 }
-                _else_ { commit_reorder_A_anchor(length_M, K_block_size, 0); }
+                _else_ {
+                  commit_reorder_A_anchor(length_M, K_block_size, 0);
+                }
               } else {
                 _if_(k_s < K_blk_num) {
                   commit_reorder_A_anchor(length_M, K_block_size, 0);
@@ -2041,8 +2103,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                 discuss_K(M_block_size);
               } else {
                 // need grouped anchor
-                _if_(m_s < M_blk_num) { discuss_K(M_block_size); }
-                _else_ { discuss_K(M_ib_block_size); }
+                _if_(m_s < M_blk_num) {
+                  discuss_K(M_block_size);
+                }
+                _else_ {
+                  discuss_K(M_ib_block_size);
+                }
               }
             } else if (in_tensors_[0].get_plain_dims()[1] % iik_block_ == 0) {
               // has padding on M axis only
@@ -2051,15 +2117,21 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                   discuss_K(M_block_size - iim_block_
                     + in_tensors_[0].get_plain_dims()[0] % iim_block_);
                 }
-                _else_ { discuss_K(M_block_size); }
+                _else_ {
+                  discuss_K(M_block_size);
+                }
               } else {
-                _if_(m_s < M_blk_num) { discuss_K(M_block_size); }
+                _if_(m_s < M_blk_num) {
+                  discuss_K(M_block_size);
+                }
                 _else_ {
                   _if_(m_s == M_real_split - 1) {
                     discuss_K(M_ib_block_size - iim_block_
                       + in_tensors_[0].get_plain_dims()[0] % iim_block_);
                   }
-                  _else_ { discuss_K(M_ib_block_size); }
+                  _else_ {
+                    discuss_K(M_ib_block_size);
+                  }
                 }
               }
             } else if (in_tensors_[0].get_plain_dims()[0] % iim_block_ == 0) {
@@ -2069,15 +2141,21 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                   discuss_M(K_block_size - iik_block_
                     + in_tensors_[0].get_plain_dims()[1] % iik_block_);
                 }
-                _else_ { discuss_M(K_block_size); }
+                _else_ {
+                  discuss_M(K_block_size);
+                }
               } else {
-                _if_(k_s < K_blk_num) { discuss_M(K_block_size); }
+                _if_(k_s < K_blk_num) {
+                  discuss_M(K_block_size);
+                }
                 _else_ {
                   _if_(k_s == K_real_split - 1) {
                     discuss_M(K_ib_block_size - iik_block_
                       + in_tensors_[0].get_plain_dims()[1] % iik_block_);
                   }
-                  _else_ { discuss_M(K_ib_block_size); }
+                  _else_ {
+                    discuss_M(K_ib_block_size);
+                  }
                 }
               }
             } else {
@@ -2087,15 +2165,21 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                   discuss_K2(M_block_size - iim_block_
                     + in_tensors_[0].get_plain_dims()[0] % iim_block_);
                 }
-                _else_ { discuss_K2(M_block_size); }
+                _else_ {
+                  discuss_K2(M_block_size);
+                }
               } else {
-                _if_(m_s < M_blk_num) { discuss_K2(M_block_size); }
+                _if_(m_s < M_blk_num) {
+                  discuss_K2(M_block_size);
+                }
                 _else_ {
                   _if_(m_s == M_real_split - 1) {
                     discuss_K2(M_ib_block_size - iim_block_
                       + in_tensors_[0].get_plain_dims()[0] % iim_block_);
                   }
-                  _else_ { discuss_K2(M_ib_block_size); }
+                  _else_ {
+                    discuss_K2(M_ib_block_size);
+                  }
                 }
               }
             }
@@ -2278,8 +2362,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                 builder::ir_builder_t bd_helper;
                 bd_helper.push_scope();
                 _var_init_(inner_anchor_iter, datatypes::index, UINT64_C(0));
-                _if_(n_s < N_blk_num) { inner_anchor_iter = UINT64_C(0); }
-                _else_ { inner_anchor_iter = UINT64_C(1); }
+                _if_(n_s < N_blk_num) {
+                  inner_anchor_iter = UINT64_C(0);
+                }
+                _else_ {
+                  inner_anchor_iter = UINT64_C(1);
+                }
                 auto scope_helper = bd_helper.pop_scope();
                 return std::make_pair(inner_anchor_iter, scope_helper);
               };
@@ -2299,8 +2387,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                 builder::ir_builder_t bd_helper;
                 bd_helper.push_scope();
                 _var_init_(inner_anchor_iter, datatypes::index, UINT64_C(0));
-                _if_(m_s < M_blk_num) { inner_anchor_iter = UINT64_C(0); }
-                _else_ { inner_anchor_iter = UINT64_C(1); }
+                _if_(m_s < M_blk_num) {
+                  inner_anchor_iter = UINT64_C(0);
+                }
+                _else_ {
+                  inner_anchor_iter = UINT64_C(1);
+                }
                 auto scope_helper = bd_helper.pop_scope();
                 return std::make_pair(inner_anchor_iter, scope_helper);
               };
@@ -2318,12 +2410,20 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
                 bd_helper.push_scope();
                 _var_init_(inner_anchor_iter, datatypes::index, UINT64_C(0));
                 _if_(m_s < M_blk_num) {
-                  _if_(n_s < N_blk_num) { inner_anchor_iter = UINT64_C(0); }
-                  _else_ { inner_anchor_iter = UINT64_C(1); }
+                  _if_(n_s < N_blk_num) {
+                    inner_anchor_iter = UINT64_C(0);
+                  }
+                  _else_ {
+                    inner_anchor_iter = UINT64_C(1);
+                  }
                 }
                 _else_ {
-                  _if_(n_s < N_blk_num) { inner_anchor_iter = UINT64_C(2); }
-                  _else_ { inner_anchor_iter = UINT64_C(3); }
+                  _if_(n_s < N_blk_num) {
+                    inner_anchor_iter = UINT64_C(2);
+                  }
+                  _else_ {
+                    inner_anchor_iter = UINT64_C(3);
+                  }
                 }
                 auto scope_helper = bd_helper.pop_scope();
                 return std::make_pair(inner_anchor_iter, scope_helper);
@@ -2369,8 +2469,12 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
             builder::ir_builder_t bd_helper;
             bd_helper.push_scope();
             _var_init_(outer_anchor_iter, datatypes::index, UINT64_C(0));
-            _if_(m_s < M_blk_num) { outer_anchor_iter = UINT64_C(0); }
-            _else_ { outer_anchor_iter = UINT64_C(1); }
+            _if_(m_s < M_blk_num) {
+              outer_anchor_iter = UINT64_C(0);
+            }
+            _else_ {
+              outer_anchor_iter = UINT64_C(1);
+            }
             auto scope_helper = bd_helper.pop_scope();
             return std::make_pair(outer_anchor_iter, scope_helper);
           };

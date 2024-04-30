@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_SCOPE_FLATTEN_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_SCOPE_FLATTEN_HPP
 
-#include <vector>
 #include "../function_pass.hpp"
+#include <vector>
 
 namespace dnnl {
 namespace impl {

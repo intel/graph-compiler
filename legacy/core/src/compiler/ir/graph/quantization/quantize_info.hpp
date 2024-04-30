@@ -16,10 +16,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_QUANTIZATION_QUANTIZE_INFO_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_QUANTIZATION_QUANTIZE_INFO_HPP
 
-#include <vector>
 #include <compiler/ir/sc_data_format.hpp>
 #include <compiler/ir/sc_data_type.hpp>
 #include <util/any_map.hpp>
+#include <vector>
 namespace dnnl {
 namespace impl {
 namespace graph {
@@ -45,8 +45,8 @@ constexpr const char *quan_dtype = "dtype";
 constexpr const char *per_channel = "per_channel";
 constexpr const char *channel_axis = "channel_axis";
 constexpr const char *weight_channel_axis = "weight_channel_axis";
-constexpr const char *output_channel_axis
-        = "output_channel_axis"; // output of tuanble ops
+constexpr const char *output_channel_axis =
+    "output_channel_axis"; // output of tuanble ops
 constexpr const char *asymmetric = "asymmetric";
 // pass attributes
 constexpr const char *mixed_dtype = "mixed_dtype";
@@ -71,22 +71,20 @@ enum class tensor_type { input_tensor, weight_tensor, bias_tensor };
  * */
 
 struct quantize_infos_t {
-    sc_data_type_t dtype_ = sc_data_type_t::u8(1);
-    std::vector<float> scales_ = {1.f};
-    std::vector<int> zero_points_ = {0};
-    bool per_channel_ = false;
-    int channel_axis_ = 0;
-    bool asymmetric_ = false;
-    quantize_infos_t() = default;
-    quantize_infos_t(sc_data_type_t dtype, const std::vector<float> &scales,
-            const std::vector<int> &zero_points, bool per_channel = false,
-            int channel_axis = 0, bool asymmetric = false)
-        : dtype_(dtype)
-        , scales_(scales)
-        , zero_points_(zero_points)
-        , per_channel_(per_channel)
-        , channel_axis_(channel_axis)
-        , asymmetric_(asymmetric) {}
+  sc_data_type_t dtype_ = sc_data_type_t::u8(1);
+  std::vector<float> scales_ = {1.f};
+  std::vector<int> zero_points_ = {0};
+  bool per_channel_ = false;
+  int channel_axis_ = 0;
+  bool asymmetric_ = false;
+  quantize_infos_t() = default;
+  quantize_infos_t(sc_data_type_t dtype, const std::vector<float> &scales,
+                   const std::vector<int> &zero_points,
+                   bool per_channel = false, int channel_axis = 0,
+                   bool asymmetric = false)
+      : dtype_(dtype), scales_(scales), zero_points_(zero_points),
+        per_channel_(per_channel), channel_axis_(channel_axis),
+        asymmetric_(asymmetric) {}
 };
 quantize_infos_t get_quantize_info_from_attrs(const any_map_t &attrs);
 

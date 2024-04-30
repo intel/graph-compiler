@@ -17,14 +17,14 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_BF16_FP16_LEGALIZE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_BF16_FP16_LEGALIZE_HPP
 
-#include <tuple>
-#include <utility>
 #include "../function_pass.hpp"
 #include "../sc_function.hpp"
 #include "../viewer.hpp"
 #include "../visitor.hpp"
 #include <compiler/config/context.hpp>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
 
 namespace dnnl {
 namespace impl {
@@ -33,51 +33,51 @@ namespace gc {
 
 class bf16_fp16_promote_impl_t : public ir_visitor_t {
 public:
-    using ir_visitor_t::dispatch;
-    using ir_visitor_t::visit;
-    context_ptr ctx_;
-    bf16_fp16_promote_impl_t(context_ptr ctx = get_default_context())
-        : ctx_(std::move(ctx)) {}
-    std::tuple<expr_c, expr_c> docast(
-            const expr &orig_a, const expr &orig_b, bool *is_low_precision_fp);
-    expr_c visit(binary_c v) final;
-    expr_c visit(cmp_c v) final;
-    expr_c visit(select_c v) final;
-    expr_c visit(intrin_call_c v) final;
+  using ir_visitor_t::dispatch;
+  using ir_visitor_t::visit;
+  context_ptr ctx_;
+  bf16_fp16_promote_impl_t(context_ptr ctx = get_default_context())
+      : ctx_(std::move(ctx)) {}
+  std::tuple<expr_c, expr_c> docast(const expr &orig_a, const expr &orig_b,
+                                    bool *is_low_precision_fp);
+  expr_c visit(binary_c v) final;
+  expr_c visit(cmp_c v) final;
+  expr_c visit(select_c v) final;
+  expr_c visit(intrin_call_c v) final;
 };
 
 // An analyzer viewer runs before elimination to count the valid usage number of
 // bf16 / fp16 vars, to decide whether they need to be promoted to f32.
 class bf16_fp16_elimination_analyzer_t : public ir_viewer_t {
 public:
-    using ir_viewer_t::dispatch;
-    using ir_viewer_t::view;
-    context_ptr ctx_;
-    std::unordered_map<expr_c, int> var_use_cnt_;
-    bf16_fp16_elimination_analyzer_t(context_ptr ctx) : ctx_(std::move(ctx)) {}
-    void view(var_c v) override;
-    void view(assign_c v) override;
-    void view(define_c v) override;
-    void view(intrin_call_c v) override;
+  using ir_viewer_t::dispatch;
+  using ir_viewer_t::view;
+  context_ptr ctx_;
+  std::unordered_map<expr_c, int> var_use_cnt_;
+  bf16_fp16_elimination_analyzer_t(context_ptr ctx) : ctx_(std::move(ctx)) {}
+  void view(var_c v) override;
+  void view(assign_c v) override;
+  void view(define_c v) override;
+  void view(intrin_call_c v) override;
 };
 
 class bf16_fp16_cast_elimination_impl_t : public ir_visitor_t {
 public:
-    using ir_visitor_t::dispatch;
-    using ir_visitor_t::visit;
-    context_ptr ctx_;
-    // need to convert bf16 / fp16 var to f32
-    std::unordered_map<expr_c, expr_c> cvt_map_;
-    // inherit from analyzer
-    std::unordered_map<expr_c, int> &var_use_cnt_;
-    expr_c visit(cast_c v) final;
-    expr_c visit(var_c v) final;
-    stmt_c visit(define_c v) final;
-    stmt_c visit(assign_c v) final;
-    stmt_c visit(returns_c v) final;
-    bf16_fp16_cast_elimination_impl_t(
-            context_ptr ctx, std::unordered_map<expr_c, int> &var_use_cnt)
-        : ctx_(ctx), var_use_cnt_(var_use_cnt) {}
+  using ir_visitor_t::dispatch;
+  using ir_visitor_t::visit;
+  context_ptr ctx_;
+  // need to convert bf16 / fp16 var to f32
+  std::unordered_map<expr_c, expr_c> cvt_map_;
+  // inherit from analyzer
+  std::unordered_map<expr_c, int> &var_use_cnt_;
+  expr_c visit(cast_c v) final;
+  expr_c visit(var_c v) final;
+  stmt_c visit(define_c v) final;
+  stmt_c visit(assign_c v) final;
+  stmt_c visit(returns_c v) final;
+  bf16_fp16_cast_elimination_impl_t(
+      context_ptr ctx, std::unordered_map<expr_c, int> &var_use_cnt)
+      : ctx_(ctx), var_use_cnt_(var_use_cnt) {}
 };
 
 /**
@@ -90,15 +90,15 @@ public:
  * */
 class bf16_fp16_legalizer_t : public function_pass_t {
 public:
-    bf16_fp16_legalizer_t(context_ptr ctx = get_default_context())
-        : ctx_(std::move(ctx)) {}
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c f);
-    expr_c operator()(expr_c f);
-    SC_DECL_PASS_INFO_FUNC();
+  bf16_fp16_legalizer_t(context_ptr ctx = get_default_context())
+      : ctx_(std::move(ctx)) {}
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c f);
+  expr_c operator()(expr_c f);
+  SC_DECL_PASS_INFO_FUNC();
 
 private:
-    context_ptr ctx_;
+  context_ptr ctx_;
 };
 
 /**
@@ -113,14 +113,14 @@ private:
  */
 class bf16_fp16_eliminator_t : public function_pass_t {
 public:
-    bf16_fp16_eliminator_t(context_ptr ctx) : ctx_(std::move(ctx)) {}
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c f);
-    expr_c operator()(expr_c f);
-    SC_DECL_PASS_INFO_FUNC();
+  bf16_fp16_eliminator_t(context_ptr ctx) : ctx_(std::move(ctx)) {}
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c f);
+  expr_c operator()(expr_c f);
+  SC_DECL_PASS_INFO_FUNC();
 
 private:
-    context_ptr ctx_;
+  context_ptr ctx_;
 };
 
 } // namespace gc

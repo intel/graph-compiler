@@ -27,9 +27,9 @@ namespace gc {
 union generic_val;
 
 struct generic_val_pack {
-    virtual generic_val *get() = 0;
-    virtual void flush_cache() const = 0;
-    virtual SC_INTERNAL_API ~generic_val_pack() = default;
+  virtual generic_val *get() = 0;
+  virtual void flush_cache() const = 0;
+  virtual SC_INTERNAL_API ~generic_val_pack() = default;
 };
 
 } // namespace gc

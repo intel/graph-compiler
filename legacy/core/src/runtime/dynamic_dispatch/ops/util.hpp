@@ -25,10 +25,11 @@ namespace graph {
 namespace gc {
 namespace runtime {
 struct dispatch_table_t;
-inline void *run_query_and_wait(
-        void *(*f)(dispatch_table_t *ths, uint64_t *keys, uint64_t num_keys),
-        dispatch_table_t *table, uint64_t *keys, uint64_t num_keys) {
-    return f(table, keys, num_keys);
+inline void *run_query_and_wait(void *(*f)(dispatch_table_t *ths,
+                                           uint64_t *keys, uint64_t num_keys),
+                                dispatch_table_t *table, uint64_t *keys,
+                                uint64_t num_keys) {
+  return f(table, keys, num_keys);
 }
 
 } // namespace runtime

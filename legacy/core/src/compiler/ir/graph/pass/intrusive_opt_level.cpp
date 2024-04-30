@@ -14,8 +14,8 @@
  * limitations under the License.
  *******************************************************************************/
 
-#include <fstream>
 #include "pass.hpp"
+#include <fstream>
 #include <ops/convolution.hpp>
 
 namespace dnnl {
@@ -23,15 +23,15 @@ namespace impl {
 namespace graph {
 namespace gc {
 
-SC_INTERNAL_API void intrusive_opt_level(
-        sc_graph_t &graph, const context_ptr &ctx) {
-    for (auto &op : graph.ops_) {
-        if (ctx->flags_.opt_level_ < sc_opt_level::lv3) {
-            if (op->isa<ops::conv_fwd_core_op_t>()) {
-                op->attrs_.set("image_affinity", false);
-            }
-        }
+SC_INTERNAL_API void intrusive_opt_level(sc_graph_t &graph,
+                                         const context_ptr &ctx) {
+  for (auto &op : graph.ops_) {
+    if (ctx->flags_.opt_level_ < sc_opt_level::lv3) {
+      if (op->isa<ops::conv_fwd_core_op_t>()) {
+        op->attrs_.set("image_affinity", false);
+      }
     }
+  }
 }
 
 } // namespace gc

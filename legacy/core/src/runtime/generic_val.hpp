@@ -25,21 +25,21 @@ namespace graph {
 namespace gc {
 
 union generic_val {
-    uint16_t v_uint16_t;
-    float v_float;
-    int32_t v_int32_t;
-    int8_t v_int8_t;
-    uint8_t v_uint8_t;
-    uint64_t v_uint64_t;
-    void *v_ptr;
-    generic_val() = default;
-    generic_val(uint16_t v) : v_uint16_t(v) {}
-    generic_val(float v) : v_float(v) {}
-    generic_val(int32_t v) : v_int32_t(v) {}
-    generic_val(int8_t v) : v_int8_t(v) {}
-    generic_val(uint8_t v) : v_uint8_t(v) {}
-    generic_val(uint64_t v) : v_uint64_t(v) {}
-    generic_val(void *v) : v_ptr(v) {}
+  uint16_t v_uint16_t;
+  float v_float;
+  int32_t v_int32_t;
+  int8_t v_int8_t;
+  uint8_t v_uint8_t;
+  uint64_t v_uint64_t;
+  void *v_ptr;
+  generic_val() = default;
+  generic_val(uint16_t v) : v_uint16_t(v) {}
+  generic_val(float v) : v_float(v) {}
+  generic_val(int32_t v) : v_int32_t(v) {}
+  generic_val(int8_t v) : v_int8_t(v) {}
+  generic_val(uint8_t v) : v_uint8_t(v) {}
+  generic_val(uint64_t v) : v_uint64_t(v) {}
+  generic_val(void *v) : v_ptr(v) {}
 };
 
 } // namespace gc

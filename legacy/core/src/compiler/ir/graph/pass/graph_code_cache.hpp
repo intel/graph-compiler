@@ -17,9 +17,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_PASS_GRAPH_CODE_CACHE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_PASS_GRAPH_CODE_CACHE_HPP
 
-#include <memory>
 #include <compiler/config/context.hpp>
 #include <compiler/ir/statics_table.hpp>
+#include <memory>
 
 namespace dnnl {
 namespace impl {
@@ -46,8 +46,9 @@ struct jit_module;
 /**
  * Create and prepare the JIT module data of a cached graph.
  */
-statics_table_t prepare_static_table_for_cached_code(
-        graph_code_cache_handle &v, const sc_graph_t &orig_graph);
+statics_table_t
+prepare_static_table_for_cached_code(graph_code_cache_handle &v,
+                                     const sc_graph_t &orig_graph);
 
 /**
  * Register the compilation result and the query key (graph) into the graph code
@@ -57,8 +58,8 @@ statics_table_t prepare_static_table_for_cached_code(
  * already exists in the cache
  */
 std::shared_ptr<graph_code_cache_handle> register_code_in_graph_cache(
-        const jit_module &m,
-        std::shared_ptr<prehashed_graph_for_code_share_t> &&key);
+    const jit_module &m,
+    std::shared_ptr<prehashed_graph_for_code_share_t> &&key);
 
 // get the number of cache code for a given context
 size_t query_cached_code_of_context(const context_ptr &ctx);

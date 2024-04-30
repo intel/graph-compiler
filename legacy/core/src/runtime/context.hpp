@@ -37,61 +37,61 @@ struct const_cache_proxy;
 struct thread_local_registry_t;
 
 struct engine_vtable_t {
-    using alloc_t = void *(*)(engine_t *, size_t);
-    using dealloc_t = void (*)(engine_t *, void *);
-    alloc_t persistent_alloc;
-    dealloc_t persistent_dealloc;
-    alloc_t temp_alloc;
-    dealloc_t temp_dealloc;
-    std::shared_ptr<const_cache_proxy> (*alloc_and_register_tensor_cache)(
-            engine_t *, size_t);
-    size_t (*get_tensor_cache_cap)(engine_t *);
+  using alloc_t = void *(*)(engine_t *, size_t);
+  using dealloc_t = void (*)(engine_t *, void *);
+  alloc_t persistent_alloc;
+  dealloc_t persistent_dealloc;
+  alloc_t temp_alloc;
+  dealloc_t temp_dealloc;
+  std::shared_ptr<const_cache_proxy> (*alloc_and_register_tensor_cache)(
+      engine_t *, size_t);
+  size_t (*get_tensor_cache_cap)(engine_t *);
 };
 
 struct stream_vtable_t {
-    using parallel_call_cpu_t = void (*)(
-            void (*)(void *, void *, int64_t, generic_val *), uint64_t, void *,
-            void *, int64_t, int64_t, int64_t, generic_val *);
-    parallel_call_cpu_t parallel_call;
+  using parallel_call_cpu_t = void (*)(void (*)(void *, void *, int64_t,
+                                                generic_val *),
+                                       uint64_t, void *, void *, int64_t,
+                                       int64_t, int64_t, generic_val *);
+  parallel_call_cpu_t parallel_call;
 #if SC_CPU_THREADPOOL == SC_THREAD_POOL_CUSTOM
-    const dnnl_stream *stream;
+  const dnnl_stream *stream;
 #endif
-    constexpr stream_vtable_t(
-            parallel_call_cpu_t pcall, const dnnl_stream *pstream)
-        : parallel_call(pcall)
+  constexpr stream_vtable_t(parallel_call_cpu_t pcall,
+                            const dnnl_stream *pstream)
+      : parallel_call(pcall)
 #if SC_CPU_THREADPOOL == SC_THREAD_POOL_CUSTOM
-        , stream(pstream)
+        ,
+        stream(pstream)
 #endif
-    {
-    }
+  {
+  }
 };
 
 struct engine_t {
-    engine_vtable_t *vtable_;
-    std::shared_ptr<thread_local_registry_t> registry_;
-    engine_t(engine_vtable_t *vtable);
+  engine_vtable_t *vtable_;
+  std::shared_ptr<thread_local_registry_t> registry_;
+  engine_t(engine_vtable_t *vtable);
 };
 
 struct stream_t {
-    // we are using stream_vtable_t instead of stream_vtable_t* because
-    // currently stream_vtable_t has only one field. Using the value type
-    // instead of the pointer saves a memory access. Need to change back to
-    // pointer if the vtable has move than 1 field
-    stream_vtable_t vtable_;
-    engine_t *engine_;
+  // we are using stream_vtable_t instead of stream_vtable_t* because
+  // currently stream_vtable_t has only one field. Using the value type
+  // instead of the pointer saves a memory access. Need to change back to
+  // pointer if the vtable has move than 1 field
+  stream_vtable_t vtable_;
+  engine_t *engine_;
 
-    constexpr stream_t(stream_vtable_t vtable, engine_t *engine)
-        : vtable_ {vtable}, engine_ {engine} {}
-    const stream_vtable_t *vtable() const { return &vtable_; }
+  constexpr stream_t(stream_vtable_t vtable, engine_t *engine)
+      : vtable_{vtable}, engine_{engine} {}
+  const stream_vtable_t *vtable() const { return &vtable_; }
 };
 
 SC_API extern stream_t default_stream;
 #if SC_CPU_THREADPOOL == SC_THREAD_POOL_CUSTOM
 SC_INTERNAL_API extern stream_t *(*get_default_stream)();
 #else
-inline stream_t *get_default_stream() {
-    return &default_stream;
-}
+inline stream_t *get_default_stream() { return &default_stream; }
 #endif
 
 } // namespace runtime

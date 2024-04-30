@@ -15,8 +15,8 @@
  *******************************************************************************/
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_LOOP_TRANSFORM_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_LOOP_TRANSFORM_HPP
-#include <vector>
 #include <compiler/ir/sc_stmt.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {

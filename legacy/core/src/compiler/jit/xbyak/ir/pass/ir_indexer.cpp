@@ -29,42 +29,42 @@ namespace xbyak {
 
 class ir_indexer_impl_t : public xbyak_visitor_t {
 public:
-    using xbyak_visitor_t::dispatch;
+  using xbyak_visitor_t::dispatch;
 
-    stmt_index_t ir_index_;
+  stmt_index_t ir_index_;
 
-    func_c dispatch(func_c f) override {
-        ir_index_ = 0;
-        return xbyak_visitor_t::dispatch(std::move(f));
+  func_c dispatch(func_c f) override {
+    ir_index_ = 0;
+    return xbyak_visitor_t::dispatch(std::move(f));
+  }
+
+  stmt_c dispatch(stmt_c s) override {
+    stmt_c ret;
+
+    if (s->node_type_ == sc_stmt_type::for_loop ||
+        s->node_type_ == sc_stmt_type::if_else ||
+        s->node_type_ == sc_stmt_type::stmts) {
+      ir_index_ += stmt_index_const::increment;
+      auto &stmt_data = GET_STMT_DATA(s);
+      stmt_data.init_index_ = ir_index_;
     }
 
-    stmt_c dispatch(stmt_c s) override {
-        stmt_c ret;
+    ret = xbyak_visitor_t::dispatch(std::move(s));
 
-        if (s->node_type_ == sc_stmt_type::for_loop
-                || s->node_type_ == sc_stmt_type::if_else
-                || s->node_type_ == sc_stmt_type::stmts) {
-            ir_index_ += stmt_index_const::increment;
-            auto &stmt_data = GET_STMT_DATA(s);
-            stmt_data.init_index_ = ir_index_;
-        }
+    ir_index_ += stmt_index_const::increment;
+    auto &stmt_data = GET_STMT_DATA(ret);
+    stmt_data.set_index(ir_index_);
 
-        ret = xbyak_visitor_t::dispatch(std::move(s));
+    return ret;
+  }
 
-        ir_index_ += stmt_index_const::increment;
-        auto &stmt_data = GET_STMT_DATA(ret);
-        stmt_data.set_index(ir_index_);
-
-        return ret;
-    }
-
-    expr_c dispatch(expr_c v) override { return v; }
+  expr_c dispatch(expr_c v) override { return v; }
 };
 
 func_c ir_indexer_t::operator()(func_c v) {
-    ir_indexer_impl_t ir_indexer;
+  ir_indexer_impl_t ir_indexer;
 
-    return ir_indexer.dispatch(std::move(v));
+  return ir_indexer.dispatch(std::move(v));
 }
 
 } // namespace xbyak

@@ -57,10 +57,10 @@
  *   separate the ABI-specific information into separate, per-ABI tables.)
  */
 
+#include <compiler/jit/xbyak/x86_64/abi_common.hpp>
 #include <cstddef> // size_t
 #include <ostream>
 #include <vector>
-#include <compiler/jit/xbyak/x86_64/abi_common.hpp>
 
 namespace dnnl {
 namespace impl {
@@ -84,127 +84,126 @@ namespace x86_64 {
 ///    - "double quadword" : 16 bytes
 
 enum class cpu_data_type {
-    uint_8,
-    uint_8_x8,
-    uint_8_x16,
-    uint_8_x32,
-    uint_8_x64,
-    sint_8,
-    sint_8_x8,
-    sint_8_x16,
-    sint_8_x32,
-    sint_8_x64,
-    uint_16,
-    uint_16_x4,
-    uint_16_x8,
-    uint_16_x16,
-    uint_16_x32,
-    uint_32,
-    uint_32_x2,
-    uint_32_x4,
-    uint_32_x8,
-    uint_32_x16,
-    sint_32,
-    sint_32_x2,
-    sint_32_x4,
-    sint_32_x8,
-    sint_32_x16,
-    uint_64,
-    uint_64_x2,
-    uint_64_x4,
-    uint_64_x8,
-    float_16,
-    float_16_x4,
-    float_16_x8,
-    float_16_x16,
-    float_16_x32,
-    float_32,
-    float_32_x2,
-    float_32_x4,
-    float_32_x8,
-    float_32_x16,
-    mask_x4,
-    mask_x8,
-    mask_x16,
-    mask_x32,
-    mask_x64,
-    void_t,
+  uint_8,
+  uint_8_x8,
+  uint_8_x16,
+  uint_8_x32,
+  uint_8_x64,
+  sint_8,
+  sint_8_x8,
+  sint_8_x16,
+  sint_8_x32,
+  sint_8_x64,
+  uint_16,
+  uint_16_x4,
+  uint_16_x8,
+  uint_16_x16,
+  uint_16_x32,
+  uint_32,
+  uint_32_x2,
+  uint_32_x4,
+  uint_32_x8,
+  uint_32_x16,
+  sint_32,
+  sint_32_x2,
+  sint_32_x4,
+  sint_32_x8,
+  sint_32_x16,
+  uint_64,
+  uint_64_x2,
+  uint_64_x4,
+  uint_64_x8,
+  float_16,
+  float_16_x4,
+  float_16_x8,
+  float_16_x16,
+  float_16_x32,
+  float_32,
+  float_32_x2,
+  float_32_x4,
+  float_32_x8,
+  float_32_x16,
+  mask_x4,
+  mask_x8,
+  mask_x16,
+  mask_x32,
+  mask_x64,
+  void_t,
 };
 
 std::ostream &operator<<(std::ostream &os, const cpu_data_type t);
 
 class cpu_data_type_table {
 public:
-    struct row {
-        cpu_data_type type_;
+  struct row {
+    cpu_data_type type_;
 
-        /// The number of bytes needed to store this data type in memory.
-        size_t size_in_bytes_;
+    /// The number of bytes needed to store this data type in memory.
+    size_t size_in_bytes_;
 
-        /// For CPU memory operands having formal type \c type_,
-        /// this is the minimum memory-address alignment required for the CPU
-        /// to efficiently access the value. See SDM 4.1.1.
-        ///
-        /// The actual requirement is:
-        /// (runtime memory address) % (cpu_natural_alignment_) == 0
-        size_t cpu_natural_alignment_;
+    /// For CPU memory operands having formal type \c type_,
+    /// this is the minimum memory-address alignment required for the CPU
+    /// to efficiently access the value. See SDM 4.1.1.
+    ///
+    /// The actual requirement is:
+    /// (runtime memory address) % (cpu_natural_alignment_) == 0
+    size_t cpu_natural_alignment_;
 
-        /// Some CPU instructions have a hard requirement for the memory-address
-        /// alignment of their operands. This field is the numerically-greatest
-        /// alignment requirement across all CPU instructions that operate on
-        /// this type of value. If there is no such requirements for this \c
-        /// type_, this field's value is 1. See SDM vol. 1, sections 4.1
-        /// and 15.7.
-        ///
-        /// The actual requirement is:
-        /// (runtime memory address) % (cpu_strictest_alignment_) == 0
-        size_t cpu_strictest_alignment_;
+    /// Some CPU instructions have a hard requirement for the memory-address
+    /// alignment of their operands. This field is the numerically-greatest
+    /// alignment requirement across all CPU instructions that operate on
+    /// this type of value. If there is no such requirements for this \c
+    /// type_, this field's value is 1. See SDM vol. 1, sections 4.1
+    /// and 15.7.
+    ///
+    /// The actual requirement is:
+    /// (runtime memory address) % (cpu_strictest_alignment_) == 0
+    size_t cpu_strictest_alignment_;
 
-        /// The psABI (section 3.2.2) requires that %rsp meets certain alignment
-        /// requirements upon entry to any callee function.
-        /// This gives the minimum alignment required by the ABI for
-        /// stack-passed arguments of type \c type_.
-        ///
-        /// This value should NOT be confused with the "Alignment (bytes)"
-        /// column from psABI Figure 3.1. That column seems to be commentary
-        /// on the alignment needed for efficient memory access on certain
-        /// x86-64 microarchitectures.
-        size_t abi_precall_stack_alignment_;
+    /// The psABI (section 3.2.2) requires that %rsp meets certain alignment
+    /// requirements upon entry to any callee function.
+    /// This gives the minimum alignment required by the ABI for
+    /// stack-passed arguments of type \c type_.
+    ///
+    /// This value should NOT be confused with the "Alignment (bytes)"
+    /// column from psABI Figure 3.1. That column seems to be commentary
+    /// on the alignment needed for efficient memory access on certain
+    /// x86-64 microarchitectures.
+    size_t abi_precall_stack_alignment_;
 
-        /// Indicates the size of the stack slot used for function-call
-        /// parameters of this type, as specified by the psABI.
-        /// This will always be a multiple of 8.
-        size_t abi_stack_slot_size_;
+    /// Indicates the size of the stack slot used for function-call
+    /// parameters of this type, as specified by the psABI.
+    /// This will always be a multiple of 8.
+    size_t abi_stack_slot_size_;
 
-        /// Prescribes the amount of stack-memory used to store local variables
-        /// and temporary r-values of this type.
-        /// This value is a design choice for the Xback-JIT codegen.
-        /// It's not (directly) constrained by the psABI.
-        size_t local_value_stack_slot_size_;
+    /// Prescribes the amount of stack-memory used to store local variables
+    /// and temporary r-values of this type.
+    /// This value is a design choice for the Xback-JIT codegen.
+    /// It's not (directly) constrained by the psABI.
+    size_t local_value_stack_slot_size_;
 
-        /// How the psABI (section 3.2.3) initially classifies this kind of
-        /// value when determining how function parameters and return values are
-        /// passed.
-        abi_value_kind abi_initial_val_kind_;
+    /// How the psABI (section 3.2.3) initially classifies this kind of
+    /// value when determining how function parameters and return values are
+    /// passed.
+    abi_value_kind abi_initial_val_kind_;
 
-        row(cpu_data_type type, size_t size_in_bytes,
-                size_t cpu_natural_alignment, size_t cpu_strictest_alignment,
-                size_t abi_precall_stack_alignment, size_t abi_stack_slot_size,
-                size_t local_value_stack_slot_size,
-                abi_value_kind abi_initial_val_kind);
-    };
+    row(cpu_data_type type, size_t size_in_bytes, size_t cpu_natural_alignment,
+        size_t cpu_strictest_alignment, size_t abi_precall_stack_alignment,
+        size_t abi_stack_slot_size, size_t local_value_stack_slot_size,
+        abi_value_kind abi_initial_val_kind);
+  };
 
-    /// Populate the table with the specified content.
-    /// It is an error for two or more rows to have the same
-    /// cpu_data_type value.
-    cpu_data_type_table(const std::vector<row> &content);
+  /// Populate the table with the specified content.
+  /// It is an error for two or more rows to have the same
+  /// cpu_data_type value.
+  cpu_data_type_table(const std::vector<row> &content);
 
-    /// Return the row with the specified data type.
-    /// It is an error for \p t to not be a member of the table.
-    const row &lookup(cpu_data_type t) const;
+  /// Return the row with the specified data type.
+  /// It is an error for \p t to not be a member of the table.
+  const row &lookup(cpu_data_type t) const;
 
 private:
-    const std::vector<row> content_;
+  const std::vector<row> content_;
 };
 const cpu_data_type_table &get_cpu_data_types();
 

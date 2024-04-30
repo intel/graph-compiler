@@ -39,11 +39,11 @@ constexpr const char *preserve_stmts = "preserve_stmts";
  * */
 class ir_simplifier_t : public function_pass_t {
 public:
-    bool skip_rename_;
-    ir_simplifier_t(bool skip_rename) : skip_rename_(skip_rename) {}
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c f) const;
-    SC_DECL_PASS_INFO_FUNC();
+  bool skip_rename_;
+  ir_simplifier_t(bool skip_rename) : skip_rename_(skip_rename) {}
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c f) const;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

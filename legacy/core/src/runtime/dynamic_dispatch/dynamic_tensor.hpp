@@ -16,9 +16,9 @@
 
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_DYNAMIC_DISPATCH_DYNAMIC_TENSOR_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_DYNAMIC_DISPATCH_DYNAMIC_TENSOR_HPP
-#include <stdint.h>
 #include "../data_type.hpp"
 #include <compiler/dimensions.hpp>
+#include <stdint.h>
 namespace dnnl {
 namespace impl {
 namespace graph {
@@ -36,21 +36,18 @@ namespace runtime {
  * which dimension is dynamic.
  * */
 struct dynamic_tensor_t {
-    dynamic_tensor_t() = default;
-    dynamic_tensor_t(void *data, sc_dim *dims, int ndims, uint32_t dtype,
-            uint8_t dyn_mask)
-        : data_(data)
-        , dims_(dims)
-        , ndims_(ndims)
-        , dtype_(dtype)
-        , dyn_mask_(dyn_mask) {}
-    // the raw opaque data pointer.
-    void *data_;
-    sc_dim *dims_;
-    // number of dimensions;
-    int ndims_;
-    uint32_t dtype_;
-    uint8_t dyn_mask_;
+  dynamic_tensor_t() = default;
+  dynamic_tensor_t(void *data, sc_dim *dims, int ndims, uint32_t dtype,
+                   uint8_t dyn_mask)
+      : data_(data), dims_(dims), ndims_(ndims), dtype_(dtype),
+        dyn_mask_(dyn_mask) {}
+  // the raw opaque data pointer.
+  void *data_;
+  sc_dim *dims_;
+  // number of dimensions;
+  int ndims_;
+  uint32_t dtype_;
+  uint8_t dyn_mask_;
 };
 } // namespace runtime
 } // namespace gc

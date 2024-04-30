@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_DEAD_FUNC_ELIMINATE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_DEAD_FUNC_ELIMINATE_HPP
 
-#include <utility>
 #include "../module_pass.hpp"
+#include <utility>
 
 namespace dnnl {
 namespace impl {
@@ -29,8 +29,8 @@ constexpr const char *keep_func = "pass.keep_func";
 }
 class dead_func_eliminate_t : public module_pass_t {
 public:
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

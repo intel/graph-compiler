@@ -21,9 +21,9 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
-#include <type_traits>
 
 #include "sc_expr.hpp"
 #include "sc_stmt.hpp"
@@ -81,45 +81,45 @@ class func_base : public node_base,
                   public std::enable_shared_from_this<func_base>
                   SC_LEAK_CHECK(func_base) {
 public:
-    std::string name_;
-    std::vector<expr> params_;
-    stmt body_;
-    sc_data_type_t ret_type_;
-    // the function declaration. It has the same prototype of this function
-    // will be non-null only when body is not empty
-    func_t decl_;
+  std::string name_;
+  std::vector<expr> params_;
+  stmt body_;
+  sc_data_type_t ret_type_;
+  // the function declaration. It has the same prototype of this function
+  // will be non-null only when body is not empty
+  func_t decl_;
 
-    ~func_base();
-    /**
-     * Dump the IR node as string to the ostream
-     * @param os the output stream
-     * */
-    void to_string(ostream &os) const;
-    func_base(const std::string &name, const std::vector<expr> &params,
-            stmt body, sc_data_type_t ret_type);
-    /**
-     * Does shallow copying copy on this IR node.
-     * Makes a new IR node with the same type and the same values of fields.
-     * */
-    func_t remake() const;
+  ~func_base();
+  /**
+   * Dump the IR node as string to the ostream
+   * @param os the output stream
+   * */
+  void to_string(ostream &os) const;
+  func_base(const std::string &name, const std::vector<expr> &params, stmt body,
+            sc_data_type_t ret_type);
+  /**
+   * Does shallow copying copy on this IR node.
+   * Makes a new IR node with the same type and the same values of fields.
+   * */
+  func_t remake() const;
 
-    /**
-     * Check if `this` is same as another IR node. May change the internal
-     * states of `ctx`
-     * @param other the other IR node to compare
-     * @param ctx the context of the comparison: how "same" is defined,
-     *  the internal states, etc.
-     * @return true if the nodes are the same
-     * */
-    bool equals(const func_c &f, ir_comparer &ctx) const;
+  /**
+   * Check if `this` is same as another IR node. May change the internal
+   * states of `ctx`
+   * @param other the other IR node to compare
+   * @param ctx the context of the comparison: how "same" is defined,
+   *  the internal states, etc.
+   * @return true if the nodes are the same
+   * */
+  bool equals(const func_c &f, ir_comparer &ctx) const;
 
-    /**
-     * Check if `this` is same as another IR node. It will create a new
-     * default ir_comparer context to do comparison.
-     * @param other the other IR node to compare
-     * @return true if the nodes are the same
-     * */
-    bool equals(const func_c &f) const;
+  /**
+   * Check if `this` is same as another IR node. It will create a new
+   * default ir_comparer context to do comparison.
+   * @param other the other IR node to compare
+   * @return true if the nodes are the same
+   * */
+  bool equals(const func_c &f) const;
 };
 
 // Operator << overload for std::ostream on func_t
@@ -134,19 +134,17 @@ SC_INTERNAL_API extern ostream &operator<<(ostream &os, const func_base *e);
 } // namespace dnnl
 
 namespace std {
-template <>
-struct hash<dnnl::impl::graph::gc::func_t> {
-    std::size_t operator()(const dnnl::impl::graph::gc::func_t &k) const {
-        return hash<std::shared_ptr<dnnl::impl::graph::gc::func_base>>()(k);
-    }
+template <> struct hash<dnnl::impl::graph::gc::func_t> {
+  std::size_t operator()(const dnnl::impl::graph::gc::func_t &k) const {
+    return hash<std::shared_ptr<dnnl::impl::graph::gc::func_base>>()(k);
+  }
 };
 
-template <>
-struct equal_to<dnnl::impl::graph::gc::func_t> {
-    bool operator()(const dnnl::impl::graph::gc::func_t &k,
-            const dnnl::impl::graph::gc::func_t &k2) const {
-        return k.ptr_same(k2);
-    }
+template <> struct equal_to<dnnl::impl::graph::gc::func_t> {
+  bool operator()(const dnnl::impl::graph::gc::func_t &k,
+                  const dnnl::impl::graph::gc::func_t &k2) const {
+    return k.ptr_same(k2);
+  }
 };
 
 } // namespace std

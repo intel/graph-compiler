@@ -32,9 +32,9 @@ constexpr const char *const_attr = "pass.const";
  * */
 class simple_loop_invariant_code_motion_t : public function_pass_t {
 public:
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c s);
-    SC_DECL_PASS_INFO_FUNC();
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c s);
+  SC_DECL_PASS_INFO_FUNC();
 };
 } // namespace gc
 } // namespace graph

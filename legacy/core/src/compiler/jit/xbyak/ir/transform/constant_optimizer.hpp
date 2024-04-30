@@ -34,9 +34,8 @@ constexpr const char *force_simd_encode = "force_simd_encode";
 constexpr const char *load_simd_value = "load_simd_value";
 } // namespace attr_keys
 
-#define FORCE_SIMD_ENCODE(EXPR) \
-    (EXPR->attr_ \
-            && EXPR->attr_->get_or_else(attr_keys::force_simd_encode, false))
+#define FORCE_SIMD_ENCODE(EXPR)                                                \
+  (EXPR->attr_ && EXPR->attr_->get_or_else(attr_keys::force_simd_encode, false))
 
 /* *
  * Constant optimizer, mark simd constant and insert broadcast when needed.
@@ -44,8 +43,8 @@ constexpr const char *load_simd_value = "load_simd_value";
  * */
 class constant_optimizer_t : public function_pass_t {
 public:
-    constant_optimizer_t() = default;
-    func_c operator()(func_c v) override;
+  constant_optimizer_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

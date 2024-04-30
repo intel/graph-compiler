@@ -26,28 +26,39 @@ namespace gc {
 namespace passlet {
 
 expr_c ssa_simplify_t::visit(const var_c &v) {
-    if (is_in_phi_) { return v; }
-    if (v->ssa_data_->is_global_) { return v; }
-    auto val = v->ssa_data_->get_value_of_var_nothrow();
-    if (!val.defined()) { return v; }
-    if (val.isa<constant>()) {
-        if (simplify_const_vec_ || val->dtype_.lanes_ == 1) return val;
-    }
-    if (val.isa<var>()) {
-        if (val->ssa_data_->is_global_) { return v; }
-        assert(v.get() != val.get());
-        return visit(val.static_as<var>());
-    }
+  if (is_in_phi_) {
     return v;
+  }
+  if (v->ssa_data_->is_global_) {
+    return v;
+  }
+  auto val = v->ssa_data_->get_value_of_var_nothrow();
+  if (!val.defined()) {
+    return v;
+  }
+  if (val.isa<constant>()) {
+    if (simplify_const_vec_ || val->dtype_.lanes_ == 1)
+      return val;
+  }
+  if (val.isa<var>()) {
+    if (val->ssa_data_->is_global_) {
+      return v;
+    }
+    assert(v.get() != val.get());
+    return visit(val.static_as<var>());
+  }
+  return v;
 }
 
 expr_c ssa_simplify_t::visit(const ssa_phi_c &v) {
-    if (v->values_.size() == 1UL) {
-        auto &ret = v->values_.front();
-        if (ret.isa<var>()) { return visit(ret.static_as<var_c>()); }
-        return ret;
+  if (v->values_.size() == 1UL) {
+    auto &ret = v->values_.front();
+    if (ret.isa<var>()) {
+      return visit(ret.static_as<var_c>());
     }
-    return v;
+    return ret;
+  }
+  return v;
 }
 
 } // namespace passlet

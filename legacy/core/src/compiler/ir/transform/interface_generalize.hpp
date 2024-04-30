@@ -30,8 +30,8 @@ namespace gc {
  * */
 class interface_generalizer_t : public module_pass_t {
 public:
-    const_ir_module_ptr operator()(const_ir_module_ptr m) override;
-    SC_DECL_PASS_INFO_FUNC();
+  const_ir_module_ptr operator()(const_ir_module_ptr m) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

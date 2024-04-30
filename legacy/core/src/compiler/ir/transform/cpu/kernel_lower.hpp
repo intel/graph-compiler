@@ -30,10 +30,10 @@ namespace gc {
  * */
 class kernel_lowering_cpu_t : public module_pass_t {
 public:
-    int optimize_;
-    kernel_lowering_cpu_t(int optimize) : optimize_(optimize) {}
-    const_ir_module_ptr operator()(const_ir_module_ptr m) override;
-    SC_DECL_PASS_INFO_FUNC();
+  int optimize_;
+  kernel_lowering_cpu_t(int optimize) : optimize_(optimize) {}
+  const_ir_module_ptr operator()(const_ir_module_ptr m) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

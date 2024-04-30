@@ -16,12 +16,12 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_FUSIBLE_SHAPE_OF_TENSOR_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_FUSIBLE_SHAPE_OF_TENSOR_HPP
 
-#include <functional>
-#include <vector>
 #include <compiler/ir/graph/fusible_op.hpp>
 #include <compiler/ir/graph/graph.hpp>
 #include <compiler/ir/graph/traits.hpp>
 #include <compiler/ir/ir_module.hpp>
+#include <functional>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -31,43 +31,44 @@ namespace gc {
 // E.g. matmul and conv may have different block select.
 // Currently we only support mamtul block select.
 enum class padding_shape_etype_t : int {
-    without_padding = 0,
-    matmul_padding,
-    conv_padding
+  without_padding = 0,
+  matmul_padding,
+  conv_padding
 };
 namespace attr_keys {
 // value is padding_shape_etype_t
 static constexpr const char *padding_shape_type = "padding_shape_type";
 // value is boolean
-static constexpr const char *shape_of_tensor_is_batch
-        = "shape_of_tensor_is_batch";
+static constexpr const char *shape_of_tensor_is_batch =
+    "shape_of_tensor_is_batch";
 } // namespace attr_keys
 // Get plain(may padded) shapes of a tensor
 class shape_of_tensor_op_t : public fusible_op_t,
                              public op_traits::auto_copyable_t {
 public:
-    shape_of_tensor_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  shape_of_tensor_op_t(const std::vector<graph_tensor_ptr> &ins,
+                       const std::vector<graph_tensor_ptr> &outs,
+                       const any_map_t &attrs);
 
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
-    infer_status_code infer_slice_ranges(
-            const context_ptr &ctx, fslice_map &fsmap) override;
-    infer_status_code pre_infer_slice_ranges(
-            const context_ptr &ctx, fslice_map &fsmap) override {
-        return infer_status_code::OK;
-    }
-    void compute_block(context_ptr ctx, const std::vector<tensor_slice *> &dst,
-            const std::vector<const tensor_slice *> &inputs) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
+  infer_status_code infer_slice_ranges(const context_ptr &ctx,
+                                       fslice_map &fsmap) override;
+  infer_status_code pre_infer_slice_ranges(const context_ptr &ctx,
+                                           fslice_map &fsmap) override {
+    return infer_status_code::OK;
+  }
+  void compute_block(context_ptr ctx, const std::vector<tensor_slice *> &dst,
+                     const std::vector<const tensor_slice *> &inputs) override;
 
 private:
-    // index of real/padded_plain shapes
-    int shape_idx_;
-    // decides whether and how to use padding on the shape according to the
-    // related tunable op.
-    padding_shape_etype_t shape_type_;
+  // index of real/padded_plain shapes
+  int shape_idx_;
+  // decides whether and how to use padding on the shape according to the
+  // related tunable op.
+  padding_shape_etype_t shape_type_;
 };
 } // namespace gc
 } // namespace graph

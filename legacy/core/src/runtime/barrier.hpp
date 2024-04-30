@@ -27,15 +27,16 @@ namespace gc {
 namespace runtime {
 
 struct barrier_t {
-    alignas(64) std::atomic<int32_t> pending_;
-    std::atomic<int32_t> rounds_;
-    uint64_t total_;
-    // pad barrier to size of cacheline to avoid false sharing
-    char padding_[64 - 4 * sizeof(int32_t)];
+  alignas(64) std::atomic<int32_t> pending_;
+  std::atomic<int32_t> rounds_;
+  uint64_t total_;
+  // pad barrier to size of cacheline to avoid false sharing
+  char padding_[64 - 4 * sizeof(int32_t)];
 };
 
 typedef uint64_t (*barrier_idle_func)(std::atomic<int32_t> *remaining,
-        int32_t expected_remain, int32_t tid, void *args);
+                                      int32_t expected_remain, int32_t tid,
+                                      void *args);
 
 } // namespace runtime
 } // namespace gc
@@ -44,10 +45,10 @@ typedef uint64_t (*barrier_idle_func)(std::atomic<int32_t> *remaining,
 } // namespace dnnl
 
 extern "C" SC_API void sc_arrive_at_barrier(
-        dnnl::impl::graph::gc::runtime::barrier_t *b,
-        dnnl::impl::graph::gc::runtime::barrier_idle_func idle_func,
-        void *idle_args);
-extern "C" SC_API void sc_init_barrier(
-        dnnl::impl::graph::gc::runtime::barrier_t *b, int num_barriers,
-        uint64_t thread_count);
+    dnnl::impl::graph::gc::runtime::barrier_t *b,
+    dnnl::impl::graph::gc::runtime::barrier_idle_func idle_func,
+    void *idle_args);
+extern "C" SC_API void
+sc_init_barrier(dnnl::impl::graph::gc::runtime::barrier_t *b, int num_barriers,
+                uint64_t thread_count);
 #endif

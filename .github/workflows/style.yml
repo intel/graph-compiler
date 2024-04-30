@@ -1,0 +1,24 @@
+name: Graph Compiler Style Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions: read-all
+
+jobs:
+  build:
+    name: Style Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check
+        run: |
+          clang-format --version
+          find . -name *.cpp -or -name *.hpp  | xargs clang-format --dry-run --Werror -style=file

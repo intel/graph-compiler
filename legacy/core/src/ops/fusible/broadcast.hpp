@@ -40,32 +40,33 @@ namespace gc {
  * */
 class broadcast_op_t : public movement_op_t, public op_traits::auto_copyable_t {
 public:
-    DECLARE_QUERY_AND_COMPUTE();
+  DECLARE_QUERY_AND_COMPUTE();
 
-    broadcast_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
-    broadcast_op_t(graph_tensor_ptr v, std::vector<int> &output_shape,
-            std::vector<int> &bc_axis);
+  broadcast_op_t(const std::vector<graph_tensor_ptr> &ins,
+                 const std::vector<graph_tensor_ptr> &outs,
+                 const any_map_t &attrs);
+  broadcast_op_t(graph_tensor_ptr v, std::vector<int> &output_shape,
+                 std::vector<int> &bc_axis);
 
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
-    size_t compute_workload(const std::vector<shape_dtype_pair> &,
-            const std::vector<shape_dtype_pair> &) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
+  size_t compute_workload(const std::vector<shape_dtype_pair> &,
+                          const std::vector<shape_dtype_pair> &) override;
 
-    shape_rl_vec get_dynamic_shape_relations() const override;
+  shape_rl_vec get_dynamic_shape_relations() const override;
 
-    // get broadcast axis on blocking dims (inferred from the bc_axis_ on plain
-    // dims)
-    std::vector<int> get_bc_axis() const;
+  // get broadcast axis on blocking dims (inferred from the bc_axis_ on plain
+  // dims)
+  std::vector<int> get_bc_axis() const;
 
-    std::vector<int> get_plain_bc_axis() const { return plain_bc_axis_; }
+  std::vector<int> get_plain_bc_axis() const { return plain_bc_axis_; }
 
 private:
-    sc_dims output_shape_;
-    std::vector<int> plain_bc_axis_;
-    vectorized_info_t vx_info_;
+  sc_dims output_shape_;
+  std::vector<int> plain_bc_axis_;
+  vectorized_info_t vx_info_;
 };
 
 } // namespace gc

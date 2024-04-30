@@ -17,11 +17,11 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_FUNCTION_PASS_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_FUNCTION_PASS_HPP
 
-#include <memory>
-#include <vector>
 #include "pass_info_macros.hpp"
 #include "sc_function.hpp"
+#include <memory>
 #include <util/utils.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -34,11 +34,11 @@ struct tir_pass_dependency_t;
  * */
 class function_pass_t {
 public:
-    virtual func_c operator()(func_c f) = 0;
-    virtual ~function_pass_t() = default;
-    virtual const char *get_name() const { return nullptr; }
+  virtual func_c operator()(func_c f) = 0;
+  virtual ~function_pass_t() = default;
+  virtual const char *get_name() const { return nullptr; }
 #ifndef NDEBUG
-    virtual void get_dependency_info(tir_pass_dependency_t &out) const;
+  virtual void get_dependency_info(tir_pass_dependency_t &out) const;
 #endif
 };
 

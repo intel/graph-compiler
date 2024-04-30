@@ -14,9 +14,9 @@
  * limitations under the License.
  *******************************************************************************/
 #include "duplicate.hpp"
+#include <compiler/ir/graph/fusible_op.hpp>
 #include <memory>
 #include <utility>
-#include <compiler/ir/graph/fusible_op.hpp>
 
 namespace dnnl {
 namespace impl {
@@ -25,31 +25,34 @@ namespace gc {
 namespace ops {
 
 duplicate_op::duplicate_op(const std::vector<graph_tensor_ptr> &ins,
-        const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs) {
-    info_.inputs_ = ins;
-    if (outs.empty()) {
-        info_.outputs_.emplace_back(
-                std::make_shared<graph_tensor>(this, ins[0]->details_));
-    } else {
-        info_.outputs_ = outs;
-    }
-    attrs_ = attrs;
-    op_name_ = "duplicate";
+                           const std::vector<graph_tensor_ptr> &outs,
+                           const any_map_t &attrs) {
+  info_.inputs_ = ins;
+  if (outs.empty()) {
+    info_.outputs_.emplace_back(
+        std::make_shared<graph_tensor>(this, ins[0]->details_));
+  } else {
+    info_.outputs_ = outs;
+  }
+  attrs_ = attrs;
+  op_name_ = "duplicate";
 }
 
 void duplicate_op::get_graph_impl(std::shared_ptr<sc_graph_t> &graph) {
-    // create new input logical tensors
-    std::vector<graph_tensor_ptr> inputs, outputs;
-    inputs = remake_logical_tensors(info_.inputs_);
-    outputs = remake_logical_tensors(info_.outputs_);
-    // input
-    graph->make_input(inputs);
-    // Use reorder to do coping.
-    auto copy_op = graph->make("reorder", inputs, outputs,
-            any_map_t({{"format", inputs[0]->details_.get_format()},
-                    {"internal", true}, {"actually_copy", true}}));
-    // output
-    graph->make_output(copy_op->get_outputs());
+  // create new input logical tensors
+  std::vector<graph_tensor_ptr> inputs, outputs;
+  inputs = remake_logical_tensors(info_.inputs_);
+  outputs = remake_logical_tensors(info_.outputs_);
+  // input
+  graph->make_input(inputs);
+  // Use reorder to do coping.
+  auto copy_op =
+      graph->make("reorder", inputs, outputs,
+                  any_map_t({{"format", inputs[0]->details_.get_format()},
+                             {"internal", true},
+                             {"actually_copy", true}}));
+  // output
+  graph->make_output(copy_op->get_outputs());
 }
 } // namespace ops
 

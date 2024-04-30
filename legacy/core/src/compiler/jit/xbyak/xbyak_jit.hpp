@@ -49,44 +49,43 @@ class xbyak_jit;
  */
 class SC_INTERNAL_API xbyak_jit_module_code : public jit_module_code {
 public:
-    virtual ~xbyak_jit_module_code() = default;
+  virtual ~xbyak_jit_module_code() = default;
 
 private:
-    // NOTE: It may be okay to actually provide these. I just haven't given it
-    // much consideration yet. -cconvey
-    xbyak_jit_module_code(xbyak_jit_module_code &&other) = delete;
-    xbyak_jit_module_code(const xbyak_jit_module_code &other) = delete;
+  // NOTE: It may be okay to actually provide these. I just haven't given it
+  // much consideration yet. -cconvey
+  xbyak_jit_module_code(xbyak_jit_module_code &&other) = delete;
+  xbyak_jit_module_code(const xbyak_jit_module_code &other) = delete;
 
-    // xbyak_jit is this object's factory class.
-    friend class xbyak_jit;
+  // xbyak_jit is this object's factory class.
+  friend class xbyak_jit;
 
-    /**
-     * @param jit_output - Describes the xbyak jit result.
-     * @param managed_thread_pool - Whether to use managed thread pool
-     */
-    xbyak_jit_module_code(
-            std::shared_ptr<xbyak::xbyak_jit_generator> jit_output,
-            thread_pool_mode_t managed_thread_pool);
+  /**
+   * @param jit_output - Describes the xbyak jit result.
+   * @param managed_thread_pool - Whether to use managed thread pool
+   */
+  xbyak_jit_module_code(std::shared_ptr<xbyak::xbyak_jit_generator> jit_output,
+                        thread_pool_mode_t managed_thread_pool);
 
-    std::shared_ptr<xbyak::xbyak_jit_generator> jit_output_;
+  std::shared_ptr<xbyak::xbyak_jit_generator> jit_output_;
 
 public:
-    void *get_address_of_symbol(const std::string &name) override;
+  void *get_address_of_symbol(const std::string &name) override;
 
-    void *get_function(const std::string &name, void *&wrapper) override;
+  void *get_function(const std::string &name, void *&wrapper) override;
 };
 
 class SC_INTERNAL_API xbyak_jit : public jit_engine_t {
 public:
-    std::function<void *(const std::string &)> external_symbol_resolver_;
-    xbyak_jit(context_ptr context = get_default_context());
-    virtual ~xbyak_jit();
+  std::function<void *(const std::string &)> external_symbol_resolver_;
+  xbyak_jit(context_ptr context = get_default_context());
+  virtual ~xbyak_jit();
 
-    std::shared_ptr<jit_module> make_jit_module(
-            const_ir_module_ptr ir_mod, bool generate_wrapper);
-    static void set_target_machine(runtime::target_machine_t &tm) {
-        // TODO(XXX): add checks in tm
-    }
+  std::shared_ptr<jit_module> make_jit_module(const_ir_module_ptr ir_mod,
+                                              bool generate_wrapper);
+  static void set_target_machine(runtime::target_machine_t &tm) {
+    // TODO(XXX): add checks in tm
+  }
 };
 
 } // namespace gc

@@ -35,8 +35,8 @@ constexpr const char *module_global_offset = "module_global_offset";
  * */
 class module_globals_resolver_t : public module_pass_t {
 public:
-    const_ir_module_ptr operator()(const_ir_module_ptr m) override;
-    SC_DECL_PASS_INFO_FUNC();
+  const_ir_module_ptr operator()(const_ir_module_ptr m) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 } // namespace gc
 } // namespace graph

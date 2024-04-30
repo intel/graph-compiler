@@ -18,14 +18,14 @@
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_INFO_MACROS_HPP
 
 #ifndef NDEBUG
-#define SC_DECL_PASS_DEPDENCYINFO() \
-    void get_dependency_info(tir_pass_dependency_t &out) const override;
+#define SC_DECL_PASS_DEPDENCYINFO()                                            \
+  void get_dependency_info(tir_pass_dependency_t &out) const override;
 #else
 #define SC_DECL_PASS_DEPDENCYINFO()
 #endif
 
-#define SC_DECL_PASS_INFO_FUNC() \
-    const char *get_name() const override; \
-    SC_DECL_PASS_DEPDENCYINFO();
+#define SC_DECL_PASS_INFO_FUNC()                                               \
+  const char *get_name() const override;                                       \
+  SC_DECL_PASS_DEPDENCYINFO();
 
 #endif

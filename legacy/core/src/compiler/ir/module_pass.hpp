@@ -17,9 +17,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_MODULE_PASS_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_MODULE_PASS_HPP
 
-#include <memory>
 #include "ir_module.hpp"
 #include "pass_info_macros.hpp"
+#include <memory>
 
 namespace dnnl {
 namespace impl {
@@ -37,12 +37,12 @@ struct tir_pass_dependency_t;
  * */
 class SC_INTERNAL_API module_pass_t {
 public:
-    virtual const char *get_name() const { return nullptr; }
+  virtual const char *get_name() const { return nullptr; }
 #ifndef NDEBUG
-    virtual void get_dependency_info(tir_pass_dependency_t &out) const;
+  virtual void get_dependency_info(tir_pass_dependency_t &out) const;
 #endif
-    virtual const_ir_module_ptr operator()(const_ir_module_ptr f) = 0;
-    virtual ~module_pass_t() = default;
+  virtual const_ir_module_ptr operator()(const_ir_module_ptr f) = 0;
+  virtual ~module_pass_t() = default;
 };
 
 using module_pass_ptr = std::unique_ptr<module_pass_t>;

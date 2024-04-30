@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_MANAGER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_MANAGER_HPP
 
+#include <compiler/config/context.hpp>
 #include <memory>
 #include <stdint.h>
 #include <vector>
-#include <compiler/config/context.hpp>
 
 namespace dnnl {
 namespace impl {
@@ -28,9 +28,10 @@ namespace graph {
 namespace gc {
 class module_pass_t;
 #ifndef NDEBUG
-void validate_pass_order(const context_ptr &ctx,
-        const std::vector<std::unique_ptr<module_pass_t>> &passes,
-        bool gen_wrapper);
+void validate_pass_order(
+    const context_ptr &ctx,
+    const std::vector<std::unique_ptr<module_pass_t>> &passes,
+    bool gen_wrapper);
 #else
 #define validate_pass_order(ctx, passes, gen_wrapper)
 #endif

@@ -37,9 +37,9 @@ constexpr const char *cal_expression = "pass.cal_expression";
  * */
 class dyn_tensor_transformer_t : public module_pass_t {
 public:
-    func_c operator()(func_c f);
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  func_c operator()(func_c f);
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 } // namespace gc
 } // namespace graph

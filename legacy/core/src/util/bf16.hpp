@@ -26,38 +26,38 @@ namespace gc {
 
 // The BFloat16 datatype implementation, can be cast from/to float
 struct bf16_t {
-    uint16_t storage_;
-    union caster_t {
-        uint32_t vl;
-        float vf;
-    };
-    operator float() const {
-        caster_t val;
-        val.vl = uint32_t(storage_) << 16;
-        return val.vf;
+  uint16_t storage_;
+  union caster_t {
+    uint32_t vl;
+    float vf;
+  };
+  operator float() const {
+    caster_t val;
+    val.vl = uint32_t(storage_) << 16;
+    return val.vf;
+  }
+  bool operator==(const bf16_t &compare_to) const {
+    return storage_ == compare_to.storage_;
+  }
+  bool operator!=(const bf16_t &compare_to) const {
+    return storage_ != compare_to.storage_;
+  }
+  bf16_t(float v) {
+    if (std::isnan(v)) {
+      storage_ = UINT32_C(0x7FC0);
+    } else {
+      caster_t caster;
+      caster.vf = v;
+      uint32_t rounding_bias = ((caster.vl >> 16) & 1) + UINT32_C(0x7FFF);
+      storage_ = static_cast<uint16_t>((caster.vl + rounding_bias) >> 16);
     }
-    bool operator==(const bf16_t &compare_to) const {
-        return storage_ == compare_to.storage_;
-    }
-    bool operator!=(const bf16_t &compare_to) const {
-        return storage_ != compare_to.storage_;
-    }
-    bf16_t(float v) {
-        if (std::isnan(v)) {
-            storage_ = UINT32_C(0x7FC0);
-        } else {
-            caster_t caster;
-            caster.vf = v;
-            uint32_t rounding_bias = ((caster.vl >> 16) & 1) + UINT32_C(0x7FFF);
-            storage_ = static_cast<uint16_t>((caster.vl + rounding_bias) >> 16);
-        }
-    }
-    bf16_t() : storage_(0) {}
-    inline static bf16_t from_storage(uint16_t v) {
-        bf16_t ret;
-        ret.storage_ = v;
-        return ret;
-    }
+  }
+  bf16_t() : storage_(0) {}
+  inline static bf16_t from_storage(uint16_t v) {
+    bf16_t ret;
+    ret.storage_ = v;
+    return ret;
+  }
 };
 } // namespace gc
 } // namespace graph

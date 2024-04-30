@@ -26,15 +26,16 @@ namespace graph {
 namespace gc {
 
 void constant_optimization(sc_graph_t &graph, const context_ptr &ctx) {
-    auto vis = op_visitor_t::dfs_topology_sort(graph.ops_.size());
-    vis.visit_graph(graph, [&](op_visitor_t *vis, const sc_op_ptr &node) {
-        if (auto graph_node
-                = node->dyn_cast<op_traits::constant_optimizable_t>()) {
-            auto ret = graph_node->constant_optimize(graph);
-            if (ret) { vis->update_state_for_visited(ret); }
-        }
-    });
-    graph.reset_op_ids();
+  auto vis = op_visitor_t::dfs_topology_sort(graph.ops_.size());
+  vis.visit_graph(graph, [&](op_visitor_t *vis, const sc_op_ptr &node) {
+    if (auto graph_node = node->dyn_cast<op_traits::constant_optimizable_t>()) {
+      auto ret = graph_node->constant_optimize(graph);
+      if (ret) {
+        vis->update_state_for_visited(ret);
+      }
+    }
+  });
+  graph.reset_op_ids();
 }
 
 } // namespace gc

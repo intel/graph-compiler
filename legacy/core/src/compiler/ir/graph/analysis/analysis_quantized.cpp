@@ -22,12 +22,12 @@ namespace impl {
 namespace graph {
 namespace gc {
 void analysis_quantized(sc_graph_t &graph, const context_ptr &ctx) {
-    for (auto &op : graph.ops_) {
-        if (op->op_name_.find("quantize") != std::string::npos) {
-            graph.attrs_[sc_graph_t::attr_key_t::quantize] = true;
-            break;
-        }
+  for (auto &op : graph.ops_) {
+    if (op->op_name_.find("quantize") != std::string::npos) {
+      graph.attrs_[sc_graph_t::attr_key_t::quantize] = true;
+      break;
     }
+  }
 }
 } // namespace gc
 } // namespace graph

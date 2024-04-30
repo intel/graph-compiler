@@ -63,8 +63,8 @@ In TensorIR, we only allocate the output buffer of concat.
 
 class concat_memory_planning_t : public module_pass_t {
 public:
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 bool is_standalone_concat_call(call_c &v);

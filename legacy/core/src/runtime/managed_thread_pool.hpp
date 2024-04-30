@@ -26,38 +26,39 @@ namespace gc {
 
 namespace runtime {
 struct thread_manager {
-    using idle_func_t = uint64_t (*)(std::atomic<int32_t> *remaining,
-            int32_t expected_remain, int32_t tid, void *args);
-    struct thread_pool_state {
-        struct task_type {
-            void (*pfunc)(void *, void *, int64_t, generic_val *);
-            void *stream;
-            void *module_env;
-            int64_t begin;
-            int64_t end;
-            int64_t step;
-            generic_val *args;
-        } task;
-        int num_threads;
+  using idle_func_t = uint64_t (*)(std::atomic<int32_t> *remaining,
+                                   int32_t expected_remain, int32_t tid,
+                                   void *args);
+  struct thread_pool_state {
+    struct task_type {
+      void (*pfunc)(void *, void *, int64_t, generic_val *);
+      void *stream;
+      void *module_env;
+      int64_t begin;
+      int64_t end;
+      int64_t step;
+      generic_val *args;
+    } task;
+    int num_threads;
 
-        std::atomic<int> trigger;
-        idle_func_t idle_func = nullptr;
-        void *idle_args = nullptr;
-        uint64_t execution_flags = 0;
+    std::atomic<int> trigger;
+    idle_func_t idle_func = nullptr;
+    void *idle_args = nullptr;
+    uint64_t execution_flags = 0;
 
-        alignas(64) std::atomic<int> remaining;
+    alignas(64) std::atomic<int> remaining;
 
-        void wait_all();
-        void reset_scoreboard();
-    } state;
+    void wait_all();
+    void reset_scoreboard();
+  } state;
 #ifdef SC_KERNEL_PROFILE
-    int instance_id_;
+  int instance_id_;
 #endif
-    thread_manager();
-    using main_func_t = void (*)(runtime::stream_t *, void *, generic_val *);
-    void run_main_function(main_func_t f, runtime::stream_t *stream,
-            void *mod_data, generic_val *args);
-    static thread_local thread_manager cur_mgr;
+  thread_manager();
+  using main_func_t = void (*)(runtime::stream_t *, void *, generic_val *);
+  void run_main_function(main_func_t f, runtime::stream_t *stream,
+                         void *mod_data, generic_val *args);
+  static thread_local thread_manager cur_mgr;
 };
 } // namespace runtime
 } // namespace gc

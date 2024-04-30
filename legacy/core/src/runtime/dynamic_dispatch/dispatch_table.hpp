@@ -25,12 +25,12 @@ namespace gc {
 namespace runtime {
 
 struct dispatch_table_t {
-    virtual ~dispatch_table_t() = default;
-    using dispatch_func_t = void *(*)(dispatch_table_t *ths, uint64_t *keys,
-            uint64_t num_keys);
-    virtual dispatch_func_t get_dispatch_func() = 0;
-    virtual void *get(uint64_t *keys, uint64_t num_keys) = 0;
-    virtual void set(uint64_t *keys, uint64_t num_keys, void *value) = 0;
+  virtual ~dispatch_table_t() = default;
+  using dispatch_func_t = void *(*)(dispatch_table_t *ths, uint64_t *keys,
+                                    uint64_t num_keys);
+  virtual dispatch_func_t get_dispatch_func() = 0;
+  virtual void *get(uint64_t *keys, uint64_t num_keys) = 0;
+  virtual void set(uint64_t *keys, uint64_t num_keys, void *value) = 0;
 };
 
 } // namespace runtime

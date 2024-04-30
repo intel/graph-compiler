@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_FUNC_INLINE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_FUNC_INLINE_HPP
 
-#include <vector>
 #include "../module_pass.hpp"
 #include "../sc_function.hpp"
 #include <compiler/ir/pass_dep_util.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -35,23 +35,23 @@ namespace gc {
  * */
 class func_inliner_t : public module_pass_t {
 public:
-    bool needs_index_flatten_;
-    func_inliner_t(bool needs_index_flatten = true)
-        : needs_index_flatten_(needs_index_flatten) {}
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    func_c operator()(func_c f) const;
-    /**
-     * Inlines the function call and inserts the body to an existing stmt array
-     *
-     * @param c the call_node to inline
-     * @param seq the stmt array to insert into
-     * @param insert_idx the index of the insertion point within `seq`
-     * @return if the function returns a value, the return value of the call.
-     *      Otherwise, null
-     * */
-    expr_c inline_at(call_c c, std::vector<stmt> &seq, size_t insert_idx,
-            const const_ir_module_ptr &modu = nullptr);
-    SC_DECL_PASS_INFO_FUNC();
+  bool needs_index_flatten_;
+  func_inliner_t(bool needs_index_flatten = true)
+      : needs_index_flatten_(needs_index_flatten) {}
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  func_c operator()(func_c f) const;
+  /**
+   * Inlines the function call and inserts the body to an existing stmt array
+   *
+   * @param c the call_node to inline
+   * @param seq the stmt array to insert into
+   * @param insert_idx the index of the insertion point within `seq`
+   * @return if the function returns a value, the return value of the call.
+   *      Otherwise, null
+   * */
+  expr_c inline_at(call_c c, std::vector<stmt> &seq, size_t insert_idx,
+                   const const_ir_module_ptr &modu = nullptr);
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

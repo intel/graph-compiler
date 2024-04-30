@@ -18,9 +18,9 @@
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_CONST_CACHE_WRAPPER_HPP
 #include <atomic>
 #include <memory>
+#include <runtime/context.hpp>
 #include <stdexcept>
 #include <stdint.h>
-#include <runtime/context.hpp>
 #include <util/def.hpp>
 
 namespace dnnl {
@@ -37,40 +37,44 @@ namespace runtime {
  * 0, the additional shared ptr is reset.
  */
 struct ref_count_managed {
-    ref_count_managed() = default;
-    ref_count_managed(const std::shared_ptr<void> &keep_alive) {
-        init(keep_alive);
-    }
-    void init(const std::shared_ptr<void> &keep_alive) {
-        keep_alive_ = keep_alive;
-        ref_count_.store(1);
-    }
+  ref_count_managed() = default;
+  ref_count_managed(const std::shared_ptr<void> &keep_alive) {
+    init(keep_alive);
+  }
+  void init(const std::shared_ptr<void> &keep_alive) {
+    keep_alive_ = keep_alive;
+    ref_count_.store(1);
+  }
 
-    void ref() { ++ref_count_; }
-    void deref() {
-        auto newv = --ref_count_;
-        if (newv == 0) { keep_alive_ = nullptr; }
+  void ref() { ++ref_count_; }
+  void deref() {
+    auto newv = --ref_count_;
+    if (newv == 0) {
+      keep_alive_ = nullptr;
     }
+  }
 
-    // atomically check if ref_count_ > 0. if so, ref() the object and return
-    // true. Otherwise (if ref_count_==0), return false
-    bool check_alive_and_ref() {
-        auto oldv = ref_count_.load();
-        for (;;) {
-            if (oldv <= 0) { return false; }
-            if (ref_count_.compare_exchange_strong(oldv, oldv + 1)) {
-                return true;
-            }
-            // CAS failed, oldv has now the newest known value of ref_count_
-        }
+  // atomically check if ref_count_ > 0. if so, ref() the object and return
+  // true. Otherwise (if ref_count_==0), return false
+  bool check_alive_and_ref() {
+    auto oldv = ref_count_.load();
+    for (;;) {
+      if (oldv <= 0) {
+        return false;
+      }
+      if (ref_count_.compare_exchange_strong(oldv, oldv + 1)) {
+        return true;
+      }
+      // CAS failed, oldv has now the newest known value of ref_count_
     }
+  }
 
-    bool is_alive() const { return ref_count_ > 0; }
-    void *unsafe_get_ptr() const { return keep_alive_.get(); }
+  bool is_alive() const { return ref_count_ > 0; }
+  void *unsafe_get_ptr() const { return keep_alive_.get(); }
 
 private:
-    std::shared_ptr<void> keep_alive_;
-    std::atomic<int> ref_count_ {0};
+  std::shared_ptr<void> keep_alive_;
+  std::atomic<int> ref_count_{0};
 };
 
 /**
@@ -92,43 +96,41 @@ private:
  * jit_module of the kernel is alive.
  */
 struct const_cache_proxy : ref_count_managed {
-    const_cache_proxy(const std::shared_ptr<void> &keep_alive, void *buffer,
-            size_t size, bool is_lazy)
-        : ref_count_managed(keep_alive)
-        , size_(size)
-        , is_lazy_(is_lazy)
-        , buffer_(buffer) {}
-    ~const_cache_proxy();
+  const_cache_proxy(const std::shared_ptr<void> &keep_alive, void *buffer,
+                    size_t size, bool is_lazy)
+      : ref_count_managed(keep_alive), size_(size), is_lazy_(is_lazy),
+        buffer_(buffer) {}
+  ~const_cache_proxy();
 
-    // get the buffer and increment the refcount. If the buffer is evicted,
-    // returns null
-    void *acquire(int32_t *inited);
-    // decrement the refcount
-    bool release();
+  // get the buffer and increment the refcount. If the buffer is evicted,
+  // returns null
+  void *acquire(int32_t *inited);
+  // decrement the refcount
+  bool release();
 
-    void *get_buffer_if_not_lazy() const {
-        if (is_lazy_) {
-            throw std::runtime_error(
-                    "get_buffer_if_not_lazy: The buffer must be lazy");
-        }
-        return buffer_;
+  void *get_buffer_if_not_lazy() const {
+    if (is_lazy_) {
+      throw std::runtime_error(
+          "get_buffer_if_not_lazy: The buffer must be lazy");
     }
+    return buffer_;
+  }
 
-    size_t size_;
-    // if the buffer is lazy-initialized. If false, it should be filled before
-    // computation
-    bool is_lazy_;
+  size_t size_;
+  // if the buffer is lazy-initialized. If false, it should be filled before
+  // computation
+  bool is_lazy_;
 
 private:
-    // raw pointer to the buffer
-    void *buffer_;
-    // if the buffer has been initialized. calling release() will set this to 1
-    int32_t initialized_ = 0;
+  // raw pointer to the buffer
+  void *buffer_;
+  // if the buffer has been initialized. calling release() will set this to 1
+  int32_t initialized_ = 0;
 };
 
 // allocate the const cache buffer and register it to Graph API cache manager
 std::shared_ptr<const_cache_proxy> create_and_register_const_cache(
-        dnnl::impl::graph::gc::runtime::engine_t *engine, size_t size);
+    dnnl::impl::graph::gc::runtime::engine_t *engine, size_t size);
 
 // unregister it in Graph API cache manager
 void unregister_const_cache(const_cache_proxy *cache);
@@ -144,14 +146,14 @@ void unregister_const_cache(const_cache_proxy *cache);
 // is still alive, this function will increment the refcount of the buffer to
 // keep it alive, and set `*inited = cacheptr->initialized_ & *inited`
 extern "C" SC_API void *sc_acquire_const_cache(
-        dnnl::impl::graph::gc::runtime::stream_t *stream,
-        dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr,
-        size_t size, int32_t *inited);
+    dnnl::impl::graph::gc::runtime::stream_t *stream,
+    dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr, size_t size,
+    int32_t *inited);
 // release the cached constant buffer pointer. If the cache has been evicted,
 // this function will free the newly allocated buffer. If the cache
 // is still alive, this function will decrement the refcount of the buffer
 extern "C" SC_API void sc_release_const_cache(
-        dnnl::impl::graph::gc::runtime::stream_t *stream,
-        dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr, void *ptr);
+    dnnl::impl::graph::gc::runtime::stream_t *stream,
+    dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr, void *ptr);
 
 #endif

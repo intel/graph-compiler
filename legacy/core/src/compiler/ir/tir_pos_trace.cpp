@@ -24,15 +24,15 @@ namespace graph {
 namespace gc {
 
 std::string tir_pos_tracer::to_string() const {
-    if (cur_func_ && cur_node_ && utils::compiler_configs_t::get().diagnose_) {
-        std::stringstream ss;
-        ss << '\n';
-        auto func = dynamic_cast<const func_base *>(cur_func_);
-        print_ir_and_annotate_position_in_source(
-                func->shared_from_this(), cur_node_, ss);
-        return ss.str();
-    }
-    return std::string();
+  if (cur_func_ && cur_node_ && utils::compiler_configs_t::get().diagnose_) {
+    std::stringstream ss;
+    ss << '\n';
+    auto func = dynamic_cast<const func_base *>(cur_func_);
+    print_ir_and_annotate_position_in_source(func->shared_from_this(),
+                                             cur_node_, ss);
+    return ss.str();
+  }
+  return std::string();
 }
 
 } // namespace gc

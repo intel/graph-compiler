@@ -19,74 +19,74 @@
  * referenced and prevent them from being removed by the linker.
  * */
 
-#define RUN_ON_PRODUCTION(F) \
-    F(abs); \
-    F(matmul_core); \
-    F(softmax); \
-    F(log_softmax); \
-    F(log_softmax_bwd); \
-    F(softmax_bwd); \
-    F(static_reshape); \
-    F(dynamic_reshape); \
-    F(shape_of_tensor); \
-    F(matmul); \
-    F(quantize); \
-    F(exp); \
-    F(dynamic_transpose); \
-    F(add); \
-    F(padding); \
-    F(reorder); \
-    F(reduce); \
-    F(reduce_sum); \
-    F(reduce_prod); \
-    F(reduce_max); \
-    F(reduce_mean); \
-    F(reduce_min); \
-    F(reduce_l1); \
-    F(reduce_l2); \
-    F(relu); \
-    F(relu_backprop); \
-    F(reciprocal); \
-    F(sigmoid_backprop); \
-    F(conv_fwd); \
-    F(conv_fwd_core); \
-    F(conv_bwd_data); \
-    F(conv_bwd_weight); \
-    F(batchnorm_inference); \
-    F(batchnorm_forward_training); \
-    F(batchnorm_training_backprop); \
-    F(managed_matmul_core); \
-    F(select); \
-    F(layernorm); \
-    F(gelu); \
-    F(abs); \
-    F(elu); \
-    F(hardswish); \
-    F(log); \
-    F(pow); \
-    F(mish); \
-    F(soft_plus); \
-    F(soft_plus_bwd); \
-    F(square); \
-    F(swish); \
-    F(prelu); \
-    F(abs_bwd); \
-    F(clamp_bwd); \
-    F(elu_bwd); \
-    F(hardswish_bwd) \
-    F(hardsigmoid_bwd) \
-    F(sqrt_bwd) \
-    F(mish_bwd) \
-    F(prelu_bwd) \
-    F(hardsigmoid); \
-    F(clamp); \
-    F(leaky_relu); \
-    F(duplicate); \
-    F(pooling_avg); \
-    F(pooling_max); \
-    F(pooling_max_backprop); \
-    F(pooling_avg_backprop); \
-    F(broadcast);
+#define RUN_ON_PRODUCTION(F)                                                   \
+  F(abs);                                                                      \
+  F(matmul_core);                                                              \
+  F(softmax);                                                                  \
+  F(log_softmax);                                                              \
+  F(log_softmax_bwd);                                                          \
+  F(softmax_bwd);                                                              \
+  F(static_reshape);                                                           \
+  F(dynamic_reshape);                                                          \
+  F(shape_of_tensor);                                                          \
+  F(matmul);                                                                   \
+  F(quantize);                                                                 \
+  F(exp);                                                                      \
+  F(dynamic_transpose);                                                        \
+  F(add);                                                                      \
+  F(padding);                                                                  \
+  F(reorder);                                                                  \
+  F(reduce);                                                                   \
+  F(reduce_sum);                                                               \
+  F(reduce_prod);                                                              \
+  F(reduce_max);                                                               \
+  F(reduce_mean);                                                              \
+  F(reduce_min);                                                               \
+  F(reduce_l1);                                                                \
+  F(reduce_l2);                                                                \
+  F(relu);                                                                     \
+  F(relu_backprop);                                                            \
+  F(reciprocal);                                                               \
+  F(sigmoid_backprop);                                                         \
+  F(conv_fwd);                                                                 \
+  F(conv_fwd_core);                                                            \
+  F(conv_bwd_data);                                                            \
+  F(conv_bwd_weight);                                                          \
+  F(batchnorm_inference);                                                      \
+  F(batchnorm_forward_training);                                               \
+  F(batchnorm_training_backprop);                                              \
+  F(managed_matmul_core);                                                      \
+  F(select);                                                                   \
+  F(layernorm);                                                                \
+  F(gelu);                                                                     \
+  F(abs);                                                                      \
+  F(elu);                                                                      \
+  F(hardswish);                                                                \
+  F(log);                                                                      \
+  F(pow);                                                                      \
+  F(mish);                                                                     \
+  F(soft_plus);                                                                \
+  F(soft_plus_bwd);                                                            \
+  F(square);                                                                   \
+  F(swish);                                                                    \
+  F(prelu);                                                                    \
+  F(abs_bwd);                                                                  \
+  F(clamp_bwd);                                                                \
+  F(elu_bwd);                                                                  \
+  F(hardswish_bwd)                                                             \
+  F(hardsigmoid_bwd)                                                           \
+  F(sqrt_bwd)                                                                  \
+  F(mish_bwd)                                                                  \
+  F(prelu_bwd)                                                                 \
+  F(hardsigmoid);                                                              \
+  F(clamp);                                                                    \
+  F(leaky_relu);                                                               \
+  F(duplicate);                                                                \
+  F(pooling_avg);                                                              \
+  F(pooling_max);                                                              \
+  F(pooling_max_backprop);                                                     \
+  F(pooling_avg_backprop);                                                     \
+  F(broadcast);
 
 #define DECL_INIT(NAME) extern volatile bool __help_dummy_##NAME;
 
@@ -105,10 +105,10 @@ RUN_ON_REFLECTION_CLASS(DECL_REFLECTION_INIT)
 
 void __dummy_init() {
 #define REF_INIT(NAME) (void)__help_dummy_##NAME;
-    RUN_ON_PRODUCTION(REF_INIT)
+  RUN_ON_PRODUCTION(REF_INIT)
 
 #define REF_REFLECTION_INIT(NAME) (void)reflection::__reflection_init_##NAME;
-    RUN_ON_REFLECTION_CLASS(REF_REFLECTION_INIT)
+  RUN_ON_REFLECTION_CLASS(REF_REFLECTION_INIT)
 }
 
 } // namespace gc

@@ -31,8 +31,8 @@ namespace xbyak {
  * */
 class ir_data_initializer_t : public function_pass_t {
 public:
-    ir_data_initializer_t() = default;
-    func_c operator()(func_c v) override;
+  ir_data_initializer_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

@@ -24,11 +24,11 @@ typedef sc_data_etype sc_dtype;
 
 extern "C" {
 
-SC_API void *sc_brgemm_get_amx_scratch(
-        const char *palette, bool *need_config_amx, runtime::stream_t *stream) {
-    bool amx_exclusive = false;
-    *need_config_amx = false;
-    return do_get_amx_tile_buf(
-            palette, stream, amx_exclusive, *need_config_amx);
+SC_API void *sc_brgemm_get_amx_scratch(const char *palette,
+                                       bool *need_config_amx,
+                                       runtime::stream_t *stream) {
+  bool amx_exclusive = false;
+  *need_config_amx = false;
+  return do_get_amx_tile_buf(palette, stream, amx_exclusive, *need_config_amx);
 }
 }

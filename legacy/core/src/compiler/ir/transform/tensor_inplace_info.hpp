@@ -25,19 +25,19 @@ namespace alias_info {
 struct tensor_alias_identity_t;
 }
 enum class inplace_kind {
-    ZERO_OFFSET, // this requires that the tensor share the same base
-    // pointer of the replaced tensor
-    FREE, // the tensor can freely choose any offset on this tensor
+  ZERO_OFFSET, // this requires that the tensor share the same base
+  // pointer of the replaced tensor
+  FREE, // the tensor can freely choose any offset on this tensor
 };
 
 struct tensor_inplace_info_t {
-    int used_arg_idx_;
-    inplace_kind kind_;
+  int used_arg_idx_;
+  inplace_kind kind_;
 };
 
 struct temp_tensor_inplace_info_t {
-    std::shared_ptr<alias_info::tensor_alias_identity_t> to_reuse_;
-    inplace_kind kind_;
+  std::shared_ptr<alias_info::tensor_alias_identity_t> to_reuse_;
+  inplace_kind kind_;
 };
 
 } // namespace gc

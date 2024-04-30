@@ -66,120 +66,122 @@ namespace graph {
 namespace gc {
 
 sequential_module_pass_t get_ssa_passes(const context_ptr &ctx) {
-    std::vector<module_pass_ptr> ret;
+  std::vector<module_pass_ptr> ret;
+  ret.emplace_back(module_function_pass_t::make<ssa_transform_t>());
+  ret.emplace_back(module_function_pass_t::make<value_numbering_t>(false));
+  ret.emplace_back(
+      module_function_pass_t::make<loop_invariant_code_motion_t>());
+  ret.emplace_back(module_function_pass_t::make<value_numbering_t>());
+  return sequential_module_pass_t(std::move(ret));
+}
+
+sequential_module_pass_t get_default_precodegen_passes(const context_ptr &ctx,
+                                                       bool gen_wrapper) {
+  std::vector<module_pass_ptr> ret;
+  ret.reserve(64);
+  ret.emplace_back(utils::make_unique<dyn_tensor_transformer_t>());
+  if (gen_wrapper) {
+    ret.emplace_back(utils::make_unique<interface_generalizer_t>());
+  }
+  ret.emplace_back(utils::make_unique<tensor_shrinker_t>());
+  if (ctx->flags_.concat_optimization_) {
+    ret.emplace_back(utils::make_unique<concat_memory_planning_t>());
+  }
+  ret.emplace_back(utils::make_unique<index_flattener_t>());
+  ret.emplace_back(utils::make_unique<auto_caster_t>());
+  ret.emplace_back(module_function_pass_t::make<bf16_fp16_legalizer_t>(ctx));
+  ret.emplace_back(utils::make_unique<validator_t>());
+  if (ctx->flags_.trace_) {
+    ret.emplace_back(utils::make_unique<trace_inserter_t>());
+  }
+
+  ret.emplace_back(utils::make_unique<func_inliner_t>());
+  ret.emplace_back(utils::make_unique<constant_folder_t>());
+  ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
+
+  if (ctx->flags_.buffer_schedule_ > 0 && ctx->flags_.tensor_inplace_) {
+    ret.emplace_back(utils::make_unique<tensor_inplace_t>(ctx));
+  }
+  ret.emplace_back(module_function_pass_t::make<tensor_init_t>(ctx));
+  ret.emplace_back(module_function_pass_t::make<loop_merger_t>());
+
+  ret.emplace_back(
+      module_function_pass_t::make<parallel_workload_dispatcher_t>());
+  ret.emplace_back(
+      module_function_pass_t::make<simple_loop_invariant_code_motion_t>());
+  ret.emplace_back(utils::make_unique<constant_folder_t>(false));
+  ret.emplace_back(module_function_pass_t::make<loop_unroller_t>());
+  ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
+  if (ctx->flags_.index2var_) {
+    ret.emplace_back(module_function_pass_t::make<index2var_t>());
+  }
+  if (ctx->flags_.dead_write_elimination_) {
+    ret.emplace_back(module_function_pass_t::make<dead_write_eliminator_t>());
+  }
+  ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
+
+  if (runtime_config_t::get().managed_thread_pool_ ==
+      thread_pool_mode_t::DYNAMIC) {
+    ret.emplace_back(utils::make_unique<dynamic_parallel_transform_t>(true));
+  } else {
+    ret.emplace_back(
+        module_function_pass_t::make<buffer_rescheduling_tensor_hoisting_t>(
+            ctx, true, ctx->flags_.tensor_inplace_));
+    ret.emplace_back(
+        module_function_pass_t::make<nested_parallel_flattener_t>());
+  }
+  ret.emplace_back(utils::make_unique<constant_folder_t>(false));
+  ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
+  ret.emplace_back(module_function_pass_t::make<loop_splitter_t>());
+
+  ret.emplace_back(utils::make_unique<parallel_merge_t>());
+  ret.emplace_back(utils::make_unique<dead_func_eliminate_t>());
+  ret.emplace_back(module_function_pass_t::make<bf16_fp16_eliminator_t>(ctx));
+  ret.emplace_back(utils::make_unique<target_specific_lowering_cpu_t>(ctx));
+  ret.emplace_back(utils::make_unique<func_inliner_t>());
+  ret.emplace_back(utils::make_unique<dead_func_eliminate_t>());
+  ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(false));
+
+  if (ctx->flags_.tensor2var_) {
+    ret.emplace_back(module_function_pass_t::make<tensor2var_t>());
+  }
+  if (ctx->flags_.buffer_schedule_ > 0) {
+    ret.emplace_back(module_function_pass_t::make<buffer_scheduler_t>(
+        ctx, true, ctx->flags_.tensor_inplace_));
+  }
+  ret.emplace_back(
+      utils::make_unique<kernel_lowering_cpu_t>(ctx->flags_.kernel_optim_));
+  ret.emplace_back(utils::make_unique<closurizer_cpu_t>(
+      runtime_config_t::get().get_num_threads() == 1));
+  ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(false));
+
+  ret.emplace_back(utils::make_unique<module_globals_resolver_t>());
+  ret.emplace_back(
+      module_function_pass_t::make<local_tensor_lowering_cpu_t>(128));
+  if (ctx->flags_.ssa_passes_) {
     ret.emplace_back(module_function_pass_t::make<ssa_transform_t>());
-    ret.emplace_back(module_function_pass_t::make<value_numbering_t>(false));
-    ret.emplace_back(
-            module_function_pass_t::make<loop_invariant_code_motion_t>());
     ret.emplace_back(module_function_pass_t::make<value_numbering_t>());
-    return sequential_module_pass_t(std::move(ret));
+    ret.emplace_back(
+        module_function_pass_t::make<loop_invariant_code_motion_t>());
+    ret.emplace_back(module_function_pass_t::make<dessa_transform_t>());
+  }
+  validate_pass_order(ctx, ret, gen_wrapper);
+  return sequential_module_pass_t(std::move(ret));
 }
 
-sequential_module_pass_t get_default_precodegen_passes(
-        const context_ptr &ctx, bool gen_wrapper) {
-    std::vector<module_pass_ptr> ret;
-    ret.reserve(64);
-    ret.emplace_back(utils::make_unique<dyn_tensor_transformer_t>());
-    if (gen_wrapper) {
-        ret.emplace_back(utils::make_unique<interface_generalizer_t>());
-    }
-    ret.emplace_back(utils::make_unique<tensor_shrinker_t>());
-    if (ctx->flags_.concat_optimization_) {
-        ret.emplace_back(utils::make_unique<concat_memory_planning_t>());
-    }
-    ret.emplace_back(utils::make_unique<index_flattener_t>());
-    ret.emplace_back(utils::make_unique<auto_caster_t>());
-    ret.emplace_back(module_function_pass_t::make<bf16_fp16_legalizer_t>(ctx));
-    ret.emplace_back(utils::make_unique<validator_t>());
-    if (ctx->flags_.trace_) {
-        ret.emplace_back(utils::make_unique<trace_inserter_t>());
-    }
-
-    ret.emplace_back(utils::make_unique<func_inliner_t>());
-    ret.emplace_back(utils::make_unique<constant_folder_t>());
-    ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
-
-    if (ctx->flags_.buffer_schedule_ > 0 && ctx->flags_.tensor_inplace_) {
-        ret.emplace_back(utils::make_unique<tensor_inplace_t>(ctx));
-    }
-    ret.emplace_back(module_function_pass_t::make<tensor_init_t>(ctx));
-    ret.emplace_back(module_function_pass_t::make<loop_merger_t>());
-
-    ret.emplace_back(
-            module_function_pass_t::make<parallel_workload_dispatcher_t>());
-    ret.emplace_back(module_function_pass_t::make<
-            simple_loop_invariant_code_motion_t>());
-    ret.emplace_back(utils::make_unique<constant_folder_t>(false));
-    ret.emplace_back(module_function_pass_t::make<loop_unroller_t>());
-    ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
-    if (ctx->flags_.index2var_) {
-        ret.emplace_back(module_function_pass_t::make<index2var_t>());
-    }
-    if (ctx->flags_.dead_write_elimination_) {
-        ret.emplace_back(
-                module_function_pass_t::make<dead_write_eliminator_t>());
-    }
-    ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
-
-    if (runtime_config_t::get().managed_thread_pool_
-            == thread_pool_mode_t::DYNAMIC) {
-        ret.emplace_back(
-                utils::make_unique<dynamic_parallel_transform_t>(true));
-    } else {
-        ret.emplace_back(module_function_pass_t::make<
-                buffer_rescheduling_tensor_hoisting_t>(
-                ctx, true, ctx->flags_.tensor_inplace_));
-        ret.emplace_back(
-                module_function_pass_t::make<nested_parallel_flattener_t>());
-    }
-    ret.emplace_back(utils::make_unique<constant_folder_t>(false));
-    ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(true));
-    ret.emplace_back(module_function_pass_t::make<loop_splitter_t>());
-
-    ret.emplace_back(utils::make_unique<parallel_merge_t>());
-    ret.emplace_back(utils::make_unique<dead_func_eliminate_t>());
-    ret.emplace_back(module_function_pass_t::make<bf16_fp16_eliminator_t>(ctx));
-    ret.emplace_back(utils::make_unique<target_specific_lowering_cpu_t>(ctx));
-    ret.emplace_back(utils::make_unique<func_inliner_t>());
-    ret.emplace_back(utils::make_unique<dead_func_eliminate_t>());
-    ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(false));
-
-    if (ctx->flags_.tensor2var_) {
-        ret.emplace_back(module_function_pass_t::make<tensor2var_t>());
-    }
-    if (ctx->flags_.buffer_schedule_ > 0) {
-        ret.emplace_back(module_function_pass_t::make<buffer_scheduler_t>(
-                ctx, true, ctx->flags_.tensor_inplace_));
-    }
-    ret.emplace_back(utils::make_unique<kernel_lowering_cpu_t>(
-            ctx->flags_.kernel_optim_));
-    ret.emplace_back(utils::make_unique<closurizer_cpu_t>(
-            runtime_config_t::get().get_num_threads() == 1));
-    ret.emplace_back(module_function_pass_t::make<ir_simplifier_t>(false));
-
-    ret.emplace_back(utils::make_unique<module_globals_resolver_t>());
-    ret.emplace_back(
-            module_function_pass_t::make<local_tensor_lowering_cpu_t>(128));
-    if (ctx->flags_.ssa_passes_) {
-        ret.emplace_back(module_function_pass_t::make<ssa_transform_t>());
-        ret.emplace_back(module_function_pass_t::make<value_numbering_t>());
-        ret.emplace_back(
-                module_function_pass_t::make<loop_invariant_code_motion_t>());
-        ret.emplace_back(module_function_pass_t::make<dessa_transform_t>());
-    }
-    validate_pass_order(ctx, ret, gen_wrapper);
-    return sequential_module_pass_t(std::move(ret));
-}
-
-const_ir_module_ptr run_precodegen_passes(
-        module_pass_t &pass, const_ir_module_ptr mod) { // NOLINT
-    func_t init_func = mod->make_init_func();
-    auto mod_with_init = std::make_shared<ir_module_t>(*mod);
-    if (init_func) { mod_with_init->add_func({init_func}); }
-    // todo: use attr in function to skip some of the passes
-    auto mod_cpy = pass(mod_with_init);
-    if (mod->ctx_->flags_.print_ir_) { std::cerr << mod_cpy; }
-    return mod_cpy;
+const_ir_module_ptr run_precodegen_passes(module_pass_t &pass,
+                                          const_ir_module_ptr mod) { // NOLINT
+  func_t init_func = mod->make_init_func();
+  auto mod_with_init = std::make_shared<ir_module_t>(*mod);
+  if (init_func) {
+    mod_with_init->add_func({init_func});
+  }
+  // todo: use attr in function to skip some of the passes
+  auto mod_cpy = pass(mod_with_init);
+  if (mod->ctx_->flags_.print_ir_) {
+    std::cerr << mod_cpy;
+  }
+  return mod_cpy;
 }
 
 } // namespace gc

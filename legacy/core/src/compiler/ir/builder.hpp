@@ -20,14 +20,14 @@
 #include <functional>
 #include <vector>
 
-#include <memory>
-#include <string>
-#include <utility>
 #include "intrinsics.hpp"
 #include "sc_data_type.hpp"
 #include "sc_expr.hpp"
 #include "sc_function.hpp"
 #include "sc_stmt.hpp"
+#include <memory>
+#include <string>
+#include <utility>
 
 namespace dnnl {
 namespace impl {
@@ -48,157 +48,159 @@ namespace builder {
  * */
 class SC_INTERNAL_API builder_impl_t {
 public:
+  /**
+   * A basic block is a list of statements that is temporarily
+   * stored in the builder. A basic block can be appended with
+   * a new statement. The builder will finally compose the
+   * statements in a basic-block into a stmts node.
+   * */
+  struct basic_block_t {
+    stmts body;
     /**
-     * A basic block is a list of statements that is temporarily
-     * stored in the builder. A basic block can be appended with
-     * a new statement. The builder will finally compose the
-     * statements in a basic-block into a stmts node.
+     * Appends a stmt into the BB
+     * @param stmt the statement
      * */
-    struct basic_block_t {
-        stmts body;
-        /**
-         * Appends a stmt into the BB
-         * @param stmt the statement
-         * */
-        void emit(const stmt &stmt);
-        /**
-         * Get the contained body and clear this field
-         * @return the `body` stmts
-         * */
-        stmt get();
-        // return `seq_` field of `body`, which is std::vector<stmt> type
-        std::vector<stmt> &as_seq() { return body->seq_; }
-        basic_block_t();
-        basic_block_t(basic_block_t &&other) : body(std::move(other.body)) {}
-    };
+    void emit(const stmt &stmt);
+    /**
+     * Get the contained body and clear this field
+     * @return the `body` stmts
+     * */
+    stmt get();
+    // return `seq_` field of `body`, which is std::vector<stmt> type
+    std::vector<stmt> &as_seq() { return body->seq_; }
+    basic_block_t();
+    basic_block_t(basic_block_t &&other) : body(std::move(other.body)) {}
+  };
 
-    /**
-     * A builder may have nested basic blockes. It uses a stack to track
-     * the current basic block.
-     * */
-    std::vector<basic_block_t> scopes;
+  /**
+   * A builder may have nested basic blockes. It uses a stack to track
+   * the current basic block.
+   * */
+  std::vector<basic_block_t> scopes;
 
-    /**
-     * Gets the current basic block on the top of the scopes
-     * */
-    basic_block_t &get_current_scope();
-    builder_impl_t() = default;
+  /**
+   * Gets the current basic block on the top of the scopes
+   * */
+  basic_block_t &get_current_scope();
+  builder_impl_t() = default;
 
-    /**
-     * Pushs a statement into the current basic block
-     * */
-    void emit(const stmt &s);
+  /**
+   * Pushs a statement into the current basic block
+   * */
+  void emit(const stmt &s);
 
-    /**
-     * Pops out the current basic block. Generates a stmts node
-     * from it
-     * @return the stmts node for the poped basic block
-     * */
-    stmt pop_scope();
+  /**
+   * Pops out the current basic block. Generates a stmts node
+   * from it
+   * @return the stmts node for the poped basic block
+   * */
+  stmt pop_scope();
 
-    /**
-     * Pushes a empty current basic block on the top of the scopes.
-     * emit() after calling this function will push the statements
-     * into this new basic block
-     * */
-    void push_scope();
+  /**
+   * Pushes a empty current basic block on the top of the scopes.
+   * emit() after calling this function will push the statements
+   * into this new basic block
+   * */
+  void push_scope();
 
-    /**
-     * Makes and pushes an assign statement
-     * @param var the dest LValue
-     * @param value the src RValue
-     * @return the pushed node
-     * */
-    stmt push_assign(const expr &var, const expr &value);
+  /**
+   * Makes and pushes an assign statement
+   * @param var the dest LValue
+   * @param value the src RValue
+   * @return the pushed node
+   * */
+  stmt push_assign(const expr &var, const expr &value);
 
-    /**
-     * Makes and pushes an if_else
-     * @param condition_ the condition, should be boolean typed
-     * @param then_case_ the `then` block
-     * @param else_case_ the `else` block, nullable.
-     * @return the pushed node
-     * */
-    stmt push_if_else(const expr &condition_, const stmt &then_case_,
-            const stmt &else_case_);
+  /**
+   * Makes and pushes an if_else
+   * @param condition_ the condition, should be boolean typed
+   * @param then_case_ the `then` block
+   * @param else_case_ the `else` block, nullable.
+   * @return the pushed node
+   * */
+  stmt push_if_else(const expr &condition_, const stmt &then_case_,
+                    const stmt &else_case_);
 
-    /**
-     * Makes and pushes an evaluate statement
-     * @param val the expression
-     * @return the pushed node
-     * */
-    stmt push_evaluate(const expr &val);
+  /**
+   * Makes and pushes an evaluate statement
+   * @param val the expression
+   * @return the pushed node
+   * */
+  stmt push_evaluate(const expr &val);
 
-    /**
-     * Makes and pushes an return statement
-     * @param val the expression, nullable if the current function returns
-     *      void_t
-     * @return the pushed node
-     * */
-    stmt push_returns(const expr &val = expr());
+  /**
+   * Makes and pushes an return statement
+   * @param val the expression, nullable if the current function returns
+   *      void_t
+   * @return the pushed node
+   * */
+  stmt push_returns(const expr &val = expr());
 
-    /**
-     * Makes and push a variable def statement
-     * @param var defined var or tensor
-     * @param linkage
-     * @param init init value, nullable
-     * @return the pushed node
-     * */
-    stmt push_var_tensor_def(const expr &var, linkage linkage = linkage::local,
-            const expr &init = expr());
+  /**
+   * Makes and push a variable def statement
+   * @param var defined var or tensor
+   * @param linkage
+   * @param init init value, nullable
+   * @return the pushed node
+   * */
+  stmt push_var_tensor_def(const expr &var, linkage linkage = linkage::local,
+                           const expr &init = expr());
 
-    /**
-     * Makes and pushes a for_loop
-     * @param var the iterate variable. The loop-var is expected to
-     *  be used only within the scope of the loop. Should be an integer var
-     * @param iter_begin the initial value of var_
-     * @param iter_end the max bound of the loop-var var_. Can never be reached
-     * @param step the step of var_ in each iteration.
-     * @param body the body of the loop
-     * @param incremental if the loop-var var_ is incremental. Not currently
-     *  used.
-     * @param kind the kind of the loop. @see for_type
-     * @param num_threads the number of threads in parallel-for
-     * @return the pushed node
-     * */
-    stmt push_for_loop(const expr &var, const expr &iter_begin,
-            const expr &iter_end, const expr &step, const stmt &body,
-            bool incremental, for_type kind, int num_threads = 0);
+  /**
+   * Makes and pushes a for_loop
+   * @param var the iterate variable. The loop-var is expected to
+   *  be used only within the scope of the loop. Should be an integer var
+   * @param iter_begin the initial value of var_
+   * @param iter_end the max bound of the loop-var var_. Can never be reached
+   * @param step the step of var_ in each iteration.
+   * @param body the body of the loop
+   * @param incremental if the loop-var var_ is incremental. Not currently
+   *  used.
+   * @param kind the kind of the loop. @see for_type
+   * @param num_threads the number of threads in parallel-for
+   * @return the pushed node
+   * */
+  stmt push_for_loop(const expr &var, const expr &iter_begin,
+                     const expr &iter_end, const expr &step, const stmt &body,
+                     bool incremental, for_type kind, int num_threads = 0);
 
-    /**
-     * Makes and pushes blank stmts as an anchor
-     * */
-    stmts push_anchor();
+  /**
+   * Makes and pushes blank stmts as an anchor
+   * */
+  stmts push_anchor();
 
-    /**
-     * Makes a brgemm-call node and evaluates it
-     * */
-    stmt brgemm(const expr_c &a, const expr_c &b, const expr_c &c,
-            const expr_c &blocks, const expr_c &M, const expr_c &N,
-            const expr_c &K, const expr_c &lda, const expr_c &ldb,
-            const expr_c &ldc, const expr_c &a_stride, const expr_c &b_stride,
-            const std::vector<expr> &postops_data, const expr_c &c_buf,
-            const expr_c &bd_mask_idx, const expr_c &top_pad,
-            const expr_c &bottom_pad, const brgemm_args::extra_args_t &extras);
+  /**
+   * Makes a brgemm-call node and evaluates it
+   * */
+  stmt brgemm(const expr_c &a, const expr_c &b, const expr_c &c,
+              const expr_c &blocks, const expr_c &M, const expr_c &N,
+              const expr_c &K, const expr_c &lda, const expr_c &ldb,
+              const expr_c &ldc, const expr_c &a_stride, const expr_c &b_stride,
+              const std::vector<expr> &postops_data, const expr_c &c_buf,
+              const expr_c &bd_mask_idx, const expr_c &top_pad,
+              const expr_c &bottom_pad,
+              const brgemm_args::extra_args_t &extras);
 
-    /**
-     * Makes a brgemm-call node and evaluates it
-     * */
-    stmt list_brgemm(const expr_c &a, const expr_c &b, const expr_c &c,
-            const expr_c &blocks, const expr_c &M, const expr_c &N,
-            const expr_c &K, const expr_c &lda, const expr_c &ldb,
-            const expr_c &ldc, const expr_c &a_stride, const expr_c &b_stride,
-            const expr_c &len, const std::vector<expr> &postops_data,
-            const expr_c &c_buf, const expr_c &bd_mask_idx,
-            const expr_c &top_pad, const expr_c &bottom_pad,
-            const brgemm_args::extra_args_t &extras);
+  /**
+   * Makes a brgemm-call node and evaluates it
+   * */
+  stmt list_brgemm(const expr_c &a, const expr_c &b, const expr_c &c,
+                   const expr_c &blocks, const expr_c &M, const expr_c &N,
+                   const expr_c &K, const expr_c &lda, const expr_c &ldb,
+                   const expr_c &ldc, const expr_c &a_stride,
+                   const expr_c &b_stride, const expr_c &len,
+                   const std::vector<expr> &postops_data, const expr_c &c_buf,
+                   const expr_c &bd_mask_idx, const expr_c &top_pad,
+                   const expr_c &bottom_pad,
+                   const brgemm_args::extra_args_t &extras);
 
-    /**
-     * Makes a string simulated by tensor node in the current location
-     * For debug use only (e.g. in fmtprint). It may have performance overhead
-     * @param name the function name
-     * @return the created node, should be a tensor
-     * */
-    expr make_str(const std::string &str);
+  /**
+   * Makes a string simulated by tensor node in the current location
+   * For debug use only (e.g. in fmtprint). It may have performance overhead
+   * @param name the function name
+   * @return the created node, should be a tensor
+   * */
+  expr make_str(const std::string &str);
 };
 
 /**
@@ -548,7 +550,7 @@ expr make_unpack_high(const expr_c &v_a, const expr_c &v_b, int elem_bits = 32);
  * @return the created node
  * */
 expr make_shuffle(const expr_c &v_a, const expr_c &v_b, const int &v_c,
-        const int &type_bits);
+                  const int &type_bits);
 
 /**
  * Makes an permute node
@@ -578,7 +580,7 @@ expr make_shuffle(const expr_c &v_a, const expr_c &v_b, const int &v_c,
  * @return the created node
  * */
 expr make_permute(const expr_c &v_a, const expr_c &v_b, const int &v_c,
-        const int &type_bits = 128);
+                  const int &type_bits = 128);
 
 /**
  * Makes an permutexvar node
@@ -646,7 +648,7 @@ expr make_extract(const expr_c &v_a, const int imm, const int lanes = 1);
  * @return the created node as the updated value
  * */
 expr make_insert(const expr_c &v_a, const expr_c &v_b, const expr_c &row,
-        const expr_c &col);
+                 const expr_c &col);
 /**
  * Extract the 2d region from v_a at the location specified by row and col.
  * @param v_a the 2D tile value
@@ -657,7 +659,7 @@ expr make_insert(const expr_c &v_a, const expr_c &v_b, const expr_c &row,
  * @return the created node as the extracted SIMD value of shape [rows x cols]
  * */
 expr make_extract(const expr_c &v_a, const expr_c &row, const expr_c &col,
-        uint32_t rows_count, uint32_t cols_count);
+                  uint32_t rows_count, uint32_t cols_count);
 
 /**
  * Makes an gather node
@@ -790,7 +792,7 @@ expr make_int_xor(const expr_c &left, const expr_c &right);
  * @return the created node
  * */
 expr make_read_struct(const expr_c &in, const std::string &struct_name,
-        const int &field_name);
+                      const int &field_name);
 
 /**
  * Makes a node to write a field to struct.
@@ -801,7 +803,7 @@ expr make_read_struct(const expr_c &in, const std::string &struct_name,
  * @return the created node
  * */
 expr make_write_struct(const expr_c &dyn_tsr, const expr_c &in,
-        const std::string &struct_name, const int &field_name);
+                       const std::string &struct_name, const int &field_name);
 
 /**
  * Makes a node to get thread group id
@@ -844,8 +846,8 @@ expr make_select(const expr_c &cond, const expr_c &l, const expr_c &r);
  * @param xmax max value for clip
  * @return the created node
  * */
-expr make_clip(
-        const expr_c &in, const expr_c &clip_min, const expr_c &clip_max);
+expr make_clip(const expr_c &in, const expr_c &clip_min,
+               const expr_c &clip_max);
 
 /**
  * Makes a indexing node of multiple dimemsions
@@ -856,12 +858,15 @@ expr make_clip(
  * @return the created node
  * */
 expr make_indexing(const expr &ptr, const std::vector<expr> &idx,
-        uint16_t length = 1, const expr &mask = expr(), uint16_t rows = 0);
+                   uint16_t length = 1, const expr &mask = expr(),
+                   uint16_t rows = 0);
 expr make_indexing(const expr &ptr, std::initializer_list<expr> idx,
-        uint16_t length = 1, const expr &mask = expr(), uint16_t rows = 0);
+                   uint16_t length = 1, const expr &mask = expr(),
+                   uint16_t rows = 0);
 
 expr make_indexing(const expr_c &ptr, const std::vector<expr_c> &idx,
-        uint16_t length = 1, const expr_c &mask = expr_c(), uint16_t rows = 0);
+                   uint16_t length = 1, const expr_c &mask = expr_c(),
+                   uint16_t rows = 0);
 
 /**
  * Makes a indexing node of single dimemsion
@@ -872,7 +877,7 @@ expr make_indexing(const expr_c &ptr, const std::vector<expr_c> &idx,
  * @return the created node
  * */
 expr make_indexing(const expr_c &ptr, const expr_c &idx, uint16_t length = 1,
-        const expr_c &mask = expr_c(), uint16_t rows = 0);
+                   const expr_c &mask = expr_c(), uint16_t rows = 0);
 
 /**
  * Makes a call node
@@ -891,10 +896,10 @@ expr make_call(const func_c &func, const std::vector<expr_c> &args);
  * @param old the old call_node
  * @return the created node
  * */
-expr remake_call(
-        const func_t &func, const std::vector<expr> &args, const call_c &old);
-expr remake_call(
-        const func_c &func, const std::vector<expr_c> &args, const call_c &old);
+expr remake_call(const func_t &func, const std::vector<expr> &args,
+                 const call_c &old);
+expr remake_call(const func_c &func, const std::vector<expr_c> &args,
+                 const call_c &old);
 
 /**
  * Makes a tensor node
@@ -905,21 +910,21 @@ expr remake_call(
  * @param strides stride info for each dim (optional)
  * @return the created node
  * */
-SC_INTERNAL_API expr make_tensor(const std::string &name,
-        const std::vector<expr> &dims, sc_data_type_t dtype,
-        address_space addrspace = address_space::automatic,
-        const std::shared_ptr<static_data_t> &init_value = nullptr,
-        const std::vector<expr> &strides = {});
-SC_INTERNAL_API expr make_tensor(const std::string &name,
-        const std::vector<expr_c> &dims, sc_data_type_t dtype,
-        address_space addrspace = address_space::automatic,
-        const std::shared_ptr<static_data_t> &init_value = nullptr,
-        const std::vector<expr_c> &strides = {});
-SC_INTERNAL_API expr make_tensor(const std::string &name,
-        std::initializer_list<expr> dims, sc_data_type_t dtype,
-        address_space addrspace = address_space::automatic,
-        const std::shared_ptr<static_data_t> &init_value = nullptr,
-        std::initializer_list<expr> strides = std::initializer_list<expr>());
+SC_INTERNAL_API expr make_tensor(
+    const std::string &name, const std::vector<expr> &dims,
+    sc_data_type_t dtype, address_space addrspace = address_space::automatic,
+    const std::shared_ptr<static_data_t> &init_value = nullptr,
+    const std::vector<expr> &strides = {});
+SC_INTERNAL_API expr make_tensor(
+    const std::string &name, const std::vector<expr_c> &dims,
+    sc_data_type_t dtype, address_space addrspace = address_space::automatic,
+    const std::shared_ptr<static_data_t> &init_value = nullptr,
+    const std::vector<expr_c> &strides = {});
+SC_INTERNAL_API expr make_tensor(
+    const std::string &name, std::initializer_list<expr> dims,
+    sc_data_type_t dtype, address_space addrspace = address_space::automatic,
+    const std::shared_ptr<static_data_t> &init_value = nullptr,
+    std::initializer_list<expr> strides = std::initializer_list<expr>());
 
 /**
  * Makes a tensor node with user-defined stride
@@ -931,13 +936,13 @@ SC_INTERNAL_API expr make_tensor(const std::string &name,
  * @return the created node
  * */
 expr make_stensor(const std::string &name, const std::vector<expr> &dims,
-        const std::vector<expr> &strides, sc_data_type_t dtype,
-        address_space addrspace = address_space::automatic,
-        const std::shared_ptr<static_data_t> &init_value = nullptr);
+                  const std::vector<expr> &strides, sc_data_type_t dtype,
+                  address_space addrspace = address_space::automatic,
+                  const std::shared_ptr<static_data_t> &init_value = nullptr);
 expr make_stensor(const std::string &name, const std::vector<expr_c> &dims,
-        const std::vector<expr_c> &strides, sc_data_type_t dtype,
-        address_space addrspace = address_space::automatic,
-        const std::shared_ptr<static_data_t> &init_value = nullptr);
+                  const std::vector<expr_c> &strides, sc_data_type_t dtype,
+                  address_space addrspace = address_space::automatic,
+                  const std::shared_ptr<static_data_t> &init_value = nullptr);
 
 /**
  * Makes a function node
@@ -948,13 +953,14 @@ expr make_stensor(const std::string &name, const std::vector<expr_c> &dims,
  * @return the created node
  * */
 SC_INTERNAL_API func_t make_func(const std::string &name,
-        const std::vector<expr> &params, stmt body, sc_data_type_t ret_type);
+                                 const std::vector<expr> &params, stmt body,
+                                 sc_data_type_t ret_type);
 /**
  * @see make_func overloaded function
  * */
 SC_INTERNAL_API func_t make_func(const std::string &name,
-        const std::vector<expr_c> &params, const stmt_c &body,
-        sc_data_type_t ret_type);
+                                 const std::vector<expr_c> &params,
+                                 const stmt_c &body, sc_data_type_t ret_type);
 
 /**
  * Makes an assign statement, the statement is not attached to any builder
@@ -979,7 +985,7 @@ stmt make_stmts_unattached(const std::vector<stmt_c> &seq);
  * @return the pushed node
  * */
 stmt make_if_else_unattached(const expr_c &condition, const stmt_c &then_case,
-        const stmt_c &else_case);
+                             const stmt_c &else_case);
 
 /**
  * Makes an evaluate statement, the statement is not attached to any
@@ -1004,8 +1010,9 @@ stmt make_returns_unattached(const expr_c &val = expr_c());
  * @param init init value, nullable
  * @return the pushed node
  * */
-SC_INTERNAL_API stmt make_var_tensor_def_unattached(const expr_c &var,
-        linkage linkage = linkage::local, const expr_c &init = expr_c());
+SC_INTERNAL_API stmt make_var_tensor_def_unattached(
+    const expr_c &var, linkage linkage = linkage::local,
+    const expr_c &init = expr_c());
 
 /**
  * Makes a for_loop, the statement is not attached to any builder
@@ -1024,12 +1031,13 @@ SC_INTERNAL_API stmt make_var_tensor_def_unattached(const expr_c &var,
  * @return the pushed node
  * */
 stmt make_for_loop_unattached(const expr_c &var, const expr_c &iter_begin,
-        const expr_c &iter_end, const expr_c &step, const stmt_c &body,
-        bool incremental, for_type kind, int num_threads = 0);
+                              const expr_c &iter_end, const expr_c &step,
+                              const stmt_c &body, bool incremental,
+                              for_type kind, int num_threads = 0);
 
 // makes a new intrin_call with type_ and intrin_attrs_ copied
-intrin_call remake_intrin_call(
-        const intrin_call_c &v, const std::vector<expr> &newargs);
+intrin_call remake_intrin_call(const intrin_call_c &v,
+                               const std::vector<expr> &newargs);
 
 // makes a func_ptr
 expr make_func_addr(func_t v);
@@ -1043,11 +1051,12 @@ expr make_phi(const std::vector<expr> &values, bool is_loop_phi = false);
  * Makes a x86 gerenal intrinsic node
  * */
 expr make_x86_intrin(x86_intrin_type::x86_intrin_type_t type,
-        const std::vector<expr> &args, const any_map_t &attrs = any_map_t());
+                     const std::vector<expr> &args,
+                     const any_map_t &attrs = any_map_t());
 
 // makes a new low_level_intrin with newargs and type_ copied
-low_level_intrin remake_low_level_intrin(
-        const low_level_intrin_c &v, const std::vector<expr> &newargs);
+low_level_intrin remake_low_level_intrin(const low_level_intrin_c &v,
+                                         const std::vector<expr> &newargs);
 
 /**
  * Gets the pointer of an element of the tensor as a view
@@ -1074,14 +1083,17 @@ low_level_intrin remake_low_level_intrin(
  * @return the address of the element in the tensor
  * */
 SC_INTERNAL_API expr tensor_ptr(const expr &tensor,
-        const std::vector<expr> &idx, const std::vector<expr> &shape = {},
-        bool is_slice = false);
+                                const std::vector<expr> &idx,
+                                const std::vector<expr> &shape = {},
+                                bool is_slice = false);
 SC_INTERNAL_API expr tensor_ptr(const expr_c &tensor,
-        const std::vector<expr_c> &idx, const std::vector<expr_c> &shape = {},
-        bool is_slice = false);
+                                const std::vector<expr_c> &idx,
+                                const std::vector<expr_c> &shape = {},
+                                bool is_slice = false);
 SC_INTERNAL_API expr tensor_ptr(const expr &tensor,
-        std::initializer_list<expr> idx, std::initializer_list<expr> shape = {},
-        bool is_slice = false);
+                                std::initializer_list<expr> idx,
+                                std::initializer_list<expr> shape = {},
+                                bool is_slice = false);
 /**
  * Sets the attr of the input IR node
  * @tparam TNode should be expr(_c) or stmt(_c)
@@ -1094,8 +1106,8 @@ SC_INTERNAL_API expr tensor_ptr(const expr &tensor,
  * */
 template <typename TNode, typename T>
 TNode with_attr(TNode node, const std::string &key, const T &value) {
-    node->attr()[key] = value;
-    return node;
+  node->attr()[key] = value;
+  return node;
 }
 
 /**
@@ -1112,22 +1124,22 @@ TNode with_attr(TNode node, const std::string &key, const T &value) {
  * }
  * */
 class ir_builder_t : public builder_impl_t {
-    builder_impl_t *old_;
+  builder_impl_t *old_;
 
 public:
-    ir_builder_t(const ir_builder_t &) = delete;
-    ir_builder_t() {
-        old_ = get_current_builder();
-        set_current_builder(this);
-    }
-    ~ir_builder_t() { set_current_builder(old_); }
+  ir_builder_t(const ir_builder_t &) = delete;
+  ir_builder_t() {
+    old_ = get_current_builder();
+    set_current_builder(this);
+  }
+  ~ir_builder_t() { set_current_builder(old_); }
 };
 } // namespace builder
 
-#define _BUILDER_MAKE_BIN_OP(OP, NAME) \
-    inline expr operator OP(const expr_c &l, const expr_c &r) { \
-        return builder::make_##NAME(l, r); \
-    }
+#define _BUILDER_MAKE_BIN_OP(OP, NAME)                                         \
+  inline expr operator OP(const expr_c &l, const expr_c &r) {                  \
+    return builder::make_##NAME(l, r);                                         \
+  }
 
 _BUILDER_MAKE_BIN_OP(+, add)
 _BUILDER_MAKE_BIN_OP(-, sub)
@@ -1148,9 +1160,7 @@ _BUILDER_MAKE_BIN_OP(^, int_xor)
 _BUILDER_MAKE_BIN_OP(<<, shl)
 _BUILDER_MAKE_BIN_OP(>>, shr)
 
-inline expr operator!(const expr_c &l) {
-    return builder::make_logic_not(l);
-}
+inline expr operator!(const expr_c &l) { return builder::make_logic_not(l); }
 #undef _BUILDER_MAKE_BIN_OP
 
 expr copy_attr(const expr_base &ths, expr &&newexpr);

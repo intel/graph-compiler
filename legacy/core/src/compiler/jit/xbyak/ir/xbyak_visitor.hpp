@@ -29,25 +29,25 @@ namespace xbyak {
 
 class xbyak_visitor_t : public ir_visitor_t {
 public:
-    using ir_visitor_t::dispatch;
-    using ir_visitor_t::dispatch_expr_vector;
-    using ir_visitor_t::visit;
+  using ir_visitor_t::dispatch;
+  using ir_visitor_t::dispatch_expr_vector;
+  using ir_visitor_t::visit;
 
-    stmt_c visit(stmts_c v) override;
-    stmt_c visit(for_loop_c v) override;
+  stmt_c visit(stmts_c v) override;
+  stmt_c visit(for_loop_c v) override;
 
-    expr_c visit(tensor_c v) override;
-    expr_c visit(low_level_intrin_c v) override;
+  expr_c visit(tensor_c v) override;
+  expr_c visit(low_level_intrin_c v) override;
 
-    virtual expr_c visit(xbyak_intrin_c v);
+  virtual expr_c visit(xbyak_intrin_c v);
 
 protected:
-    uint64_t loop_depth() { return loop_depth_; }
-    const stmt_base_t *current_scope() { return current_scope_; }
+  uint64_t loop_depth() { return loop_depth_; }
+  const stmt_base_t *current_scope() { return current_scope_; }
 
 private:
-    uint64_t loop_depth_ = 0;
-    const stmt_base_t *current_scope_ = nullptr;
+  uint64_t loop_depth_ = 0;
+  const stmt_base_t *current_scope_ = nullptr;
 };
 
 } // namespace xbyak

@@ -31,11 +31,11 @@ namespace gc {
  * */
 class auto_caster_t : public module_pass_t {
 public:
-    func_c operator()(func_c f);
-    stmt_c operator()(stmt_c s);
-    expr_c operator()(expr_c s);
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  func_c operator()(func_c f);
+  stmt_c operator()(stmt_c s);
+  expr_c operator()(expr_c s);
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 /**

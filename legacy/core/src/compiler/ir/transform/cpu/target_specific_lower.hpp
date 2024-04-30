@@ -29,10 +29,10 @@ namespace gc {
  * */
 class target_specific_lowering_cpu_t : public module_pass_t {
 public:
-    context_ptr ctx_;
-    target_specific_lowering_cpu_t(context_ptr ctx) : ctx_(ctx) {}
-    const_ir_module_ptr operator()(const_ir_module_ptr m) override;
-    SC_DECL_PASS_INFO_FUNC();
+  context_ptr ctx_;
+  target_specific_lowering_cpu_t(context_ptr ctx) : ctx_(ctx) {}
+  const_ir_module_ptr operator()(const_ir_module_ptr m) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

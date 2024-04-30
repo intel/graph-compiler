@@ -29,13 +29,13 @@ namespace runtime {
 struct thread_local_buffer_t;
 struct thread_local_registry_t;
 struct trace_manager_t {
-    struct trace_log_t {
-        uint16_t func_id_;
-        char in_or_out_;
-        int32_t arg_;
-        int64_t tick_;
-    };
-    std::vector<trace_log_t> trace_logs_;
+  struct trace_log_t {
+    uint16_t func_id_;
+    char in_or_out_;
+    int32_t arg_;
+    int64_t tick_;
+  };
+  std::vector<trace_log_t> trace_logs_;
 };
 
 void write_traces(thread_local_registry_t *r);

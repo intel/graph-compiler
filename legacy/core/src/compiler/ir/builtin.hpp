@@ -17,14 +17,14 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_BUILTIN_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_BUILTIN_HPP
 
-#include <functional>
-#include <string>
-#include <utility>
-#include <vector>
 #include <compiler/config/context.hpp>
 #include <compiler/ir/sc_function.hpp>
+#include <functional>
 #include <runtime/microkernel/cpu/brgemm_common.hpp>
+#include <string>
 #include <util/utils.hpp>
+#include <utility>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -113,8 +113,8 @@ SC_INTERNAL_API std::vector<expr> create_initialed_postops_data();
  * @param dtypeC sc_data_type_t
  * @param value f32
  * */
-void dnnl_brgemm_init(
-        expr C, expr M, expr N, expr LDC, sc_data_type_t dtypeC, expr value);
+void dnnl_brgemm_init(expr C, expr M, expr N, expr LDC, sc_data_type_t dtypeC,
+                      expr value);
 
 /**
  * Generates a generate call node to brgemm_init_update.
@@ -141,21 +141,20 @@ void dnnl_brgemm_init(
  * @param brg_postops_data postops_data
  * @param brg_c_buf c_buf
  * */
-evaluate brgemm_init_update(const expr &A, const expr &B, const expr &C,
-        const expr &num, const expr &M, const expr &N, const expr &K,
-        const expr &LDA, const expr &LDB, const expr &LDC, const expr &stride_a,
-        const expr &stride_b, const sc_data_type_t &dtypeA,
-        const sc_data_type_t &dtypeB,
-        const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
-        const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
-        const expr &bd_mask_idx = get_ir_zero_index(),
-        const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
-        const expr &bottom_pad = get_ir_null(),
-        const sc_brgemm_postops_setting_t &brg_postops_setting
-        = sc_brgemm_postops_setting_t(),
-        const std::vector<expr> &brg_postops_data
-        = create_initialed_postops_data(),
-        const expr &brg_c_buf = get_ir_null());
+evaluate brgemm_init_update(
+    const expr &A, const expr &B, const expr &C, const expr &num, const expr &M,
+    const expr &N, const expr &K, const expr &LDA, const expr &LDB,
+    const expr &LDC, const expr &stride_a, const expr &stride_b,
+    const sc_data_type_t &dtypeA, const sc_data_type_t &dtypeB,
+    const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
+    const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
+    const expr &bd_mask_idx = get_ir_zero_index(),
+    const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
+    const expr &bottom_pad = get_ir_null(),
+    const sc_brgemm_postops_setting_t &brg_postops_setting =
+        sc_brgemm_postops_setting_t(),
+    const std::vector<expr> &brg_postops_data = create_initialed_postops_data(),
+    const expr &brg_c_buf = get_ir_null());
 
 /**
  * Generates a generate call node to brgemm_init_update. If you want to use
@@ -186,21 +185,20 @@ evaluate brgemm_init_update(const expr &A, const expr &B, const expr &C,
  * @param brg_postops_data postops_data
  * @param brg_c_buf c_buf
  * */
-evaluate brgemm_init_update_allow_fusion(const expr &A, const expr &B,
-        const expr &C, const expr &num, const expr &M, const expr &N,
-        const expr &K, const expr &LDA, const expr &LDB, const expr &LDC,
-        const expr &stride_a, const expr &stride_b,
-        const sc_data_type_t &dtypeA, const sc_data_type_t &dtypeB,
-        const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
-        const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
-        const expr &bd_mask_idx = get_ir_zero_index(),
-        const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
-        const expr &bottom_pad = get_ir_null(),
-        const sc_brgemm_postops_setting_t &brg_postops_setting
-        = sc_brgemm_postops_setting_t(),
-        const std::vector<expr> &brg_postops_data
-        = create_initialed_postops_data(),
-        const expr &brg_c_buf = get_ir_null());
+evaluate brgemm_init_update_allow_fusion(
+    const expr &A, const expr &B, const expr &C, const expr &num, const expr &M,
+    const expr &N, const expr &K, const expr &LDA, const expr &LDB,
+    const expr &LDC, const expr &stride_a, const expr &stride_b,
+    const sc_data_type_t &dtypeA, const sc_data_type_t &dtypeB,
+    const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
+    const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
+    const expr &bd_mask_idx = get_ir_zero_index(),
+    const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
+    const expr &bottom_pad = get_ir_null(),
+    const sc_brgemm_postops_setting_t &brg_postops_setting =
+        sc_brgemm_postops_setting_t(),
+    const std::vector<expr> &brg_postops_data = create_initialed_postops_data(),
+    const expr &brg_c_buf = get_ir_null());
 
 /**
  * Generates a generate call node to brgemm_init_f32.
@@ -212,8 +210,8 @@ evaluate brgemm_init_update_allow_fusion(const expr &A, const expr &B,
  * @param dtypeC sc_data_type_t
  * @param value f32
  * */
-void brgemm_init(
-        expr C, expr M, expr N, expr LDC, sc_data_type_t dtypeC, expr value);
+void brgemm_init(expr C, expr M, expr N, expr LDC, sc_data_type_t dtypeC,
+                 expr value);
 
 /**
  * Generates a generate call node to brgemm_update.
@@ -242,21 +240,20 @@ void brgemm_init(
  * @param brg_postops_data postops_data
  * @param brg_c_buf c_buf
  * */
-evaluate brgemm_update(const expr &A, const expr &B, const expr &C,
-        const expr &num, const expr &M, const expr &N, const expr &K,
-        const expr &LDA, const expr &LDB, const expr &LDC, const expr &stride_a,
-        const expr &stride_b, const sc_data_type_t &dtypeA,
-        const sc_data_type_t &dtypeB,
-        const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
-        const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
-        const expr &bd_mask_idx = get_ir_zero_index(),
-        const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
-        const expr &bottom_pad = get_ir_null(),
-        const sc_brgemm_postops_setting_t &brg_postops_setting
-        = sc_brgemm_postops_setting_t(),
-        const std::vector<expr> &brg_postops_data
-        = create_initialed_postops_data(),
-        const expr &brg_c_buf = get_ir_null());
+evaluate brgemm_update(
+    const expr &A, const expr &B, const expr &C, const expr &num, const expr &M,
+    const expr &N, const expr &K, const expr &LDA, const expr &LDB,
+    const expr &LDC, const expr &stride_a, const expr &stride_b,
+    const sc_data_type_t &dtypeA, const sc_data_type_t &dtypeB,
+    const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
+    const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
+    const expr &bd_mask_idx = get_ir_zero_index(),
+    const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
+    const expr &bottom_pad = get_ir_null(),
+    const sc_brgemm_postops_setting_t &brg_postops_setting =
+        sc_brgemm_postops_setting_t(),
+    const std::vector<expr> &brg_postops_data = create_initialed_postops_data(),
+    const expr &brg_c_buf = get_ir_null());
 
 /**
  * Generates a generate call node to brgemm_list_update.
@@ -287,21 +284,20 @@ evaluate brgemm_update(const expr &A, const expr &B, const expr &C,
  * @param brg_postops_data postops_data
  * @param brg_c_buf c_buf
  * */
-evaluate brgemm_list_update(const expr &A, const expr &B, const expr &C,
-        const expr &num, const expr &M, const expr &N, const expr &K,
-        const expr &lda, const expr &ldb, const expr &ldc, const expr &stride_a,
-        const expr &stride_b, const expr &len, const sc_data_type_t &dtypeA,
-        const sc_data_type_t &dtypeB,
-        const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
-        const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
-        const expr &bd_mask_idx = get_ir_zero_index(),
-        const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
-        const expr &bottom_pad = get_ir_null(),
-        const sc_brgemm_postops_setting_t &brg_postops_setting
-        = sc_brgemm_postops_setting_t(),
-        const std::vector<expr> &brg_postops_data
-        = create_initialed_postops_data(),
-        const expr &brg_c_buf = get_ir_null());
+evaluate brgemm_list_update(
+    const expr &A, const expr &B, const expr &C, const expr &num, const expr &M,
+    const expr &N, const expr &K, const expr &lda, const expr &ldb,
+    const expr &ldc, const expr &stride_a, const expr &stride_b,
+    const expr &len, const sc_data_type_t &dtypeA, const sc_data_type_t &dtypeB,
+    const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
+    const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
+    const expr &bd_mask_idx = get_ir_zero_index(),
+    const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
+    const expr &bottom_pad = get_ir_null(),
+    const sc_brgemm_postops_setting_t &brg_postops_setting =
+        sc_brgemm_postops_setting_t(),
+    const std::vector<expr> &brg_postops_data = create_initialed_postops_data(),
+    const expr &brg_c_buf = get_ir_null());
 
 /**
  * Generates a generate call node to brgemm_init_list_update.
@@ -332,21 +328,20 @@ evaluate brgemm_list_update(const expr &A, const expr &B, const expr &C,
  * @param brg_postops_data postops_data
  * @param brg_c_buf c_buf
  * */
-evaluate brgemm_init_list_update(const expr &A, const expr &B, const expr &C,
-        const expr &num, const expr &M, const expr &N, const expr &K,
-        const expr &lda, const expr &ldb, const expr &ldc, const expr &stride_a,
-        const expr &stride_b, const expr &len, const sc_data_type_t &dtypeA,
-        const sc_data_type_t &dtypeB,
-        const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
-        const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
-        const expr &bd_mask_idx = get_ir_zero_index(),
-        const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
-        const expr &bottom_pad = get_ir_null(),
-        const sc_brgemm_postops_setting_t &brg_postops_setting
-        = sc_brgemm_postops_setting_t(),
-        const std::vector<expr> &brg_postops_data
-        = create_initialed_postops_data(),
-        const expr &brg_c_buf = get_ir_null());
+evaluate brgemm_init_list_update(
+    const expr &A, const expr &B, const expr &C, const expr &num, const expr &M,
+    const expr &N, const expr &K, const expr &lda, const expr &ldb,
+    const expr &ldc, const expr &stride_a, const expr &stride_b,
+    const expr &len, const sc_data_type_t &dtypeA, const sc_data_type_t &dtypeB,
+    const sc_brgemm_attrs_t &brg_attrs = sc_brgemm_attrs_t(),
+    const sc_brgemm_bd_mask_t &bd_mask = sc_brgemm_bd_mask_t(),
+    const expr &bd_mask_idx = get_ir_zero_index(),
+    const int &bd_mask_set_num = 1, const expr &top_pad = get_ir_null(),
+    const expr &bottom_pad = get_ir_null(),
+    const sc_brgemm_postops_setting_t &brg_postops_setting =
+        sc_brgemm_postops_setting_t(),
+    const std::vector<expr> &brg_postops_data = create_initialed_postops_data(),
+    const expr &brg_c_buf = get_ir_null());
 
 /**
  * Generates a generate call node to mem_zero.
@@ -369,71 +364,79 @@ func_t get_mem_set_func();
 func_t get_brgemm_postops_data_init_func();
 
 enum class brgemm_mode {
-    // offset doesn't used for now.
-    // offset,
-    stride,
-    addr_list,
+  // offset doesn't used for now.
+  // offset,
+  stride,
+  addr_list,
 };
 
 // returns <kernerl creator, caller> pair
 std::pair<func_t, func_t> get_brgemm_creator_and_call_func(
-        brgemm_mode mode, scflags_t::brgemm_backend_t backend, bool has_postop);
+    brgemm_mode mode, scflags_t::brgemm_backend_t backend, bool has_postop);
 
 // returns <update, init_update> pair
-std::pair<func_t, func_t> get_brgemm_update_funcs(
-        brgemm_mode mode, scflags_t::brgemm_backend_t backend);
+std::pair<func_t, func_t>
+get_brgemm_update_funcs(brgemm_mode mode, scflags_t::brgemm_backend_t backend);
 func_t get_brgemm_call_range_func(brgemm_mode mode);
 
 // dynamic query format function evaluation at runtime.
-expr call_matmul_core_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &in1, const expr &ori_in0,
-        const expr &ori_in1, const expr &out_format0, const expr &in_format0,
-        const expr &in_format1, const expr &ori_in_format0,
-        const expr &ori_in_format1, const expr &out_size, const expr &kernel,
-        const expr &impl = get_ir_null());
-expr call_managed_matmul_core_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &in1, const expr &ori_in0,
-        const expr &ori_in1, const expr &out_format0, const expr &in_format0,
-        const expr &in_format1, const expr &ori_in_format0,
-        const expr &ori_in_format1, const expr &out_size, const expr &kernel,
-        const expr &impl = get_ir_null());
-expr call_conv_fwd_core_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &in1, const expr &ori_in0,
-        const expr &ori_in1, const expr &out_format0, const expr &in_format0,
-        const expr &in_format1, const expr &ori_in_format0,
-        const expr &ori_in_format1, const expr &out_size, const expr &kernel,
-        const expr &impl = get_ir_null());
-expr call_unary_fusible_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &out_foramt0, const expr &in_format0,
-        const expr &out_size, const expr &kernel);
+expr call_matmul_core_query_format(
+    const expr &tb, const expr &out0, const expr &in0, const expr &in1,
+    const expr &ori_in0, const expr &ori_in1, const expr &out_format0,
+    const expr &in_format0, const expr &in_format1, const expr &ori_in_format0,
+    const expr &ori_in_format1, const expr &out_size, const expr &kernel,
+    const expr &impl = get_ir_null());
+expr call_managed_matmul_core_query_format(
+    const expr &tb, const expr &out0, const expr &in0, const expr &in1,
+    const expr &ori_in0, const expr &ori_in1, const expr &out_format0,
+    const expr &in_format0, const expr &in_format1, const expr &ori_in_format0,
+    const expr &ori_in_format1, const expr &out_size, const expr &kernel,
+    const expr &impl = get_ir_null());
+expr call_conv_fwd_core_query_format(
+    const expr &tb, const expr &out0, const expr &in0, const expr &in1,
+    const expr &ori_in0, const expr &ori_in1, const expr &out_format0,
+    const expr &in_format0, const expr &in_format1, const expr &ori_in_format0,
+    const expr &ori_in_format1, const expr &out_size, const expr &kernel,
+    const expr &impl = get_ir_null());
+expr call_unary_fusible_op_query_format(
+    const expr &tb, const expr &out0, const expr &in0, const expr &out_foramt0,
+    const expr &in_format0, const expr &out_size, const expr &kernel);
 expr call_padding_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &out_foramt0, const expr &in_format0,
-        const expr &out_size, const expr &kernel);
+                                  const expr &in0, const expr &out_foramt0,
+                                  const expr &in_format0, const expr &out_size,
+                                  const expr &kernel);
 expr call_pooling_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &out_foramt0, const expr &in_format0,
-        const expr &out_size, const expr &kernel);
-expr call_binary_fusible_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &in1, const expr &out_format0,
-        const expr &in_format0, const expr &in_format1, const expr &out_size,
-        const expr &kernel);
+                                  const expr &in0, const expr &out_foramt0,
+                                  const expr &in_format0, const expr &out_size,
+                                  const expr &kernel);
+expr call_binary_fusible_op_query_format(
+    const expr &tb, const expr &out0, const expr &in0, const expr &in1,
+    const expr &out_format0, const expr &in_format0, const expr &in_format1,
+    const expr &out_size, const expr &kernel);
 // reorder need to query its impl alg.
 expr call_reorder_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &out_foramt0, const expr &in_format0,
-        const expr &out_size, const expr &kernel,
-        const expr &impl = get_ir_null());
+                                  const expr &in0, const expr &out_foramt0,
+                                  const expr &in_format0, const expr &out_size,
+                                  const expr &kernel,
+                                  const expr &impl = get_ir_null());
 expr call_reduce_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &out_foramt0, const expr &in_format0,
-        const expr &out_size, const expr &kernel);
+                                 const expr &in0, const expr &out_foramt0,
+                                 const expr &in_format0, const expr &out_size,
+                                 const expr &kernel);
 expr call_tensor_view_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &out_format0, const expr &in_format0,
-        const expr &out_size, const expr &kernel);
+                                      const expr &in0, const expr &out_format0,
+                                      const expr &in_format0,
+                                      const expr &out_size, const expr &kernel);
 expr call_select_op_query_format(const expr &tb, const expr &out0,
-        const expr &in0, const expr &in1, const expr &in2,
-        const expr &out_format0, const expr &in_format0, const expr &in_format1,
-        const expr &in_format2, const expr &out_size, const expr &kernel);
+                                 const expr &in0, const expr &in1,
+                                 const expr &in2, const expr &out_format0,
+                                 const expr &in_format0, const expr &in_format1,
+                                 const expr &in_format2, const expr &out_size,
+                                 const expr &kernel);
 expr call_fused_op_query_combined(const expr &tb, const expr &combined_keys,
-        const expr &combined_algs, const expr &each_op_num_key,
-        const expr &op_num, const expr &kernel);
+                                  const expr &combined_algs,
+                                  const expr &each_op_num_key,
+                                  const expr &op_num, const expr &kernel);
 expr call_cal_blocking_dims(const expr &placeholder, const expr &format);
 // Get single config by input shape of matmul.
 expr call_get_matmul_dyn_cfg_single(const expr &in, const expr &is_batch);
@@ -487,11 +490,11 @@ func_t get_brgemm_init_func();
  * grouped into sub-groups with 2, 3, or 6 threads. The function can return 0,
  * indicating that the loop boundary are not constants.
  * */
-uint64_t generate_balance211(int num_threads, const expr &start,
-        const expr &end, const expr &step, const expr &tid,
-        const std::function<std::string(const char *)> &namer, expr *out_start,
-        expr *out_len = nullptr, expr *out_end = nullptr,
-        std::vector<stmt> *out_seq = nullptr);
+uint64_t generate_balance211(
+    int num_threads, const expr &start, const expr &end, const expr &step,
+    const expr &tid, const std::function<std::string(const char *)> &namer,
+    expr *out_start, expr *out_len = nullptr, expr *out_end = nullptr,
+    std::vector<stmt> *out_seq = nullptr);
 
 } // namespace builtin
 } // namespace gc

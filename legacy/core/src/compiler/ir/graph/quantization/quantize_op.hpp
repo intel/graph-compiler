@@ -16,12 +16,12 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_QUANTIZATION_QUANTIZE_OP_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_QUANTIZATION_QUANTIZE_OP_HPP
 
-#include <memory>
-#include <vector>
 #include "quantize_info.hpp"
 #include <compiler/ir/graph/graph.hpp>
 #include <compiler/ir/graph/graph_op.hpp>
 #include <compiler/ir/graph/traits.hpp>
+#include <memory>
+#include <vector>
 namespace dnnl {
 namespace impl {
 namespace graph {
@@ -34,30 +34,32 @@ namespace quantize {
  * */
 class quantize_op_t : public graph_op_t, public op_traits::auto_copyable_t {
 public:
-    quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
-    quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const any_map_t &attrs = any_map_t());
-    void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                const std::vector<graph_tensor_ptr> &outs,
+                const any_map_t &attrs);
+  quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                const any_map_t &attrs = any_map_t());
+  void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 };
 
 // dequantize op
 class dequantize_op_t : public graph_op_t, public op_traits::auto_copyable_t {
 public:
-    dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
-    dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const any_map_t &attrs = any_map_t());
+  dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                  const std::vector<graph_tensor_ptr> &outs,
+                  const any_map_t &attrs);
+  dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                  const any_map_t &attrs = any_map_t());
 
-    void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 };
 
 /**
@@ -66,31 +68,33 @@ public:
 class dynamic_quantize_op_t : public graph_op_t,
                               public op_traits::auto_copyable_t {
 public:
-    dynamic_quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
-    dynamic_quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const any_map_t &attrs = any_map_t());
-    void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  dynamic_quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                        const std::vector<graph_tensor_ptr> &outs,
+                        const any_map_t &attrs);
+  dynamic_quantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                        const any_map_t &attrs = any_map_t());
+  void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 };
 
 // dynamic dequantize op
 class dynamic_dequantize_op_t : public graph_op_t,
                                 public op_traits::auto_copyable_t {
 public:
-    dynamic_dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
-    dynamic_dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const any_map_t &attrs = any_map_t());
+  dynamic_dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                          const std::vector<graph_tensor_ptr> &outs,
+                          const any_map_t &attrs);
+  dynamic_dequantize_op_t(const std::vector<graph_tensor_ptr> &ins,
+                          const any_map_t &attrs = any_map_t());
 
-    void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 };
 } // namespace quantize
 } // namespace gc

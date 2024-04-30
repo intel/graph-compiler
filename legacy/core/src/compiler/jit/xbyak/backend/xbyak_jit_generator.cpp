@@ -28,14 +28,14 @@ namespace xbyak {
 xbyak_jit_generator::xbyak_jit_generator()
     : Xbyak::CodeGenerator(Xbyak::DEFAULT_MAX_CODE_SIZE, Xbyak::AutoGrow) {}
 
-void *xbyak_jit_generator::get_func_address(
-        const std::string &func_name) const {
-    auto iter = func_name_to_address_.find(func_name);
-    if (iter == func_name_to_address_.end()) {
-        return nullptr;
-    } else {
-        return iter->second;
-    }
+void *
+xbyak_jit_generator::get_func_address(const std::string &func_name) const {
+  auto iter = func_name_to_address_.find(func_name);
+  if (iter == func_name_to_address_.end()) {
+    return nullptr;
+  } else {
+    return iter->second;
+  }
 }
 
 } // namespace xbyak

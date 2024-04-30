@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_CONSTANT_FOLD_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_CONSTANT_FOLD_HPP
 
-#include <utility>
 #include "../module_pass.hpp"
+#include <utility>
 
 namespace dnnl {
 namespace impl {
@@ -53,14 +53,14 @@ bool is_op_commutative_and_associative(const expr_c &v);
  * */
 class constant_folder_t : public module_pass_t {
 public:
-    bool fast_;
-    constant_folder_t(bool fast = true) : fast_(fast) {}
-    func_c operator()(func_c f) const;
-    stmt_c operator()(stmt_c f) const;
-    expr_c operator()(expr_c f) const;
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    expr_c expand_polynomial(expr_c f, int max_iter = 1, bool skip_mod = false);
-    SC_DECL_PASS_INFO_FUNC();
+  bool fast_;
+  constant_folder_t(bool fast = true) : fast_(fast) {}
+  func_c operator()(func_c f) const;
+  stmt_c operator()(stmt_c f) const;
+  expr_c operator()(expr_c f) const;
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  expr_c expand_polynomial(expr_c f, int max_iter = 1, bool skip_mod = false);
+  SC_DECL_PASS_INFO_FUNC();
 };
 // do auto cast and constant fold for input expr.
 expr do_cast_and_fold(const expr &in);

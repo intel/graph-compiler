@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_PARALLEL_MERGE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_PARALLEL_MERGE_HPP
 
-#include <utility>
 #include "../module_pass.hpp"
+#include <utility>
 
 namespace dnnl {
 namespace impl {
@@ -31,8 +31,8 @@ namespace gc {
  * */
 class parallel_merge_t : public module_pass_t {
 public:
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

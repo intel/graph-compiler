@@ -24,11 +24,11 @@ namespace impl {
 namespace graph {
 namespace gc {
 
-sequential_module_pass_t get_default_precodegen_passes(
-        const context_ptr &ctx, bool gen_wrapper);
+sequential_module_pass_t get_default_precodegen_passes(const context_ptr &ctx,
+                                                       bool gen_wrapper);
 
-const_ir_module_ptr run_precodegen_passes(
-        module_pass_t &pass, const_ir_module_ptr f);
+const_ir_module_ptr run_precodegen_passes(module_pass_t &pass,
+                                          const_ir_module_ptr f);
 sequential_module_pass_t get_ssa_passes(const context_ptr &ctx);
 } // namespace gc
 } // namespace graph

@@ -30,13 +30,11 @@ constexpr sc_dim dynamic_any = -1;
 }
 
 inline uint64_t dim2unsigned(sc_dim v) {
-    assert(v >= 0);
-    return v;
+  assert(v >= 0);
+  return v;
 }
 
-inline bool is_dynamic_dim(sc_dim v) {
-    return v < 0;
-}
+inline bool is_dynamic_dim(sc_dim v) { return v < 0; }
 
 } // namespace gc
 } // namespace graph

@@ -33,8 +33,8 @@ SC_API void sc_make_trace_kernel(int id, int in_or_out, int arg);
 // dynamic
 SC_API void *sc_extract_dyn_base(void *tsr);
 SC_API void *sc_extract_dyn_shape(void *tsr);
-SC_API void sc_initialize_dyn_tsr(
-        void *dyn_tsr, void *tsr, void *shapes, uint8_t dyn_mask, int ndims);
+SC_API void sc_initialize_dyn_tsr(void *dyn_tsr, void *tsr, void *shapes,
+                                  uint8_t dyn_mask, int ndims);
 };
 
 namespace dnnl {

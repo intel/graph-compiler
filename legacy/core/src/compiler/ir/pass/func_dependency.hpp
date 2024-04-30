@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_FUNC_DEPENDENCY_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_FUNC_DEPENDENCY_HPP
 
-#include <vector>
 #include "../function_pass.hpp"
 #include "../sc_function.hpp"
 #include <unordered_set>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -37,24 +37,24 @@ namespace gc {
  *      the order that they are called in the function
  * */
 class func_dependency_finder_t : public function_pass_t {
-    std::vector<func_t> &dep_;
+  std::vector<func_t> &dep_;
 
 public:
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c f);
-    /**
-     * @param f the stmt to walk through
-     * @param func in & out, the function already met before. Will insert new
-     * dependencies after calling this function
-     * */
-    stmt_c operator()(stmt_c f, std::unordered_set<func_t> &funcs);
-    /**
-     * @param f the func_t to walk through
-     * @param func in & out, the function already met before. Will insert new
-     * dependencies after calling this function
-     * */
-    func_c operator()(func_c f, std::unordered_set<func_t> &funcs);
-    func_dependency_finder_t(std::vector<func_t> &dep) : dep_(dep) {}
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c f);
+  /**
+   * @param f the stmt to walk through
+   * @param func in & out, the function already met before. Will insert new
+   * dependencies after calling this function
+   * */
+  stmt_c operator()(stmt_c f, std::unordered_set<func_t> &funcs);
+  /**
+   * @param f the func_t to walk through
+   * @param func in & out, the function already met before. Will insert new
+   * dependencies after calling this function
+   * */
+  func_c operator()(func_c f, std::unordered_set<func_t> &funcs);
+  func_dependency_finder_t(std::vector<func_t> &dep) : dep_(dep) {}
 };
 
 } // namespace gc

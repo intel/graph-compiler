@@ -34,38 +34,38 @@ namespace xbyak {
 
 class xbyak_printer_t : public ir_viewer_t {
 public:
-    xbyak_printer_t(std::ostream &os, const_ir_module_ptr &ir_mod,
-            x86_64::target_profile_t &profile);
+  xbyak_printer_t(std::ostream &os, const_ir_module_ptr &ir_mod,
+                  x86_64::target_profile_t &profile);
 
 private:
-    using ir_viewer_t::dispatch;
-    using ir_viewer_t::view;
+  using ir_viewer_t::dispatch;
+  using ir_viewer_t::view;
 
-    func_c dispatch(func_c e) override;
-    stmt_c dispatch(stmt_c e) override;
-    expr_c dispatch(expr_c e) override;
+  func_c dispatch(func_c e) override;
+  stmt_c dispatch(stmt_c e) override;
+  expr_c dispatch(expr_c e) override;
 
-    void view(assign_c v) override;
-    void view(stmts_c v) override;
-    void view(if_else_c v) override;
-    void view(evaluate_c v) override;
-    void view(for_loop_c v) override;
-    void view(returns_c v) override;
-    void view(define_c v) override;
+  void view(assign_c v) override;
+  void view(stmts_c v) override;
+  void view(if_else_c v) override;
+  void view(evaluate_c v) override;
+  void view(for_loop_c v) override;
+  void view(returns_c v) override;
+  void view(define_c v) override;
 
-    void print_index_indents(int64_t index);
-    void print_padding_indents();
+  void print_index_indents(int64_t index);
+  void print_padding_indents();
 
-    ostream &print_expr_info(ostream &os, const expr &arg);
-    ostream &print_expr_vec(ostream &os, const std::vector<expr_c> &args);
+  ostream &print_expr_info(ostream &os, const expr &arg);
+  ostream &print_expr_vec(ostream &os, const std::vector<expr_c> &args);
 
-    x86_64::target_profile_t &profile_;
-    std::shared_ptr<virtual_slots_map_t> virtual_slots_map_;
+  x86_64::target_profile_t &profile_;
+  std::shared_ptr<virtual_slots_map_t> virtual_slots_map_;
 
-    constexpr static int index_width_ = 6;
-    int indent_ = 0;
+  constexpr static int index_width_ = 6;
+  int indent_ = 0;
 
-    track_pos_stream_t ss_;
+  track_pos_stream_t ss_;
 };
 
 } // namespace xbyak

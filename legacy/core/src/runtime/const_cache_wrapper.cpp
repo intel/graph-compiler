@@ -16,9 +16,9 @@
 
 #include <atomic>
 #include <memory>
-#include <stdint.h>
 #include <runtime/const_cache_wrapper.hpp>
 #include <runtime/memorypool.hpp>
+#include <stdint.h>
 
 namespace dnnl {
 namespace impl {
@@ -29,34 +29,33 @@ namespace runtime {
 const_cache_proxy::~const_cache_proxy() = default;
 
 void *const_cache_proxy::acquire(int32_t *inited) {
-    if (check_alive_and_ref()) {
-        *inited = *inited && initialized_;
-        return buffer_;
-    }
-    return nullptr;
+  if (check_alive_and_ref()) {
+    *inited = *inited && initialized_;
+    return buffer_;
+  }
+  return nullptr;
 }
 
 bool const_cache_proxy::release() {
-    if (is_alive()) {
-        deref();
-        initialized_ = 1;
-        return true;
-    }
-    return false;
+  if (is_alive()) {
+    deref();
+    initialized_ = 1;
+    return true;
+  }
+  return false;
 }
 
 std::shared_ptr<const_cache_proxy> create_and_register_const_cache(
-        dnnl::impl::graph::gc::runtime::engine_t *engine, size_t size) {
-    // simply allocate buffer and return
-    std::shared_ptr<void> base = std::shared_ptr<void> {
-            engine->vtable_->persistent_alloc(engine, size), [engine](void *p) {
-                engine->vtable_->persistent_dealloc(engine, p);
-            }};
-    return std::make_shared<const_cache_proxy>(base, base.get(), size, true);
+    dnnl::impl::graph::gc::runtime::engine_t *engine, size_t size) {
+  // simply allocate buffer and return
+  std::shared_ptr<void> base = std::shared_ptr<void>{
+      engine->vtable_->persistent_alloc(engine, size),
+      [engine](void *p) { engine->vtable_->persistent_dealloc(engine, p); }};
+  return std::make_shared<const_cache_proxy>(base, base.get(), size, true);
 }
 
 void unregister_const_cache(const_cache_proxy *cache) {
-    // currently do nothing
+  // currently do nothing
 }
 
 } // namespace runtime
@@ -66,17 +65,20 @@ void unregister_const_cache(const_cache_proxy *cache) {
 } // namespace dnnl
 
 extern "C" SC_API void *sc_acquire_const_cache(
-        dnnl::impl::graph::gc::runtime::stream_t *stream,
-        dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr,
-        size_t size, int32_t *inited) {
-    if (auto buf = cacheptr->acquire(inited)) { return buf; }
-    *inited = 0;
-    return sc_aligned_malloc(stream, size);
+    dnnl::impl::graph::gc::runtime::stream_t *stream,
+    dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr, size_t size,
+    int32_t *inited) {
+  if (auto buf = cacheptr->acquire(inited)) {
+    return buf;
+  }
+  *inited = 0;
+  return sc_aligned_malloc(stream, size);
 }
 extern "C" SC_API void sc_release_const_cache(
-        dnnl::impl::graph::gc::runtime::stream_t *stream,
-        dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr,
-        void *ptr) {
-    if (cacheptr->release()) { return; }
-    return sc_aligned_free(stream, ptr);
+    dnnl::impl::graph::gc::runtime::stream_t *stream,
+    dnnl::impl::graph::gc::runtime::const_cache_proxy *cacheptr, void *ptr) {
+  if (cacheptr->release()) {
+    return;
+  }
+  return sc_aligned_free(stream, ptr);
 }

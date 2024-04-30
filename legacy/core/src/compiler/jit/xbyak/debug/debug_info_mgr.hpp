@@ -29,45 +29,44 @@ namespace gc {
 namespace xbyak {
 
 struct func_symbol {
-    std::string name_;
-    void *start_;
-    void *end_;
+  std::string name_;
+  void *start_;
+  void *end_;
 };
 struct debug_line {
-    void *start_;
-    int line_;
-    int pos_;
+  void *start_;
+  int line_;
+  int pos_;
 };
 
 struct debug_info_mgr {
-    void *base_;
-    size_t size_;
-    std::string src_path_;
-    debug_info_mgr(void *base, size_t size, const std::string &src_path)
-        : base_ {base}, size_ {size}, src_path_ {src_path} {}
+  void *base_;
+  size_t size_;
+  std::string src_path_;
+  debug_info_mgr(void *base, size_t size, const std::string &src_path)
+      : base_{base}, size_{size}, src_path_{src_path} {}
 
-    virtual ~debug_info_mgr() = default;
+  virtual ~debug_info_mgr() = default;
 };
 
 extern std::mutex debug_info_lock;
 
 #ifdef SC_PROFILING
-extern std::unique_ptr<debug_info_mgr> create_vtune_debug_info(void *base,
-        size_t size, const std::string &src_path,
-        const std::vector<func_symbol> &funcs,
-        const std::vector<debug_line> &lines);
+extern std::unique_ptr<debug_info_mgr>
+create_vtune_debug_info(void *base, size_t size, const std::string &src_path,
+                        const std::vector<func_symbol> &funcs,
+                        const std::vector<debug_line> &lines);
 #endif
 
-inline std::vector<std::unique_ptr<debug_info_mgr>> create_debug_info_mgr(
-        void *base, size_t size, const std::string &src_path,
-        const std::vector<func_symbol> &funcs,
-        const std::vector<debug_line> &lines) {
-    std::vector<std::unique_ptr<debug_info_mgr>> ret;
+inline std::vector<std::unique_ptr<debug_info_mgr>>
+create_debug_info_mgr(void *base, size_t size, const std::string &src_path,
+                      const std::vector<func_symbol> &funcs,
+                      const std::vector<debug_line> &lines) {
+  std::vector<std::unique_ptr<debug_info_mgr>> ret;
 #ifdef SC_PROFILING
-    ret.emplace_back(
-            create_vtune_debug_info(base, size, src_path, funcs, lines));
+  ret.emplace_back(create_vtune_debug_info(base, size, src_path, funcs, lines));
 #endif
-    return ret;
+  return ret;
 }
 
 } // namespace xbyak

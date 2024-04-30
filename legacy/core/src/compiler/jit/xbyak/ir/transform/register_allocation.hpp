@@ -65,11 +65,11 @@ constexpr const char *load_loop_step = "load_loop_step";
  * */
 class register_allocation_t : public function_pass_t {
 public:
-    register_allocation_t(const x86_64::target_profile_t &profile);
-    func_c operator()(func_c v) override;
+  register_allocation_t(const x86_64::target_profile_t &profile);
+  func_c operator()(func_c v) override;
 
 private:
-    const x86_64::target_profile_t &profile_;
+  const x86_64::target_profile_t &profile_;
 };
 
 } // namespace xbyak

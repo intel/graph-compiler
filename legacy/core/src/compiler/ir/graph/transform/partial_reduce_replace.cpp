@@ -14,10 +14,10 @@
  * limitations under the License.
  *******************************************************************************/
 
-#include <vector>
 #include "transform.hpp"
 #include <ops/fusible/reduce.hpp>
 #include <runtime/config.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -25,25 +25,29 @@ namespace graph {
 namespace gc {
 
 void partial_reduce_replace(sc_graph_t &graph, const context_ptr &ctx) {
-    auto num_threads = runtime_config_t::get().get_num_threads();
-    if (num_threads <= 1 || graph.is_dynamic()) { return; }
-    auto ops = graph.ops_;
-    for (auto &op : ops) {
-        if (auto rdop = op->dyn_cast<reduce_op_t>()) {
-            auto rxax = rdop->get_rd_axis();
-            bool is_first_axis = false;
-            auto &in_dims = rdop->get_inputs()[0]->details_.get_blocking_dims();
-            sc_dim reduction_size = 1;
-            for (auto ax : rxax) {
-                if (ax == 0) { is_first_axis = true; }
-                reduction_size *= in_dims[ax];
-            }
-            if (is_first_axis && reduction_size >= num_threads * 16) {
-                rdop->split_op(ctx, graph, num_threads);
-            }
+  auto num_threads = runtime_config_t::get().get_num_threads();
+  if (num_threads <= 1 || graph.is_dynamic()) {
+    return;
+  }
+  auto ops = graph.ops_;
+  for (auto &op : ops) {
+    if (auto rdop = op->dyn_cast<reduce_op_t>()) {
+      auto rxax = rdop->get_rd_axis();
+      bool is_first_axis = false;
+      auto &in_dims = rdop->get_inputs()[0]->details_.get_blocking_dims();
+      sc_dim reduction_size = 1;
+      for (auto ax : rxax) {
+        if (ax == 0) {
+          is_first_axis = true;
         }
+        reduction_size *= in_dims[ax];
+      }
+      if (is_first_axis && reduction_size >= num_threads * 16) {
+        rdop->split_op(ctx, graph, num_threads);
+      }
     }
-    graph.reset_op_ids();
+  }
+  graph.reset_op_ids();
 }
 
 } // namespace gc

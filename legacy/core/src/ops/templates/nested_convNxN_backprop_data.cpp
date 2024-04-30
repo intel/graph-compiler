@@ -216,8 +216,12 @@ void gen_nested_convNxN_backprop_data_t::inner_loop_call(const context_ptr &ctx,
   _tensor_(temp_delta_output, get_A_dtype(),
     {bs_block, oh_ext_range, OW + 2 * ow_ext_range, oc_block});
   _var_(oh_offset, datatypes::index);
-  _if_(ih_offset + padding_h < R) { oh_offset = 0; }
-  _else_ { oh_offset = (ih_offset + padding_h - R) / stride_h; }
+  _if_(ih_offset + padding_h < R) {
+    oh_offset = 0;
+  }
+  _else_ {
+    oh_offset = (ih_offset + padding_h - R) / stride_h;
+  }
   // it will pad OW on both lhs and rhs by ow_ext_range
   pad_delta_output(ctx, delta_output, temp_delta_output, bs_block, oc_block, OH,
     OW, oh_ext_range, ow_ext_range, obs_offset, oh_offset, 0, oc_offset, 0);
@@ -255,7 +259,9 @@ void gen_nested_convNxN_backprop_data_t::inner_loop_call(const context_ptr &ctx,
                           (OW - 1) * stride_w + s - (IW + padding_w - 1),
                           stride_w);
                     }
-                    _else_ { ow_start = ow_ext_range; }
+                    _else_ {
+                      ow_start = ow_ext_range;
+                    }
                   }
                   std::vector<expr> tmp_delta_output_index {
                     i_bs, oh_idx - oh_offset, ow_start, 0};
@@ -287,7 +293,9 @@ void gen_nested_convNxN_backprop_data_t::inner_loop_call(const context_ptr &ctx,
               _if_(sw_idx < padding_w) {
                 ow_idx = divide_and_ceil(padding_w - sw_idx, stride_w);
               }
-              _else_ { ow_idx = 0; }
+              _else_ {
+                ow_idx = 0;
+              }
               iw_idx = (ow_idx + ow_copy) * stride_w + sw_idx - padding_w;
               std::vector<expr> delta_input_index {obs_offset + i_bs, ih_idx,
                 iw_idx, ic_offset + i_ic * im_ic_block_ + ic_copy};

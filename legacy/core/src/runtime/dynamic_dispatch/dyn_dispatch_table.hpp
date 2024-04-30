@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_DYNAMIC_DISPATCH_DYN_DISPATCH_TABLE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_DYNAMIC_DISPATCH_DYN_DISPATCH_TABLE_HPP
 
-#include <array>
-#include <vector>
 #include "dispatch_table.hpp"
+#include <array>
 #include <runtime/dispatch_key.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -49,41 +49,41 @@ namespace runtime {
  *
  * */
 struct dyn_dispatch_table_t : public dispatch_table_t {
-    struct format_candidate_t {
-        uint32_t key_;
-        format_candidate_t() = default;
-        format_candidate_t(uint64_t format_kind)
-            : key_(static_cast<uint32_t>(format_kind)) {}
-    };
-    struct format_arg_t {
-        std::vector<format_candidate_t> info_;
-    };
-    using block_extract_func_t
-            = uint64_t (*)(uint64_t *keys, uint64_t num_keys);
-    std::array<uint32_t, 8> format_look_up_table_;
-    // the function to convert block numbers in format keys into an integer in
-    // [0, number_of_blocks-1]
-    block_extract_func_t block_to_idx_;
-    size_t number_of_blocks_;
-    std::vector<void *> table_;
-    size_t number_of_args_;
-    std::array<int, 4> number_of_candidates_;
+  struct format_candidate_t {
+    uint32_t key_;
+    format_candidate_t() = default;
+    format_candidate_t(uint64_t format_kind)
+        : key_(static_cast<uint32_t>(format_kind)) {}
+  };
+  struct format_arg_t {
+    std::vector<format_candidate_t> info_;
+  };
+  using block_extract_func_t = uint64_t (*)(uint64_t *keys, uint64_t num_keys);
+  std::array<uint32_t, 8> format_look_up_table_;
+  // the function to convert block numbers in format keys into an integer in
+  // [0, number_of_blocks-1]
+  block_extract_func_t block_to_idx_;
+  size_t number_of_blocks_;
+  std::vector<void *> table_;
+  size_t number_of_args_;
+  std::array<int, 4> number_of_candidates_;
 
-    size_t compute_linear_index(uint64_t *keys, uint64_t num_keys) const;
-    void *get(uint64_t *keys, uint64_t num_keys) final override {
-        return table_[compute_linear_index(keys, num_keys)];
-    }
+  size_t compute_linear_index(uint64_t *keys, uint64_t num_keys) const;
+  void *get(uint64_t *keys, uint64_t num_keys) final override {
+    return table_[compute_linear_index(keys, num_keys)];
+  }
 
-    void set(uint64_t *keys, uint64_t num_keys, void *value) final override {
-        table_[compute_linear_index(keys, num_keys)] = value;
-    }
+  void set(uint64_t *keys, uint64_t num_keys, void *value) final override {
+    table_[compute_linear_index(keys, num_keys)] = value;
+  }
 
-    dyn_dispatch_table_t(std::vector<format_arg_t> &&format_args,
-            block_extract_func_t block_to_idx, size_t number_of_blocks);
-    static void *dispatch(
-            dispatch_table_t *ths, uint64_t *keys, uint64_t num_keys);
+  dyn_dispatch_table_t(std::vector<format_arg_t> &&format_args,
+                       block_extract_func_t block_to_idx,
+                       size_t number_of_blocks);
+  static void *dispatch(dispatch_table_t *ths, uint64_t *keys,
+                        uint64_t num_keys);
 
-    dispatch_func_t get_dispatch_func() final override;
+  dispatch_func_t get_dispatch_func() final override;
 };
 
 } // namespace runtime

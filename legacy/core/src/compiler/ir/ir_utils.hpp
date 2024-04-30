@@ -16,10 +16,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_IR_UTILS_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_IR_UTILS_HPP
 
-#include <functional>
-#include <vector>
 #include "sc_expr.hpp"
+#include <functional>
 #include <util/array_ref.hpp>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -29,7 +29,7 @@ namespace gc {
 // finds the direct dependency of an SSA expr. Will return the exprs to the
 // callback.
 void get_direct_dependency_of_expr(
-        const expr &v, const std::function<void(array_ref<expr>)> &callback);
+    const expr &v, const std::function<void(array_ref<expr>)> &callback);
 /**
  * calculate dense stride from tensor dims.
  * @param v the input dims of tensor.

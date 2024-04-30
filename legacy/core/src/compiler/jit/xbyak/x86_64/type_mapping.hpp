@@ -95,7 +95,7 @@ const cpu_data_type_table::row &get_cpu_data_type_row(sc_data_type_t t);
  *      alignment requirements stated above.
  */
 void get_stack_allocated_tensor_buffer_lowering_info(
-        sc_data_type_t element_type, size_t num_elements, size_t &buffer_size);
+    sc_data_type_t element_type, size_t num_elements, size_t &buffer_size);
 
 } // namespace x86_64
 } // namespace xbyak
