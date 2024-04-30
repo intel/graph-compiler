@@ -1,4 +1,4 @@
-//===- MicrokernelOps.td - microkernel dialect ops ---------*- tablegen -*-===//
+//===- LinalgxDialect.h - linalgx dialect -----------------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,9 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MICROKERNEL_OPS
-#define MICROKERNEL_OPS
+#ifndef GC_DIALECTS_LINALGXDIALECT_H
+#define GC_DIALECTS_LINALGXDIALECT_H
 
-include "MicrokernelDialect.td"
+#include "mlir/IR/Dialect.h"
 
-#endif // MICROKERNEL_OPS
+#include "gc-dialects/Linalgx/LinalgxOpsDialect.h.inc"
+
+#endif // GC_DIALECTS_LINALGXDIALECT_H

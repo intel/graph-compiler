@@ -1,4 +1,4 @@
-//===- MicrokernelOps.td - microkernel dialect ops ---------*- tablegen -*-===//
+//===- LinalgxOps.td - linalgx dialect ops -----------------*- tablegen -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MICROKERNEL_OPS
-#define MICROKERNEL_OPS
+#ifndef LINALGX_OPS
+#define LINALGX_OPS
 
-include "MicrokernelDialect.td"
+include "LinalgxDialect.td"
 
-#endif // MICROKERNEL_OPS
+#endif // LINALGX_OPS

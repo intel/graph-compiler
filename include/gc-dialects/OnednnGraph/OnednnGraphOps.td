@@ -9,6 +9,6 @@
 #ifndef ONEDNNGRAPH_OPS
 #define ONEDNNGRAPH_OPS
 
-#include "OnednnGraphDialect.td"
+include "OnednnGraphDialect.td"
 
-#endif
+#endif // ONEDNNGRAPH_OPS

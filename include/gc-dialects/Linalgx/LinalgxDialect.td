@@ -1,4 +1,4 @@
-//===- OnednnGraphDialect.td - OneDNN input dialect --------*- tablegen -*-===//
+//===- LinalgxDialect.td - linalgx dialect -----------------*- tablegen -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,24 +6,25 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ONEDNNGRAPH_DIALECT
-#define ONEDNNGRAPH_DIALECT
+#ifndef LINALGX_DIALECT
+#define LINALGX_DIALECT
 
 include "mlir/IR/OpBase.td"
 
 //===----------------------------------------------------------------------===//
-// OneDNNGraph dialect definition.
+// Linalgx dialect definition.
 //===----------------------------------------------------------------------===//
 
-def OnednnGraphDialect : Dialect {
-    let name = "onednn_graph";
-    let summary = "A dialect for oneDNN Graph.";
+def LinalgxDialect : Dialect {
+    let name = "linalgx";
+    let summary = "A dialect for linalg extensions.";
     let description = [{
-        This dialect follows oneDNN Graph Specification.
+        The dialect primarily aims to fill the gap for matmul ops
+        missing tiling semantics when consuming packed tensors. 
     }];
-    let cppNamespace = "::mlir::onednn_graph";
+    let cppNamespace = "::mlir::linalgx";
 
     let useDefaultTypePrinterParser = 1;
 }
 
-#endif // ONEDNNGRAPH_DIALECT
+#endif // LINALGX_DIALECT

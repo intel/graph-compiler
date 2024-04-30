@@ -15,7 +15,7 @@ include "mlir/IR/OpBase.td"
 // Microkernel dialect definition.
 //===----------------------------------------------------------------------===//
 
-def Microkernel_Dialect : Dialect {
+def MicrokernelDialect : Dialect {
     let name = "microkernel";
     let summary = "A dialect for microkernel abstraction.";
     let description = [{
