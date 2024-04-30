@@ -27,8 +27,8 @@ namespace xbyak {
 
 class indexing_transform_t : public function_pass_t {
 public:
-    indexing_transform_t() = default;
-    func_c operator()(func_c v) override;
+  indexing_transform_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

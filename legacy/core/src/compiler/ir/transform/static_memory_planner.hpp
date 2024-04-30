@@ -17,11 +17,11 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_STATIC_MEMORY_PLANNER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_STATIC_MEMORY_PLANNER_HPP
 
+#include "tensor_inplace_info.hpp"
 #include <stdint.h>
+#include <unordered_map>
 #include <utility>
 #include <vector>
-#include "tensor_inplace_info.hpp"
-#include <unordered_map>
 
 namespace dnnl {
 namespace impl {
@@ -29,21 +29,21 @@ namespace graph {
 namespace gc {
 namespace memory_optim {
 struct memory_alloc_trace_t {
-    // unique id of a buffer
-    uintptr_t buffer_id_;
-    // if > 0, size of the buffer allocation, if = 0, it is a deallocation trace
-    std::size_t size_;
+  // unique id of a buffer
+  uintptr_t buffer_id_;
+  // if > 0, size of the buffer allocation, if = 0, it is a deallocation trace
+  std::size_t size_;
 
-    memory_alloc_trace_t(uintptr_t buffer_id = 0, std::size_t size = 0) {
-        buffer_id_ = buffer_id;
-        size_ = size;
-    }
+  memory_alloc_trace_t(uintptr_t buffer_id = 0, std::size_t size = 0) {
+    buffer_id_ = buffer_id;
+    size_ = size;
+  }
 };
 
 using inplace_info = std::pair<uintptr_t, inplace_kind>;
 
-using inplace_info_map
-        = std::unordered_map<uintptr_t, std::vector<inplace_info>>;
+using inplace_info_map =
+    std::unordered_map<uintptr_t, std::vector<inplace_info>>;
 
 /**
  * Given a list of memory buffer alloc and free traces, try to use a large
@@ -60,11 +60,11 @@ using inplace_info_map
  * @return the size of the large buffer, in number of elements
  * */
 std::size_t schedule_memory_allocations(
-        const std::vector<memory_alloc_trace_t> &traces, std::size_t alignment,
-        bool hot_first, const inplace_info_map &inplace_map,
-        std::unordered_map<uintptr_t, std::size_t> &out_schedule,
-        std::unordered_map<uintptr_t, std::vector<uintptr_t>>
-                &out_inplace_selection);
+    const std::vector<memory_alloc_trace_t> &traces, std::size_t alignment,
+    bool hot_first, const inplace_info_map &inplace_map,
+    std::unordered_map<uintptr_t, std::size_t> &out_schedule,
+    std::unordered_map<uintptr_t, std::vector<uintptr_t>>
+        &out_inplace_selection);
 } // namespace memory_optim
 } // namespace gc
 } // namespace graph

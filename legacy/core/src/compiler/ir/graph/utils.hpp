@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_UTILS_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_UTILS_HPP
 
+#include <compiler/ir/graph/graph.hpp>
 #include <memory>
 #include <string>
 #include <vector>
-#include <compiler/ir/graph/graph.hpp>
 
 namespace dnnl {
 namespace impl {
@@ -29,22 +29,25 @@ namespace gc {
 // do divide and ceil on expr.
 expr divide_and_ceil(const expr &, const expr &);
 namespace graph {
-sc_graph_t make_single_op_graph(const std::string &opname,
-        const std::vector<graph_tensor_ptr> &inputs,
-        const std::vector<graph_tensor_ptr> &outputs = {},
-        const any_map_t &attr = {});
+sc_graph_t
+make_single_op_graph(const std::string &opname,
+                     const std::vector<graph_tensor_ptr> &inputs,
+                     const std::vector<graph_tensor_ptr> &outputs = {},
+                     const any_map_t &attr = {});
 
-expr tensor_detail_to_ir_tensor(
-        sc_graph_t &graph, const std::string &name, const logical_tensor_t &);
-std::vector<expr> tensor_detail_to_ir_tensor(sc_graph_t &graph,
-        const std::string &name_prefix, const std::vector<logical_tensor_t> &);
-std::vector<expr> tensor_detail_to_ir_tensor(sc_graph_t &graph,
-        const std::string &name_prefix, const std::vector<graph_tensor_ptr> &);
+expr tensor_detail_to_ir_tensor(sc_graph_t &graph, const std::string &name,
+                                const logical_tensor_t &);
+std::vector<expr>
+tensor_detail_to_ir_tensor(sc_graph_t &graph, const std::string &name_prefix,
+                           const std::vector<logical_tensor_t> &);
+std::vector<expr>
+tensor_detail_to_ir_tensor(sc_graph_t &graph, const std::string &name_prefix,
+                           const std::vector<graph_tensor_ptr> &);
 std::string decay_quantized_op_name(const std::string &op_name);
 
 // get logical_tensor_t from logical_tensor_t
-void get_logical_tensors(
-        ltensors *ins, const std::vector<graph_tensor_ptr> &flts);
+void get_logical_tensors(ltensors *ins,
+                         const std::vector<graph_tensor_ptr> &flts);
 
 // marks the "read_buffer" or "write_buffer" attributes on each expr in `args`.
 // If `is_read` mark them read. Otherwise, mark them write.
@@ -61,8 +64,8 @@ void mark_read_or_write_buffers(std::vector<expr> &args, bool is_read);
  * functio
  * @return the generated IR function for the Op. Its body is an empty stmts node
  * */
-func_t create_func_decl_for_op(
-        sc_op *op, std::vector<expr> &ins, std::vector<expr> &outs);
+func_t create_func_decl_for_op(sc_op *op, std::vector<expr> &ins,
+                               std::vector<expr> &outs);
 
 /**
  * Creates an empty query format function declaration for an op. The function
@@ -79,14 +82,14 @@ func_t create_func_decl_for_op(
  * @param kernel the kernel tensor
  * @return the generated IR function for the Op. Its body is an empty stmts node
  * */
-func_t create_query_func_decl_for_op(sc_op *op, std::vector<expr> &ins,
-        std::vector<expr> &ori_ins, std::vector<expr> &outs,
-        std::vector<expr> &in_fmts, std::vector<expr> &ori_in_fmts,
-        std::vector<expr> &out_fmts, std::vector<expr> &out_sizes,
-        expr &kernel);
+func_t create_query_func_decl_for_op(
+    sc_op *op, std::vector<expr> &ins, std::vector<expr> &ori_ins,
+    std::vector<expr> &outs, std::vector<expr> &in_fmts,
+    std::vector<expr> &ori_in_fmts, std::vector<expr> &out_fmts,
+    std::vector<expr> &out_sizes, expr &kernel);
 
-ltensors extract_detail_from_tensors(
-        const std::vector<std::shared_ptr<graph_tensor>> &);
+ltensors
+extract_detail_from_tensors(const std::vector<std::shared_ptr<graph_tensor>> &);
 
 /**
  * Checks whether lhs_shape could be identical to rhs_shape
@@ -98,8 +101,8 @@ bool check_shape_equal(const sc_dims &lhs_shape, const sc_dims &rhs_shape);
  * Checks whether lhs and rhs matches for both plain_dims and dtype
  * considering dynamic shape use cases
  * */
-void check_logical_tensor_shape_dtype_identical(
-        const logical_tensor_t &lhs, const logical_tensor_t &rhs);
+void check_logical_tensor_shape_dtype_identical(const logical_tensor_t &lhs,
+                                                const logical_tensor_t &rhs);
 } // namespace graph
 } // namespace gc
 } // namespace graph

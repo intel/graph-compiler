@@ -21,18 +21,20 @@ namespace impl {
 namespace graph {
 namespace gc {
 
-static std::vector<union_val> get_padded_union_val_vector(
-        const std::vector<int> &input, unsigned padded) {
-    if (input.empty() || padded <= 0) { return std::vector<union_val>(); }
-    std::vector<union_val> results(padded);
-    for (unsigned i = 0; i < padded; i++) {
-        if (i < input.size()) {
-            results[i] = (int64_t)input[i];
-        } else {
-            results[i] = (int64_t)0;
-        }
+static std::vector<union_val>
+get_padded_union_val_vector(const std::vector<int> &input, unsigned padded) {
+  if (input.empty() || padded <= 0) {
+    return std::vector<union_val>();
+  }
+  std::vector<union_val> results(padded);
+  for (unsigned i = 0; i < padded; i++) {
+    if (i < input.size()) {
+      results[i] = (int64_t)input[i];
+    } else {
+      results[i] = (int64_t)0;
     }
-    return results;
+  }
+  return results;
 }
 
 } // namespace gc

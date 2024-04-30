@@ -17,13 +17,13 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_EASY_BUILD_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_EASY_BUILD_HPP
 
-#include <string>
-#include <tuple>
-#include <utility>
-#include <vector>
 #include "builder.hpp"
 #include <runtime/logging.hpp>
+#include <string>
+#include <tuple>
 #include <util/utils.hpp>
+#include <utility>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -34,31 +34,32 @@ struct context_t;
 
 // the assignment overload for utils::bind_vector_to_args
 namespace utils {
-template <>
-struct SC_INTERNAL_API bind_assigner_t<expr::lvalue_proxy_t, expr> {
-    static void assign(expr::lvalue_proxy_t &dst, const expr &src) {
-        dst.data_ = src;
-        dst.require_remake_ = false;
-    }
+template <> struct SC_INTERNAL_API bind_assigner_t<expr::lvalue_proxy_t, expr> {
+  static void assign(expr::lvalue_proxy_t &dst, const expr &src) {
+    dst.data_ = src;
+    dst.require_remake_ = false;
+  }
 };
 } // namespace utils
 
 namespace builder {
 struct SC_INTERNAL_API scope_mgr_t {
-    builder::builder_impl_t *ctx_;
-    using callback_type = std::function<void(builder::builder_impl_t *, stmt)>;
-    callback_type on_pop_;
-    scope_mgr_t(builder::builder_impl_t *ctx, callback_type on_pop)
-        : ctx_(ctx), on_pop_(std::move(on_pop)) {
-        ctx->push_scope();
+  builder::builder_impl_t *ctx_;
+  using callback_type = std::function<void(builder::builder_impl_t *, stmt)>;
+  callback_type on_pop_;
+  scope_mgr_t(builder::builder_impl_t *ctx, callback_type on_pop)
+      : ctx_(ctx), on_pop_(std::move(on_pop)) {
+    ctx->push_scope();
+  }
+  scope_mgr_t(scope_mgr_t &&other)
+      : ctx_(other.ctx_), on_pop_(std::move(other.on_pop_)) {
+    other.ctx_ = nullptr;
+  }
+  ~scope_mgr_t() {
+    if (ctx_) {
+      on_pop_(ctx_, ctx_->pop_scope());
     }
-    scope_mgr_t(scope_mgr_t &&other)
-        : ctx_(other.ctx_), on_pop_(std::move(other.on_pop_)) {
-        other.ctx_ = nullptr;
-    }
-    ~scope_mgr_t() {
-        if (ctx_) { on_pop_(ctx_, ctx_->pop_scope()); }
-    }
+  }
 };
 
 /**
@@ -75,85 +76,83 @@ struct SC_INTERNAL_API scope_mgr_t {
  * build
  * */
 struct SC_INTERNAL_API for_range_simulator_t {
+  expr var_;
+  builder::builder_impl_t *ctx_;
+  expr min_;
+  expr extent_;
+  expr step_;
+  for_type type_;
+  for_loop *out_;
+  int num_threads_;
+  struct for_range_iterator_t {
     expr var_;
-    builder::builder_impl_t *ctx_;
-    expr min_;
-    expr extent_;
-    expr step_;
-    for_type type_;
-    for_loop *out_;
-    int num_threads_;
-    struct for_range_iterator_t {
-        expr var_;
-        bool consumed_;
-        expr::lvalue_proxy_t operator*() const {
-            return expr::lvalue_proxy_t(var_, false);
-        }
-
-        for_range_iterator_t &operator++() {
-            consumed_ = true;
-            return *this;
-        }
-
-        bool operator!=(for_range_iterator_t &other) const {
-            return consumed_ != other.consumed_;
-        }
-
-        for_range_iterator_t(expr var)
-            : var_(std::move(var)), consumed_(false) {}
-        for_range_iterator_t() : consumed_(true) {}
-    };
-
-    for_range_iterator_t begin() const { return for_range_iterator_t(var_); }
-
-    for_range_iterator_t end() { return for_range_iterator_t(); }
-
-    for_range_simulator_t(builder::builder_impl_t *ctx, for_loop *out,
-            const std::string &name, expr min, expr extent, expr step,
-            for_type type, int num_threads)
-        : var_(builder::make_var(datatypes::index, name))
-        , ctx_(ctx)
-        , min_(std::move(min))
-        , extent_(std::move(extent))
-        , step_(std::move(step))
-        , type_(type)
-        , out_(out)
-        , num_threads_(num_threads) {
-        ctx->push_scope();
+    bool consumed_;
+    expr::lvalue_proxy_t operator*() const {
+      return expr::lvalue_proxy_t(var_, false);
     }
 
-    for_range_simulator_t(const for_range_simulator_t &other) = delete;
-    for_range_simulator_t(for_range_simulator_t &&other)
-        : var_(std::move(other.var_))
-        , ctx_(other.ctx_)
-        , min_(std::move(other.min_))
-        , extent_(std::move(other.extent_))
-        , step_(std::move(other.step_))
-        , type_(other.type_)
-        , out_(other.out_)
-        , num_threads_(other.num_threads_) {}
-
-    ~for_range_simulator_t() {
-        if (!var_.defined()) return;
-        auto bb = ctx_->pop_scope();
-        auto st = ctx_->push_for_loop(
-                var_, min_, extent_, step_, bb, true, type_, num_threads_);
-        if (out_) { *out_ = st.checked_as<for_loop>(); }
+    for_range_iterator_t &operator++() {
+      consumed_ = true;
+      return *this;
     }
+
+    bool operator!=(for_range_iterator_t &other) const {
+      return consumed_ != other.consumed_;
+    }
+
+    for_range_iterator_t(expr var) : var_(std::move(var)), consumed_(false) {}
+    for_range_iterator_t() : consumed_(true) {}
+  };
+
+  for_range_iterator_t begin() const { return for_range_iterator_t(var_); }
+
+  for_range_iterator_t end() { return for_range_iterator_t(); }
+
+  for_range_simulator_t(builder::builder_impl_t *ctx, for_loop *out,
+                        const std::string &name, expr min, expr extent,
+                        expr step, for_type type, int num_threads)
+      : var_(builder::make_var(datatypes::index, name)), ctx_(ctx),
+        min_(std::move(min)), extent_(std::move(extent)),
+        step_(std::move(step)), type_(type), out_(out),
+        num_threads_(num_threads) {
+    ctx->push_scope();
+  }
+
+  for_range_simulator_t(const for_range_simulator_t &other) = delete;
+  for_range_simulator_t(for_range_simulator_t &&other)
+      : var_(std::move(other.var_)), ctx_(other.ctx_),
+        min_(std::move(other.min_)), extent_(std::move(other.extent_)),
+        step_(std::move(other.step_)), type_(other.type_), out_(other.out_),
+        num_threads_(other.num_threads_) {}
+
+  ~for_range_simulator_t() {
+    if (!var_.defined())
+      return;
+    auto bb = ctx_->pop_scope();
+    auto st = ctx_->push_for_loop(var_, min_, extent_, step_, bb, true, type_,
+                                  num_threads_);
+    if (out_) {
+      *out_ = st.checked_as<for_loop>();
+    }
+  }
 };
 
 SC_INTERNAL_API for_range_simulator_t range(const std::string &name,
-        for_loop &out, expr min, expr extent, expr step = expr(1),
-        for_type type = for_type::NORMAL, int num_threads = 0);
-SC_INTERNAL_API for_range_simulator_t range_nobind(const std::string &name,
-        expr min, expr extent, expr step = expr(1),
-        for_type type = for_type::NORMAL, int num_threads = 0);
+                                            for_loop &out, expr min,
+                                            expr extent, expr step = expr(1),
+                                            for_type type = for_type::NORMAL,
+                                            int num_threads = 0);
+SC_INTERNAL_API for_range_simulator_t range_nobind(
+    const std::string &name, expr min, expr extent, expr step = expr(1),
+    for_type type = for_type::NORMAL, int num_threads = 0);
 SC_INTERNAL_API for_range_simulator_t range(for_loop &out, expr min,
-        expr extent, expr step = expr(1), for_type type = for_type::NORMAL,
-        int num_threads = 0);
+                                            expr extent, expr step = expr(1),
+                                            for_type type = for_type::NORMAL,
+                                            int num_threads = 0);
 SC_INTERNAL_API for_range_simulator_t range(expr min, expr extent,
-        expr step = expr(1), for_type type = for_type::NORMAL,
-        int num_threads = 0);
+                                            expr step = expr(1),
+                                            for_type type = for_type::NORMAL,
+                                            int num_threads = 0);
 
 /**
  * Builds a for-loop. Takes arguments:
@@ -165,9 +164,9 @@ SC_INTERNAL_API for_range_simulator_t range(expr min, expr extent,
  * See range_nobind(). e.g.
  * _for_(i, 0, 100) {...}
  * */
-#define _for_(IDX, ...) \
-    for (auto IDX : \
-            ::dnnl::impl::graph::gc::builder::range_nobind(#IDX, __VA_ARGS__))
+#define _for_(IDX, ...)                                                        \
+  for (auto IDX :                                                              \
+       ::dnnl::impl::graph::gc::builder::range_nobind(#IDX, __VA_ARGS__))
 
 /**
  * Builds a for-loop and returns the for-loop node to an output variable.
@@ -183,42 +182,42 @@ SC_INTERNAL_API for_range_simulator_t range(expr min, expr extent,
  * for_loop li;
  * _named_for_(li, i, 0, 100) {...}
  * */
-#define _named_for_(OUT, IDX, ...) \
-    for (auto IDX : \
-            ::dnnl::impl::graph::gc::builder::range(#IDX, OUT, __VA_ARGS__))
+#define _named_for_(OUT, IDX, ...)                                             \
+  for (auto IDX :                                                              \
+       ::dnnl::impl::graph::gc::builder::range(#IDX, OUT, __VA_ARGS__))
 
 struct SC_INTERNAL_API nested_for_ranges_t {
-    std::vector<for_range_simulator_t> loops_;
-    unsigned cur_var_ = 0;
-    expr get_var() {
-        assert(cur_var_ < loops_.size());
-        return loops_[cur_var_++].var_;
-    }
-    bool consumed_;
-    nested_for_ranges_t(nested_for_ranges_t &other) = delete;
-    nested_for_ranges_t(std::vector<for_range_simulator_t> &&loops)
-        : loops_(std::move(loops)), consumed_(false) {}
-    nested_for_ranges_t(nested_for_ranges_t &&other)
-        : loops_(std::move(other.loops_)), consumed_(other.consumed_) {}
+  std::vector<for_range_simulator_t> loops_;
+  unsigned cur_var_ = 0;
+  expr get_var() {
+    assert(cur_var_ < loops_.size());
+    return loops_[cur_var_++].var_;
+  }
+  bool consumed_;
+  nested_for_ranges_t(nested_for_ranges_t &other) = delete;
+  nested_for_ranges_t(std::vector<for_range_simulator_t> &&loops)
+      : loops_(std::move(loops)), consumed_(false) {}
+  nested_for_ranges_t(nested_for_ranges_t &&other)
+      : loops_(std::move(other.loops_)), consumed_(other.consumed_) {}
 
-    template <typename... Args>
-    nested_for_ranges_t(Args... args) : consumed_(false) {
-        utils::args_to_vector(loops_, std::move(args)...);
-    }
+  template <typename... Args>
+  nested_for_ranges_t(Args... args) : consumed_(false) {
+    utils::args_to_vector(loops_, std::move(args)...);
+  }
 
-    void step() { consumed_ = true; }
-    ~nested_for_ranges_t() {
-        // destruct inner loop first
-        while (!loops_.empty())
-            loops_.pop_back();
+  void step() { consumed_ = true; }
+  ~nested_for_ranges_t() {
+    // destruct inner loop first
+    while (!loops_.empty())
+      loops_.pop_back();
+  }
+  std::vector<expr> get_vars() {
+    std::vector<expr> ret;
+    for (auto &l : loops_) {
+      ret.emplace_back(l.var_);
     }
-    std::vector<expr> get_vars() {
-        std::vector<expr> ret;
-        for (auto &l : loops_) {
-            ret.emplace_back(l.var_);
-        }
-        return ret;
-    }
+    return ret;
+  }
 };
 
 /**
@@ -226,11 +225,10 @@ struct SC_INTERNAL_API nested_for_ranges_t {
  * params: the for_range_simulator_t(s) of the loops. Create
  * for_range_simulator_t by range()/range_nobind() functions
  * */
-#define _nested_for_(...) \
-    for (auto _0_nested_for \
-            = ::dnnl::impl::graph::gc::builder::nested_for_ranges_t( \
-                    __VA_ARGS__); \
-            !_0_nested_for.consumed_; _0_nested_for.step())
+#define _nested_for_(...)                                                      \
+  for (auto _0_nested_for =                                                    \
+           ::dnnl::impl::graph::gc::builder::nested_for_ranges_t(__VA_ARGS__); \
+       !_0_nested_for.consumed_; _0_nested_for.step())
 
 /**
  * Binds a loop-variable in the nested for to a expr variable in C++
@@ -238,9 +236,9 @@ struct SC_INTERNAL_API nested_for_ranges_t {
  * the outer to the inner. Can only be used in a nested-for
  * Also sets the name of the loop-variable.
  * */
-#define _iter_var_(v) \
-    expr v = _0_nested_for.get_var(); \
-    (v).checked_as<var>()->name_ = #v
+#define _iter_var_(v)                                                          \
+  expr v = _0_nested_for.get_var();                                            \
+  (v).checked_as<var>()->name_ = #v
 
 /**
  *  This class builds a if-then-else node with RAII of C++.
@@ -273,127 +271,124 @@ struct SC_INTERNAL_API nested_for_ranges_t {
     }
 */
 struct SC_INTERNAL_API if_simulator_t {
-    stmt true_block_;
-    stmt false_block_;
-    builder::builder_impl_t *ctx_;
-    expr cond_;
+  stmt true_block_;
+  stmt false_block_;
+  builder::builder_impl_t *ctx_;
+  expr cond_;
 
-    struct if_iterator_t {
-        int block_num_;
-        if_simulator_t *if_scope_;
-        std::pair<scope_mgr_t, int> operator*() {
-            return std::make_pair(scope_mgr_t(if_scope_->ctx_,
-                                          [this](builder::builder_impl_t *ctx,
-                                                  const stmt &s) {
-                                              if (block_num_ == 0) {
-                                                  if_scope_->true_block_ = s;
-                                              } else {
-                                                  if_scope_->false_block_ = s;
-                                              }
-                                          }),
-                    block_num_);
-        }
-
-        if_iterator_t &operator++() {
-            block_num_++;
-            return *this;
-        }
-
-        bool operator!=(if_iterator_t &other) const {
-            return block_num_ != other.block_num_;
-        }
-
-        if_iterator_t(if_simulator_t *if_scope)
-            : block_num_(0), if_scope_(if_scope) {}
-        if_iterator_t() : block_num_(2), if_scope_(nullptr) {}
-    };
-
-    if_iterator_t begin() { return if_iterator_t(this); }
-
-    if_iterator_t end() { return if_iterator_t(); }
-
-    if_simulator_t(builder::builder_impl_t *ctx, expr cond)
-        : ctx_(ctx), cond_(std::move(cond)) {}
-
-    if_simulator_t(if_iterator_t &other) = delete;
-    ~if_simulator_t() {
-        if (!true_block_.defined() || !false_block_.defined()) {
-            SC_WARN << "Cannot generate if statements due to undefined "
-                       "true_block/false_block for if_simulator, could be "
-                       "caused by early destruction from assertion failure";
-            return;
-        }
-        stmt false_block = false_block_.checked_as<stmts>()->seq_.empty()
-                ? stmt()
-                : false_block_;
-        builder::get_current_builder()->push_if_else(
-                cond_, true_block_, false_block);
+  struct if_iterator_t {
+    int block_num_;
+    if_simulator_t *if_scope_;
+    std::pair<scope_mgr_t, int> operator*() {
+      return std::make_pair(
+          scope_mgr_t(if_scope_->ctx_,
+                      [this](builder::builder_impl_t *ctx, const stmt &s) {
+                        if (block_num_ == 0) {
+                          if_scope_->true_block_ = s;
+                        } else {
+                          if_scope_->false_block_ = s;
+                        }
+                      }),
+          block_num_);
     }
+
+    if_iterator_t &operator++() {
+      block_num_++;
+      return *this;
+    }
+
+    bool operator!=(if_iterator_t &other) const {
+      return block_num_ != other.block_num_;
+    }
+
+    if_iterator_t(if_simulator_t *if_scope)
+        : block_num_(0), if_scope_(if_scope) {}
+    if_iterator_t() : block_num_(2), if_scope_(nullptr) {}
+  };
+
+  if_iterator_t begin() { return if_iterator_t(this); }
+
+  if_iterator_t end() { return if_iterator_t(); }
+
+  if_simulator_t(builder::builder_impl_t *ctx, expr cond)
+      : ctx_(ctx), cond_(std::move(cond)) {}
+
+  if_simulator_t(if_iterator_t &other) = delete;
+  ~if_simulator_t() {
+    if (!true_block_.defined() || !false_block_.defined()) {
+      SC_WARN << "Cannot generate if statements due to undefined "
+                 "true_block/false_block for if_simulator, could be "
+                 "caused by early destruction from assertion failure";
+      return;
+    }
+    stmt false_block =
+        false_block_.checked_as<stmts>()->seq_.empty() ? stmt() : false_block_;
+    builder::get_current_builder()->push_if_else(cond_, true_block_,
+                                                 false_block);
+  }
 };
 
 /**
  * Builds an if_else node. Takes the parameter of the condition
  * as an expr
  * */
-#define _if_(...) \
-    for (auto &&__if_scope__ : \
-            ::dnnl::impl::graph::gc::builder::if_simulator_t( \
-                    ::dnnl::impl::graph::gc::builder::get_current_builder(), \
-                    (__VA_ARGS__))) \
-        if (__if_scope__.second == 0)
+#define _if_(...)                                                              \
+  for (auto &&__if_scope__ : ::dnnl::impl::graph::gc::builder::if_simulator_t( \
+           ::dnnl::impl::graph::gc::builder::get_current_builder(),            \
+           (__VA_ARGS__)))                                                     \
+    if (__if_scope__.second == 0)
 #define _else_ else
 
 struct SC_INTERNAL_API func_simulator_t {
-    operator bool() const { return true; }
-    std::vector<expr> vargs_;
-    func_t *outfunc_;
-    std::string name_;
-    sc_data_type_t dtype_;
-    func_simulator_t(func_simulator_t &&other)
-        : vargs_(std::move(other.vargs_))
-        , outfunc_(other.outfunc_)
-        , name_(std::move(other.name_))
-        , dtype_(other.dtype_) {
-        other.outfunc_ = nullptr;
-    }
+  operator bool() const { return true; }
+  std::vector<expr> vargs_;
+  func_t *outfunc_;
+  std::string name_;
+  sc_data_type_t dtype_;
+  func_simulator_t(func_simulator_t &&other)
+      : vargs_(std::move(other.vargs_)), outfunc_(other.outfunc_),
+        name_(std::move(other.name_)), dtype_(other.dtype_) {
+    other.outfunc_ = nullptr;
+  }
 
-    func_simulator_t(const std::string &name, func_t *outfunc,
-            sc_data_type_t dtype, std::vector<expr> &&vargs)
-        : vargs_(std::move(vargs))
-        , outfunc_(outfunc)
-        , name_(name)
-        , dtype_(dtype) {
-        get_current_builder()->push_scope();
-    }
-    ~func_simulator_t() {
-        if (!outfunc_) return;
-        auto bb = get_current_builder()->pop_scope();
-        *outfunc_ = make_func(name_, vargs_, bb, dtype_);
-    }
+  func_simulator_t(const std::string &name, func_t *outfunc,
+                   sc_data_type_t dtype, std::vector<expr> &&vargs)
+      : vargs_(std::move(vargs)), outfunc_(outfunc), name_(name),
+        dtype_(dtype) {
+    get_current_builder()->push_scope();
+  }
+  ~func_simulator_t() {
+    if (!outfunc_)
+      return;
+    auto bb = get_current_builder()->pop_scope();
+    *outfunc_ = make_func(name_, vargs_, bb, dtype_);
+  }
 };
 
-SC_INTERNAL_API func_simulator_t _make_func_simulator(const std::string &name,
-        func_t *outfunc, sc_data_type_t dtype,
-        std::vector<std::vector<expr>> &&args);
+SC_INTERNAL_API func_simulator_t _make_func_simulator(
+    const std::string &name, func_t *outfunc, sc_data_type_t dtype,
+    std::vector<std::vector<expr>> &&args);
 
-SC_INTERNAL_API std::vector<expr> _make_arg(
-        const char *name, sc_data_type_t dtype, const std::vector<int> &args);
-SC_INTERNAL_API std::vector<expr> _make_arg(const char *name,
-        sc_data_type_t dtype,
-        std::initializer_list<unsigned long> args); // NOLINT,
+SC_INTERNAL_API std::vector<expr>
+_make_arg(const char *name, sc_data_type_t dtype, const std::vector<int> &args);
+SC_INTERNAL_API std::vector<expr>
+_make_arg(const char *name, sc_data_type_t dtype,
+          std::initializer_list<unsigned long> args); // NOLINT,
 // We must use unsigned long here to let g++ and MSVC to correctly let UL number
 // literals find correct overload version of function.
-SC_INTERNAL_API std::vector<expr> _make_arg(
-        const char *name, sc_data_type_t dtype, const std::vector<expr> &args);
+SC_INTERNAL_API std::vector<expr> _make_arg(const char *name,
+                                            sc_data_type_t dtype,
+                                            const std::vector<expr> &args);
 
 SC_INTERNAL_API std::vector<expr> _make_arg(const char *name,
-        sc_data_type_t dtype, std::initializer_list<int> args);
+                                            sc_data_type_t dtype,
+                                            std::initializer_list<int> args);
 
-SC_INTERNAL_API std::vector<expr> _make_arg(
-        const char *name, sc_data_type_t dtype);
+SC_INTERNAL_API std::vector<expr> _make_arg(const char *name,
+                                            sc_data_type_t dtype);
 
 SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
-        std::vector<std::vector<expr>> &&args);
+                                  std::vector<std::vector<expr>> &&args);
 
 /**
  * Defines a function node named "NAME" and create a C++ variable of func with
@@ -406,13 +401,12 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  ...
  * }
  * */
-#define _function_(DTYPE, NAME, ...) \
-    ::dnnl::impl::graph::gc::func_t NAME; \
-    if (auto _0_func__ \
-            = ::dnnl::impl::graph::gc::builder::_make_func_simulator(#NAME, \
-                    &NAME, DTYPE, \
-                    std::vector<std::vector<::dnnl::impl::graph::gc::expr>> { \
-                            __VA_ARGS__}))
+#define _function_(DTYPE, NAME, ...)                                           \
+  ::dnnl::impl::graph::gc::func_t NAME;                                        \
+  if (auto _0_func__ = ::dnnl::impl::graph::gc::builder::_make_func_simulator( \
+          #NAME, &NAME, DTYPE,                                                 \
+          std::vector<std::vector<::dnnl::impl::graph::gc::expr>>{             \
+              __VA_ARGS__}))
 /**
  * Declares a function node named "NAME" and create a C++ variable of func with
  * the same name. This macro will not define a function. It declares an extern
@@ -422,10 +416,10 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  NAME: the function name (and the func variable name in C++)
  *  the argument definitions: see _arg_ below
  * */
-#define _decl_func_(DTYPE, NAME, ...) \
-    ::dnnl::impl::graph::gc::func_t NAME \
-            = ::dnnl::impl::graph::gc::builder::_decl_func( \
-                    #NAME, DTYPE, {__VA_ARGS__})
+#define _decl_func_(DTYPE, NAME, ...)                                          \
+  ::dnnl::impl::graph::gc::func_t NAME =                                       \
+      ::dnnl::impl::graph::gc::builder::_decl_func(#NAME, DTYPE,               \
+                                                   {__VA_ARGS__})
 
 /**
  * Declares an argument of function node.
@@ -452,10 +446,10 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  * Binds all arguments in the function definition to C++ expr variables
  * e.g. _bind_(a,b,c);
  * */
-#define _bind_(...) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t __VA_ARGS__; \
-    ::dnnl::impl::graph::gc::utils::bind_vector_to_args<0>( \
-            _0_func__.vargs_, __VA_ARGS__);
+#define _bind_(...)                                                            \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t __VA_ARGS__;                   \
+  ::dnnl::impl::graph::gc::utils::bind_vector_to_args<0>(_0_func__.vargs_,     \
+                                                         __VA_ARGS__);
 
 /**
  * Defines a variable within the current scope
@@ -463,11 +457,11 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  NAME: the name of the variable, should not be quoted
  *  DTYPE: sc_data_type_t of the variable
  * */
-#define _var_(NAME, DTYPE) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            ::dnnl::impl::graph::gc::builder::make_var(DTYPE, #NAME), false); \
-    ::dnnl::impl::graph::gc::builder::get_current_builder() \
-            ->push_var_tensor_def(NAME, linkage::local);
+#define _var_(NAME, DTYPE)                                                     \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      ::dnnl::impl::graph::gc::builder::make_var(DTYPE, #NAME), false);        \
+  ::dnnl::impl::graph::gc::builder::get_current_builder()                      \
+      ->push_var_tensor_def(NAME, linkage::local);
 
 /**
  * Defines a variable within the current scope with specified name
@@ -476,12 +470,11 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  VAR_NAME: the name of the tir variable, should be quoted
  *  DTYPE: sc_data_type_t of the variable
  * */
-#define _named_var_(NAME, VAR_NAME, DTYPE) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            ::dnnl::impl::graph::gc::builder::make_var(DTYPE, VAR_NAME), \
-            false); \
-    ::dnnl::impl::graph::gc::builder::get_current_builder() \
-            ->push_var_tensor_def(NAME, linkage::local);
+#define _named_var_(NAME, VAR_NAME, DTYPE)                                     \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      ::dnnl::impl::graph::gc::builder::make_var(DTYPE, VAR_NAME), false);     \
+  ::dnnl::impl::graph::gc::builder::get_current_builder()                      \
+      ->push_var_tensor_def(NAME, linkage::local);
 
 /**
  * Defines a variable within the current scope
@@ -491,11 +484,11 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  LINKAGE: the linkage
  *  INIT: the initial value
  * */
-#define _var_ex_(NAME, DTYPE, ...) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            ::dnnl::impl::graph::gc::builder::make_var(DTYPE, #NAME), false); \
-    ::dnnl::impl::graph::gc::builder::get_current_builder() \
-            ->push_var_tensor_def(NAME, __VA_ARGS__);
+#define _var_ex_(NAME, DTYPE, ...)                                             \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      ::dnnl::impl::graph::gc::builder::make_var(DTYPE, #NAME), false);        \
+  ::dnnl::impl::graph::gc::builder::get_current_builder()                      \
+      ->push_var_tensor_def(NAME, __VA_ARGS__);
 
 /**
  * Defines a variable within the current scope with init value
@@ -504,12 +497,12 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  DTYPE: sc_data_type_t of the variable
  *  INIT: the initial value
  * */
-#define _var_init_(NAME, DTYPE, INIT) \
-    _var_ex_(NAME, DTYPE, ::dnnl::impl::graph::gc::linkage::local, INIT)
+#define _var_init_(NAME, DTYPE, INIT)                                          \
+  _var_ex_(NAME, DTYPE, ::dnnl::impl::graph::gc::linkage::local, INIT)
 
-#define _var_init_copy_(NAME, DTYPE, INIT) \
-    _var_init_(NAME, DTYPE, INIT); \
-    NAME##_ = NAME;
+#define _var_init_copy_(NAME, DTYPE, INIT)                                     \
+  _var_init_(NAME, DTYPE, INIT);                                               \
+  NAME##_ = NAME;
 
 /**
  * Defines a private linkage global variable within the current scope
@@ -519,11 +512,10 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  DTYPE: sc_data_type_t of the variable
  *  INIT: the initial value
  * */
-#define _module_var_(MODULE, NAME, DTYPE, INIT) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            (MODULE)->make_global_var( \
-                    DTYPE, #NAME, linkage::private_global, INIT), \
-            false);
+#define _module_var_(MODULE, NAME, DTYPE, INIT)                                \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      (MODULE)->make_global_var(DTYPE, #NAME, linkage::private_global, INIT),  \
+      false);
 
 /**
  * Defines a public linkage global variable within the current scope
@@ -533,11 +525,10 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  DTYPE: sc_data_type_t of the variable
  *  INIT: the initial value
  * */
-#define _global_var_(MODULE, NAME, DTYPE, INIT) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            (MODULE)->make_global_var( \
-                    DTYPE, #NAME, linkage::public_global, INIT), \
-            false);
+#define _global_var_(MODULE, NAME, DTYPE, INIT)                                \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      (MODULE)->make_global_var(DTYPE, #NAME, linkage::public_global, INIT),   \
+      false);
 
 /**
  * Defines a private linkage global tensor within the current scope
@@ -547,11 +538,11 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  DTYPE: sc_data_type_t of the tensor
  *  INIT: the initial value
  * */
-#define _module_tensor_(MODULE, NAME, DTYPE, ...) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            MODULE->make_global_tensor( \
-                    DTYPE, #NAME, {__VA_ARGS__}, linkage::private_global), \
-            false);
+#define _module_tensor_(MODULE, NAME, DTYPE, ...)                              \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      MODULE->make_global_tensor(DTYPE, #NAME, {__VA_ARGS__},                  \
+                                 linkage::private_global),                     \
+      false);
 
 /**
  * Defines a public linkage global tensor within the current scope
@@ -561,11 +552,11 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  DTYPE: sc_data_type_t of the tensor
  *  INIT: the initial value
  * */
-#define _global_tensor_(MODULE, NAME, DTYPE, ...) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            MODULE->make_global_tensor( \
-                    DTYPE, #NAME, {__VA_ARGS__}, linkage::public_global), \
-            false);
+#define _global_tensor_(MODULE, NAME, DTYPE, ...)                              \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      MODULE->make_global_tensor(DTYPE, #NAME, {__VA_ARGS__},                  \
+                                 linkage::public_global),                      \
+      false);
 
 /**
  * Defines a tensor within the current scope
@@ -575,29 +566,28 @@ SC_INTERNAL_API func_t _decl_func(const std::string &name, sc_data_type_t dtype,
  *  dimemsions: the dimemsions
  * e.g. _tensor_(buffer, datatypes::f32, 100, 200)
  * */
-#define _tensor_(NAME, DTYPE, ...) \
-    ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME( \
-            ::dnnl::impl::graph::gc::builder::make_tensor( \
-                    #NAME, std::vector<expr> {__VA_ARGS__}, DTYPE), \
-            false); \
-    ::dnnl::impl::graph::gc::builder::get_current_builder() \
-            ->push_var_tensor_def(NAME, linkage::local);
+#define _tensor_(NAME, DTYPE, ...)                                             \
+  ::dnnl::impl::graph::gc::expr::lvalue_proxy_t NAME(                          \
+      ::dnnl::impl::graph::gc::builder::make_tensor(                           \
+          #NAME, std::vector<expr>{__VA_ARGS__}, DTYPE),                       \
+      false);                                                                  \
+  ::dnnl::impl::graph::gc::builder::get_current_builder()                      \
+      ->push_var_tensor_def(NAME, linkage::local);
 
 /**
  * Creates and reserve a function call
  * */
-#define _evaluate_call_(NAME, ...) \
-    ::dnnl::impl::graph::gc::builder::get_current_builder()->push_evaluate( \
-            ::dnnl::impl::graph::gc::builder::make_call(NAME, \
-                    std::vector<::dnnl::impl::graph::gc::expr> { \
-                            __VA_ARGS__}));
+#define _evaluate_call_(NAME, ...)                                             \
+  ::dnnl::impl::graph::gc::builder::get_current_builder()->push_evaluate(      \
+      ::dnnl::impl::graph::gc::builder::make_call(                             \
+          NAME, std::vector<::dnnl::impl::graph::gc::expr>{__VA_ARGS__}));
 
 /**
  * Creates a returns statement
  * */
-#define _return_(...) \
-    ::dnnl::impl::graph::gc::builder::get_current_builder()->push_returns( \
-            __VA_ARGS__)
+#define _return_(...)                                                          \
+  ::dnnl::impl::graph::gc::builder::get_current_builder()->push_returns(       \
+      __VA_ARGS__)
 
 } // namespace builder
 } // namespace gc

@@ -24,13 +24,13 @@ namespace impl {
 namespace graph {
 namespace gc {
 struct tuner_recoverable_exception_t : public std::runtime_error {
-    using parent = std::runtime_error;
-    using parent::runtime_error;
+  using parent = std::runtime_error;
+  using parent::runtime_error;
 };
 
 class json_error : public std::runtime_error {
-    using parent = std::runtime_error;
-    using parent::runtime_error;
+  using parent = std::runtime_error;
+  using parent::runtime_error;
 };
 
 } // namespace gc

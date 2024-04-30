@@ -15,37 +15,35 @@
  *******************************************************************************/
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_KERNEL_INCLUDE_X86SIMD_VEC_U16X4_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_KERNEL_INCLUDE_X86SIMD_VEC_U16X4_HPP
+#include "common.hpp"
 #include <immintrin.h>
 #include <stdint.h>
-#include "common.hpp"
 class vec_u32x4;
 class vec_f32x4;
 class vec_u16x4 {
 public:
-    union {
-        __m128i v128;
-        __m64 v;
-        uint16_t raw[8];
+  union {
+    __m128i v128;
+    __m64 v;
+    uint16_t raw[8];
 #ifdef __AVX512BF16__
-        __m128bh v16;
+    __m128bh v16;
 #endif
-    } __attribute__((aligned(16)));
+  } __attribute__((aligned(16)));
 
-    INLINE vec_u16x4() = default;
-    INLINE vec_u16x4(uint16_t f) { v128 = _mm_set1_epi16(f); }
-    INLINE vec_u16x4(uint16_t i0, uint16_t i1, uint16_t i2, uint16_t i3) {
-        v128 = _mm_setr_epi16(i0, i1, i2, i3, 0, 0, 0, 0);
-    }
-    INLINE operator vec_u32x4() const;
+  INLINE vec_u16x4() = default;
+  INLINE vec_u16x4(uint16_t f) { v128 = _mm_set1_epi16(f); }
+  INLINE vec_u16x4(uint16_t i0, uint16_t i1, uint16_t i2, uint16_t i3) {
+    v128 = _mm_setr_epi16(i0, i1, i2, i3, 0, 0, 0, 0);
+  }
+  INLINE operator vec_u32x4() const;
 
-    INLINE vec_u16x4(__m64 const &x) { v = x; }
-    INLINE vec_u16x4(__m128i const &x) { v128 = x; }
+  INLINE vec_u16x4(__m64 const &x) { v = x; }
+  INLINE vec_u16x4(__m128i const &x) { v128 = x; }
 
-    static INLINE vec_u16x4 load(const uint16_t *p) {
-        return *(const __m64 *)p;
-    }
+  static INLINE vec_u16x4 load(const uint16_t *p) { return *(const __m64 *)p; }
 
-    static INLINE void store(vec_u16x4 v, uint16_t *p) { *(__m64 *)p = v.v; }
+  static INLINE void store(vec_u16x4 v, uint16_t *p) { *(__m64 *)p = v.v; }
 };
 
 // INLINE vec_u16x4 operator+(vec_u16x4 const &a, vec_u16x4 const &b) {
@@ -73,7 +71,7 @@ public:
 //     return _mm_xor_si128(a.v, _mm_set1_epi16(-1));
 // }
 INLINE vec_u16x4 operator&(vec_u16x4 const &a, vec_u16x4 const &b) {
-    return _mm_and_si64(a.v, b.v);
+  return _mm_and_si64(a.v, b.v);
 }
 // INLINE vec_u16x4 operator&&(vec_u16x4 const &a, vec_u16x4 const &b) {
 //     return _mm_and_si128(a.v, b.v);
@@ -130,10 +128,10 @@ INLINE vec_u16x4 operator&(vec_u16x4 const &a, vec_u16x4 const &b) {
 // #endif
 
 INLINE vec_u16x4 operator<<(vec_u16x4 const &a, vec_u16x4 const &b) {
-    return _mm_sll_pi16(a.v, b.v);
+  return _mm_sll_pi16(a.v, b.v);
 }
 INLINE vec_u16x4 operator>>(vec_u16x4 const &a, vec_u16x4 const &b) {
-    return _mm_srl_pi16(a.v, b.v);
+  return _mm_srl_pi16(a.v, b.v);
 }
 
 // operator /

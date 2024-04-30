@@ -21,8 +21,8 @@ namespace graph {
 namespace gc {
 namespace passlet {
 
-#define SC_PASSLET_IMPL_METHODS_IMPL(node_type, ...) \
-    void passlet_t::view(const node_type##_c &v, pass_phase phase) {}
+#define SC_PASSLET_IMPL_METHODS_IMPL(node_type, ...)                           \
+  void passlet_t::view(const node_type##_c &v, pass_phase phase) {}
 
 FOR_EACH_EXPR_IR_TYPE(SC_PASSLET_IMPL_METHODS_IMPL)
 FOR_EACH_STMT_IR_TYPE(SC_PASSLET_IMPL_METHODS_IMPL)

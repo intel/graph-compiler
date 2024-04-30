@@ -26,9 +26,9 @@ namespace xbyak {
 namespace x86_64 {
 
 const cpu_data_type_table &get_cpu_data_types() {
-    using avk = abi_value_kind;
+  using avk = abi_value_kind;
 
-    // clang-format off
+  // clang-format off
     static const cpu_data_type_table local_cpu_data_types(std::vector<cpu_data_type_table::row> {                                    // NOLINT
     //  +-----------------------------+------+-----------+-----------+-------------+-----------+-------------+-------------------+   // NOLINT
     //  | type                        | size | natural   | strictest | abi precall | abi stack | local value | ABI value         |   // NOLINT
@@ -82,95 +82,101 @@ const cpu_data_type_table &get_cpu_data_types() {
     //  +-----------------------------+------+-----------+-----------+-------------+-----------+-------------+-------------------+   // NOLINT
     });
 
-    // clang-format on
-    return local_cpu_data_types;
+  // clang-format on
+  return local_cpu_data_types;
 }
 
 std::ostream &operator<<(std::ostream &os, const cpu_data_type t) {
-    switch (t) {
-#define HANDLE_CASE(X) \
-    case xbyak::x86_64::cpu_data_type::X: \
-        os << "xbyak::x86_64::cpu_data_type::" #X; \
-        break;
+  switch (t) {
+#define HANDLE_CASE(X)                                                         \
+  case xbyak::x86_64::cpu_data_type::X:                                        \
+    os << "xbyak::x86_64::cpu_data_type::" #X;                                 \
+    break;
 
-        HANDLE_CASE(uint_8)
-        HANDLE_CASE(uint_8_x8)
-        HANDLE_CASE(uint_8_x16)
-        HANDLE_CASE(uint_8_x32)
-        HANDLE_CASE(uint_8_x64)
-        HANDLE_CASE(sint_8)
-        HANDLE_CASE(sint_8_x8)
-        HANDLE_CASE(sint_8_x16)
-        HANDLE_CASE(sint_8_x32)
-        HANDLE_CASE(sint_8_x64)
-        HANDLE_CASE(uint_16)
-        HANDLE_CASE(uint_16_x4)
-        HANDLE_CASE(uint_16_x8)
-        HANDLE_CASE(uint_16_x16)
-        HANDLE_CASE(uint_16_x32)
-        HANDLE_CASE(uint_32)
-        HANDLE_CASE(uint_32_x2)
-        HANDLE_CASE(uint_32_x4)
-        HANDLE_CASE(uint_32_x8)
-        HANDLE_CASE(uint_32_x16)
-        HANDLE_CASE(sint_32)
-        HANDLE_CASE(sint_32_x2)
-        HANDLE_CASE(sint_32_x4)
-        HANDLE_CASE(sint_32_x8)
-        HANDLE_CASE(sint_32_x16)
-        HANDLE_CASE(uint_64)
-        HANDLE_CASE(float_16)
-        HANDLE_CASE(float_16_x4)
-        HANDLE_CASE(float_16_x8)
-        HANDLE_CASE(float_16_x16)
-        HANDLE_CASE(float_32)
-        HANDLE_CASE(float_32_x2)
-        HANDLE_CASE(float_32_x4)
-        HANDLE_CASE(float_32_x8)
-        HANDLE_CASE(float_32_x16)
-        HANDLE_CASE(mask_x4)
-        HANDLE_CASE(mask_x8)
-        HANDLE_CASE(mask_x16)
-        HANDLE_CASE(mask_x32)
-        HANDLE_CASE(mask_x64)
-        HANDLE_CASE(void_t)
+    HANDLE_CASE(uint_8)
+    HANDLE_CASE(uint_8_x8)
+    HANDLE_CASE(uint_8_x16)
+    HANDLE_CASE(uint_8_x32)
+    HANDLE_CASE(uint_8_x64)
+    HANDLE_CASE(sint_8)
+    HANDLE_CASE(sint_8_x8)
+    HANDLE_CASE(sint_8_x16)
+    HANDLE_CASE(sint_8_x32)
+    HANDLE_CASE(sint_8_x64)
+    HANDLE_CASE(uint_16)
+    HANDLE_CASE(uint_16_x4)
+    HANDLE_CASE(uint_16_x8)
+    HANDLE_CASE(uint_16_x16)
+    HANDLE_CASE(uint_16_x32)
+    HANDLE_CASE(uint_32)
+    HANDLE_CASE(uint_32_x2)
+    HANDLE_CASE(uint_32_x4)
+    HANDLE_CASE(uint_32_x8)
+    HANDLE_CASE(uint_32_x16)
+    HANDLE_CASE(sint_32)
+    HANDLE_CASE(sint_32_x2)
+    HANDLE_CASE(sint_32_x4)
+    HANDLE_CASE(sint_32_x8)
+    HANDLE_CASE(sint_32_x16)
+    HANDLE_CASE(uint_64)
+    HANDLE_CASE(float_16)
+    HANDLE_CASE(float_16_x4)
+    HANDLE_CASE(float_16_x8)
+    HANDLE_CASE(float_16_x16)
+    HANDLE_CASE(float_32)
+    HANDLE_CASE(float_32_x2)
+    HANDLE_CASE(float_32_x4)
+    HANDLE_CASE(float_32_x8)
+    HANDLE_CASE(float_32_x16)
+    HANDLE_CASE(mask_x4)
+    HANDLE_CASE(mask_x8)
+    HANDLE_CASE(mask_x16)
+    HANDLE_CASE(mask_x32)
+    HANDLE_CASE(mask_x64)
+    HANDLE_CASE(void_t)
 #undef HANDLE_CASE
-        default: os << "(unrecognized cpu_data_type value)"; break;
-    }
-    return os;
+  default:
+    os << "(unrecognized cpu_data_type value)";
+    break;
+  }
+  return os;
 }
 
 cpu_data_type_table::row::row(cpu_data_type type, size_t size_in_bytes,
-        size_t cpu_natural_alignment, size_t cpu_strictest_alignment,
-        size_t abi_precall_stack_alignment, size_t abi_stack_slot_size,
-        size_t local_value_stack_slot_size, abi_value_kind abi_initial_val_kind)
-    : type_(type)
-    , size_in_bytes_(size_in_bytes)
-    , cpu_natural_alignment_(cpu_natural_alignment)
-    , cpu_strictest_alignment_(cpu_strictest_alignment)
-    , abi_precall_stack_alignment_(abi_precall_stack_alignment)
-    , abi_stack_slot_size_(abi_stack_slot_size)
-    , local_value_stack_slot_size_(local_value_stack_slot_size)
-    , abi_initial_val_kind_(abi_initial_val_kind) {}
+                              size_t cpu_natural_alignment,
+                              size_t cpu_strictest_alignment,
+                              size_t abi_precall_stack_alignment,
+                              size_t abi_stack_slot_size,
+                              size_t local_value_stack_slot_size,
+                              abi_value_kind abi_initial_val_kind)
+    : type_(type), size_in_bytes_(size_in_bytes),
+      cpu_natural_alignment_(cpu_natural_alignment),
+      cpu_strictest_alignment_(cpu_strictest_alignment),
+      abi_precall_stack_alignment_(abi_precall_stack_alignment),
+      abi_stack_slot_size_(abi_stack_slot_size),
+      local_value_stack_slot_size_(local_value_stack_slot_size),
+      abi_initial_val_kind_(abi_initial_val_kind) {}
 
 cpu_data_type_table::cpu_data_type_table(const std::vector<row> &content)
     : content_(content) {}
 
-const cpu_data_type_table::row &cpu_data_type_table::lookup(
-        cpu_data_type t) const {
-    for (const auto &r : content_) {
-        if (r.type_ == t) { return r; }
+const cpu_data_type_table::row &
+cpu_data_type_table::lookup(cpu_data_type t) const {
+  for (const auto &r : content_) {
+    if (r.type_ == t) {
+      return r;
     }
+  }
 
-    COMPILE_ASSERT(false, "No matching row for " << t);
+  COMPILE_ASSERT(false, "No matching row for " << t);
 }
 
 size_t get_local_value_stack_slot_size(cpu_data_type t) {
-    return get_cpu_data_types().lookup(t).local_value_stack_slot_size_;
+  return get_cpu_data_types().lookup(t).local_value_stack_slot_size_;
 }
 
 size_t get_size_in_bytes(cpu_data_type t) {
-    return get_cpu_data_types().lookup(t).size_in_bytes_;
+  return get_cpu_data_types().lookup(t).size_in_bytes_;
 }
 
 } // namespace x86_64

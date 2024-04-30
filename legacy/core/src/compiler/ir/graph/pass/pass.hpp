@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_PASS_PASS_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_PASS_PASS_HPP
 
+#include "../graph.hpp"
 #include <functional>
 #include <ios>
 #include <string>
-#include "../graph.hpp"
 #include <unordered_map>
 
 namespace dnnl {
@@ -41,41 +41,45 @@ constexpr int global_const = 2;
 } // namespace const_kind
 
 SC_INTERNAL_API void print_graph(const sc_graph_t &mgr, std::ostream &os,
-        bool print_shape = false, bool print_attr = false,
-        bool print_name = false, bool print_stride = false);
+                                 bool print_shape = false,
+                                 bool print_attr = false,
+                                 bool print_name = false,
+                                 bool print_stride = false);
 
 SC_INTERNAL_API sc_graph_t copy_graph(const sc_graph_t &graph);
 
 SC_API bool check_graph_connection(sc_graph_t &graph);
-bool check_graph_config(
-        sc_graph_t &graph, const context_ptr &ctx = get_default_context());
+bool check_graph_config(sc_graph_t &graph,
+                        const context_ptr &ctx = get_default_context());
 /**
  * Folding nodes with constant attribute from inputs in graph.
  * In this pass, we only propagate "constant" states from constant op and input
  * op which marked `constant`. Actual folding will occur in lowering.
  * */
-SC_INTERNAL_API void graph_constant_input_folding(
-        sc_graph_t &graph, const context_ptr &ctx = get_default_context());
+SC_INTERNAL_API void
+graph_constant_input_folding(sc_graph_t &graph,
+                             const context_ptr &ctx = get_default_context());
 /**
  * Do the same as graph_constant_input_folding, except that it also try to share
  * the constant buffer with other graphs. This pass should be put after all
  * other graph_constant_input_folding
  * */
-SC_INTERNAL_API void graph_constant_input_folding_and_share_constants(
-        sc_graph_t &mgr, const context_ptr &ctx);
+SC_INTERNAL_API void
+graph_constant_input_folding_and_share_constants(sc_graph_t &mgr,
+                                                 const context_ptr &ctx);
 /**
  * Mark the elementwise op with padded input/output could use output mask(not
  * mask load/store) or not. The op could use mask when its direct uses have
  * reduce or memory movement semantics.
  */
-SC_INTERNAL_API void padded_mask_mark(
-        sc_graph_t &graph, const context_ptr &ctx);
+SC_INTERNAL_API void padded_mask_mark(sc_graph_t &graph,
+                                      const context_ptr &ctx);
 /**
  * Enable/Disable some latest optimizations like image-affinity according to the
  * compiler opt level.
  */
-SC_INTERNAL_API void intrusive_opt_level(
-        sc_graph_t &graph, const context_ptr &ctx);
+SC_INTERNAL_API void intrusive_opt_level(sc_graph_t &graph,
+                                         const context_ptr &ctx);
 
 // find the graph in cached code. If a matched graph is found, the
 // compiler_driver/graph_driver can skip the compilation and reuse the code
@@ -93,11 +97,12 @@ SC_INTERNAL_API void graph_code_cache(sc_graph_t &mgr, const context_ptr &ctx);
  * sc_graph_t::compare_contents
  * @return true if the the graphs are the same
  * */
-SC_INTERNAL_API bool compare_graph(sc_op_ptr &first_diff_lhs,
-        sc_op_ptr &first_diff_rhs, const sc_graph_t &lhs, const sc_graph_t &rhs,
-        const std::unordered_map<int, int> &lhs_rhs_input_mapping = {},
-        const std::function<bool(const sc_op *, const std::string &)> &filter
-        = nullptr);
+SC_INTERNAL_API bool compare_graph(
+    sc_op_ptr &first_diff_lhs, sc_op_ptr &first_diff_rhs, const sc_graph_t &lhs,
+    const sc_graph_t &rhs,
+    const std::unordered_map<int, int> &lhs_rhs_input_mapping = {},
+    const std::function<bool(const sc_op *, const std::string &)> &filter =
+        nullptr);
 
 /**
  * Compares the graphs.
@@ -109,10 +114,11 @@ SC_INTERNAL_API bool compare_graph(sc_op_ptr &first_diff_lhs,
  * sc_graph_t::compare_contents
  * @return true if the the graphs are the same
  * */
-SC_INTERNAL_API bool compare_graph(const sc_graph_t &lhs, const sc_graph_t &rhs,
-        const std::unordered_map<int, int> &lhs_rhs_input_mapping = {},
-        const std::function<bool(const sc_op *, const std::string &)> &filter
-        = nullptr);
+SC_INTERNAL_API bool compare_graph(
+    const sc_graph_t &lhs, const sc_graph_t &rhs,
+    const std::unordered_map<int, int> &lhs_rhs_input_mapping = {},
+    const std::function<bool(const sc_op *, const std::string &)> &filter =
+        nullptr);
 
 namespace runtime {
 struct dynamic_tensor_t;
@@ -134,8 +140,9 @@ struct dynamic_tensor_t;
  * to number of outputs in graph.
  * */
 SC_API void dynamic_infer_shape_by_graph(sc_graph_t &graph,
-        runtime::dynamic_tensor_t **ins, runtime::dynamic_tensor_t **outs,
-        size_t num_ins, size_t num_outs);
+                                         runtime::dynamic_tensor_t **ins,
+                                         runtime::dynamic_tensor_t **outs,
+                                         size_t num_ins, size_t num_outs);
 
 } // namespace gc
 } // namespace graph

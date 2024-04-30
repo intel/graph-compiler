@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_VIEWER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_VIEWER_HPP
 
-#include <vector>
 #include "visitor.hpp"
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -39,28 +39,28 @@ namespace gc {
  * */
 class ir_viewer_t : public ir_visitor_t {
 public:
-    /**
-     * Visit an array of expr.
-     */
-    void dispatch_expr_arr(const std::vector<expr> &);
+  /**
+   * Visit an array of expr.
+   */
+  void dispatch_expr_arr(const std::vector<expr> &);
 
-    /**
-     * Override the view() functions below to visit the
-     * IR that you are interested
-     * */
+  /**
+   * Override the view() functions below to visit the
+   * IR that you are interested
+   * */
 
-#define SC_VIEWER_METHODS_IMPL(node_type, ...) \
-    virtual void view(node_type##_c v);
+#define SC_VIEWER_METHODS_IMPL(node_type, ...)                                 \
+  virtual void view(node_type##_c v);
 
-#define SC_VIEWER_METHODS() \
-    FOR_EACH_EXPR_IR_TYPE(SC_VIEWER_METHODS_IMPL) \
-    FOR_EACH_STMT_IR_TYPE(SC_VIEWER_METHODS_IMPL) \
-    FOR_EACH_BASE_EXPR_IR_TYPE(SC_VIEWER_METHODS_IMPL)
+#define SC_VIEWER_METHODS()                                                    \
+  FOR_EACH_EXPR_IR_TYPE(SC_VIEWER_METHODS_IMPL)                                \
+  FOR_EACH_STMT_IR_TYPE(SC_VIEWER_METHODS_IMPL)                                \
+  FOR_EACH_BASE_EXPR_IR_TYPE(SC_VIEWER_METHODS_IMPL)
 
-    SC_VIEWER_METHODS()
+  SC_VIEWER_METHODS()
 
 private:
-    SC_VISITOR_METHODS(final)
+  SC_VISITOR_METHODS(final)
 };
 
 } // namespace gc

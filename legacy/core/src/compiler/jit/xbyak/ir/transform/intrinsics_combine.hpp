@@ -27,8 +27,8 @@ namespace xbyak {
 
 class intrinsics_combine_t : public function_pass_t {
 public:
-    intrinsics_combine_t() = default;
-    func_c operator()(func_c v) override;
+  intrinsics_combine_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

@@ -17,9 +17,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_JIT_XBYAK_X86_64_ABI_COMMON_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_JIT_XBYAK_X86_64_ABI_COMMON_HPP
 
+#include <compiler/jit/xbyak/x86_64/registers.hpp>
 #include <ostream>
 #include <vector>
-#include <compiler/jit/xbyak/x86_64/registers.hpp>
 
 namespace dnnl {
 namespace impl {
@@ -33,20 +33,20 @@ namespace x86_64 {
 /// This enumeration defines only the subset of value classes that we
 /// currently support.
 enum class abi_value_kind {
-    INTEGER,
-    SSE,
+  INTEGER,
+  SSE,
 
-    /// A hack to let us continue to use an enum for this, even though the psABI
-    /// wants to treat it as this sequence of 8-bytes: {SSEUP, ..., SSEUP, SSE}.
-    /// (Going from highest-order on the left to lowest-order on the right.)
-    SSEUPx15_SSE,
+  /// A hack to let us continue to use an enum for this, even though the psABI
+  /// wants to treat it as this sequence of 8-bytes: {SSEUP, ..., SSEUP, SSE}.
+  /// (Going from highest-order on the left to lowest-order on the right.)
+  SSEUPx15_SSE,
 
-    // SSEUP,
-    // X87,
-    // X87UP,
-    // COMPLEX_X87,
-    // NO_CLASS,
-    // MEMORY,
+  // SSEUP,
+  // X87,
+  // X87UP,
+  // COMPLEX_X87,
+  // NO_CLASS,
+  // MEMORY,
 };
 
 std::ostream &operator<<(std::ostream &, abi_value_kind v);

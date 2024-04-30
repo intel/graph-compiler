@@ -26,52 +26,52 @@ namespace graph {
 namespace gc {
 namespace utils {
 static constexpr size_t divide_and_ceil(size_t x, size_t y) {
-    return (x + y - 1) / y;
+  return (x + y - 1) / y;
 }
 
 static constexpr size_t rnd_up(const size_t a, const size_t b) {
-    return (divide_and_ceil(a, b) * b);
+  return (divide_and_ceil(a, b) * b);
 }
 
 static constexpr size_t rnd_dn(const size_t a, const size_t b) {
-    return (a / b) * b;
+  return (a / b) * b;
 }
 
 inline bool is_power_of_2(const uint64_t val) {
-    return (val > 0) && ((val & (val - 1)) == 0);
+  return (val > 0) && ((val & (val - 1)) == 0);
 }
 
 // get leading zeros
 inline int clz(const uint32_t val) {
 #if SC_IS_MSVC()
-    return _lzcnt_u32(val);
+  return _lzcnt_u32(val);
 #else
-    return __builtin_clz(val);
+  return __builtin_clz(val);
 #endif
 }
 
 inline int clz(const uint64_t val) {
 #if SC_IS_MSVC()
-    return _lzcnt_u64(val);
+  return _lzcnt_u64(val);
 #else
-    return __builtin_clzll(val);
+  return __builtin_clzll(val);
 #endif
 }
 
 // get trailing zeros
 inline int ctz(const uint32_t val) {
 #if SC_IS_MSVC()
-    return _tzcnt_u32(val);
+  return _tzcnt_u32(val);
 #else
-    return __builtin_ctz(val);
+  return __builtin_ctz(val);
 #endif
 }
 
 inline int ctz(const uint64_t val) {
 #if SC_IS_MSVC()
-    return _tzcnt_u64(val);
+  return _tzcnt_u64(val);
 #else
-    return __builtin_ctzll(val);
+  return __builtin_ctzll(val);
 #endif
 }
 

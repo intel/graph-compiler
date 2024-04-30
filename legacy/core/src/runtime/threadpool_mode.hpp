@@ -21,9 +21,9 @@ namespace graph {
 namespace gc {
 
 enum class thread_pool_mode_t {
-    DIRECT, // directly using underlying thread pool (OMP, Eigen, etc.)
-    MANAGED, // managed thread pool
-    DYNAMIC, // queue-based dynamic thread pool
+  DIRECT,  // directly using underlying thread pool (OMP, Eigen, etc.)
+  MANAGED, // managed thread pool
+  DYNAMIC, // queue-based dynamic thread pool
 };
 
 }

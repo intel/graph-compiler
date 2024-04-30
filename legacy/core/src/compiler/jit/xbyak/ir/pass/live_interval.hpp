@@ -31,8 +31,8 @@ namespace xbyak {
  * */
 class live_interval_t : public function_pass_t {
 public:
-    live_interval_t() = default;
-    func_c operator()(func_c v) override;
+  live_interval_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

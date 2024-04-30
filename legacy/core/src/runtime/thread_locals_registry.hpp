@@ -16,13 +16,13 @@
 
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_THREAD_LOCALS_REGISTRY_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_THREAD_LOCALS_REGISTRY_HPP
+#include "thread_locals.hpp"
 #include <functional>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
-#include "thread_locals.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -31,25 +31,24 @@ namespace gc {
 namespace runtime {
 
 struct trace_env_t {
-    std::mutex name_lock_;
-    std::vector<std::string> names_;
-    trace_env_t();
+  std::mutex name_lock_;
+  std::vector<std::string> names_;
+  trace_env_t();
 };
 
 // the registry of all TLS resources.
 struct thread_local_registry_t {
-    std::mutex lock_;
-    std::list<thread_local_buffer_t *> tls_buffers_;
-    std::vector<std::unique_ptr<thread_local_buffer_t::additional_t>>
-            dead_threads_;
-    trace_env_t trace_env_;
-    void release(engine_t *engine);
-    void for_each_tls_additional(
-            const std::function<void(thread_local_buffer_t::additional_t *)>
-                    &f);
+  std::mutex lock_;
+  std::list<thread_local_buffer_t *> tls_buffers_;
+  std::vector<std::unique_ptr<thread_local_buffer_t::additional_t>>
+      dead_threads_;
+  trace_env_t trace_env_;
+  void release(engine_t *engine);
+  void for_each_tls_additional(
+      const std::function<void(thread_local_buffer_t::additional_t *)> &f);
 
-    thread_local_registry_t();
-    ~thread_local_registry_t();
+  thread_local_registry_t();
+  ~thread_local_registry_t();
 };
 
 } // namespace runtime

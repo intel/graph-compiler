@@ -2397,7 +2397,9 @@ void gen_conv_fwd_t::compute_conv_padding_v2(CONV_ARG_LIST) const {
                                   }
                                   fill_sub_tensor();
                                 }
-                                _else_ { update_sub_tensor(); }
+                                _else_ {
+                                  update_sub_tensor();
+                                }
                               }
                             }
 

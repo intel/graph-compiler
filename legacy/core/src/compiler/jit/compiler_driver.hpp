@@ -17,12 +17,12 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_JIT_COMPILER_DRIVER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_JIT_COMPILER_DRIVER_HPP
 
-#include <functional>
-#include <memory>
-#include <vector>
 #include "jit.hpp"
 #include <compiler/ir/graph/graph.hpp>
 #include <compiler/ir/graph/graph_config.hpp>
+#include <functional>
+#include <memory>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -44,21 +44,21 @@ namespace gc {
  * @returns the JIT'd executable main entry function of the graph. It may share
  * the code and buffer with previously compiled graph.
  */
-SC_API std::shared_ptr<jit_function_t> compiler_driver(const context_ptr &ctx,
-        sc_graph_t &graph,
-        const std::function<std::vector<sc_op_ptr>(sc_graph_t &graph)>
-                &get_args,
-        const dnnl::impl::graph::gc::graph_config *in_cfg = nullptr,
-        ir_module_ptr *out_ir_module = nullptr);
+SC_API std::shared_ptr<jit_function_t> compiler_driver(
+    const context_ptr &ctx, sc_graph_t &graph,
+    const std::function<std::vector<sc_op_ptr>(sc_graph_t &graph)> &get_args,
+    const dnnl::impl::graph::gc::graph_config *in_cfg = nullptr,
+    ir_module_ptr *out_ir_module = nullptr);
 
 /**
  * @see compiler_driver above. The simplifed interface of compiler_driver. The
  * args are given in vectors.
  */
-SC_API std::shared_ptr<jit_function_t> compiler_driver(const context_ptr &ctx,
-        sc_graph_t &graph, const std::vector<sc_op_ptr> &args,
-        const dnnl::impl::graph::gc::graph_config *in_cfg = nullptr,
-        ir_module_ptr *out_ir_module = nullptr);
+SC_API std::shared_ptr<jit_function_t>
+compiler_driver(const context_ptr &ctx, sc_graph_t &graph,
+                const std::vector<sc_op_ptr> &args,
+                const dnnl::impl::graph::gc::graph_config *in_cfg = nullptr,
+                ir_module_ptr *out_ir_module = nullptr);
 } // namespace gc
 } // namespace graph
 } // namespace impl

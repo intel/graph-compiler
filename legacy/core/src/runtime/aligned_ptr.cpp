@@ -28,32 +28,31 @@ using utils::divide_and_ceil;
 using utils::parallel;
 
 void generic_ptr_base_t::zeroout() const {
-    static constexpr int page_size = 4096;
-    int numthreads = runtime_config_t::get().get_num_threads();
-    parallel(
-            [&](uint64_t i, uint64_t n) {
-                if (i != n - 1) {
-                    memset(static_cast<char *>(ptr_) + i * page_size, 0,
-                            page_size);
-                } else {
-                    memset(static_cast<char *>(ptr_) + i * page_size, 0,
-                            size_ - i * page_size);
-                }
-            },
-            0, divide_and_ceil(size_, page_size), 1, numthreads);
+  static constexpr int page_size = 4096;
+  int numthreads = runtime_config_t::get().get_num_threads();
+  parallel(
+      [&](uint64_t i, uint64_t n) {
+        if (i != n - 1) {
+          memset(static_cast<char *>(ptr_) + i * page_size, 0, page_size);
+        } else {
+          memset(static_cast<char *>(ptr_) + i * page_size, 0,
+                 size_ - i * page_size);
+        }
+      },
+      0, divide_and_ceil(size_, page_size), 1, numthreads);
 }
 /**
  * Flush cache
  * */
 void generic_ptr_base_t::flush_cache() const {
-    static constexpr int cache_line_size = 64;
-    int numthreads = runtime_config_t::get().get_num_threads();
-    parallel(
-            [&](uint64_t i, uint64_t n) {
-                _mm_clflush(static_cast<const void *>(
-                        static_cast<const char *>(ptr_) + i));
-            },
-            0, size_, cache_line_size, numthreads);
+  static constexpr int cache_line_size = 64;
+  int numthreads = runtime_config_t::get().get_num_threads();
+  parallel(
+      [&](uint64_t i, uint64_t n) {
+        _mm_clflush(
+            static_cast<const void *>(static_cast<const char *>(ptr_) + i));
+      },
+      0, size_, cache_line_size, numthreads);
 }
 
 } // namespace gc

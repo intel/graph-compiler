@@ -17,9 +17,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_FUSIBLE_POOLING_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_FUSIBLE_POOLING_HPP
 
-#include <vector>
 #include "compiler/dimensions.hpp"
 #include <compiler/ir/graph/fusible_op.hpp>
+#include <vector>
 namespace dnnl {
 namespace impl {
 namespace graph {
@@ -60,151 +60,157 @@ class pooling_op_t : public fusible_op_t,
                      public op_traits::auto_copyable_t,
                      public op_traits::may_quantize_t {
 public:
-    pooling_type_t pooling_type_;
-    sc_dims stride_;
-    sc_dims pads_begin_;
-    sc_dims pads_end_;
-    sc_dims kernel_;
+  pooling_type_t pooling_type_;
+  sc_dims stride_;
+  sc_dims pads_begin_;
+  sc_dims pads_end_;
+  sc_dims kernel_;
 
-    pooling_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  pooling_op_t(const std::vector<graph_tensor_ptr> &ins,
+               const std::vector<graph_tensor_ptr> &outs,
+               const any_map_t &attrs);
 
-    pooling_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs,
-            const pooling_type_t &pl_type, const any_map_t &attrs);
+  pooling_op_t(const std::vector<graph_tensor_ptr> &ins,
+               const std::vector<graph_tensor_ptr> &outs,
+               const pooling_type_t &pl_type, const any_map_t &attrs);
 
-    DECLARE_QUERY_AND_COMPUTE()
+  DECLARE_QUERY_AND_COMPUTE()
 
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 
-    size_t compute_workload(const std::vector<shape_dtype_pair> &,
-            const std::vector<shape_dtype_pair> &) override;
+  size_t compute_workload(const std::vector<shape_dtype_pair> &,
+                          const std::vector<shape_dtype_pair> &) override;
 
-    std::vector<int> get_real_pooling_axis() const;
+  std::vector<int> get_real_pooling_axis() const;
 
-    std::vector<int> get_channel_axis() const;
+  std::vector<int> get_channel_axis() const;
 
-    shape_rl_vec get_dynamic_shape_relations() const override;
+  shape_rl_vec get_dynamic_shape_relations() const override;
 
-    reflection::shared_general_object_t get_dynamic_runtime_info() override;
+  reflection::shared_general_object_t get_dynamic_runtime_info() override;
 
-    void calculate_dynamic_shape_expression() override;
+  void calculate_dynamic_shape_expression() override;
 
 private:
-    sc_dims _calculate_output_dims(bool rounding_floor, bool channel_last);
+  sc_dims _calculate_output_dims(bool rounding_floor, bool channel_last);
 
-    bool channel_last_;
-    // use vectorized
-    vectorized_info_t vx_info_;
+  bool channel_last_;
+  // use vectorized
+  vectorized_info_t vx_info_;
 };
 
 class pooling_avg_op_t : public pooling_op_t {
 public:
-    using parent = pooling_op_t;
-    /*
-     * Inputs:
-     * 1: input - input tensor. Required.
-     * Attributes:
-     * strides Required
-     * pads_begin + pads_end  (or paddings)  Required
-     * kernel Required
-     * exclude_pad Required
-     * rounding_type Optional
-     * auto_pad Optional
-     * data_format Optional
-     */
-    pooling_avg_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  using parent = pooling_op_t;
+  /*
+   * Inputs:
+   * 1: input - input tensor. Required.
+   * Attributes:
+   * strides Required
+   * pads_begin + pads_end  (or paddings)  Required
+   * kernel Required
+   * exclude_pad Required
+   * rounding_type Optional
+   * auto_pad Optional
+   * data_format Optional
+   */
+  pooling_avg_op_t(const std::vector<graph_tensor_ptr> &ins,
+                   const std::vector<graph_tensor_ptr> &outs,
+                   const any_map_t &attrs);
 };
 
 class pooling_max_op_t : public pooling_op_t {
 public:
-    using parent = pooling_op_t;
-    /*
-     * Inputs:
-     * 1: input - input tensor. Required.
-     * Attributes:
-     * strides Required
-     * pads_begin + pads_end  (or paddings)  Required
-     * kernel Required
-     * rounding_type Optional
-     * auto_pad Optional
-     * data_format Optional
-     */
-    pooling_max_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  using parent = pooling_op_t;
+  /*
+   * Inputs:
+   * 1: input - input tensor. Required.
+   * Attributes:
+   * strides Required
+   * pads_begin + pads_end  (or paddings)  Required
+   * kernel Required
+   * rounding_type Optional
+   * auto_pad Optional
+   * data_format Optional
+   */
+  pooling_max_op_t(const std::vector<graph_tensor_ptr> &ins,
+                   const std::vector<graph_tensor_ptr> &outs,
+                   const any_map_t &attrs);
 };
 
 class pooling_backprop_op_t : public fusible_op_t,
                               public op_traits::auto_copyable_t {
 public:
-    pooling_type_t pooling_type_;
-    sc_dims stride_;
-    sc_dims pads_begin_;
-    sc_dims pads_end_;
-    sc_dims kernel_;
+  pooling_type_t pooling_type_;
+  sc_dims stride_;
+  sc_dims pads_begin_;
+  sc_dims pads_end_;
+  sc_dims kernel_;
 
-    pooling_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  pooling_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
+                        const std::vector<graph_tensor_ptr> &outs,
+                        const any_map_t &attrs);
 
-    DECLARE_QUERY_AND_COMPUTE()
+  DECLARE_QUERY_AND_COMPUTE()
 
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 
-    size_t compute_workload(const std::vector<shape_dtype_pair> &,
-            const std::vector<shape_dtype_pair> &) override;
+  size_t compute_workload(const std::vector<shape_dtype_pair> &,
+                          const std::vector<shape_dtype_pair> &) override;
 
 private:
-    bool channel_last_;
-    // use vectorized
-    vectorized_info_t vx_info_;
+  bool channel_last_;
+  // use vectorized
+  vectorized_info_t vx_info_;
 };
 
 class pooling_avg_backprop_op_t : public pooling_backprop_op_t {
 public:
-    using parent = pooling_backprop_op_t;
-    /*
-     * Inputs:
-     * 1: output_delta  Required.
-     * Attributes:
-     * strides Required
-     * pads_begin + pads_end  (or paddings)  Required
-     * kernel Required.
-     * exclude_pad Required.
-     * input_shape Required.
-     * auto_pad Optional
-     * data_format Optional
-     */
-    pooling_avg_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  using parent = pooling_backprop_op_t;
+  /*
+   * Inputs:
+   * 1: output_delta  Required.
+   * Attributes:
+   * strides Required
+   * pads_begin + pads_end  (or paddings)  Required
+   * kernel Required.
+   * exclude_pad Required.
+   * input_shape Required.
+   * auto_pad Optional
+   * data_format Optional
+   */
+  pooling_avg_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
+                            const std::vector<graph_tensor_ptr> &outs,
+                            const any_map_t &attrs);
 
-    pooling_avg_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, sc_dims &input_shape,
-            const any_map_t &attrs);
+  pooling_avg_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
+                            const std::vector<graph_tensor_ptr> &outs,
+                            sc_dims &input_shape, const any_map_t &attrs);
 };
 
 class pooling_max_backprop_op_t : public pooling_backprop_op_t {
 public:
-    using parent = pooling_backprop_op_t;
-    /*
-     * Inputs:
-     * 1: output_delta   Required.
-     * 2: input_forward   Required.
-     * Attributes:
-     * strides Required
-     * pads_begin + pads_end  (or paddings)  Required
-     * kernel Required
-     * auto_pad Optional
-     * data_format Optional
-     */
-    pooling_max_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
+  using parent = pooling_backprop_op_t;
+  /*
+   * Inputs:
+   * 1: output_delta   Required.
+   * 2: input_forward   Required.
+   * Attributes:
+   * strides Required
+   * pads_begin + pads_end  (or paddings)  Required
+   * kernel Required
+   * auto_pad Optional
+   * data_format Optional
+   */
+  pooling_max_backprop_op_t(const std::vector<graph_tensor_ptr> &ins,
+                            const std::vector<graph_tensor_ptr> &outs,
+                            const any_map_t &attrs);
 };
 } // namespace gc
 } // namespace graph

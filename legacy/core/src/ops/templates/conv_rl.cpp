@@ -344,8 +344,12 @@ bool gen_conv_fwd_rl_t::generate(context_ptr ctx,
             last_row = ((job2 - 1) * sh_ + kh_ - real_pb);
           }
           _else_ {
-            _if_(p >= threshold) { last_row = ((job2 - 1) * sh_ + kh_); }
-            _else_ { last_row = ((job1 - 1) * sh_ + kh_); }
+            _if_(p >= threshold) {
+              last_row = ((job2 - 1) * sh_ + kh_);
+            }
+            _else_ {
+              last_row = ((job1 - 1) * sh_ + kh_);
+            }
           }
         }
       }

@@ -27,41 +27,41 @@ namespace graph {
 namespace gc {
 class track_pos_buf_t : public std::streambuf {
 public:
-    std::ostream &os_;
-    track_pos_buf_t(std::ostream &os) : os_(os) {}
-    int pos_ = 1;
-    int line_ = 1;
+  std::ostream &os_;
+  track_pos_buf_t(std::ostream &os) : os_(os) {}
+  int pos_ = 1;
+  int line_ = 1;
 
 protected:
-    void process_char(char c) {
-        if (c == '\n') {
-            line_++;
-            pos_ = 0;
-        } else {
-            pos_++;
-        }
+  void process_char(char c) {
+    if (c == '\n') {
+      line_++;
+      pos_ = 0;
+    } else {
+      pos_++;
     }
-    std::streamsize xsputn(const char *s, std::streamsize num) override {
-        for (std::streamsize i = 0; i < num; i++) {
-            process_char(s[i]);
-        }
-        os_.write(s, num);
-        return num;
+  }
+  std::streamsize xsputn(const char *s, std::streamsize num) override {
+    for (std::streamsize i = 0; i < num; i++) {
+      process_char(s[i]);
     }
-    int_type overflow(int_type c) override {
-        process_char(c);
-        os_ << (char)c;
-        return c;
-    }
+    os_.write(s, num);
+    return num;
+  }
+  int_type overflow(int_type c) override {
+    process_char(c);
+    os_ << (char)c;
+    return c;
+  }
 };
 
 // an ostream to track the current line position in the output text
 class track_pos_stream_t : public std::ostream {
 public:
-    track_pos_buf_t buf_;
-    track_pos_stream_t(std::ostream &os) : std::ostream(nullptr), buf_(os) {
-        rdbuf(&buf_);
-    }
+  track_pos_buf_t buf_;
+  track_pos_stream_t(std::ostream &os) : std::ostream(nullptr), buf_(os) {
+    rdbuf(&buf_);
+  }
 };
 
 } // namespace gc

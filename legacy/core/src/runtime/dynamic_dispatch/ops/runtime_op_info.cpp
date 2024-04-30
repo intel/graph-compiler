@@ -14,8 +14,8 @@
  * limitations under the License.
  *******************************************************************************/
 
-#include <stdint.h>
 #include "runtime_op_info.hpp"
+#include <stdint.h>
 #include <util/reflection.hpp>
 
 namespace dnnl {

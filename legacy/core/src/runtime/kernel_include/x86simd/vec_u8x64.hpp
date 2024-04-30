@@ -15,52 +15,52 @@
  *******************************************************************************/
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_KERNEL_INCLUDE_X86SIMD_VEC_U8X64_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_RUNTIME_KERNEL_INCLUDE_X86SIMD_VEC_U8X64_HPP
+#include "common.hpp"
 #include <immintrin.h>
 #include <stdint.h>
-#include "common.hpp"
 #ifdef __AVX512F__
 class vec_u8x64 {
 public:
-    union {
-        __m512i v;
-        uint8_t raw[64];
-    } __attribute__((aligned(64)));
+  union {
+    __m512i v;
+    uint8_t raw[64];
+  } __attribute__((aligned(64)));
 
-    INLINE vec_u8x64() = default;
-    INLINE vec_u8x64(uint8_t f) { v = _mm512_set1_epi8(f); }
-    INLINE vec_u8x64(__m512i const &x) { v = x; }
+  INLINE vec_u8x64() = default;
+  INLINE vec_u8x64(uint8_t f) { v = _mm512_set1_epi8(f); }
+  INLINE vec_u8x64(__m512i const &x) { v = x; }
 
-    static INLINE vec_u8x64 load(const uint8_t *p) {
-        return _mm512_loadu_si512((const __m512i *)p);
-    }
-    static INLINE vec_u8x64 load_aligned(const int8_t *p) {
-        return _mm512_load_si512((const __m512i *)p);
-    }
-    static INLINE vec_u8x64 mask_load(const uint8_t *p, __mmask64 mask) {
-        return _mm512_mask_loadu_epi8(vec_u8x64(0).v, mask, p);
-    }
-    static INLINE void store(vec_u8x64 v, uint8_t *p) {
-        _mm512_storeu_si512((__m512i *)p, v.v);
-    }
-    static INLINE void store_aligned(vec_u8x64 v, int8_t *p) {
-        _mm512_store_si512((__m512i *)p, v.v);
-    }
-    static INLINE void mask_store(
-            uint8_t *p, __mmask64 mask, vec_u8x64 const &a) {
-        return _mm512_mask_storeu_epi8(p, mask, a.v);
-    }
+  static INLINE vec_u8x64 load(const uint8_t *p) {
+    return _mm512_loadu_si512((const __m512i *)p);
+  }
+  static INLINE vec_u8x64 load_aligned(const int8_t *p) {
+    return _mm512_load_si512((const __m512i *)p);
+  }
+  static INLINE vec_u8x64 mask_load(const uint8_t *p, __mmask64 mask) {
+    return _mm512_mask_loadu_epi8(vec_u8x64(0).v, mask, p);
+  }
+  static INLINE void store(vec_u8x64 v, uint8_t *p) {
+    _mm512_storeu_si512((__m512i *)p, v.v);
+  }
+  static INLINE void store_aligned(vec_u8x64 v, int8_t *p) {
+    _mm512_store_si512((__m512i *)p, v.v);
+  }
+  static INLINE void mask_store(uint8_t *p, __mmask64 mask,
+                                vec_u8x64 const &a) {
+    return _mm512_mask_storeu_epi8(p, mask, a.v);
+  }
 };
 
 INLINE vec_u8x64 operator+(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_add_epi8(a.v, b.v);
+  return _mm512_add_epi8(a.v, b.v);
 }
 
 INLINE vec_u8x64 operator-(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_sub_epi8(a.v, b.v);
+  return _mm512_sub_epi8(a.v, b.v);
 }
 
 INLINE vec_u8x64 operator-(vec_u8x64 const &a) {
-    return _mm512_sub_epi8(_mm512_setzero_si512(), a.v);
+  return _mm512_sub_epi8(_mm512_setzero_si512(), a.v);
 }
 
 // INLINE vec_u8x64 operator*(vec_u8x64 const &a, vec_u8x64 const &b) {
@@ -71,49 +71,49 @@ INLINE vec_u8x64 operator-(vec_u8x64 const &a) {
 // }
 
 INLINE vec_u8x64 operator~(vec_u8x64 const &a) {
-    return _mm512_xor_si512(a.v, _mm512_set1_epi8(-1));
+  return _mm512_xor_si512(a.v, _mm512_set1_epi8(-1));
 }
 INLINE vec_u8x64 operator&(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_and_si512(a.v, b.v);
+  return _mm512_and_si512(a.v, b.v);
 }
 INLINE vec_u8x64 operator|(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_or_si512(a.v, b.v);
+  return _mm512_or_si512(a.v, b.v);
 }
 INLINE vec_u8x64 operator^(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_xor_si512(a.v, b.v);
+  return _mm512_xor_si512(a.v, b.v);
 }
 
 INLINE __mmask64 operator!(vec_u8x64 const &a) {
-    return _mm512_cmp_epu8_mask(a.v, _mm512_setzero_si512(), _MM_CMPINT_EQ);
+  return _mm512_cmp_epu8_mask(a.v, _mm512_setzero_si512(), _MM_CMPINT_EQ);
 }
 INLINE __mmask64 operator==(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_EQ);
+  return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_EQ);
 }
 INLINE __mmask64 operator!=(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_NE);
+  return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_NE);
 }
 INLINE __mmask64 operator>(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_GT);
+  return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_GT);
 }
 INLINE __mmask64 operator<(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_LT);
+  return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_LT);
 }
 INLINE __mmask64 operator>=(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_GE);
+  return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_GE);
 }
 INLINE __mmask64 operator<=(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_LE);
+  return _mm512_cmp_epu8_mask(a.v, b.v, _MM_CMPINT_LE);
 }
-INLINE vec_u8x64 sc_select(
-        __mmask64 mask, vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_mask_blend_epi8(mask, b.v, a.v);
+INLINE vec_u8x64 sc_select(__mmask64 mask, vec_u8x64 const &a,
+                           vec_u8x64 const &b) {
+  return _mm512_mask_blend_epi8(mask, b.v, a.v);
 }
 
 INLINE vec_u8x64 sc_max(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_max_epu8(a.v, b.v);
+  return _mm512_max_epu8(a.v, b.v);
 }
 INLINE vec_u8x64 sc_min(vec_u8x64 const &a, vec_u8x64 const &b) {
-    return _mm512_min_epu8(a.v, b.v);
+  return _mm512_min_epu8(a.v, b.v);
 }
 #endif
 #endif

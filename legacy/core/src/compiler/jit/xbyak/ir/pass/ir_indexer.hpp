@@ -31,8 +31,8 @@ namespace xbyak {
  * */
 class ir_indexer_t : public function_pass_t {
 public:
-    ir_indexer_t() = default;
-    func_c operator()(func_c v) override;
+  ir_indexer_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };

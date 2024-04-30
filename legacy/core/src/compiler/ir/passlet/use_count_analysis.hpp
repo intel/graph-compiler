@@ -30,14 +30,14 @@ namespace passlet {
  * */
 
 struct use_count_analysis_t : public typed_passlet<size_t> {
-    using typed_addresser_t = typed_passlet<size_t>::typed_addresser_t;
+  using typed_addresser_t = typed_passlet<size_t>::typed_addresser_t;
 
-    use_count_analysis_t(const typed_addresser_t &expr_result_func)
-        : typed_passlet<size_t>(expr_result_func, nullptr) {}
-    void view(const expr_c &v, pass_phase phase);
-    void view(const func_c &v, pass_phase phase);
-    void view(const define_c &v, pass_phase phase);
-    void view(const for_loop_c &v, pass_phase phase);
+  use_count_analysis_t(const typed_addresser_t &expr_result_func)
+      : typed_passlet<size_t>(expr_result_func, nullptr) {}
+  void view(const expr_c &v, pass_phase phase);
+  void view(const func_c &v, pass_phase phase);
+  void view(const define_c &v, pass_phase phase);
+  void view(const for_loop_c &v, pass_phase phase);
 };
 } // namespace passlet
 } // namespace gc

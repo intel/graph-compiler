@@ -30,11 +30,11 @@ namespace gc {
  * */
 class validator_t : public module_pass_t {
 public:
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    func_c operator()(func_c f);
-    expr_c operator()(expr_c f);
-    stmt_c operator()(stmt_c f);
-    SC_DECL_PASS_INFO_FUNC();
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  func_c operator()(func_c f);
+  expr_c operator()(expr_c f);
+  stmt_c operator()(stmt_c f);
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

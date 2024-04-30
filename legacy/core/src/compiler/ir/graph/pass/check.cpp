@@ -28,34 +28,40 @@ namespace gc {
 // using pre-order and post-order visit graph, if any throw error and
 // connection error, this function return false
 bool check_graph_connection(sc_graph_t &graph) {
-    try {
-        op_visitor_t post_vis {op_visitor_t::pop_back_selector,
-                op_visitor_t::create_DAG_updater_post(graph.ops_.size()), true};
-        // {logical op id, visited num} map
-        std::unordered_map<int, int> visited_ops;
-        post_vis.post_visit_graph(
-                graph, [&](op_visitor_t *post_vis, const sc_op_ptr &aop) {
-                    visited_ops[aop->logical_op_id_]++;
-                });
+  try {
+    op_visitor_t post_vis{
+        op_visitor_t::pop_back_selector,
+        op_visitor_t::create_DAG_updater_post(graph.ops_.size()), true};
+    // {logical op id, visited num} map
+    std::unordered_map<int, int> visited_ops;
+    post_vis.post_visit_graph(
+        graph, [&](op_visitor_t *post_vis, const sc_op_ptr &aop) {
+          visited_ops[aop->logical_op_id_]++;
+        });
 
-        op_visitor_t::dfs_topology_sort(graph.ops_.size())
-                .visit_graph(
-                        graph, [&](op_visitor_t *vis, const sc_op_ptr &aop) {
-                            visited_ops[aop->logical_op_id_]--;
-                        });
-        for (auto op : visited_ops) {
-            if (op.second) { return false; }
-        }
-    } catch (...) { return false; }
-    return true;
+    op_visitor_t::dfs_topology_sort(graph.ops_.size())
+        .visit_graph(graph, [&](op_visitor_t *vis, const sc_op_ptr &aop) {
+          visited_ops[aop->logical_op_id_]--;
+        });
+    for (auto op : visited_ops) {
+      if (op.second) {
+        return false;
+      }
+    }
+  } catch (...) {
+    return false;
+  }
+  return true;
 }
 
 // check config in tunable op is valid or not.
 bool check_graph_config(sc_graph_t &graph, const context_ptr &ctx) {
-    for (auto &node : graph.ops_) {
-        if (!node->is_removed_ && !node->is_valid(ctx)) { return false; }
+  for (auto &node : graph.ops_) {
+    if (!node->is_removed_ && !node->is_valid(ctx)) {
+      return false;
     }
-    return true;
+  }
+  return true;
 }
 } // namespace gc
 } // namespace graph

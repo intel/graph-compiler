@@ -22,11 +22,11 @@
 #include <compiler/jit/xbyak/configured_xbyak.hpp>
 // clang-format on
 
-#include <memory>
-#include <vector>
-#include <map>
-#include <string>
 #include <compiler/jit/xbyak/debug/debug_info_mgr.hpp>
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -56,17 +56,17 @@ namespace xbyak {
 
 class xbyak_jit_generator : public ::Xbyak::CodeGenerator {
 public:
-    xbyak_jit_generator();
-    virtual ~xbyak_jit_generator() = default;
+  xbyak_jit_generator();
+  virtual ~xbyak_jit_generator() = default;
 
-    // The entry-point address of the specified JIT'ed function, or null if
-    // none has that name.
-    void *get_func_address(const std::string &func_name) const;
+  // The entry-point address of the specified JIT'ed function, or null if
+  // none has that name.
+  void *get_func_address(const std::string &func_name) const;
 
 private:
-    friend class xbyak_lowering_viewer;
-    std::vector<std::unique_ptr<debug_info_mgr>> debug_info_;
-    std::map<std::string, void *> func_name_to_address_;
+  friend class xbyak_lowering_viewer;
+  std::vector<std::unique_ptr<debug_info_mgr>> debug_info_;
+  std::map<std::string, void *> func_name_to_address_;
 };
 
 } // namespace xbyak

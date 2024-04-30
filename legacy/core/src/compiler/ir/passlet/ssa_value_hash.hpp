@@ -36,11 +36,11 @@ namespace passlet {
  * @param stmt_result_func the addresser for stmt->size_t
  * */
 struct ssa_value_hash_t : public typed_passlet<size_t> {
-    using parent = typed_passlet<size_t>;
-    using parent::typed_addresser_t;
-    ssa_value_hash_t(const typed_addresser_t &stmt_result_func)
-        : parent {nullptr, stmt_result_func} {}
-    void view(const define_c &v, pass_phase phase) override;
+  using parent = typed_passlet<size_t>;
+  using parent::typed_addresser_t;
+  ssa_value_hash_t(const typed_addresser_t &stmt_result_func)
+      : parent{nullptr, stmt_result_func} {}
+  void view(const define_c &v, pass_phase phase) override;
 };
 } // namespace passlet
 } // namespace gc

@@ -73,13 +73,13 @@ namespace gc {
  */
 class dynamic_parallel_transform_t : public module_pass_t {
 public:
-    // transform all parallel-for loops and disregard whether the parallel-for
-    // is in dynamic mode
-    bool always_transform_;
-    dynamic_parallel_transform_t(bool always_transform)
-        : always_transform_ {always_transform} {}
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  // transform all parallel-for loops and disregard whether the parallel-for
+  // is in dynamic mode
+  bool always_transform_;
+  dynamic_parallel_transform_t(bool always_transform)
+      : always_transform_{always_transform} {}
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 func_t get_dyn_threadpool_shared_buffer_func();

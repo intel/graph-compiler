@@ -23,64 +23,65 @@ namespace gc {
 namespace ops {
 
 sigmoid_backprop_op::sigmoid_backprop_op(
-        const std::vector<graph_tensor_ptr> &ins,
-        const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs) {
-    COMPILE_ASSERT(ins.size() == 2, "Wrong op input size.\n");
-    info_.inputs_ = ins;
-    if (outs.empty()) {
-        info_.outputs_.emplace_back(
-                std::make_shared<graph_tensor>(this, ins[0]->details_));
-    } else {
-        info_.outputs_ = outs;
-        COMPILE_ASSERT(info_.outputs_.size() == 1,
-                "sigmoid backprop op shall have only 1 output.")
-        gc::graph::check_logical_tensor_shape_dtype_identical(
-                info_.inputs_[0]->details_, info_.outputs_[0]->details_);
-    }
-    attrs_ = attrs;
-    op_name_ = "sigmoid_backprop";
+    const std::vector<graph_tensor_ptr> &ins,
+    const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs) {
+  COMPILE_ASSERT(ins.size() == 2, "Wrong op input size.\n");
+  info_.inputs_ = ins;
+  if (outs.empty()) {
+    info_.outputs_.emplace_back(
+        std::make_shared<graph_tensor>(this, ins[0]->details_));
+  } else {
+    info_.outputs_ = outs;
+    COMPILE_ASSERT(info_.outputs_.size() == 1,
+                   "sigmoid backprop op shall have only 1 output.")
+    gc::graph::check_logical_tensor_shape_dtype_identical(
+        info_.inputs_[0]->details_, info_.outputs_[0]->details_);
+  }
+  attrs_ = attrs;
+  op_name_ = "sigmoid_backprop";
 }
 
 void sigmoid_backprop_op::get_graph_impl(std::shared_ptr<sc_graph_t> &graph) {
-    // create new input logical tensors
-    std::vector<graph_tensor_ptr> inputs, outputs;
-    inputs = remake_logical_tensors(info_.inputs_);
-    outputs = remake_logical_tensors(info_.outputs_);
+  // create new input logical tensors
+  std::vector<graph_tensor_ptr> inputs, outputs;
+  inputs = remake_logical_tensors(info_.inputs_);
+  outputs = remake_logical_tensors(info_.outputs_);
 
-    // input
-    graph->make_input(inputs);
-    graph_tensor_ptr inputs0 = inputs[0], inputs1 = inputs[1];
+  // input
+  graph->make_input(inputs);
+  graph_tensor_ptr inputs0 = inputs[0], inputs1 = inputs[1];
 
-    // cast inputs
-    inputs0 = cast_input_dtype(inputs[0], graph);
-    inputs1 = cast_input_dtype(inputs[1], graph);
+  // cast inputs
+  inputs0 = cast_input_dtype(inputs[0], graph);
+  inputs1 = cast_input_dtype(inputs[1], graph);
 
-    // sigmoid_grad = sigmoid(x) - sigmoid(x)*sigmoid(x)
-    // if "use_dst" is true, inputs0 is the result of forward, which is
-    // sigmoid(x). otherwise, inputs0 is the src of forward, we need to
-    // calculate sigmoid(x) by ourselves
-    sc_op_ptr mul0, sub, mul1;
-    if (attrs_.get_or_else("use_dst", true)) {
-        mul0 = graph->make("mul", {inputs0, inputs0}, {}, {});
-        sub = graph->make("sub", {inputs0, mul0->get_outputs()[0]}, {}, {});
-    } else {
-        auto sigmoid = graph->make("sigmoid", {inputs0}, {}, {});
-        mul0 = graph->make("mul",
-                {sigmoid->get_outputs()[0], sigmoid->get_outputs()[0]}, {}, {});
-        sub = graph->make("sub",
-                {sigmoid->get_outputs()[0], mul0->get_outputs()[0]}, {}, {});
-    }
+  // sigmoid_grad = sigmoid(x) - sigmoid(x)*sigmoid(x)
+  // if "use_dst" is true, inputs0 is the result of forward, which is
+  // sigmoid(x). otherwise, inputs0 is the src of forward, we need to
+  // calculate sigmoid(x) by ourselves
+  sc_op_ptr mul0, sub, mul1;
+  if (attrs_.get_or_else("use_dst", true)) {
+    mul0 = graph->make("mul", {inputs0, inputs0}, {}, {});
+    sub = graph->make("sub", {inputs0, mul0->get_outputs()[0]}, {}, {});
+  } else {
+    auto sigmoid = graph->make("sigmoid", {inputs0}, {}, {});
+    mul0 = graph->make(
+        "mul", {sigmoid->get_outputs()[0], sigmoid->get_outputs()[0]}, {}, {});
+    sub = graph->make(
+        "sub", {sigmoid->get_outputs()[0], mul0->get_outputs()[0]}, {}, {});
+  }
 
-    mul1 = graph->make("mul", {sub->get_outputs()[0], inputs1}, {}, {});
-    // cast output
-    mul1 = cast_output_dtype(outputs[0], graph, mul1);
-    // output
-    graph->make_output(mul1->get_outputs());
+  mul1 = graph->make("mul", {sub->get_outputs()[0], inputs1}, {}, {});
+  // cast output
+  mul1 = cast_output_dtype(outputs[0], graph, mul1);
+  // output
+  graph->make_output(mul1->get_outputs());
 }
 
-void sigmoid_backprop_op::query_format(context_ptr ctx,
-        std::vector<std::vector<format_stride_pair>> &supported_ins,
-        std::vector<std::vector<format_stride_pair>> &supported_outs) {}
+void sigmoid_backprop_op::query_format(
+    context_ptr ctx,
+    std::vector<std::vector<format_stride_pair>> &supported_ins,
+    std::vector<std::vector<format_stride_pair>> &supported_outs) {}
 
 } // namespace ops
 

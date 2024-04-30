@@ -16,9 +16,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_NORMALIZE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_OPS_NORMALIZE_HPP
 
+#include "compiler/ir/graph/graph_op.hpp"
 #include <memory>
 #include <vector>
-#include "compiler/ir/graph/graph_op.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -27,22 +27,23 @@ namespace gc {
 namespace ops {
 
 enum class normalize_kind {
-    layernorm = 0,
-    instancenorm,
+  layernorm = 0,
+  instancenorm,
 };
 
 class normalize_common_t : public graph_op_t,
                            public op_traits::auto_copyable_t {
 public:
-    normalize_common_t() = default;
-    normalize_common_t(const normalize_kind &kind,
-            const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs);
-    void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
-    void query_format(context_ptr ctx,
-            std::vector<std::vector<format_stride_pair>> &supported_ins,
-            std::vector<std::vector<format_stride_pair>> &supported_outs)
-            override;
+  normalize_common_t() = default;
+  normalize_common_t(const normalize_kind &kind,
+                     const std::vector<graph_tensor_ptr> &ins,
+                     const std::vector<graph_tensor_ptr> &outs,
+                     const any_map_t &attrs);
+  void get_graph_impl(std::shared_ptr<sc_graph_t> &graph) override;
+  void query_format(
+      context_ptr ctx,
+      std::vector<std::vector<format_stride_pair>> &supported_ins,
+      std::vector<std::vector<format_stride_pair>> &supported_outs) override;
 };
 
 /**
@@ -66,42 +67,43 @@ public:
  * */
 class layernorm_op_t : public normalize_common_t {
 public:
-    layernorm_op_t(const std::vector<graph_tensor_ptr> &ins,
-            const std::vector<graph_tensor_ptr> &outs, const any_map_t &attrs)
-        : normalize_common_t(normalize_kind::layernorm, ins, outs,
-                layernorm_op_attrs(ins, attrs)) {}
+  layernorm_op_t(const std::vector<graph_tensor_ptr> &ins,
+                 const std::vector<graph_tensor_ptr> &outs,
+                 const any_map_t &attrs)
+      : normalize_common_t(normalize_kind::layernorm, ins, outs,
+                           layernorm_op_attrs(ins, attrs)) {}
 
 private:
-    any_map_t layernorm_op_attrs(
-            const std::vector<graph_tensor_ptr> &ins, const any_map_t &attrs) {
-        any_map_t new_attrs = attrs;
-        new_attrs.set("keep_stats", attrs.get_or_else("keep_stats", true));
-        new_attrs.set("use_affine", attrs.get_or_else("use_affine", true));
-        new_attrs.set("epsilon", attrs.get_or_else("epsilon", 1e-5f));
-        if (attrs.has_key("begin_norm_axis")) { // oneDNN specification
-            int begin_norm_axis = attrs.get<int>("begin_norm_axis");
-            if (begin_norm_axis < 0) {
-                begin_norm_axis += ins[0]->details_.get_plain_dims().size();
-            }
-            if (begin_norm_axis > int(ins[0]->details_.get_plain_dims().size())
-                    || begin_norm_axis < 0) {
-                throw std::runtime_error(
-                        "layernorm_op_t::begin_norm_axis boundary exceed.");
-            }
-            std::vector<int> rd_axis;
-            for (size_t i = begin_norm_axis;
-                    i < ins[0]->details_.get_plain_dims().size(); i++)
-                rd_axis.emplace_back(i);
-            new_attrs.set("rd_axis", rd_axis);
-        } else if (attrs.has_key("rd_axis")) { // internal use
-            new_attrs.set("rd_axis", attrs.get<std::vector<int>>("rd_axis"));
-        } else { // nothing specific
-            std::vector<int> rd_axis
-                    = {int(ins[0]->details_.get_plain_dims().size() - 1)};
-            new_attrs.set("rd_axis", rd_axis);
-        }
-        return new_attrs;
+  any_map_t layernorm_op_attrs(const std::vector<graph_tensor_ptr> &ins,
+                               const any_map_t &attrs) {
+    any_map_t new_attrs = attrs;
+    new_attrs.set("keep_stats", attrs.get_or_else("keep_stats", true));
+    new_attrs.set("use_affine", attrs.get_or_else("use_affine", true));
+    new_attrs.set("epsilon", attrs.get_or_else("epsilon", 1e-5f));
+    if (attrs.has_key("begin_norm_axis")) { // oneDNN specification
+      int begin_norm_axis = attrs.get<int>("begin_norm_axis");
+      if (begin_norm_axis < 0) {
+        begin_norm_axis += ins[0]->details_.get_plain_dims().size();
+      }
+      if (begin_norm_axis > int(ins[0]->details_.get_plain_dims().size()) ||
+          begin_norm_axis < 0) {
+        throw std::runtime_error(
+            "layernorm_op_t::begin_norm_axis boundary exceed.");
+      }
+      std::vector<int> rd_axis;
+      for (size_t i = begin_norm_axis;
+           i < ins[0]->details_.get_plain_dims().size(); i++)
+        rd_axis.emplace_back(i);
+      new_attrs.set("rd_axis", rd_axis);
+    } else if (attrs.has_key("rd_axis")) { // internal use
+      new_attrs.set("rd_axis", attrs.get<std::vector<int>>("rd_axis"));
+    } else { // nothing specific
+      std::vector<int> rd_axis = {
+          int(ins[0]->details_.get_plain_dims().size() - 1)};
+      new_attrs.set("rd_axis", rd_axis);
     }
+    return new_attrs;
+  }
 };
 
 } // namespace ops

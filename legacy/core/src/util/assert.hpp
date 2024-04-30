@@ -19,11 +19,11 @@
 #include <sstream>
 #include <stdexcept>
 
-#define COMPILE_ASSERT(cond, ...) \
-    if (!(cond)) { \
-        ::std::stringstream ss; \
-        ss << __FILE__ << "[" << __LINE__ << "]: " << __VA_ARGS__ << "\n"; \
-        throw ::std::runtime_error(ss.str()); \
-    }
+#define COMPILE_ASSERT(cond, ...)                                              \
+  if (!(cond)) {                                                               \
+    ::std::stringstream ss;                                                    \
+    ss << __FILE__ << "[" << __LINE__ << "]: " << __VA_ARGS__ << "\n";         \
+    throw ::std::runtime_error(ss.str());                                      \
+  }
 
 #endif

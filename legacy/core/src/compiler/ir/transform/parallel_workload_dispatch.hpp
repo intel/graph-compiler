@@ -36,13 +36,13 @@ constexpr size_t memory_access_threshold_per_thread = 37440UL;
  * */
 class parallel_workload_dispatcher_t : public function_pass_t {
 public:
-    bool record_workload_;
-    std::unordered_map<stmt_c, size_t> stmt_workload_map_;
-    parallel_workload_dispatcher_t(bool record_workload = false)
-        : record_workload_(record_workload) {}
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c f);
-    SC_DECL_PASS_INFO_FUNC();
+  bool record_workload_;
+  std::unordered_map<stmt_c, size_t> stmt_workload_map_;
+  parallel_workload_dispatcher_t(bool record_workload = false)
+      : record_workload_(record_workload) {}
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c f);
+  SC_DECL_PASS_INFO_FUNC();
 };
 } // namespace gc
 } // namespace graph

@@ -91,8 +91,7 @@ namespace gc {
 
 #if SC_LLVM_BACKEND > 16
 // starting from LLVM17, they use STL's optional container
-template <typename T>
-using Optional = std::optional<T>;
+template <typename T> using Optional = std::optional<T>;
 #endif
 
 #if SC_LLVM_BACKEND > 10

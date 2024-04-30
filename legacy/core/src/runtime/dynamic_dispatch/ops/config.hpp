@@ -36,16 +36,17 @@ extern "C" SC_API int get_matmul_dyn_cfg_single(int in, bool is_batch = false);
 
 // The function calculate the config of managed matmul, it is used in both
 // compiler and runtime.
-void get_managed_matmul_config(const runtime::target_machine_t &tm,
-        int &M_split_num, int &N_split_num, int &M_sub_block, int &N_sub_block,
-        int &K_sub_block, int &im_loop_order, const int M, const int N,
-        const int K, const int iim_block, const int iin_block,
-        const int iik_block, const int sizeofdtypeA, const int sizeofdtypeC,
-        bool is_int8, bool is_f32, bool is_dynamic, int64_t dispatch_avx = 0);
+void get_managed_matmul_config(
+    const runtime::target_machine_t &tm, int &M_split_num, int &N_split_num,
+    int &M_sub_block, int &N_sub_block, int &K_sub_block, int &im_loop_order,
+    const int M, const int N, const int K, const int iim_block,
+    const int iin_block, const int iik_block, const int sizeofdtypeA,
+    const int sizeofdtypeC, bool is_int8, bool is_f32, bool is_dynamic,
+    int64_t dispatch_avx = 0);
 
 // The function calculate the block of dynamic conv
 int get_dyn_conv_default_block(const bool is_1x1, const int dtype_size,
-        const bool has_pad, const bool is_f32);
+                               const bool has_pad, const bool is_f32);
 
 } // namespace gc
 } // namespace graph

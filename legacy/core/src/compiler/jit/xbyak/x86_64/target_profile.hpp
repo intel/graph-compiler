@@ -31,39 +31,39 @@ namespace xbyak {
 namespace x86_64 {
 
 enum class call_convention {
-    undefined = 0,
-    system_v,
-    microsoft,
+  undefined = 0,
+  system_v,
+  microsoft,
 };
 
 struct target_profile_t {
-    target_profile_t(const runtime::target_machine_t &target_machine)
-        : target_machine_(target_machine) {}
+  target_profile_t(const runtime::target_machine_t &target_machine)
+      : target_machine_(target_machine) {}
 
-    const runtime::target_machine_t &target_machine_;
-    call_convention call_convention_ = call_convention::undefined;
-    size_t shadow_space_bytes_ = 0;
-    size_t red_zone_bytes_ = 0;
+  const runtime::target_machine_t &target_machine_;
+  call_convention call_convention_ = call_convention::undefined;
+  size_t shadow_space_bytes_ = 0;
+  size_t red_zone_bytes_ = 0;
 
-    std::vector<Xbyak::Reg> alloc_gp_regs_;
-    std::vector<Xbyak::Reg> alloc_xmm_regs_;
-    std::vector<Xbyak::Reg> alloc_xmm_vex_regs_;
-    std::vector<Xbyak::Reg> alloc_mask_regs_;
-    std::vector<Xbyak::Reg> alloc_tile_regs_;
+  std::vector<Xbyak::Reg> alloc_gp_regs_;
+  std::vector<Xbyak::Reg> alloc_xmm_regs_;
+  std::vector<Xbyak::Reg> alloc_xmm_vex_regs_;
+  std::vector<Xbyak::Reg> alloc_mask_regs_;
+  std::vector<Xbyak::Reg> alloc_tile_regs_;
 
-    std::vector<Xbyak::Reg> caller_saved_gp_regs_;
-    std::vector<Xbyak::Reg> callee_saved_gp_regs_;
-    std::vector<Xbyak::Reg> callee_saved_xmm_regs_;
+  std::vector<Xbyak::Reg> caller_saved_gp_regs_;
+  std::vector<Xbyak::Reg> callee_saved_gp_regs_;
+  std::vector<Xbyak::Reg> callee_saved_xmm_regs_;
 
-    std::vector<Xbyak::Reg> func_arg_gp_regs_;
-    std::vector<Xbyak::Reg> func_arg_xmm_regs_;
+  std::vector<Xbyak::Reg> func_arg_gp_regs_;
+  std::vector<Xbyak::Reg> func_arg_xmm_regs_;
 
-    Xbyak::Reg func_return_gp_reg_;
-    Xbyak::Reg func_return_xmm_reg_;
+  Xbyak::Reg func_return_gp_reg_;
+  Xbyak::Reg func_return_xmm_reg_;
 };
 
-target_profile_t get_target_profile(
-        const runtime::target_machine_t &target_machine);
+target_profile_t
+get_target_profile(const runtime::target_machine_t &target_machine);
 
 } // namespace x86_64
 } // namespace xbyak

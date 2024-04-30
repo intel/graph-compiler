@@ -38,41 +38,41 @@ constexpr stmt_index_t increment = 4;
  * virtual_reg based on its def-use at stmt_index
  * */
 struct live_range_t {
-    bool defined_ = false;
+  bool defined_ = false;
 
-    stmt_index_t start_ = -1;
-    stmt_index_t end_ = -1;
+  stmt_index_t start_ = -1;
+  stmt_index_t end_ = -1;
 
-    live_range_t() = default;
+  live_range_t() = default;
 
-    live_range_t(stmt_index_t start)
-        : defined_(true), start_(start), end_(start) {}
-    live_range_t(stmt_index_t start, stmt_index_t end)
-        : defined_(true), start_(start), end_(end) {}
+  live_range_t(stmt_index_t start)
+      : defined_(true), start_(start), end_(start) {}
+  live_range_t(stmt_index_t start, stmt_index_t end)
+      : defined_(true), start_(start), end_(end) {}
 
-    void update(stmt_index_t index) { end_ = index; }
-    void update(stmt_index_t init_index, stmt_index_t index) {
-        start_ = (init_index < start_) ? init_index : start_;
-        end_ = index;
-    }
+  void update(stmt_index_t index) { end_ = index; }
+  void update(stmt_index_t init_index, stmt_index_t index) {
+    start_ = (init_index < start_) ? init_index : start_;
+    end_ = index;
+  }
 
-    bool empty() const { return start_ == end_; }
+  bool empty() const { return start_ == end_; }
 
-    bool intersects(const live_range_t &b) const {
-        return std::max(start_, b.start_) < std::min(end_, b.end_);
-    }
+  bool intersects(const live_range_t &b) const {
+    return std::max(start_, b.start_) < std::min(end_, b.end_);
+  }
 
-    bool encompasses(const live_range_t &b) const {
-        return (start_ < b.start_) && (end_ > b.end_);
-    }
+  bool encompasses(const live_range_t &b) const {
+    return (start_ < b.start_) && (end_ > b.end_);
+  }
 
-    bool enclose(const stmt_index_t &i) const {
-        return (start_ < i) && (end_ > i);
-    }
+  bool enclose(const stmt_index_t &i) const {
+    return (start_ < i) && (end_ > i);
+  }
 
-    friend std::ostream &operator<<(std::ostream &os, const live_range_t &m) {
-        return os << "[" << m.start_ << ", " << m.end_ << "]";
-    }
+  friend std::ostream &operator<<(std::ostream &os, const live_range_t &m) {
+    return os << "[" << m.start_ << ", " << m.end_ << "]";
+  }
 };
 
 } // namespace xbyak

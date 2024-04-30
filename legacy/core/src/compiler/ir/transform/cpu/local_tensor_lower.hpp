@@ -32,15 +32,15 @@ namespace gc {
  * */
 class local_tensor_lowering_cpu_t : public function_pass_t {
 public:
-    // the threshold in bytes. If a local tensor is larger than the threshold,
-    // we should allocate it on heap (using alloc function). Otherwise, we
-    // should keep the tensor untouched (the backend should lower it a buffer on
-    // stack)
-    size_t size_threshold_;
-    func_c operator()(func_c m) override;
-    local_tensor_lowering_cpu_t(size_t size_threshold)
-        : size_threshold_(size_threshold) {}
-    SC_DECL_PASS_INFO_FUNC();
+  // the threshold in bytes. If a local tensor is larger than the threshold,
+  // we should allocate it on heap (using alloc function). Otherwise, we
+  // should keep the tensor untouched (the backend should lower it a buffer on
+  // stack)
+  size_t size_threshold_;
+  func_c operator()(func_c m) override;
+  local_tensor_lowering_cpu_t(size_t size_threshold)
+      : size_threshold_(size_threshold) {}
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 func_t get_cpu_temp_malloc_func(bool is_thread_local);

@@ -25,37 +25,38 @@ namespace gc {
 namespace utils {
 
 namespace impl {
-template <typename MapT>
-struct extract_map_types {};
+template <typename MapT> struct extract_map_types {};
 
-template <typename MapT>
-struct extract_map_types<const MapT &> {
-    using ptr_value_t = const typename MapT::mapped_type *;
-    using ptr_pair_t = const typename MapT::value_type *;
+template <typename MapT> struct extract_map_types<const MapT &> {
+  using ptr_value_t = const typename MapT::mapped_type *;
+  using ptr_pair_t = const typename MapT::value_type *;
 };
 
-template <typename MapT>
-struct extract_map_types<MapT &> {
-    using ptr_value_t = typename MapT::mapped_type *;
-    using ptr_pair_t = typename MapT::value_type *;
+template <typename MapT> struct extract_map_types<MapT &> {
+  using ptr_value_t = typename MapT::mapped_type *;
+  using ptr_pair_t = typename MapT::value_type *;
 };
 
 } // namespace impl
 
 template <typename MapT>
-optional<typename impl::extract_map_types<MapT>::ptr_value_t> find_map_value(
-        MapT &&m, const typename std::decay<MapT>::type::key_type &key) {
-    auto itr = m.find(key);
-    if (itr != m.end()) { return &(itr->second); }
-    return none_opt {};
+optional<typename impl::extract_map_types<MapT>::ptr_value_t>
+find_map_value(MapT &&m, const typename std::decay<MapT>::type::key_type &key) {
+  auto itr = m.find(key);
+  if (itr != m.end()) {
+    return &(itr->second);
+  }
+  return none_opt{};
 }
 
 template <typename MapT>
-optional<typename impl::extract_map_types<MapT>::ptr_pair_t> find_map_pair(
-        MapT &&m, const typename std::decay<MapT>::type::key_type &key) {
-    auto itr = m.find(key);
-    if (itr != m.end()) { return &(*itr); }
-    return none_opt {};
+optional<typename impl::extract_map_types<MapT>::ptr_pair_t>
+find_map_pair(MapT &&m, const typename std::decay<MapT>::type::key_type &key) {
+  auto itr = m.find(key);
+  if (itr != m.end()) {
+    return &(*itr);
+  }
+  return none_opt{};
 }
 
 } // namespace utils

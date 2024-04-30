@@ -25,16 +25,16 @@ namespace gc {
 
 namespace env_key {
 enum key {
-    SC_CPU_JIT,
-    SC_OPT_LEVEL,
-    SC_TRACE,
-    SC_VERBOSE,
-    SC_PRINT_PASS_RESULT,
-    SC_DUMP_GENCODE,
-    SC_C_INCLUDE,
-    SC_TRACE_INIT_CAP,
-    SC_MANAGED_THREAD_POOL,
-    NUM_KEYS
+  SC_CPU_JIT,
+  SC_OPT_LEVEL,
+  SC_TRACE,
+  SC_VERBOSE,
+  SC_PRINT_PASS_RESULT,
+  SC_DUMP_GENCODE,
+  SC_C_INCLUDE,
+  SC_TRACE_INIT_CAP,
+  SC_MANAGED_THREAD_POOL,
+  NUM_KEYS
 };
 } // namespace env_key
 

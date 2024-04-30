@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_PRINTER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_PRINTER_HPP
 
-#include <ios>
 #include <compiler/ir/viewer.hpp>
+#include <ios>
 
 namespace dnnl {
 namespace impl {
@@ -28,33 +28,33 @@ namespace gc {
 class ir_module_t;
 class ir_printer_t : public ir_viewer_t {
 public:
-    std::ostream &os_;
-    int indents_ = 0;
-    using ir_viewer_t::dispatch;
-    using ir_viewer_t::view;
+  std::ostream &os_;
+  int indents_ = 0;
+  using ir_viewer_t::dispatch;
+  using ir_viewer_t::view;
 
-    ir_printer_t(std::ostream &os) : os_(os) {}
+  ir_printer_t(std::ostream &os) : os_(os) {}
 
-    std::ostream &do_dispatch(const expr_c &v);
-    std::ostream &do_dispatch(const stmt_c &v);
-    std::ostream &do_dispatch(const func_c &v);
-    std::ostream &do_dispatch(const ir_module_t &v);
+  std::ostream &do_dispatch(const expr_c &v);
+  std::ostream &do_dispatch(const stmt_c &v);
+  std::ostream &do_dispatch(const func_c &v);
+  std::ostream &do_dispatch(const ir_module_t &v);
 
-    func_c dispatch(func_c v) override;
+  func_c dispatch(func_c v) override;
 
-#define SC_IR_PRINTER_METHODS_IMPL(node_type, ...) \
-    void view(node_type##_c v) override;
+#define SC_IR_PRINTER_METHODS_IMPL(node_type, ...)                             \
+  void view(node_type##_c v) override;
 
-    FOR_EACH_EXPR_IR_TYPE(SC_IR_PRINTER_METHODS_IMPL)
-    FOR_EACH_STMT_IR_TYPE(SC_IR_PRINTER_METHODS_IMPL)
+  FOR_EACH_EXPR_IR_TYPE(SC_IR_PRINTER_METHODS_IMPL)
+  FOR_EACH_STMT_IR_TYPE(SC_IR_PRINTER_METHODS_IMPL)
 };
 
 struct source_pos {
-    int pos_;
-    int line_;
-    bool operator==(const source_pos &other) const {
-        return pos_ == other.pos_ && line_ == other.line_;
-    }
+  int pos_;
+  int line_;
+  bool operator==(const source_pos &other) const {
+    return pos_ == other.pos_ && line_ == other.line_;
+  }
 };
 
 /**
@@ -68,8 +68,9 @@ void print_ir_and_annotate_source_pos(const ir_module_t &v, std::ostream &os);
 void print_ir_and_annotate_source_pos(const func_c &v, std::ostream &os);
 
 // printing the IR and print the position of "v". Useful for debugging
-void print_ir_and_annotate_position_in_source(
-        const func_c &scope, const node_base *v, std::ostream &os);
+void print_ir_and_annotate_position_in_source(const func_c &scope,
+                                              const node_base *v,
+                                              std::ostream &os);
 void print_func_comments(const func_c &f, std::ostream &os);
 } // namespace gc
 } // namespace graph

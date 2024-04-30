@@ -29,46 +29,43 @@ using time_duration = std::chrono::high_resolution_clock::duration;
 
 // the util timer which will print the time elapsed of the lifetime of the
 // object.
-template <typename T>
-struct scoped_timer : T {
-    time_point start_time_;
-    scoped_timer(bool enabled, T &&v) : T(std::forward<T>(v)) {
-        if (enabled) {
-            start_time_ = std::chrono::high_resolution_clock::now();
-        }
+template <typename T> struct scoped_timer : T {
+  time_point start_time_;
+  scoped_timer(bool enabled, T &&v) : T(std::forward<T>(v)) {
+    if (enabled) {
+      start_time_ = std::chrono::high_resolution_clock::now();
     }
-    scoped_timer(const scoped_timer &) = delete;
-    scoped_timer(scoped_timer &&other)
-        : T(std::move(other)), start_time_(other.start_time_) {
-        other.start_time_ = time_point {};
-    }
+  }
+  scoped_timer(const scoped_timer &) = delete;
+  scoped_timer(scoped_timer &&other)
+      : T(std::move(other)), start_time_(other.start_time_) {
+    other.start_time_ = time_point{};
+  }
 
-    ~scoped_timer() {
-        if (start_time_ != time_point {}) {
-            auto duration
-                    = std::chrono::high_resolution_clock::now() - start_time_;
-            T::operator()(duration);
-        }
+  ~scoped_timer() {
+    if (start_time_ != time_point{}) {
+      auto duration = std::chrono::high_resolution_clock::now() - start_time_;
+      T::operator()(duration);
     }
+  }
 };
 
 template <typename T>
 inline scoped_timer<T> create_scoped_timer(bool enabled, T &&func) {
-    return scoped_timer<T>(enabled, std::move(func));
+  return scoped_timer<T>(enabled, std::move(func));
 }
 
-#define SC_SCOPED_TIMER_INFO(name, postfix) \
-    ::dnnl::impl::graph::gc::utils::create_scoped_timer( \
-            ::dnnl::impl::graph::gc::utils::compiler_configs_t::get() \
-                    .print_pass_time_, \
-            [](::dnnl::impl::graph::gc::utils::time_duration dur) { \
-                SC_MODULE_INFO2(name) \
-                        << "took " \
-                        << std::chrono::duration_cast< \
-                                   std::chrono::microseconds>(dur) \
-                                   .count() \
-                        << "us" postfix; \
-            });
+#define SC_SCOPED_TIMER_INFO(name, postfix)                                    \
+  ::dnnl::impl::graph::gc::utils::create_scoped_timer(                         \
+      ::dnnl::impl::graph::gc::utils::compiler_configs_t::get()                \
+          .print_pass_time_,                                                   \
+      [](::dnnl::impl::graph::gc::utils::time_duration dur) {                  \
+        SC_MODULE_INFO2(name)                                                  \
+            << "took "                                                         \
+            << std::chrono::duration_cast<std::chrono::microseconds>(dur)      \
+                   .count()                                                    \
+            << "us" postfix;                                                   \
+      });
 
 } // namespace utils
 } // namespace gc

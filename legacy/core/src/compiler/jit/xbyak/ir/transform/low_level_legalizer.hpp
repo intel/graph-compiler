@@ -32,12 +32,12 @@ namespace xbyak {
  * */
 class low_level_legalizer_t : public function_pass_t {
 public:
-    low_level_legalizer_t(const runtime::target_machine_t &target_machine)
-        : target_machine_(target_machine) {}
-    func_c operator()(func_c v) override;
+  low_level_legalizer_t(const runtime::target_machine_t &target_machine)
+      : target_machine_(target_machine) {}
+  func_c operator()(func_c v) override;
 
 private:
-    const runtime::target_machine_t &target_machine_;
+  const runtime::target_machine_t &target_machine_;
 };
 
 } // namespace xbyak

@@ -28,44 +28,44 @@ namespace x86_64 {
 
 class abi_value_location {
 public:
-    enum class tag_type {
-        /// A placeholder that indicates a particular role (e.g., void return
-        /// value) is not needed and therefore has no location.
-        NONE,
+  enum class tag_type {
+    /// A placeholder that indicates a particular role (e.g., void return
+    /// value) is not needed and therefore has no location.
+    NONE,
 
-        /// The value is stored in a register.
-        REGISTER,
+    /// The value is stored in a register.
+    REGISTER,
 
-        /// The value is stored on the stack.
-        STACK,
-    };
+    /// The value is stored on the stack.
+    STACK,
+  };
 
-    abi_value_location();
-    abi_value_location(Xbyak::Reg reg);
-    abi_value_location(int rsp_offset);
+  abi_value_location();
+  abi_value_location(Xbyak::Reg reg);
+  abi_value_location(int rsp_offset);
 
-    void set_to_none();
-    void set_to_register(Xbyak::Reg reg);
-    void set_to_rsp_offset(int rsp_offset);
+  void set_to_none();
+  void set_to_register(Xbyak::Reg reg);
+  void set_to_rsp_offset(int rsp_offset);
 
-    tag_type get_type() const;
-    Xbyak::Reg get_register() const;
-    int get_rsp_offset() const;
+  tag_type get_type() const;
+  Xbyak::Reg get_register() const;
+  int get_rsp_offset() const;
 
 private:
-    tag_type tag_ = tag_type::NONE;
+  tag_type tag_ = tag_type::NONE;
 
-    union {
-        /// Indicate's the memory address of this argument as a byte offset
-        /// relative to the value of %rsp when control first reaches the
-        /// callee.
-        int rsp_offset_;
+  union {
+    /// Indicate's the memory address of this argument as a byte offset
+    /// relative to the value of %rsp when control first reaches the
+    /// callee.
+    int rsp_offset_;
 
-        /// The register containing the value.
-        /// NOTE: This works for integer-like values, but we'll need to
-        /// refactor if/when we support xmm/ymm/zmm registers.
-        Xbyak::Reg reg_ = Xbyak::Reg();
-    } val_;
+    /// The register containing the value.
+    /// NOTE: This works for integer-like values, but we'll need to
+    /// refactor if/when we support xmm/ymm/zmm registers.
+    Xbyak::Reg reg_ = Xbyak::Reg();
+  } val_;
 };
 
 } // namespace x86_64

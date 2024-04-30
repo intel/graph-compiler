@@ -22,18 +22,18 @@ namespace impl {
 namespace graph {
 namespace gc {
 sequential_function_pass_t::sequential_function_pass_t(
-        std::vector<std::unique_ptr<function_pass_t>> &&passes)
+    std::vector<std::unique_ptr<function_pass_t>> &&passes)
     : passes_(std::move(passes)) {}
 
 sequential_function_pass_t::sequential_function_pass_t(
-        sequential_function_pass_t &&other)
+    sequential_function_pass_t &&other)
     : passes_(std::move(other.passes_)) {}
 
 func_c sequential_function_pass_t::operator()(func_c f) {
-    for (auto &p : passes_) {
-        f = (*p)(f);
-    }
-    return f;
+  for (auto &p : passes_) {
+    f = (*p)(f);
+  }
+  return f;
 }
 
 } // namespace gc

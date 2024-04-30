@@ -112,49 +112,49 @@ static const Xbyak::Tmm tmm7(7);
 
 /// Convert gp reg to specific type
 inline Xbyak::Reg8 to_reg8(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
-    return r.cvt8();
+  COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
+  return r.cvt8();
 }
 inline Xbyak::Reg16 to_reg16(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
-    return r.cvt16();
+  COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
+  return r.cvt16();
 }
 inline Xbyak::Reg32 to_reg32(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
-    return r.cvt32();
+  COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
+  return r.cvt32();
 }
 inline Xbyak::Reg64 to_reg64(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
-    return r.cvt64();
+  COMPILE_ASSERT(r.isREG(), "Not a GP reg: " << r.toString());
+  return r.cvt64();
 }
 
 /// Convert fp reg to specific type
 inline Xbyak::Xmm to_xmm(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isXMM() || r.isYMM() || r.isZMM(),
-            "Not an [XYZ]MM reg: " << r.toString());
-    return Xbyak::Xmm(r.getIdx());
+  COMPILE_ASSERT(r.isXMM() || r.isYMM() || r.isZMM(),
+                 "Not an [XYZ]MM reg: " << r.toString());
+  return Xbyak::Xmm(r.getIdx());
 }
 inline Xbyak::Ymm to_ymm(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isXMM() || r.isYMM() || r.isZMM(),
-            "Not an [XYZ]MM reg: " << r.toString());
-    return Xbyak::Ymm(r.getIdx());
+  COMPILE_ASSERT(r.isXMM() || r.isYMM() || r.isZMM(),
+                 "Not an [XYZ]MM reg: " << r.toString());
+  return Xbyak::Ymm(r.getIdx());
 }
 inline Xbyak::Zmm to_zmm(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isXMM() || r.isYMM() || r.isZMM(),
-            "Not an [XYZ]MM reg: " << r.toString());
-    return Xbyak::Zmm(r.getIdx());
+  COMPILE_ASSERT(r.isXMM() || r.isYMM() || r.isZMM(),
+                 "Not an [XYZ]MM reg: " << r.toString());
+  return Xbyak::Zmm(r.getIdx());
 }
 
 /// Convert mask reg to Opmask
 inline Xbyak::Opmask to_mask(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isOPMASK(), "Not an OPMASK reg: " << r.toString());
-    return Xbyak::Opmask(r.getIdx());
+  COMPILE_ASSERT(r.isOPMASK(), "Not an OPMASK reg: " << r.toString());
+  return Xbyak::Opmask(r.getIdx());
 }
 
 /// Convert tile reg to AMX tile
 inline Xbyak::Tmm to_tmm(const Xbyak::Reg &r) {
-    COMPILE_ASSERT(r.isTMM(), "Not an AMX tile reg: " << r.toString());
-    return Xbyak::Tmm(r.getIdx());
+  COMPILE_ASSERT(r.isTMM(), "Not an AMX tile reg: " << r.toString());
+  return Xbyak::Tmm(r.getIdx());
 }
 
 } // namespace x86_64

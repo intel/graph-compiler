@@ -25,12 +25,12 @@ namespace gc {
 // Predefine all ops' impl algorithm type here.
 // impl algorithm type, include normal(padding)/no padding select.
 enum impl_kind_t : int {
-    normal = 0, // default generate rule
-    no_padding = 1, // generate without padding
+  normal = 0,     // default generate rule
+  no_padding = 1, // generate without padding
 };
 enum mmm_impl_kind_t : int {
-    full_k = 0, // full,
-    is_partial = 1, // is partial K
+  full_k = 0,     // full,
+  is_partial = 1, // is partial K
 };
 
 } // namespace gc

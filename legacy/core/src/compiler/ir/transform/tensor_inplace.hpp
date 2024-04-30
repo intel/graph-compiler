@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_TENSOR_INPLACE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_TENSOR_INPLACE_HPP
 
-#include <utility>
 #include "tensor_inplace_info.hpp"
 #include <compiler/config/context.hpp>
 #include <compiler/ir/module_pass.hpp>
+#include <utility>
 
 namespace dnnl {
 namespace impl {
@@ -39,10 +39,10 @@ namespace gc {
  * */
 class tensor_inplace_t : public module_pass_t {
 public:
-    context_ptr ctx_;
-    tensor_inplace_t(const context_ptr &ctx) : ctx_(std::move(ctx)) {}
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  context_ptr ctx_;
+  tensor_inplace_t(const context_ptr &ctx) : ctx_(std::move(ctx)) {}
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

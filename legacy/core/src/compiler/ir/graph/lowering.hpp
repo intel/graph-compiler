@@ -16,9 +16,9 @@
 
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_LOWERING_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_GRAPH_LOWERING_HPP
+#include "graph.hpp"
 #include <string>
 #include <vector>
-#include "graph.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -29,22 +29,20 @@ namespace graph {
 std::string get_tensor_name(graph_tensor *t, sc_op *linked_output);
 }
 
-expr call_op_dynamic_query_function(
-        const sc_op_ptr &op, const std::vector<expr> &args);
+expr call_op_dynamic_query_function(const sc_op_ptr &op,
+                                    const std::vector<expr> &args);
 
 struct tsr_info_t {
-    expr tensor_;
-    expr placeholder_;
-    expr format_;
-    expr size_;
-    int count_ = 0;
-    tsr_info_t() = default;
-    tsr_info_t(const expr &tensor, const expr &placeholder, const expr &format,
-            const expr &size)
-        : tensor_(tensor)
-        , placeholder_(placeholder)
-        , format_(format)
-        , size_(size) {}
+  expr tensor_;
+  expr placeholder_;
+  expr format_;
+  expr size_;
+  int count_ = 0;
+  tsr_info_t() = default;
+  tsr_info_t(const expr &tensor, const expr &placeholder, const expr &format,
+             const expr &size)
+      : tensor_(tensor), placeholder_(placeholder), format_(format),
+        size_(size) {}
 };
 
 enum info_etype_t { real_tensor, placeholder, format, out_size };
@@ -58,7 +56,8 @@ enum info_etype_t { real_tensor, placeholder, format, out_size };
  * @param mark_as_main mark the main entry function with "is_main" attr
  * */
 SC_API ir_module_ptr lower_graph(context_ptr ctx, sc_graph_t &graph,
-        const std::vector<sc_op_ptr> &args, bool mark_as_main = true);
+                                 const std::vector<sc_op_ptr> &args,
+                                 bool mark_as_main = true);
 } // namespace gc
 } // namespace graph
 } // namespace impl

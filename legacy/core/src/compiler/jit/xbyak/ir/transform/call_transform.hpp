@@ -33,8 +33,8 @@ namespace attr_keys {
 constexpr const char *abi_interface = "abi_interface";
 } // namespace attr_keys
 
-#define TRANSFORMED_CALL(STMT) \
-    (STMT->attr_ && STMT->attr_->has_key(attr_keys::abi_interface))
+#define TRANSFORMED_CALL(STMT)                                                 \
+  (STMT->attr_ && STMT->attr_->has_key(attr_keys::abi_interface))
 
 // Cached ABI infomation inside func and call node
 x86_64::abi_function_interface::ptr cached_func_abi_interface(const func_t &v);
@@ -48,11 +48,11 @@ x86_64::abi_function_interface::ptr cached_call_abi_interface(const call_c &v);
  * */
 class call_transform_t : public function_pass_t {
 public:
-    call_transform_t(const x86_64::target_profile_t &profile);
-    func_c operator()(func_c v) override;
+  call_transform_t(const x86_64::target_profile_t &profile);
+  func_c operator()(func_c v) override;
 
 private:
-    const x86_64::target_profile_t &profile_;
+  const x86_64::target_profile_t &profile_;
 };
 
 } // namespace xbyak

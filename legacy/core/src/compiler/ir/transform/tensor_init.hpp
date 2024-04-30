@@ -30,10 +30,10 @@ namespace gc {
  * */
 class tensor_init_t : public function_pass_t {
 public:
-    context_ptr ctx_;
-    tensor_init_t(context_ptr ctx) : ctx_(ctx) {}
-    func_c operator()(func_c f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  context_ptr ctx_;
+  tensor_init_t(context_ptr ctx) : ctx_(ctx) {}
+  func_c operator()(func_c f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

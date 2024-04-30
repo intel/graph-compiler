@@ -24,18 +24,20 @@ namespace xbyak {
 namespace x86_64 {
 
 std::ostream &operator<<(std::ostream &os, abi_value_kind v) {
-    switch (v) {
-#define HANDLE_CASE(V) \
-    case abi_value_kind::V: os << "abi_value_kind::" #V; break;
+  switch (v) {
+#define HANDLE_CASE(V)                                                         \
+  case abi_value_kind::V:                                                      \
+    os << "abi_value_kind::" #V;                                               \
+    break;
 
-        HANDLE_CASE(INTEGER);
-        HANDLE_CASE(SSE);
-        HANDLE_CASE(SSEUPx15_SSE);
+    HANDLE_CASE(INTEGER);
+    HANDLE_CASE(SSE);
+    HANDLE_CASE(SSEUPx15_SSE);
 
 #undef HANDLE_CASE
-    }
+  }
 
-    return os;
+  return os;
 }
 
 } // namespace x86_64

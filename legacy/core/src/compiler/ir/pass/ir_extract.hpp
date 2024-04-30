@@ -17,9 +17,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_IR_EXTRACT_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_IR_EXTRACT_HPP
 
-#include <vector>
 #include "../viewer.hpp"
 #include <unordered_set>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -33,16 +33,16 @@ namespace gc {
  * */
 class ir_var_extractor_t : public ir_viewer_t {
 protected:
-    std::vector<expr_c> &vars_;
-    std::unordered_set<expr_c> dedup_;
+  std::vector<expr_c> &vars_;
+  std::unordered_set<expr_c> dedup_;
 
 public:
-    ir_var_extractor_t(std::vector<expr_c> &vars) : vars_(vars) {}
+  ir_var_extractor_t(std::vector<expr_c> &vars) : vars_(vars) {}
 
-    void view(var_c v) override;
-    void operator()(const expr_c &v);
-    void operator()(const stmt_c &v);
-    void operator()(func_c v);
+  void view(var_c v) override;
+  void operator()(const expr_c &v);
+  void operator()(const stmt_c &v);
+  void operator()(func_c v);
 };
 
 /**
@@ -54,20 +54,20 @@ public:
  * */
 class ir_var_capturer_t : public ir_viewer_t {
 protected:
-    std::vector<expr_c> &vars_;
-    stmt_c terminator_;
-    bool terminated_;
+  std::vector<expr_c> &vars_;
+  stmt_c terminator_;
+  bool terminated_;
 
 public:
-    ir_var_capturer_t(std::vector<expr_c> &vars, stmt_c t = stmt_c())
-        : vars_(vars), terminator_(t) {}
+  ir_var_capturer_t(std::vector<expr_c> &vars, stmt_c t = stmt_c())
+      : vars_(vars), terminator_(t) {}
 
-    void view(define_c v) override;
-    void view(stmts_c v) override;
-    void view(for_loop_c v) override;
-    void view(if_else_c v) override;
-    void operator()(const stmt_c &v);
-    void operator()(const func_c &v);
+  void view(define_c v) override;
+  void view(stmts_c v) override;
+  void view(for_loop_c v) override;
+  void view(if_else_c v) override;
+  void operator()(const stmt_c &v);
+  void operator()(const func_c &v);
 };
 
 } // namespace gc

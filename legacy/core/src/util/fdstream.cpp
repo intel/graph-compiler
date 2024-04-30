@@ -29,44 +29,52 @@ namespace graph {
 namespace gc {
 
 void fdoutbuf_t::close() {
-    if (fd_ != -1) {
-        ::close(fd_);
-        fd_ = -1;
-    }
+  if (fd_ != -1) {
+    ::close(fd_);
+    fd_ = -1;
+  }
 }
 
 fdoutbuf_t::int_type fdoutbuf_t::overflow(int_type c) {
-    if (c != EOF) {
-        if (write(fd_, &c, 1) != 1) { return EOF; }
+  if (c != EOF) {
+    if (write(fd_, &c, 1) != 1) {
+      return EOF;
     }
-    return c;
+  }
+  return c;
 }
 
 std::streamsize fdoutbuf_t::xsputn(const char *s, std::streamsize num) {
-    return write(fd_, s, num);
+  return write(fd_, s, num);
 }
 
 void fdinbuf_t::close() {
-    if (fd_ != -1) {
-        ::close(fd_);
-        fd_ = -1;
-    }
+  if (fd_ != -1) {
+    ::close(fd_);
+    fd_ = -1;
+  }
 }
 
 int fdinbuf_t::underflow() {
-    if (gptr() < egptr()) { return *gptr(); }
-
-    int putback_cnt = gptr() - eback();
-    if (putback_cnt > putback_size_) { putback_cnt = putback_size_; }
-    memmove(data_.get() + putback_size_ - putback_cnt, gptr() - putback_cnt,
-            putback_cnt);
-
-    int ret = read(fd_, data_.get() + putback_size_, buf_size_);
-    if (ret <= 0) { return EOF; }
-
-    setg(data_.get() + putback_size_ - putback_cnt, data_.get() + putback_size_,
-            data_.get() + putback_size_ + ret);
+  if (gptr() < egptr()) {
     return *gptr();
+  }
+
+  int putback_cnt = gptr() - eback();
+  if (putback_cnt > putback_size_) {
+    putback_cnt = putback_size_;
+  }
+  memmove(data_.get() + putback_size_ - putback_cnt, gptr() - putback_cnt,
+          putback_cnt);
+
+  int ret = read(fd_, data_.get() + putback_size_, buf_size_);
+  if (ret <= 0) {
+    return EOF;
+  }
+
+  setg(data_.get() + putback_size_ - putback_cnt, data_.get() + putback_size_,
+       data_.get() + putback_size_ + ret);
+  return *gptr();
 }
 
 } // namespace gc

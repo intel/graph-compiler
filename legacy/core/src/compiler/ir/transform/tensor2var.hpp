@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_TENSOR2VAR_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_TENSOR2VAR_HPP
 
-#include <vector>
 #include "../function_pass.hpp"
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -40,8 +40,8 @@ constexpr const char *must_tensor2var = "must_tensor2var";
  * */
 class tensor2var_t : public function_pass_t {
 public:
-    func_c operator()(func_c f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  func_c operator()(func_c f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

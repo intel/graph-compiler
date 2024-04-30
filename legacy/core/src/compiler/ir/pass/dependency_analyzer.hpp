@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_DEPENDENCY_ANALYZER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_PASS_DEPENDENCY_ANALYZER_HPP
 
-#include <memory>
 #include "../function_pass.hpp"
+#include <memory>
 #include <util/weakptr_utils.hpp>
 
 namespace dnnl {
@@ -32,10 +32,10 @@ constexpr const char *attr_directly_accessed = "ir_analysis.directly_accessed";
 // std::weak_ptr cannot be hashed. Use a trick to bypass it
 using stmt_weak_set = utils::weakptr_hashset_t<stmt_base_t>;
 struct dependency_t {
-    stmt_weak_set depends_on_;
-    stmt_weak_set depended_by_;
-    std::weak_ptr<stmt_base_t> indexing_owner_;
-    dependency_t() = default;
+  stmt_weak_set depends_on_;
+  stmt_weak_set depended_by_;
+  std::weak_ptr<stmt_base_t> indexing_owner_;
+  dependency_t() = default;
 };
 
 dependency_t &get_dep_info(const node_base *s);
@@ -47,7 +47,7 @@ dependency_t &get_dep_info(const node_base *s);
  * */
 class dependency_analyzer_t : public function_pass_t {
 public:
-    func_c operator()(func_c f) override;
+  func_c operator()(func_c f) override;
 };
 
 } // namespace gc

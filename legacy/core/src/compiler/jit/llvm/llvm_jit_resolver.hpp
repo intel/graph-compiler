@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_JIT_LLVM_LLVM_JIT_RESOLVER_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_JIT_LLVM_LLVM_JIT_RESOLVER_HPP
 
-#include <string>
 #include <llvm/ExecutionEngine/SectionMemoryManager.h>
+#include <string>
 
 namespace dnnl {
 namespace impl {
@@ -26,19 +26,20 @@ namespace graph {
 namespace gc {
 
 class sc_llvm_jit_resolver : public llvm::SectionMemoryManager {
-    sc_llvm_jit_resolver(const sc_llvm_jit_resolver &) = delete;
-    void operator=(const sc_llvm_jit_resolver &) = delete;
+  sc_llvm_jit_resolver(const sc_llvm_jit_resolver &) = delete;
+  void operator=(const sc_llvm_jit_resolver &) = delete;
 
 public:
-    sc_llvm_jit_resolver();
-    virtual ~sc_llvm_jit_resolver();
-    virtual uint64_t getSymbolAddress(const std::string &name) override;
-    uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
-            unsigned SectionID, llvm::StringRef SectionName) override;
+  sc_llvm_jit_resolver();
+  virtual ~sc_llvm_jit_resolver();
+  virtual uint64_t getSymbolAddress(const std::string &name) override;
+  uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
+                               unsigned SectionID,
+                               llvm::StringRef SectionName) override;
 
-    uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
-            unsigned SectionID, llvm::StringRef SectionName,
-            bool isReadOnly) override;
+  uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
+                               unsigned SectionID, llvm::StringRef SectionName,
+                               bool isReadOnly) override;
 };
 } // namespace gc
 } // namespace graph

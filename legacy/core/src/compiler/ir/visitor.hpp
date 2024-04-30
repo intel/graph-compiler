@@ -17,9 +17,9 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_VISITOR_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_VISITOR_HPP
 
-#include <vector>
 #include "sc_function.hpp"
 #include <unordered_map>
+#include <vector>
 namespace dnnl {
 namespace impl {
 namespace graph {
@@ -28,75 +28,73 @@ namespace gc {
 // this macro declares visit_impl() on all IR node classes
 // The POSTFIX can be "=0", "final", etc.
 // use NOLINT since POSTFIX should not be enclosed in parentheses
-#define SC_BASE_VISITOR_METHODS_IMPL(node_type, ret_type, POSTFIX) \
-    virtual ret_type visit_impl(node_type v) POSTFIX; /* NOLINT*/
+#define SC_BASE_VISITOR_METHODS_IMPL(node_type, ret_type, POSTFIX)             \
+  virtual ret_type visit_impl(node_type v) POSTFIX; /* NOLINT*/
 
-#define SC_BASE_VISITOR_METHODS(POSTFIX) \
-    FOR_EACH_EXPR_IR_TYPE(SC_BASE_VISITOR_METHODS_IMPL, expr, POSTFIX) \
-    FOR_EACH_STMT_IR_TYPE(SC_BASE_VISITOR_METHODS_IMPL, stmt, POSTFIX) \
-    FOR_EACH_BASE_EXPR_IR_TYPE(SC_BASE_VISITOR_METHODS_IMPL, expr, POSTFIX)
+#define SC_BASE_VISITOR_METHODS(POSTFIX)                                       \
+  FOR_EACH_EXPR_IR_TYPE(SC_BASE_VISITOR_METHODS_IMPL, expr, POSTFIX)           \
+  FOR_EACH_STMT_IR_TYPE(SC_BASE_VISITOR_METHODS_IMPL, stmt, POSTFIX)           \
+  FOR_EACH_BASE_EXPR_IR_TYPE(SC_BASE_VISITOR_METHODS_IMPL, expr, POSTFIX)
 
 // The base interface class for all visitors
 class ir_visitor_base_t {
 public:
-    /**
-     * Downcasts the pointer and call visit() with the subclass pointer
-     * See the dispatch rule above
-     * @param e the pointer to dispatch
-     * @return the IR node replaces the input node
-     */
-    virtual expr dispatch_impl(expr e);
+  /**
+   * Downcasts the pointer and call visit() with the subclass pointer
+   * See the dispatch rule above
+   * @param e the pointer to dispatch
+   * @return the IR node replaces the input node
+   */
+  virtual expr dispatch_impl(expr e);
 
-    /**
-     * Downcasts the pointer and call visit() with the subclass pointer
-     * See the dispatch rule above
-     * @param e the pointer to dispatch
-     * @return the IR node replaces the input node
-     */
-    virtual stmt dispatch_impl(stmt s);
+  /**
+   * Downcasts the pointer and call visit() with the subclass pointer
+   * See the dispatch rule above
+   * @param e the pointer to dispatch
+   * @return the IR node replaces the input node
+   */
+  virtual stmt dispatch_impl(stmt s);
 
-    // the visitor_impl() methods to be implemented by subclasses
-    SC_BASE_VISITOR_METHODS(= 0)
+  // the visitor_impl() methods to be implemented by subclasses
+  SC_BASE_VISITOR_METHODS(= 0)
 
-    virtual ~ir_visitor_base_t() = default;
+  virtual ~ir_visitor_base_t() = default;
 };
 
 /**
  * This class defines the default visit_impl() on all IR nodes. Can be shared by
  * in-places & copy-on-write visitors
  * */
-template <bool inplace_>
-class ir_visitor_base_impl_t : ir_visitor_base_t {
+template <bool inplace_> class ir_visitor_base_impl_t : ir_visitor_base_t {
 public:
-    using ir_visitor_base_t::dispatch_impl;
-    /**
-     * Visits a function IR node. The default implementation just calls
-     * dispatch() on each of the fields
-     * @param e the pointer to dispatch
-     * @return the IR node replaces the input node
-     */
-    virtual func_t dispatch_impl(func_t v);
+  using ir_visitor_base_t::dispatch_impl;
+  /**
+   * Visits a function IR node. The default implementation just calls
+   * dispatch() on each of the fields
+   * @param e the pointer to dispatch
+   * @return the IR node replaces the input node
+   */
+  virtual func_t dispatch_impl(func_t v);
 
-    /**
-     * Visits an array of expr.
-     * Returns true if any expr in the array is changed. Otherwise, returns
-     * false.
-     * @param arr the array of expr to dispatch
-     * @return true if any of the expr is changed
-     */
-    bool dispatch_expr_vector(
-            std::vector<expr> &arr, std::vector<expr> &newval);
-    SC_BASE_VISITOR_METHODS()
-    bool changed_ = false;
+  /**
+   * Visits an array of expr.
+   * Returns true if any expr in the array is changed. Otherwise, returns
+   * false.
+   * @param arr the array of expr to dispatch
+   * @return true if any of the expr is changed
+   */
+  bool dispatch_expr_vector(std::vector<expr> &arr, std::vector<expr> &newval);
+  SC_BASE_VISITOR_METHODS()
+  bool changed_ = false;
 };
 
-#define SC_VISITOR_METHODS_IMPL(node_type, ret_type, POSTFIX) \
-    virtual ret_type visit(node_type##_c v) POSTFIX; /* NOLINT*/
+#define SC_VISITOR_METHODS_IMPL(node_type, ret_type, POSTFIX)                  \
+  virtual ret_type visit(node_type##_c v) POSTFIX; /* NOLINT*/
 
-#define SC_VISITOR_METHODS(POSTFIX) \
-    FOR_EACH_EXPR_IR_TYPE(SC_VISITOR_METHODS_IMPL, expr_c, POSTFIX) \
-    FOR_EACH_STMT_IR_TYPE(SC_VISITOR_METHODS_IMPL, stmt_c, POSTFIX) \
-    FOR_EACH_BASE_EXPR_IR_TYPE(SC_VISITOR_METHODS_IMPL, expr_c, POSTFIX)
+#define SC_VISITOR_METHODS(POSTFIX)                                            \
+  FOR_EACH_EXPR_IR_TYPE(SC_VISITOR_METHODS_IMPL, expr_c, POSTFIX)              \
+  FOR_EACH_STMT_IR_TYPE(SC_VISITOR_METHODS_IMPL, stmt_c, POSTFIX)              \
+  FOR_EACH_BASE_EXPR_IR_TYPE(SC_VISITOR_METHODS_IMPL, expr_c, POSTFIX)
 
 /**
  * The base class of copy-on-write IR passes.
@@ -122,62 +120,62 @@ public:
  * @see ir_consistent_visitor_t
  * */
 class ir_visitor_t : private ir_visitor_base_impl_t<false> {
-    // overrides ir_visitor_base_impl_t<false>::dispatch_impl to use dispatch()
-    expr dispatch_impl(expr e) final;
-    stmt dispatch_impl(stmt s) final;
-    func_t dispatch_impl(func_t v) final;
+  // overrides ir_visitor_base_impl_t<false>::dispatch_impl to use dispatch()
+  expr dispatch_impl(expr e) final;
+  stmt dispatch_impl(stmt s) final;
+  func_t dispatch_impl(func_t v) final;
 
 public:
-    /**
-     * Downcasts the pointer and call visit() with the subclass pointer
-     * See the dispatch rule above
-     * @param e the pointer to dispatch
-     * @return the IR node replaces the input node
-     */
-    virtual expr_c dispatch(expr_c e);
+  /**
+   * Downcasts the pointer and call visit() with the subclass pointer
+   * See the dispatch rule above
+   * @param e the pointer to dispatch
+   * @return the IR node replaces the input node
+   */
+  virtual expr_c dispatch(expr_c e);
 
-    /**
-     * Downcasts the pointer and call visit() with the subclass pointer
-     * See the dispatch rule above
-     * @param e the pointer to dispatch
-     * @return the IR node replaces the input node
-     */
-    virtual stmt_c dispatch(stmt_c s);
+  /**
+   * Downcasts the pointer and call visit() with the subclass pointer
+   * See the dispatch rule above
+   * @param e the pointer to dispatch
+   * @return the IR node replaces the input node
+   */
+  virtual stmt_c dispatch(stmt_c s);
 
-    /**
-     * Visits an array of expr.
-     * Returns true if any expr in the array is changed. Otherwise, returns
-     * false.
-     * @param arr the array of expr to dispatch
-     * @return true if any of the expr is changed
-     */
-    bool dispatch_expr_vector(
-            const std::vector<expr> &arr, std::vector<expr> &newval);
-    bool dispatch_expr_vector(
-            const std::vector<expr> &arr, std::vector<expr_c> &newval);
+  /**
+   * Visits an array of expr.
+   * Returns true if any expr in the array is changed. Otherwise, returns
+   * false.
+   * @param arr the array of expr to dispatch
+   * @return true if any of the expr is changed
+   */
+  bool dispatch_expr_vector(const std::vector<expr> &arr,
+                            std::vector<expr> &newval);
+  bool dispatch_expr_vector(const std::vector<expr> &arr,
+                            std::vector<expr_c> &newval);
 
-    /**
-     * Visits a function IR node. The default implementation just calls
-     * dispatch() on each of the fields
-     * @param e the pointer to dispatch
-     * @return the IR node replaces the input node
-     */
-    virtual func_c dispatch(func_c v);
+  /**
+   * Visits a function IR node. The default implementation just calls
+   * dispatch() on each of the fields
+   * @param e the pointer to dispatch
+   * @return the IR node replaces the input node
+   */
+  virtual func_c dispatch(func_c v);
 
-    SC_VISITOR_METHODS()
+  SC_VISITOR_METHODS()
 
 private:
-    // we want to hide dispatch_impl and prevent it from being overriden
-    SC_BASE_VISITOR_METHODS(final)
+  // we want to hide dispatch_impl and prevent it from being overriden
+  SC_BASE_VISITOR_METHODS(final)
 
 protected:
-    using ir_visitor_base_impl_t<false>::dispatch_impl;
-    // gets a unique run id. Multiple calls of get_run_id() will return
-    // different IDs. It is used to mark the age of temp_data on TIR.
-    // Passes/Visitors can call this function once in the constructor, and use
-    // the run_id to compare with the run_id in the temp_data to avoid reading
-    // stale data
-    static uint64_t get_run_id();
+  using ir_visitor_base_impl_t<false>::dispatch_impl;
+  // gets a unique run id. Multiple calls of get_run_id() will return
+  // different IDs. It is used to mark the age of temp_data on TIR.
+  // Passes/Visitors can call this function once in the constructor, and use
+  // the run_id to compare with the run_id in the temp_data to avoid reading
+  // stale data
+  static uint64_t get_run_id();
 };
 
 /**
@@ -202,11 +200,11 @@ class ir_inplace_visitor_t : public ir_visitor_base_impl_t<true> {};
  * */
 class ir_consistent_visitor_t : public ir_visitor_t {
 public:
-    using ir_visitor_t::dispatch;
-    using ir_visitor_t::dispatch_expr_vector;
-    // the old -> new mapping for var/tensor
-    std::unordered_map<expr_c, expr_c> replace_map_;
-    expr_c dispatch(expr_c e) override;
+  using ir_visitor_t::dispatch;
+  using ir_visitor_t::dispatch_expr_vector;
+  // the old -> new mapping for var/tensor
+  std::unordered_map<expr_c, expr_c> replace_map_;
+  expr_c dispatch(expr_c e) override;
 };
 
 } // namespace gc

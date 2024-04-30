@@ -17,13 +17,13 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_CLOSURIZE_IMPL_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_CLOSURIZE_IMPL_HPP
 
-#include <string>
-#include <utility>
-#include <vector>
 #include <compiler/ir/ir_module.hpp>
 #include <compiler/ir/visitor.hpp>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -43,41 +43,40 @@ namespace gc {
  * */
 class closurize_impl_t : public ir_visitor_t {
 protected:
-    using ir_visitor_t::dispatch;
-    using ir_visitor_t::visit;
-    std::unordered_map<expr_c, expr_c> captures_set_;
-    // the variables defined within the current captures
-    std::unordered_set<expr_c> defined_set_;
-    // the variables defined in the module as globals
-    std::unordered_set<expr_c> globals_set_;
-    bool in_parallel_for = false;
-    std::vector<expr> captures_;
-    func_c cur_func_;
-    ir_module_ptr modu_;
-    int kernel_cnt = 0;
+  using ir_visitor_t::dispatch;
+  using ir_visitor_t::visit;
+  std::unordered_map<expr_c, expr_c> captures_set_;
+  // the variables defined within the current captures
+  std::unordered_set<expr_c> defined_set_;
+  // the variables defined in the module as globals
+  std::unordered_set<expr_c> globals_set_;
+  bool in_parallel_for = false;
+  std::vector<expr> captures_;
+  func_c cur_func_;
+  ir_module_ptr modu_;
+  int kernel_cnt = 0;
 
-    closurize_impl_t(const std::vector<define> &globals, ir_module_ptr modu);
+  closurize_impl_t(const std::vector<define> &globals, ir_module_ptr modu);
 
-    func_c dispatch(func_c f) override;
-    expr_c create_or_get_tensor_or_var(expr_c v);
+  func_c dispatch(func_c f) override;
+  expr_c create_or_get_tensor_or_var(expr_c v);
 
-    stmt_c visit(define_c v) override;
-    expr_c visit(tensor_c v) override;
-    expr_c visit(var_c v) override;
-    stmt_c visit(assign_c v) override;
+  stmt_c visit(define_c v) override;
+  expr_c visit(tensor_c v) override;
+  expr_c visit(var_c v) override;
+  stmt_c visit(assign_c v) override;
 
-    // makes the closure function and its generic wrapper, returns the callee
-    // function for the parallel_call
-    virtual func_t make_closure_func(const std::string &name,
-            std::vector<expr_c> &&params, stmt_c body,
-            const std::vector<call_node::parallel_attr_t> &para_attr)
-            = 0;
-    // make the parallel_call node and the arguments for it. Can be wrapped in a
-    // stmts node
-    virtual stmt make_parallel_call(func_t target, std::vector<expr> &captures,
-            std::vector<call_node::parallel_attr_t> &&para_attr)
-            = 0;
-    stmt_c visit(for_loop_c v) override;
+  // makes the closure function and its generic wrapper, returns the callee
+  // function for the parallel_call
+  virtual func_t make_closure_func(
+      const std::string &name, std::vector<expr_c> &&params, stmt_c body,
+      const std::vector<call_node::parallel_attr_t> &para_attr) = 0;
+  // make the parallel_call node and the arguments for it. Can be wrapped in a
+  // stmts node
+  virtual stmt
+  make_parallel_call(func_t target, std::vector<expr> &captures,
+                     std::vector<call_node::parallel_attr_t> &&para_attr) = 0;
+  stmt_c visit(for_loop_c v) override;
 };
 
 } // namespace gc

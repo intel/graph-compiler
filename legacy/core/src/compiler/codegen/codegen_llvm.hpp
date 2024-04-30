@@ -20,9 +20,9 @@
 #include <memory>
 #include <ostream>
 
-#include <string>
 #include <compiler/ir/module_pass.hpp>
 #include <llvm/IR/Module.h>
+#include <string>
 
 namespace dnnl {
 namespace impl {
@@ -30,16 +30,16 @@ namespace graph {
 namespace gc {
 class SC_INTERNAL_API llvm_generator_pass : public module_pass_t {
 public:
-    llvm::LLVMContext &llvm_ctx_;
-    std::unique_ptr<llvm::Module> &out_module_;
-    bool gen_wrapper_;
-    std::string out_source_path_;
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    llvm_generator_pass(llvm::LLVMContext &llvm_ctx,
-            std::unique_ptr<llvm::Module> &out_module, bool gen_wrapper)
-        : llvm_ctx_(llvm_ctx)
-        , out_module_(out_module)
-        , gen_wrapper_(gen_wrapper) {}
+  llvm::LLVMContext &llvm_ctx_;
+  std::unique_ptr<llvm::Module> &out_module_;
+  bool gen_wrapper_;
+  std::string out_source_path_;
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  llvm_generator_pass(llvm::LLVMContext &llvm_ctx,
+                      std::unique_ptr<llvm::Module> &out_module,
+                      bool gen_wrapper)
+      : llvm_ctx_(llvm_ctx), out_module_(out_module),
+        gen_wrapper_(gen_wrapper) {}
 };
 } // namespace gc
 } // namespace graph

@@ -32,12 +32,12 @@ namespace xbyak {
  * */
 class avx2_mask_indexing_t : public function_pass_t {
 public:
-    avx2_mask_indexing_t(const runtime::target_machine_t &target_machine)
-        : target_machine_(target_machine) {}
-    func_c operator()(func_c v) override;
+  avx2_mask_indexing_t(const runtime::target_machine_t &target_machine)
+      : target_machine_(target_machine) {}
+  func_c operator()(func_c v) override;
 
 private:
-    const runtime::target_machine_t &target_machine_;
+  const runtime::target_machine_t &target_machine_;
 };
 
 } // namespace xbyak

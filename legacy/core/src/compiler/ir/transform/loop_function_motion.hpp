@@ -29,8 +29,8 @@ namespace gc {
  * */
 class simple_loop_function_motion_t : public function_pass_t {
 public:
-    func_c operator()(func_c f) override;
-    SC_DECL_PASS_INFO_FUNC();
+  func_c operator()(func_c f) override;
+  SC_DECL_PASS_INFO_FUNC();
 };
 } // namespace gc
 } // namespace graph

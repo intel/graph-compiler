@@ -19,16 +19,16 @@
 
 #ifdef __AVX__
 INLINE vec_f32x8 mask_load(const float *p, vec_s32x8 mask) {
-    return _mm256_maskload_ps(p, mask.v);
+  return _mm256_maskload_ps(p, mask.v);
 }
 INLINE vec_f32x4 mask_load(const float *p, vec_s32x4 mask) {
-    return _mm_maskload_ps(p, mask.v);
+  return _mm_maskload_ps(p, mask.v);
 }
 INLINE void mask_store(float *p, vec_s32x8 mask, vec_f32x8 const &a) {
-    _mm256_maskstore_ps(p, mask.v, a.v);
+  _mm256_maskstore_ps(p, mask.v, a.v);
 }
 INLINE void mask_store(float *p, vec_s32x4 mask, vec_f32x4 const &a) {
-    _mm_maskstore_ps(p, mask.v, a.v);
+  _mm_maskstore_ps(p, mask.v, a.v);
 }
 #endif
 #endif

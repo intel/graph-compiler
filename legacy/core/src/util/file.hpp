@@ -34,28 +34,28 @@ SC_INTERNAL_API std::string get_unique_name_for_file();
  * Opens a file for write (in text mode). If failed to open, throws an error
  * Due to a g++4.8 bug, we cannot return the stream.
  * */
-SC_INTERNAL_API void open_file_for_write(
-        std::ofstream &ret, const std::string &path);
+SC_INTERNAL_API void open_file_for_write(std::ofstream &ret,
+                                         const std::string &path);
 
 /**
  * Opens a file for read (in text mode). If failed to open, throws an error
  * */
-SC_INTERNAL_API void open_file_for_read(
-        std::ifstream &ret, const std::string &path);
+SC_INTERNAL_API void open_file_for_read(std::ifstream &ret,
+                                        const std::string &path);
 
 /**
  * Opens a file for write (in text mode) in system temp directory. If failed to
  * open, throws an error
  * */
-SC_INTERNAL_API void open_temp_file_for_write(
-        std::ofstream &ret, const std::string &filename);
+SC_INTERNAL_API void open_temp_file_for_write(std::ofstream &ret,
+                                              const std::string &filename);
 
 /**
  * Opens a file for read (in text mode) in system temp directory. If failed to
  * open, throws an error
  * */
-SC_INTERNAL_API void open_temp_file_for_read(
-        std::ifstream &ret, const std::string &filename);
+SC_INTERNAL_API void open_temp_file_for_read(std::ifstream &ret,
+                                             const std::string &filename);
 
 } // namespace utils
 

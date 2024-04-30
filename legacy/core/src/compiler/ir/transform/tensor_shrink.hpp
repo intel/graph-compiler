@@ -17,8 +17,8 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_TENSOR_SHRINK_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_TENSOR_SHRINK_HPP
 
-#include <vector>
 #include "../module_pass.hpp"
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -44,18 +44,18 @@ constexpr const char *tensor_for_placerholder = "tsr4placeholder";
  * */
 class tensor_shrinker_t : public module_pass_t {
 public:
-    struct shrink_info_t {
-        std::vector<expr> base_;
-        std::vector<expr> shape_;
-        // the placeholder for the location of the new definition position of
-        // the tenosr. Can be null, indicating the tensor does not need to be
-        // moved
-        stmts move_def_;
-    };
-    const_ir_module_ptr operator()(const_ir_module_ptr f) override;
-    func_c operator()(func_c f);
-    stmt_c operator()(stmt_c f);
-    SC_DECL_PASS_INFO_FUNC();
+  struct shrink_info_t {
+    std::vector<expr> base_;
+    std::vector<expr> shape_;
+    // the placeholder for the location of the new definition position of
+    // the tenosr. Can be null, indicating the tensor does not need to be
+    // moved
+    stmts move_def_;
+  };
+  const_ir_module_ptr operator()(const_ir_module_ptr f) override;
+  func_c operator()(func_c f);
+  stmt_c operator()(stmt_c f);
+  SC_DECL_PASS_INFO_FUNC();
 };
 
 } // namespace gc

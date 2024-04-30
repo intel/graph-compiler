@@ -496,7 +496,9 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
           pad_end_idx = num_pad;
           nopad_begin_idx = num_pad;
           nopad_end_idx = ker;
-          _if_(num_right_pad > 0) { nopad_end_idx = ker - num_right_pad; }
+          _if_(num_right_pad > 0) {
+            nopad_end_idx = ker - num_right_pad;
+          }
         }
         _else_ {
           num_pad = divide_and_ceil(((builder::make_cast(datatypes::s32, cur_i)
@@ -848,7 +850,9 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                   ? (((cur_iw + aux_w_block_size <= 0) || (cur_iw > iw_))
                     || (num_d_pad >= kd_ || num_h_pad >= kh_))
                   : (num_d_pad >= kd_ || num_h_pad >= kh_);
-                _if_(cond && padding_value == 0) { zero_out_aux_buffer(); }
+                _if_(cond && padding_value == 0) {
+                  zero_out_aux_buffer();
+                }
                 _else_ {
                   // 1) fill A_list
                   if (!use_var_bs) {
@@ -960,7 +964,9 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                   ? (((cur_iw + aux_w_block_size <= 0) || (cur_iw > iw_))
                     || (num_h_pad >= kh_))
                   : (num_h_pad >= kh_);
-                _if_(cond && padding_value == 0) { zero_out_aux_buffer(); }
+                _if_(cond && padding_value == 0) {
+                  zero_out_aux_buffer();
+                }
                 _else_ {
                   auto fill_A_and_B_list = [&]() {
                     if (!use_var_bs) {
@@ -1009,7 +1015,9 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                           }
                           fill_aux_buffer();
                         }
-                        _else_ { update_aux_buffer(); }
+                        _else_ {
+                          update_aux_buffer();
+                        }
                       }
                     }
 

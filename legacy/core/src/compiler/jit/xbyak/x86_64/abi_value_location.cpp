@@ -25,44 +25,38 @@ namespace gc {
 namespace xbyak {
 namespace x86_64 {
 
-abi_value_location::abi_value_location() {
-    set_to_none();
-}
+abi_value_location::abi_value_location() { set_to_none(); }
 
-abi_value_location::abi_value_location(Xbyak::Reg reg) {
-    set_to_register(reg);
-}
+abi_value_location::abi_value_location(Xbyak::Reg reg) { set_to_register(reg); }
 
 abi_value_location::abi_value_location(int rsp_offset) {
-    set_to_rsp_offset(rsp_offset);
+  set_to_rsp_offset(rsp_offset);
 }
 
-void abi_value_location::set_to_none() {
-    tag_ = tag_type::NONE;
-}
+void abi_value_location::set_to_none() { tag_ = tag_type::NONE; }
 
 void abi_value_location::set_to_register(Xbyak::Reg reg) {
-    tag_ = tag_type::REGISTER;
-    val_.reg_ = reg;
+  tag_ = tag_type::REGISTER;
+  val_.reg_ = reg;
 }
 
 void abi_value_location::set_to_rsp_offset(int rsp_offset) {
-    tag_ = tag_type::STACK;
-    val_.rsp_offset_ = rsp_offset;
+  tag_ = tag_type::STACK;
+  val_.rsp_offset_ = rsp_offset;
 }
 
 abi_value_location::tag_type abi_value_location::get_type() const {
-    return tag_;
+  return tag_;
 }
 
 Xbyak::Reg abi_value_location::get_register() const {
-    COMPILE_ASSERT(tag_ == tag_type::REGISTER, "wrong tag type");
-    return val_.reg_;
+  COMPILE_ASSERT(tag_ == tag_type::REGISTER, "wrong tag type");
+  return val_.reg_;
 }
 
 int abi_value_location::get_rsp_offset() const {
-    COMPILE_ASSERT(tag_ == tag_type::STACK, "wrong tag type");
-    return val_.rsp_offset_;
+  COMPILE_ASSERT(tag_ == tag_type::STACK, "wrong tag type");
+  return val_.rsp_offset_;
 }
 
 } // namespace x86_64

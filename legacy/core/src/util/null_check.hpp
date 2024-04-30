@@ -17,7 +17,9 @@
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_UTIL_NULL_CHECK_HPP
 #include <cstdlib>
 
-#define SC_ABORT_IF_NULL(v) \
-    if (!(v)) { std::abort(); }
+#define SC_ABORT_IF_NULL(v)                                                    \
+  if (!(v)) {                                                                  \
+    std::abort();                                                              \
+  }
 
 #endif

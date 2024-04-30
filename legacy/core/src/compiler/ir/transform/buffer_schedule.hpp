@@ -17,10 +17,10 @@
 #ifndef GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_BUFFER_SCHEDULE_HPP
 #define GRAPH_BACKEND_GRAPH_COMPILER_CORE_SRC_COMPILER_IR_TRANSFORM_BUFFER_SCHEDULE_HPP
 
-#include <utility>
-#include <vector>
 #include "../function_pass.hpp"
 #include <compiler/config/context.hpp>
+#include <utility>
+#include <vector>
 
 namespace dnnl {
 namespace impl {
@@ -94,20 +94,19 @@ constexpr const char *can_be_scheduled = "can_be_scheduled";
  * */
 class buffer_scheduler_t : public function_pass_t {
 public:
-    context_ptr ctx_;
-    // if only transforming the func body, this field should be set to correctly
-    // handle the func args
-    func_c top_level_ = nullptr;
-    bool eliminate_dead_writes_;
-    bool do_inplace_opt_;
-    buffer_scheduler_t(context_ptr ctx, bool eliminate_dead_writes,
-            bool do_inplace_opt = false)
-        : ctx_(std::move(ctx))
-        , eliminate_dead_writes_(eliminate_dead_writes)
-        , do_inplace_opt_(do_inplace_opt) {}
-    func_c operator()(func_c f) override;
-    stmt_c operator()(stmt_c f) const;
-    SC_DECL_PASS_INFO_FUNC();
+  context_ptr ctx_;
+  // if only transforming the func body, this field should be set to correctly
+  // handle the func args
+  func_c top_level_ = nullptr;
+  bool eliminate_dead_writes_;
+  bool do_inplace_opt_;
+  buffer_scheduler_t(context_ptr ctx, bool eliminate_dead_writes,
+                     bool do_inplace_opt = false)
+      : ctx_(std::move(ctx)), eliminate_dead_writes_(eliminate_dead_writes),
+        do_inplace_opt_(do_inplace_opt) {}
+  func_c operator()(func_c f) override;
+  stmt_c operator()(stmt_c f) const;
+  SC_DECL_PASS_INFO_FUNC();
 };
 // todo: if the buffer ("candidate") is larger than the "cur" tensor, we can
 // split "candidate" tensor into two and reuse the remaining of it for other

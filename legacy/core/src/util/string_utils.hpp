@@ -30,8 +30,8 @@ namespace utils {
 
 // Split the string into an array of substrings by the delimiter. The delimiters
 // will not occur in the resulting substrings
-std::vector<std::string> string_split(
-        const std::string &str, const std::string &delimiter);
+std::vector<std::string> string_split(const std::string &str,
+                                      const std::string &delimiter);
 
 // returns true if the str starts with prefix
 bool string_startswith(const std::string &str, const std::string &prefix);
@@ -40,8 +40,8 @@ bool string_endswith(const std::string &str, const std::string &prefix);
 
 /// Return a new string in which every occurrence of '\n' in @p in_str
 /// has been replaced with \p subst.
-std::string replace_newlines(
-        const std::string &in_str, const std::string &subst);
+std::string replace_newlines(const std::string &in_str,
+                             const std::string &subst);
 
 /// Assume that \p text is the string provided by an invocation of
 /// __PRETTY_FUNCTION__. Attempt to strip away any namespace and/or class names
@@ -85,23 +85,23 @@ std::string brief_lineloc(std::string filename, int64_t line_num);
  */
 class indentation_t {
 public:
-    indentation_t(size_t chars_per_level = 2);
+  indentation_t(size_t chars_per_level = 2);
 
-    class level_holder_t {
-    public:
-        level_holder_t(indentation_t &owner);
-        ~level_holder_t();
+  class level_holder_t {
+  public:
+    level_holder_t(indentation_t &owner);
+    ~level_holder_t();
 
-    private:
-        indentation_t &owner_;
-    };
+  private:
+    indentation_t &owner_;
+  };
 
-    level_holder_t indent();
+  level_holder_t indent();
 
 private:
-    friend std::ostream &operator<<(std::ostream &os, const indentation_t &i);
-    size_t chars_per_level_;
-    size_t level_ = 0;
+  friend std::ostream &operator<<(std::ostream &os, const indentation_t &i);
+  size_t chars_per_level_;
+  size_t level_ = 0;
 };
 
 std::ostream &operator<<(std::ostream &os, const indentation_t &i);
@@ -125,12 +125,12 @@ std::ostream &operator<<(std::ostream &os, const indentation_t &i);
  */
 class as_hex_t {
 public:
-    as_hex_t(const void *ptr, const char *null_alt_string = nullptr);
+  as_hex_t(const void *ptr, const char *null_alt_string = nullptr);
 
 private:
-    friend std::ostream &operator<<(std::ostream &os, as_hex_t a);
-    const void *ptr_;
-    const char *null_alt_string_;
+  friend std::ostream &operator<<(std::ostream &os, as_hex_t a);
+  const void *ptr_;
+  const char *null_alt_string_;
 };
 
 std::ostream &operator<<(std::ostream &os, as_hex_t a);
@@ -140,54 +140,51 @@ void general_print(std::ostream &os, const std::vector<T> &container);
 template <typename T1, typename T2>
 void general_print(std::ostream &os, const std::pair<T1, T2> &value);
 
-template <typename T>
-void general_print(std::ostream &os, const T &value) {
-    os << value;
+template <typename T> void general_print(std::ostream &os, const T &value) {
+  os << value;
 }
 template <typename T1, typename T2>
 void general_print(std::ostream &os, const std::pair<T1, T2> &value) {
-    os << '{';
-    general_print(os, value.first);
-    os << ": ";
-    general_print(os, value.second);
-    os << '}';
+  os << '{';
+  general_print(os, value.first);
+  os << ": ";
+  general_print(os, value.second);
+  os << '}';
 }
 
 template <typename T>
 void general_print(std::ostream &os, const std::vector<T> &container) {
-    os << '[';
-    bool first = true;
-    for (const auto &element : container) {
-        if (!first) {
-            os << ", ";
-        } else {
-            first = false;
-        }
-        general_print(os, element);
+  os << '[';
+  bool first = true;
+  for (const auto &element : container) {
+    if (!first) {
+      os << ", ";
+    } else {
+      first = false;
     }
-    os << ']';
+    general_print(os, element);
+  }
+  os << ']';
 }
 
-template <typename T>
-std::string general_print(const T &value) {
-    std::stringstream ss;
-    general_print(ss, value);
-    return ss.str();
+template <typename T> std::string general_print(const T &value) {
+  std::stringstream ss;
+  general_print(ss, value);
+  return ss.str();
 }
 
-template <typename T>
-std::string print_vector(const T &vec) {
-    return general_print(vec);
+template <typename T> std::string print_vector(const T &vec) {
+  return general_print(vec);
 }
 
 template <typename T>
 std::string print_pair_vector(const std::vector<std::pair<T, T>> &pvec) {
-    return general_print(pvec);
+  return general_print(pvec);
 }
 
 template <typename T>
 std::string print_nested_vector(const std::vector<std::vector<T>> &nested_vec) {
-    return general_print(nested_vec);
+  return general_print(nested_vec);
 }
 
 } // namespace utils

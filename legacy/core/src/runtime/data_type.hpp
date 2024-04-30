@@ -29,39 +29,39 @@ namespace gc {
 // For example, `sc_data_etype::POINTER || sc_data_etype::F32` means the pointer
 // type to float32. A sc_data_etype which equals to POINTER is a `void*` type.
 enum class sc_data_etype : uint32_t {
-    /// Undefined data type.
-    UNDEF = 0,
-    /// 16-bit/half-precision floating point.
-    F16 = 1,
-    /// non-standard 16-bit floating point with 7-bit mantissa.
-    BF16 = 2,
-    /// 16-bit unsigned integer.
-    U16 = 3,
-    /// 32-bit/single-precision floating point.
-    F32 = 4,
-    /// 32-bit signed integer.
-    S32 = 5,
-    /// 32-bit unsigned integer.
-    U32 = 6,
-    /// 8-bit signed integer.
-    S8 = 7,
-    /// 8-bit unsigned integer.
-    U8 = 8,
-    /// data type used for indexing.
-    INDEX = 9,
-    /// generic_val type, a union type for all supported scalar types
-    GENERIC = 10,
-    /// boolean
-    BOOLEAN = 11,
-    /// void type
-    VOID_T = 12,
-    /// the max enum value + 1
-    MAX_VALUE = 13,
-    /// general pointer type, also used as a pointer bit mask
-    /// void* type. The opaque pointer type. Any pointers (including tensor /
-    /// tensor ptr) can be auto-cast to a pointer value. But casting back
-    /// is not allowed
-    POINTER = 0x100,
+  /// Undefined data type.
+  UNDEF = 0,
+  /// 16-bit/half-precision floating point.
+  F16 = 1,
+  /// non-standard 16-bit floating point with 7-bit mantissa.
+  BF16 = 2,
+  /// 16-bit unsigned integer.
+  U16 = 3,
+  /// 32-bit/single-precision floating point.
+  F32 = 4,
+  /// 32-bit signed integer.
+  S32 = 5,
+  /// 32-bit unsigned integer.
+  U32 = 6,
+  /// 8-bit signed integer.
+  S8 = 7,
+  /// 8-bit unsigned integer.
+  U8 = 8,
+  /// data type used for indexing.
+  INDEX = 9,
+  /// generic_val type, a union type for all supported scalar types
+  GENERIC = 10,
+  /// boolean
+  BOOLEAN = 11,
+  /// void type
+  VOID_T = 12,
+  /// the max enum value + 1
+  MAX_VALUE = 13,
+  /// general pointer type, also used as a pointer bit mask
+  /// void* type. The opaque pointer type. Any pointers (including tensor /
+  /// tensor ptr) can be auto-cast to a pointer value. But casting back
+  /// is not allowed
+  POINTER = 0x100,
 };
 
 } // namespace gc

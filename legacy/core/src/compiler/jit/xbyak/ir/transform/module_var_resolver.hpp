@@ -31,8 +31,8 @@ namespace xbyak {
  * */
 class module_var_resolver_t : public function_pass_t {
 public:
-    module_var_resolver_t() = default;
-    func_c operator()(func_c v) override;
+  module_var_resolver_t() = default;
+  func_c operator()(func_c v) override;
 
 private:
 };
