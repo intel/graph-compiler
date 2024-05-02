@@ -2,4 +2,6 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 set(gc_opt_libs ${dialect_libs} ${conversion_libs} MLIROptLib)
 add_llvm_executable(gc-opt gc-opt.cpp)
-target_link_libraries(gc-opt ${gc_opt_libs})
+target_link_libraries(gc-opt PRIVATE ${gc_opt_libs})
+
+add_subdirectory(dnnl)
