@@ -15,10 +15,12 @@ jobs:
     name: Build
     runs-on: [self-hosted]
 
+    env:
+      GH_TOKEN: ${{ github.token }}    
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Build
         run: |
-          cmake -S . -G Ninja -B build
-          cmake --build build --parallel $(nproc)
+          scripts/compile.sh
