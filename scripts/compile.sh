@@ -4,6 +4,7 @@ repo=intel/graph-compiler
 
 cd $(dirname "$0")/..
 llvm_dir=$(cd ..; pwd -P)/install/llvm
+llvm_hash=$(cat cmake/llvm-version.txt)
 
 get_llvm() (
     local run_id
@@ -12,13 +13,13 @@ get_llvm() (
 
     gh run download "$run_id" \
        --repo "$repo" \
-       --pattern "llvm-*" \
+       --pattern "llvm-$hash" \
        --dir "$llvm_dir"
     cd "$llvm_dir"
-    tar -zxf llvm-*/llvm.tgz
+    tar -zxf "llvm-$hash"/llvm.tgz
 )
 
-test -f "$llvm_dir"/llvm-*/llvm.tgz || get_llvm
+test -f "$llvm_dir/llvm-$hash"/llvm.tgz || get_llvm
 
 cmake -S . -G Ninja -B build
 cmake --build build --parallel $(nproc)
