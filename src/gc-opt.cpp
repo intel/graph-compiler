@@ -17,12 +17,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "gc-dialects/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 int main(int argc, char *argv[]) {
   mlir::registerAllPasses();
+  mlir::gc::registerGraphCompilerPasses();
+
   mlir::DialectRegistry registry;
   mlir::registerAllDialects(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
