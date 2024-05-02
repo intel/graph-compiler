@@ -11,6 +11,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 option(GC_LEGACY_ENABLE ON)
+option(GC_TEST_ENABLE ON)
 
 set(GC_ONEDNN_VERSION "main" CACHE STRING "oneDNN version")
 include(onednn)
@@ -44,3 +45,7 @@ add_definitions(${LLVM_DEFINITIONS})
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
+
+if(GC_TEST_ENABLE)
+    add_subdirectory(test)
+endif()
