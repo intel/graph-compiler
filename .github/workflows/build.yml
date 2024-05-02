@@ -20,5 +20,4 @@ jobs:
 
       - name: Build
         run: |
-          cmake -S . -G Ninja -B build
-          cmake --build build --parallel $(nproc)
+          scripts/compile.sh
