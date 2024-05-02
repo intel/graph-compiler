@@ -13,13 +13,13 @@ get_llvm() (
 
     gh run download "$run_id" \
        --repo "$repo" \
-       --pattern "llvm-$hash" \
+       --pattern "llvm-$llvm_hash" \
        --dir "$llvm_dir"
     cd "$llvm_dir"
-    tar -zxf "llvm-$hash"/llvm.tgz
+    tar -zxf "llvm-$llvm_hash"/llvm.tgz
 )
 
-test -f "$llvm_dir/llvm-$hash"/llvm.tgz || get_llvm
+test -f "$llvm_dir/llvm-$llvm_hash"/llvm.tgz || get_llvm
 
 cmake -S . -G Ninja -B build
 cmake --build build --parallel $(nproc)
