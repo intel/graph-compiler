@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc-dialects/Linalgx/LinalgxDialect.h"
 #include "gc-dialects/Linalgx/LinalgxOps.h"
+#include "gc-dialects/Linalgx/LinalgxDialect.h"
 #include "mlir/IR/OpImplementation.h"
 
 #define GET_OP_CLASSES
