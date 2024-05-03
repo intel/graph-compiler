@@ -45,7 +45,4 @@ add_definitions(${LLVM_DEFINITIONS})
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
-
-if(GC_TEST_ENABLE)
-    add_subdirectory(test)
-endif()
+add_subdirectory(test)

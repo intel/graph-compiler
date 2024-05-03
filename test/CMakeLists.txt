@@ -1,3 +1,7 @@
+if(NOT GC_TEST_ENABLE)
+    return()
+endif()
+
 include(fetch_gtest)
 enable_testing()
 
