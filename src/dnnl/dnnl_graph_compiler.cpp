@@ -1,8 +1,20 @@
 #include "dnnl_graph_compiler.hpp"
+#include "gc_version.h"
 #include <new>
 
 // dnnl_graph_compiler.h interface implementation.
-// TODO: Implement
+// TODO: Implement.
+
+const dnnl_graph_compiler_version *dnnl_graph_compiler_get_version(void) {
+  static const dnnl_graph_compiler_version ver = {
+      .api_version = {DNNL_GC_API_V_MAJOR, DNNL_GC_API_V_MINOR,
+                      DNNL_GC_API_V_PATCH,
+                      DNNL_GC_API_V_HASH}, // version defined by oneDNN
+      .gc_version = {
+          GC_VERSION_MAJOR, GC_VERSION_MINOR, GC_VERSION_PATCH,
+          GC_VERSION_HASH}}; // version defined by graph compiler itself
+  return &ver;
+}
 
 dnnl_status_t
 dnnl_graph_compiler_create(const struct dnnl_graph_compiler_context *ctx,

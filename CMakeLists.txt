@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GraphCompiler LANGUAGES C CXX)
-
+project(GraphCompiler VERSION "0.1.0" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,6 +41,8 @@ set(GC_LIB_SOURCES CACHE INTERNAL "The graph_compiler library source paths")
 set(GC_LIB_INCLUDES CACHE INTERNAL "The graph_compiler library include paths")
 
 add_definitions(${LLVM_DEFINITIONS})
+include("cmake/version.cmake")
+
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
