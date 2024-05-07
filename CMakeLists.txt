@@ -42,6 +42,11 @@ set(GC_LIB_SOURCES CACHE INTERNAL "The graph_compiler library source paths")
 set(GC_LIB_INCLUDES CACHE INTERNAL "The graph_compiler library include paths")
 
 add_definitions(${LLVM_DEFINITIONS})
+
+set(GC_MLIR_CXX_FLAGS "")
+if(NOT MSVC)
+    set(GC_MLIR_CXX_FLAGS "-Wno-unused-but-set-parameter")
+endif()
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
