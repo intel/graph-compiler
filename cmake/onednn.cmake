@@ -4,7 +4,9 @@ get_property(DNNL_INCLUDES GLOBAL PROPERTY DNNL_INCLUDES)
 if (NOT DEFINED DNNL_INCLUDES)
     include(functions)
 
-    gc_fetch_content(dnnl main https://github.com/intel-ai/oneDNN.git
+    # TODO: Change to main https://github.com/oneapi-src/oneDNN.git when all the
+    # required functionality is merged.
+    gc_fetch_content(dnnl dev https://github.com/kurapov-peter/oneDNN.git
             SKIP_ADD
             CMAKE_ARGS -DDNNL_IS_MAIN_PROJECT=FALSE -DDNNL_BUILD_TESTS=FALSE -DDNNL_BUILD_EXAMPLES=FALSE
     )
