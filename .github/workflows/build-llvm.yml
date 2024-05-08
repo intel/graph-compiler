@@ -28,7 +28,6 @@ jobs:
           cmake -G Ninja llvm -B build -DCMAKE_INSTALL_PREFIX=llvm-install \
             -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir" -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build build --target install
-          cp llvm/bin/llvm-lit llvm-install/bin
           cd llvm-install
           tar -zcf ../llvm.tgz .
 
