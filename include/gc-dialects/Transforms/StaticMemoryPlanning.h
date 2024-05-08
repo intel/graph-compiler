@@ -1,0 +1,74 @@
+//===- StaticMemoryPlanning.h - Static memory planning ----------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef GCEXT_STATICMEMORYPLANNINGT_H
+#define GCEXT_STATICMEMORYPLANNINGT_H
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include <cstddef>
+#include <stdint.h>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+namespace mlir {
+class Operation;
+namespace gc {
+
+namespace memoryplan {
+enum class inplace_kind {
+  ZERO_OFFSET, // this requires that the tensor share the same base
+               // pointer of the replaced tensor
+  FREE,        // the tensor can freely choose any offset on this tensor
+};
+
+struct MemoryTrace {
+  // unique id of a buffer
+  uintptr_t bufferId;
+  // if > 0, size of the buffer allocation, if = 0, it is a deallocation trace
+  std::size_t size;
+  MemoryTrace(uintptr_t bufferId = 0, std::size_t size = 0)
+      : bufferId{bufferId}, size{size} {}
+};
+
+using ScopeTraceData =
+    llvm::DenseMap<Operation *, llvm::SmallVector<memoryplan::MemoryTrace, 8>>;
+using Traces = llvm::SmallVector<memoryplan::MemoryTrace, 8>;
+using inplace_info = std::pair<uintptr_t, inplace_kind>;
+
+using inplace_info_map =
+    llvm::DenseMap<uintptr_t, llvm::SmallVector<inplace_info>>;
+
+/**
+ * Given a list of memory buffer alloc and free traces, try to use a large
+ * buffer to hold all allocated memory, and statically allocate each memory
+ * buffer from the large buffer for better memory reuse.
+ * @param traces the list of memory alloc and free traces, sorted by event time.
+ * @param alignment the alignment in number of elements
+ * @param hot_first use the hot buffer first, instead of using best fit in size
+ * @param inplace_map the map from the tensor to alloc into the candidate
+ * tensors that can be inplace reused for it.
+ * @param out_schedule the output schedule for each buffer: the location that
+ * the buffer should be in the large buffer (as an offset in number of elements)
+ * @param out_inplace_selection the output buffer id -> inplace buffer it reuses
+ * @return the size of the large buffer, in number of elements
+ * */
+std::size_t schedule_memory_allocations(
+    const Traces &traces, std::size_t alignment, bool hot_first,
+    const inplace_info_map &inplace_map,
+    std::unordered_map<uintptr_t, std::size_t> &out_schedule,
+    std::unordered_map<uintptr_t, std::vector<uintptr_t>>
+        &out_inplace_selection);
+
+} // namespace memoryplan
+
+} // namespace gc
+} // namespace mlir
+
+#endif

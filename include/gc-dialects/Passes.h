@@ -12,7 +12,17 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
+class OpBuilder;
+class SymbolTable;
+class ModuleOp;
+
+namespace func {
+class FuncOp;
+} // namespace func
+
 namespace gc {
+
+std::unique_ptr<Pass> createMergeAllocPass();
 
 #define GEN_PASS_DECL
 #include "gc-dialects/Passes.h.inc"
