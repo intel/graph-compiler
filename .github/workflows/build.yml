@@ -23,6 +23,7 @@ jobs:
 
       - name: Build
         run: |
+          echo "Running build of graph compiler"
           scripts/compile.sh
 
       - name: Test
