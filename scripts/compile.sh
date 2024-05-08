@@ -24,5 +24,5 @@ test -f "$llvm_dir/llvm-$llvm_hash"/llvm.tgz || get_llvm
 cmake -S . -G Ninja -B build \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DMLIR_DIR=$llvm_dir/lib/cmake/mlir \
-    -DLLVM_EXTERNAL_LIT=$llvm_dir/bin/llvm-lit
+    -DLLVM_EXTERNAL_LIT=$(which lit)
 cmake --build build --parallel $(nproc)
