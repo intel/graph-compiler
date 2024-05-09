@@ -55,7 +55,7 @@ struct Tick {
 
 TypedValue<MemRefType> getMemrefBase(TypedValue<MemRefType> v) {
   auto op = v.getDefiningOp();
-  if (auto viewop = dyn_cast<ViewLikeOpInterface>(op)) {
+  if (auto viewop = dyn_cast_if_present<ViewLikeOpInterface>(op)) {
     return getMemrefBase(viewop.getViewSource().cast<TypedValue<MemRefType>>());
   }
   return v;
@@ -65,8 +65,16 @@ bool isMergeableAlloc(Operation *op, int64_t tick) {
   if (tick == COMPLEX_ACCESS) {
     return false;
   }
-  return hasStaticIdentityLayout(
-      op->getResultTypes().front().cast<MemRefType>());
+  if (!hasStaticIdentityLayout(
+          op->getResultTypes().front().cast<MemRefType>())) {
+    return false;
+  }
+  // currently only support alignment: none, 1, 2, 4, 8, 16, 32, 64
+  auto alignment = cast<memref::AllocOp>(op).getAlignment();
+  if (!alignment) {
+    return true; // ok if no alignment
+  }
+  return alignment > 0 && (64 % alignment.value() == 0);
 }
 
 // find the closest surrounding parent operation with AutomaticAllocationScope
@@ -144,7 +152,7 @@ struct TickCollecter {
     if (v.getType().isa<MemRefType>()) {
       auto base = getMemrefBase(llvm::cast<TypedValue<MemRefType>>(v));
       auto defop = base.getDefiningOp();
-      if (isa<memref::AllocOp>(defop)) {
+      if (isa_and_present<memref::AllocOp>(defop)) {
         allocTicks[defop].access(complex ? COMPLEX_ACCESS : curTick);
         if (!complexScopeStack.empty()) {
           complexScopeStack.back().operations.insert(defop);
@@ -288,9 +296,12 @@ struct MergeAllocPass : mlir::gc::impl::MergeAllocBase<MergeAllocPass> {
           gc::memoryplan::inplace_info_map(), outSchedule, dummy);
       auto &block = scope->getRegion(0).getBlocks().front();
       OpBuilder builder{&block.front()};
+      auto alignment =
+          builder.getIntegerAttr(IntegerType::get(op.getContext(), 64), 64);
       auto alloc = builder.create<memref::AllocOp>(
           scope->getLoc(),
-          MemRefType::get({static_cast<int64_t>(total)}, builder.getI8Type()));
+          MemRefType::get({static_cast<int64_t>(total)}, builder.getI8Type()),
+          alignment);
       for (auto &[key, offset] : outSchedule) {
         auto origBuf = reinterpret_cast<Operation *>(key);
         builder.setInsertionPoint(origBuf);
