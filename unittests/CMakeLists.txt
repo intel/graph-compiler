@@ -3,8 +3,6 @@ if (NOT GC_TEST_ENABLE)
     return()
 endif ()
 
-message(STATUS ${LLVM_INCLUDE_DIRS})
-
 add_definitions(-DMLIR_INCLUDE_TESTS)
 add_custom_target(GCUnitTests)
 set_target_properties(GCUnitTests PROPERTIES FOLDER "MLIR GC Tests")
@@ -17,4 +15,5 @@ function(add_mlir_unittest test_dirname)
 endfunction()
 
 add_subdirectory(Transforms)
+add_subdirectory(Example)
 
