@@ -55,4 +55,5 @@ set(GC_LIB_LINKED_LIBS
 )
 target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
+add_subdirectory(unittests)
 add_subdirectory(test)
