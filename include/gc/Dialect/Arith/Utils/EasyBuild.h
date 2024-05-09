@@ -13,11 +13,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_DIALECT_ARITH_UTILS_EASYBUILD_H
-#define GC_DIALECT_ARITH_UTILS_EASYBUILD_H
+#ifndef MLIR_DIALECT_ARITH_UTILS_EASYBUILD_H
+#define MLIR_DIALECT_ARITH_UTILS_EASYBUILD_H
+#include "gc/IR/EasyBuild.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/EasyBuild.h"
 #include <cstdint>
 #include <memory>
 #include <stddef.h>
@@ -27,15 +27,12 @@ namespace easybuild {
 
 namespace impl {
 
-template <std::size_t size>
-struct ToFloatType {};
+template <std::size_t size> struct ToFloatType {};
 
-template <>
-struct ToFloatType<4> {
+template <> struct ToFloatType<4> {
   using type = Float32Type;
 };
-template <>
-struct ToFloatType<8> {
+template <> struct ToFloatType<8> {
   using type = Float64Type;
 };
 
@@ -58,8 +55,7 @@ struct EBArithValue : public EBValue {
   template <typename T>
   static auto wrapOrFail(const impl::StatePtr &state, T &&v);
 
-  template <typename T>
-  static auto wrap(const impl::StatePtr &state, T &&v) {
+  template <typename T> static auto wrap(const impl::StatePtr &state, T &&v) {
     auto ret = wrapOrFail<T>(state, std::forward<T>(v));
     if (failed(ret)) {
       llvm_unreachable("Bad wrap");
@@ -243,12 +239,10 @@ struct OperatorHandlers {
   inline TYPE operator OP(const TYPE &a, const TYPE &b) {                      \
     return OperatorHandlers::handleBinary<OPCLASS>(a, b);                      \
   }                                                                            \
-  template <typename T>                                                        \
-  inline TYPE operator OP(const TYPE &a, T b) {                                \
+  template <typename T> inline TYPE operator OP(const TYPE &a, T b) {          \
     return OperatorHandlers::handleBinaryConst<OPCLASS, TYPE>(a, b);           \
   }                                                                            \
-  template <typename T>                                                        \
-  inline TYPE operator OP(T a, const TYPE &b) {                                \
+  template <typename T> inline TYPE operator OP(T a, const TYPE &b) {          \
     return OperatorHandlers::handleBinaryConst<OPCLASS, TYPE>(a, b);           \
   }
 
@@ -285,12 +279,10 @@ inline EBFloatPoint operator-(const EBFloatPoint &a) {
   EBUnsigned operator OP(const TYPE &a, const TYPE &b) {                       \
     return OperatorHandlers::handleCmp<OPCLASS>(a, b, PRED);                   \
   }                                                                            \
-  template <typename T>                                                        \
-  EBUnsigned operator OP(const TYPE &a, T b) {                                 \
+  template <typename T> EBUnsigned operator OP(const TYPE &a, T b) {           \
     return OperatorHandlers::handleCmpConst<OPCLASS, TYPE>(a, b, PRED);        \
   }                                                                            \
-  template <typename T>                                                        \
-  EBUnsigned operator OP(T a, const TYPE &b) {                                 \
+  template <typename T> EBUnsigned operator OP(T a, const TYPE &b) {           \
     return OperatorHandlers::handleCmpConst<OPCLASS, TYPE>(a, b, PRED);        \
   }
 
@@ -346,8 +338,7 @@ inline EBFloatPoint castIntToFP(Type type, const EBUnsigned &v) {
                                                                  type, v);
 }
 
-template <typename T>
-inline T castFPToInt(const EBFloatPoint &v) {
+template <typename T> inline T castFPToInt(const EBFloatPoint &v) {
   if constexpr (std::is_same_v<T, EBSigned>) {
     return OperatorHandlers::create<EBSigned, arith::FPToSIOp>(v.builder, v);
   } else {
