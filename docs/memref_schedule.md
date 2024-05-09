@@ -68,7 +68,7 @@ There is one single allocation `single_buffer` for all temp buffers and `alloc` 
 
 The transformation should only consider to merge a `memref.alloc` only if
  * the ownership of the memref does not escape from the function. That is, the current function is responsible to alloc and dealloc this memref
- * and, the allocated memref is contiguous and has static shape 
+ * and, the allocated memref is contiguous and has static shape and identical layout.
 
 In this RFC, we call these `memref.alloc` **mergeable** allocations.
 
