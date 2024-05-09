@@ -24,3 +24,7 @@ jobs:
       - name: Build
         run: |
           scripts/compile.sh
+
+      - name: Test
+        run: |
+          cmake --build build --target gc-check
