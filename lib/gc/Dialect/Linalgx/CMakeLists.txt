@@ -3,7 +3,7 @@ add_mlir_dialect_library(MLIRLinalgx
     LinalgxOps.cpp
     
     ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/gc/Dialects/Linalgx
+    ${PROJECT_SOURCE_DIR}/include/gc/Dialect/Linalgx
     
     DEPENDS
     MLIRLinalgxOpsIncGen

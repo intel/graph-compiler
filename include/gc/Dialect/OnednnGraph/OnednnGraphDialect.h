@@ -1,4 +1,4 @@
-//===- MicrokernelDialect.h - microkernel dialect ---------------*- C++ -*-===//
+//===- OnednnGraphDialect.h - OneDNN input dialect --------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_DIALECTS_MICROKERNELDIALECT_H
-#define GC_DIALECTS_MICROKERNELDIALECT_H
+#ifndef GC_DIALECTS_ONEDNNGRAPHDIALECT_H
+#define GC_DIALECTS_ONEDNNGRAPHDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 
-#include "gc/Dialects/Microkernel/MicrokernelOpsDialect.h.inc"
+#include "gc/Dialect/OnednnGraph/OnednnGraphOpsDialect.h.inc"
 
-#endif // GC_DIALECTS_MICROKERNELDIALECT_H
+#endif // GC_DIALECTS_ONEDNNGRAPHDIALECT_H

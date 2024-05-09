@@ -1,4 +1,4 @@
-//===- OnednnGraphOps.h - OneDNN input dialect ops --------------*- C++ -*-===//
+//===- LinalgxOps.h - linalgx dialect ops -----------------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialects/OnednnGraph/OnednnGraphOps.h"
-#include "gc/Dialects/OnednnGraph/OnednnGraphDialect.h"
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "mlir/IR/OpImplementation.h"
 
 #define GET_OP_CLASSES
-#include "gc/Dialects/OnednnGraph/OnednnGraphOps.cpp.inc"
+#include "gc/Dialect/Linalgx/LinalgxOps.cpp.inc"

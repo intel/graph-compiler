@@ -1,4 +1,4 @@
-//===- MicrokernelOps.h - microkernel dialect ops ---------------*- C++ -*-===//
+//===- OnednnGraphOps.h - OneDNN input dialect ops --------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_DIALECTS_MICROKERNELOPS_H
-#define GC_DIALECTS_MICROKERNELOPS_H
+#ifndef GC_DIALECTS_ONEDNNGRAPHOPS_H
+#define GC_DIALECTS_ONEDNNGRAPHOPS_H
 
 #include "mlir/IR/OpDefinition.h"
 
 #define GET_OP_CLASSES
-#include "gc/Dialects/Microkernel/MicrokernelOps.h.inc"
+#include "gc/Dialect/OnednnGraph/OnednnGraphOps.h.inc"
 
-#endif // GC_DIALECTS_MICROKERNELOPS_H
+#endif // GC_DIALECTS_ONEDNNGRAPHOPS_H

@@ -3,7 +3,7 @@ add_mlir_dialect_library(MLIROnednnGraph
     OnednnGraphOps.cpp
     
     ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/gc/Dialects/OnednnGraph
+    ${PROJECT_SOURCE_DIR}/include/gc/Dialect/OnednnGraph
     
     DEPENDS
     MLIROnednnGraphOpsIncGen

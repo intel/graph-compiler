@@ -1,4 +1,4 @@
-//===- LinalgxDialect.h - linalgx dialect -----------------------*- C++ -*-===//
+//===- MicrokernelDialect.h - microkernel dialect ---------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_DIALECTS_LINALGXDIALECT_H
-#define GC_DIALECTS_LINALGXDIALECT_H
+#ifndef GC_DIALECTS_MICROKERNELDIALECT_H
+#define GC_DIALECTS_MICROKERNELDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 
-#include "gc/Dialects/Linalgx/LinalgxOpsDialect.h.inc"
+#include "gc/Dialect/Microkernel/MicrokernelOpsDialect.h.inc"
 
-#endif // GC_DIALECTS_LINALGXDIALECT_H
+#endif // GC_DIALECTS_MICROKERNELDIALECT_H

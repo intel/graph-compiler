@@ -6,11 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_DIALECTS_ONEDNNGRAPHDIALECT_H
-#define GC_DIALECTS_ONEDNNGRAPHDIALECT_H
+#include "gc/Dialect/OnednnGraph/OnednnGraphDialect.h"
+#include "gc/Dialect/OnednnGraph/OnednnGraphOps.h"
 
-#include "mlir/IR/Dialect.h"
+using namespace mlir;
+using namespace mlir::onednn_graph;
 
-#include "gc/Dialects/OnednnGraph/OnednnGraphOpsDialect.h.inc"
-
-#endif // GC_DIALECTS_ONEDNNGRAPHDIALECT_H
+void OnednnGraphDialect::initialize() {
+  addOperations<
+#define GET_OP_LIST
+#include "gc/Dialect/OnednnGraph/OnednnGraphOps.cpp.inc"
+      >();
+}

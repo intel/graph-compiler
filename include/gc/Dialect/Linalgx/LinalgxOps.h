@@ -6,9 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialects/Linalgx/LinalgxOps.h"
-#include "gc/Dialects/Linalgx/LinalgxDialect.h"
-#include "mlir/IR/OpImplementation.h"
+#ifndef GC_DIALECTS_LINALGXOPS_H
+#define GC_DIALECTS_LINALGXOPS_H
+
+#include "mlir/IR/OpDefinition.h"
 
 #define GET_OP_CLASSES
-#include "gc/Dialects/Linalgx/LinalgxOps.cpp.inc"
+#include "gc/Dialect/Linalgx/LinalgxOps.h.inc"
+
+#endif // GC_DIALECTS_LINALGXOPS_H

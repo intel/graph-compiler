@@ -3,7 +3,7 @@ add_mlir_dialect_library(MLIRMicrokernel
     MicrokernelOps.cpp
     
     ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/gc/Dialects/Microkernel
+    ${PROJECT_SOURCE_DIR}/include/gc/Dialect/Microkernel
     
     DEPENDS
     MLIRMicrokernelOpsIncGen

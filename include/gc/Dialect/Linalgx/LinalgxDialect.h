@@ -6,15 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialects/Linalgx/LinalgxDialect.h"
-#include "gc/Dialects/Linalgx/LinalgxOps.h"
+#ifndef GC_DIALECTS_LINALGXDIALECT_H
+#define GC_DIALECTS_LINALGXDIALECT_H
 
-using namespace mlir;
-using namespace mlir::linalgx;
+#include "mlir/IR/Dialect.h"
 
-void LinalgxDialect::initialize() {
-  addOperations<
-#define GET_OP_LIST
-#include "gc/Dialects/Linalgx/LinalgxOps.cpp.inc"
-      >();
-}
+#include "gc/Dialect/Linalgx/LinalgxOpsDialect.h.inc"
+
+#endif // GC_DIALECTS_LINALGXDIALECT_H
