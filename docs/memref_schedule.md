@@ -86,9 +86,9 @@ However, utilizing runtime memory allocator can be viewed as a supplementary app
 ## Implementation
 *The detail implementation will leverage the exising algorithm used in GC V1.*
 
-The transformation first needs to identify the `alloc scopes`, which are mlir `Block` of
- * a function's body
- * or, body of a `scf` parallel execution op, like `scf.forall`, `scf.parallel`
+The transformation first needs to identify the `alloc scopes`, which are mlir `Block`s
+ * implementing `AutomaticAllocationScope`
+ * and is not `scf.for` (allocations in an `scf.for` can be hoisted to parent `AutomaticAllocationScope`)
 
 For example, below is an example IR of a function with nested `scf.forall` ops.
 
@@ -114,7 +114,7 @@ The transformantion is consist of an analysis sub-pass and a mutation sub-pass. 
 1. insert `memref.alloc` at the front of `alloc scope` body for its `single allocation buffer`
 2. replace mergeable `memref.alloc` with `memref.view` on its `alloc scope`'s `single allocation buffer`
 
-Ticks are assigned on each operation in the `func.func` by a increasing counter with pre-order recursive walking of the IR, as the "execution tick" for each operation. The lifetime analysis pass will assign two integers for each mergeable allocations as the analysis result: `begin_tick` and `end_tick`, to indicate the first and last tick of the use of the allocated memref in the IR. There should be special handling for loop ops which references memrefs allocated in parent scopes, to avoid wrong reuse of buffers used in the loop.
+Ticks are assigned on each operation in the `func.func` by a increasing counter with pre-order recursive walking of the IR, as the "execution tick" for each operation. The lifetime analysis pass will assign two integers for each mergeable allocations as the analysis result: `begin_tick` and `end_tick`, to indicate the first and last tick of the use of the allocated memref in the IR. There should be special handling for loop and branch ops (`RegionBranchOpInterface` or `LoopLikeOpInterface`) which references memrefs allocated in parent scopes, to avoid wrong reuse of buffers used in the loop.
 
 The analysis result for each mergeable allocations will be an integer range `[begin_tick,end_tick]`, where `begin_tick <= end_tick`.
 
