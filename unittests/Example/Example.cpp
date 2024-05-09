@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gtest/gtest.h"
 #include "gc-dialects/Linalgx/LinalgxDialect.h"
+#include "gtest/gtest.h"
 
 TEST(example, HelloWorld) {
   ASSERT_EQ(mlir::linalgx::LinalgxDialect::getDialectNamespace(), "linalgx");
