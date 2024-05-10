@@ -28,6 +28,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 option(GC_LEGACY_ENABLE ON)
 option(GC_TEST_ENABLE "Build the tests" ON)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
+option(GC_BENCH_ENABLE "Build benchgc. Only available when GC_TEST_ENABLE and GC_ENABLE_BINDINGS_PYTHON is enabled" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 
 if(GC_LEGACY_ENABLE)
@@ -58,6 +59,7 @@ endif()
 
 if(GC_ENABLE_BINDINGS_PYTHON)
   include(MLIRDetectPythonEnv)
+  find_package(Python 3.11 REQUIRED COMPONENTS Interpreter NumPy REQUIRED)
   mlir_configure_python_dev_packages()
 endif()
 
@@ -93,6 +95,15 @@ if(GC_ENABLE_BINDINGS_PYTHON)
   message(STATUS "Enabling Python API")
   add_subdirectory(python)
 endif()
+
+
+if(GC_ENABLE_BINDINGS_PYTHON AND GC_TEST_ENABLE AND GC_BENCH_ENABLE)
+  message(STATUS "Enabling Benchgc")
+elseif()
+  message(STATUS "Disabling Benchgc")
+  set(GC_BENCH_ENABLE OFF CACHE BOOL "" FORCE)
+endif()
+
 
 set(GC_LIB_LINKED_LIBS
         MLIRLinalgx

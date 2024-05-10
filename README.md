@@ -64,4 +64,5 @@ Graph Compiler supports the following build-time options.
 | GC_TEST_ENABLE                  | **ON**, OFF                            | Controls building the tests                                                            |
 | GC_DEV_LINK_LLVM_DYLIB          | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer                        |
 | GC_ENABLE_BINDINGS_PYTHON       | **ON**, OFF                            | Controls building the Python API                                                       |
+| GC_BENCH_ENABLE                 | **ON**, OFF                            | Controls building benchgc. The configuration will only take effect when both GC_ENABLE_BINDING_PYTHON and GC_TEST_ENABLE are ON.                           |
 
