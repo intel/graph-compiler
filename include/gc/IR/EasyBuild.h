@@ -1,4 +1,4 @@
-//===- EasyBuild.h - Easy  IR Builder utilities -----------------*- C++ -*-===//
+//===- EasyBuild.h - Easy IR Builder utilities ------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,10 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This header file defines prototypes for various transformation utilities for
-// the Arith dialect. These are not passes by themselves but are used
-// either by passes, optimization sequences, or in turn by other transformation
-// utilities.
+// This header file defines the easy-build utilities core data structures for
+// building IR.
 //
 //===----------------------------------------------------------------------===//
 
@@ -44,7 +42,7 @@ struct EBValue {
   Value get() const { return v; }
   operator Value() const { return v; }
 
-  static FailureOr<EBValue> wrapOrFail(const impl::StatePtr& state, Value v) {
+  static FailureOr<EBValue> wrapOrFail(const impl::StatePtr &state, Value v) {
     return EBValue{state, v};
   }
 };
@@ -60,13 +58,11 @@ struct EasyBuilder {
       : builder{builder} {}
   void setLoc(const Location &l) { builder->loc = l; }
 
-  template <typename W, typename V>
-  auto wrapOrFail(V &&v) {
+  template <typename W, typename V> auto wrapOrFail(V &&v) {
     return W::wrapOrFail(builder, std::forward<V>(v));
   }
 
-  template <typename W, typename V>
-  auto wrap(V &&v) {
+  template <typename W, typename V> auto wrap(V &&v) {
     auto ret = wrapOrFail<W>(std::forward<V>(v));
     if (failed(ret)) {
       llvm_unreachable("wrap failed!");
@@ -74,17 +70,15 @@ struct EasyBuilder {
     return *ret;
   }
 
-  template <typename V>
-  auto operator()(V &&v) {
+  template <typename V> auto operator()(V &&v) {
     if constexpr (std::is_convertible_v<V, Value>) {
-        return EBValue{builder, std::forward<V>(v)};
+      return EBValue{builder, std::forward<V>(v)};
     } else {
-        return wrap<EBArithValue>(std::forward<V>(v));
+      return wrap<EBArithValue>(std::forward<V>(v));
     }
   }
 
-  template <typename W = EBArithValue>
-  auto toIndex(uint64_t v) const {
+  template <typename W = EBArithValue> auto toIndex(uint64_t v) const {
     return W::toIndex(builder, v);
   }
 
