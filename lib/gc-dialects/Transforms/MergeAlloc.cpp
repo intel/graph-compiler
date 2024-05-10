@@ -95,6 +95,9 @@ Operation *getAllocScope(Operation *op) {
 FailureOr<size_t> getAllocSize(Operation *op) {
   auto refType = op->getResultTypes().front().cast<MemRefType>();
   int64_t size = refType.getElementTypeBitWidth() / 8;
+  // treat bool (i1) as 1 byte. It may not be true for all targets, but we at
+  // least have a large enough size for i1
+  size = (size != 0) ? size : 1;
   for (auto v : refType.getShape()) {
     size *= v;
   }
