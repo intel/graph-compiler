@@ -18,6 +18,10 @@
 #include "mlir/Interfaces/LoopLikeInterface.h"
 
 namespace mlir {
+namespace scf {
+class IfOp;
+}
+
 namespace easybuild {
 namespace impl {
 
@@ -28,9 +32,7 @@ struct ForRangeSimulatorImpl {
       : s{s}, op{op} {
     s->builder.setInsertionPointToStart(&op.getLoopRegions().front()->front());
   }
-  ~ForRangeSimulatorImpl() {
-    s->builder.setInsertionPointAfter(op);
-  }
+  ~ForRangeSimulatorImpl() { s->builder.setInsertionPointAfter(op); }
 };
 
 template <int N, typename... Ts>
@@ -84,8 +86,7 @@ template <typename... TArgs> struct ForRangeSimulator : ForRangeSimulatorImpl {
       return consumed != other.consumed;
     }
 
-    ForRangeIterator(ForRangeSimulator *ptr)
-        : ptr{ptr}, consumed{false} {}
+    ForRangeIterator(ForRangeSimulator *ptr) : ptr{ptr}, consumed{false} {}
     ForRangeIterator() : ptr{nullptr}, consumed{true} {}
   };
 
@@ -106,6 +107,79 @@ auto forRangeIn(const EasyBuilder &s, LoopLikeOpInterface op) {
 }
 
 #define EB_for for
+
+namespace impl {
+struct IfSimulator;
+struct IfIterator {
+  IfSimulator *ptr;
+  int index;
+  int operator*() const;
+
+  IfIterator &operator++() {
+    index++;
+    return *this;
+  }
+
+  bool operator!=(IfIterator &other) const { return index != other.index; }
+
+  IfIterator(IfSimulator *ptr) : ptr{ptr}, index{0} {}
+  IfIterator(int numRegions) : ptr{nullptr}, index{numRegions} {}
+};
+
+struct IfSimulator {
+  StatePtr s;
+  Operation *op;
+  IfIterator begin() { return IfIterator(this); }
+  IfIterator end() {
+    int nonEmptyRegions = 0;
+    for (auto &reg : op->getRegions()) {
+      if (reg.begin() != reg.end()) {
+        nonEmptyRegions++;
+      }
+    }
+    return IfIterator(nonEmptyRegions);
+  }
+  ~IfSimulator() { s->builder.setInsertionPointAfter(op); }
+};
+inline int IfIterator::operator*() const {
+  auto &blocks = ptr->op->getRegion(index);
+  ptr->s->builder.setInsertionPointToStart(&blocks.back());
+  return index;
+}
+
+} // namespace impl
+
+impl::IfSimulator makeIfRange(const EasyBuilder &s, Operation *op) {
+  return impl::IfSimulator{s.builder, op};
+}
+
+template <typename T = scf::IfOp>
+impl::IfSimulator makeScfIfLikeRange(EBValue cond, TypeRange resultTypes) {
+  auto &s = cond.builder;
+  auto op = s->builder.create<T>(s->loc, resultTypes, cond, true);
+  return impl::IfSimulator{s, op};
+}
+
+template <typename T = scf::IfOp>
+impl::IfSimulator makeScfIfLikeRange(EBValue cond, bool hasElse = true) {
+  auto &s = cond.builder;
+  auto op = s->builder.create<T>(s->loc, TypeRange{}, cond, hasElse);
+  return impl::IfSimulator{s, op};
+}
+
+#define EB_if(BUILDER, ...)                                                    \
+  for (auto &&eb_mlir_if_scope__ :                                             \
+       ::mlir::easybuild::makeIfRange(BUILDER, __VA_ARGS__))                   \
+    if (eb_mlir_if_scope__ == 0)
+
+// EB_scf_if(COND)
+// EB_scf_if(COND, HAS_ELSE)
+// EB_scf_if(COND, RESULT_TYPES)
+#define EB_scf_if(...)                                                         \
+  for (auto &&eb_mlir_if_scope__ :                                             \
+       ::mlir::easybuild::makeScfIfLikeRange(__VA_ARGS__))                     \
+    if (eb_mlir_if_scope__ == 0)
+#define EB_else else
 
 } // namespace easybuild
 } // namespace mlir

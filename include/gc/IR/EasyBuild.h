@@ -19,6 +19,10 @@
 #include <stddef.h>
 
 namespace mlir {
+namespace scf {
+class YieldOp;
+}
+
 namespace easybuild {
 
 namespace impl {
@@ -58,6 +62,10 @@ struct EasyBuilder {
       : builder{builder} {}
   void setLoc(const Location &l) { builder->loc = l; }
 
+  Operation *getLastOperaion() {
+    return &*(--builder->builder.getInsertionPoint());
+  }
+
   template <typename W, typename V> auto wrapOrFail(V &&v) {
     return W::wrapOrFail(builder, std::forward<V>(v));
   }
@@ -90,6 +98,12 @@ struct EasyBuilder {
       return wrap<OutT>(
           builder->builder.create<OP>(builder->loc, std::forward<Args>(v)...));
     }
+  }
+
+  template <typename OP = scf::YieldOp, typename... Args>
+  auto yield(Args &&...v) {
+    builder->builder.create<OP>(builder->loc,
+                                ValueRange{std::forward<Args>(v)...});
   }
 };
 

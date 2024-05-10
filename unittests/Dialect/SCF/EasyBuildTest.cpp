@@ -20,6 +20,7 @@ class SCFTest : public ::testing::Test {
 protected:
   SCFTest() {
     context.getOrLoadDialect<scf::SCFDialect>();
+    context.getOrLoadDialect<arith::ArithDialect>();
     context.getOrLoadDialect<func::FuncDialect>();
   }
 
@@ -44,9 +45,31 @@ TEST_F(SCFTest, EasyBuild) {
                                          /*ind_var*/ ValueRange{init_val});
   EB_for(auto &&[idx, redu] : forRangeIn<EBUnsigned, EBUnsigned>(b, loop)) {
     auto idx2 = idx + b.toIndex(1);
-    b.F<scf::YieldOp, void>(ValueRange{idx2 + redu});
+    EB_scf_if(idx2 == b.toIndex(10), false) {
+      // if without else
+      b.toIndex(1123);
+    }
+    EB_scf_if(idx2 == b.toIndex(12)) {
+      // if-else, no return value
+      b.toIndex(1123);
+    }
+    EB_else {
+      // else
+      b.toIndex(11234);
+    }
+    EB_scf_if(idx2 == b.toIndex(14), {builder.getIndexType()}) {
+      // if-else with return value
+      b.yield(idx);
+    }
+    EB_else {
+      // else with return value
+      b.yield(idx2);
+    }
+    auto ifResult = b.wrap<EBUnsigned>(b.getLastOperaion()->getResult(0));
+    b.yield(ifResult + redu);
   }
-  builder.create<func::ReturnOp>(loc, loop.getResult(0));
+  b.yield<func::ReturnOp>(loop.getResult(0));
+
   std::string out;
   llvm::raw_string_ostream os{out};
   os << func;
@@ -61,8 +84,27 @@ TEST_F(SCFTest, EasyBuild) {
   %1 = scf.for %arg1 = %c0 to %c10_0 step %c1 iter_args(%arg2 = %0) -> (index) {
     %c1_1 = arith.constant 1 : index
     %2 = arith.addi %arg1, %c1_1 : index
-    %3 = arith.addi %2, %arg2 : index
-    scf.yield %3 : index
+    %c10_2 = arith.constant 10 : index
+    %3 = arith.cmpi eq, %2, %c10_2 : index
+    scf.if %3 {
+      %c1123 = arith.constant 1123 : index
+    }
+    %c12 = arith.constant 12 : index
+    %4 = arith.cmpi eq, %2, %c12 : index
+    scf.if %4 {
+      %c1123 = arith.constant 1123 : index
+    } else {
+      %c11234 = arith.constant 11234 : index
+    }
+    %c14 = arith.constant 14 : index
+    %5 = arith.cmpi eq, %2, %c14 : index
+    %6 = scf.if %5 -> (index) {
+      scf.yield %arg1 : index
+    } else {
+      scf.yield %2 : index
+    }
+    %7 = arith.addi %6, %arg2 : index
+    scf.yield %7 : index
   }
   return %1 : index
 })mlir";
