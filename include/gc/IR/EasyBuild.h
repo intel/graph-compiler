@@ -84,8 +84,12 @@ struct EasyBuilder {
 
   template <typename OP, typename OutT = EBValue, typename... Args>
   auto F(Args &&...v) {
-    return wrap<OutT>(
-        builder->builder.create<OP>(builder->loc, std::forward<Args>(v)...));
+    if constexpr (std::is_same_v<OutT, void>) {
+      builder->builder.create<OP>(builder->loc, std::forward<Args>(v)...);
+    } else {
+      return wrap<OutT>(
+          builder->builder.create<OP>(builder->loc, std::forward<Args>(v)...));
+    }
   }
 };
 
