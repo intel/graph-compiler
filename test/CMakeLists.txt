@@ -11,3 +11,6 @@ target_include_directories(graph_compiler_static PUBLIC ${GC_LIB_INCLUDES})
 
 add_subdirectory(dnnl)
 add_subdirectory(mlir)
+if(GC_BENCH_ENABLE)
+        add_subdirectory(benchgc)
+endif()
