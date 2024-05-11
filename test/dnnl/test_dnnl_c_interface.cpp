@@ -1,5 +1,6 @@
 #include "dnnl_graph_compiler.h"
 #include "dnnl_test_utils.hpp"
+#include "gc_version.h"
 #include <gtest/gtest.h>
 
 TEST(dnnl_graph_compiler, c_interface) {
@@ -27,6 +28,27 @@ TEST(dnnl_graph_compiler, c_interface) {
 
   dnnl_graph_compiler_destroy_executable(gc, exe);
   dnnl_graph_compiler_destroy(gc);
+}
+
+TEST(dnnl_graph_compiler, get_version) {
+  auto v = dnnl_graph_compiler_get_version();
+
+  ASSERT_NE(v, nullptr);
+
+  ASSERT_EQ(v->api_version.major, DNNL_GC_API_V_MAJOR);
+  ASSERT_EQ(v->api_version.minor, DNNL_GC_API_V_MINOR);
+  ASSERT_EQ(v->api_version.patch, DNNL_GC_API_V_PATCH);
+  ASSERT_STREQ(v->api_version.hash, DNNL_GC_API_V_HASH);
+
+  // check if the version is valid
+  ASSERT_NE(v->gc_version.major, std::numeric_limits<uint8_t>::max());
+  ASSERT_NE(v->gc_version.minor, std::numeric_limits<uint8_t>::max());
+  ASSERT_NE(v->gc_version.patch, std::numeric_limits<uint8_t>::max());
+
+  ASSERT_EQ(v->gc_version.major, GC_VERSION_MAJOR);
+  ASSERT_EQ(v->gc_version.minor, GC_VERSION_MINOR);
+  ASSERT_EQ(v->gc_version.patch, GC_VERSION_PATCH);
+  ASSERT_STREQ(v->gc_version.hash, GC_VERSION_HASH);
 }
 
 int main(int argc, char **argv) {

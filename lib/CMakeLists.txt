@@ -1,1 +1,1 @@
-add_subdirectory(gc-dialects)
+add_subdirectory(gc)
