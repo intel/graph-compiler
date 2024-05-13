@@ -1,3 +1,16 @@
+if(GC_LINK_DYNAMIC_LLVM)
+  set(MLIR_LINK_COMPONENTS
+    MLIR
+  )
+else()
+  set(MLIR_LINK_COMPONENTS
+    MLIRIR
+    MLIRSupport
+    MLIRBufferizationToMemRef
+    MLIRBufferizationPipelines
+  )
+endif()
+
 add_mlir_library(GCPasses
   TileNamed.cpp
 
@@ -9,8 +22,5 @@ add_mlir_library(GCPasses
 
   LINK_LIBS PUBLIC
     ${mlir_dialect_libs}
-    MLIRIR
-    MLIRSupport
-    MLIRBufferizationToMemRef
-    MLIRBufferizationPipelines
+    ${MLIR_LINK_COMPONENTS}
   )

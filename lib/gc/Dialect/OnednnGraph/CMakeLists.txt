@@ -1,3 +1,13 @@
+if(GC_LINK_DYNAMIC_LLVM)
+  set(MLIR_LINK_COMPONENTS
+    MLIR
+  )
+else()
+  set(MLIR_LINK_COMPONENTS
+    MLIRIR
+  )
+endif()
+
 add_mlir_dialect_library(MLIROnednnGraph
     OnednnGraphDialect.cpp
     OnednnGraphOps.cpp
@@ -9,5 +19,5 @@ add_mlir_dialect_library(MLIROnednnGraph
     MLIROnednnGraphOpsIncGen
     
     LINK_LIBS PUBLIC
-    MLIRIR
+    ${MLIR_LINK_COMPONENTS}
 )
