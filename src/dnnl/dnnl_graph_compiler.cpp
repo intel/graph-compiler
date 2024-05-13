@@ -1,9 +1,47 @@
-#include "dnnl_graph_compiler.hpp"
+/*
+ * Copyright (C) 2024 Intel Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "dnnl_graph_compiler.h"
 #include "gc_version.h"
+#include <memory>
 #include <new>
+#include <string_view>
 
 // dnnl_graph_compiler.h interface implementation.
 // TODO: Implement.
+
+struct dnnl_graph_compiler_executable {
+  // TODO: Implement
+
+  void execute(dnnl_graph_compiler_tensor *inputs,
+               dnnl_graph_compiler_tensor *outputs) const;
+};
+
+struct dnnl_graph_compiler {
+  const dnnl_graph_compiler_context ctx;
+
+  explicit dnnl_graph_compiler(const dnnl_graph_compiler_context *context)
+      // TODO: Initialize ctx with context or defaults if context is nullptr
+      : ctx() {}
+
+  [[nodiscard]] std::unique_ptr<const dnnl_graph_compiler_executable>
+  compile(const std::string_view &graph_json) const;
+};
 
 const dnnl_graph_compiler_version *dnnl_graph_compiler_get_version(void) {
   static const dnnl_graph_compiler_version ver = {
