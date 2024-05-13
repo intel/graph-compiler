@@ -18,7 +18,7 @@ TEST(dnnl_graph_compiler, c_interface) {
   dnnl_graph_compiler_tensor inputs[2];
   dnnl_graph_compiler_tensor outputs[1];
   uint8_t data_buf[160];
-  size_t dims[1] = {10};
+  int64_t dims[1] = {10};
   inputs[0] = {.id = 0, .ndims = 1, .dims = dims, .data = data_buf};
   inputs[1] = {.id = 1, .ndims = 1, .dims = dims, .data = &data_buf[40]};
   outputs[0] = {.id = 2, .ndims = 1, .dims = dims, .data = &data_buf[80]};
