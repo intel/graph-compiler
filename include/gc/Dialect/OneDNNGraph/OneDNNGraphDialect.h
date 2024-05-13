@@ -14,6 +14,6 @@
 #include "mlir/IR/OpImplementation.h"
 
 #define GET_OP_CLASSES
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOpsDialect.h.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsDialect.h.inc"
 
 #endif // GC_DIALECTS_ONEDNNGRAPHDIALECT_H

@@ -18,6 +18,6 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_OP_CLASSES
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOps.h.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h.inc"
 
 #endif // GC_DIALECTS_ONEDNNGRAPHOPS_H

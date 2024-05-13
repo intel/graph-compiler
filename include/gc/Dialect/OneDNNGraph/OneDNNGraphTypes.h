@@ -12,6 +12,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 
 #define GET_TYPEDEF_CLASSES
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOpsTypes.h.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsTypes.h.inc"
 
 #endif // ONEDNNGRAPH_ONEDNNGRAPHTYPES_H

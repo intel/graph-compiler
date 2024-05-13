@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc-dialects/OneDNNGraph/OneDNNGraphDialect.h"
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOps.h"
-#include "gc-dialects/OneDNNGraph/OneDNNGraphTypes.h"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphTypes.h"
 
 #include "mlir/Dialect/Quant/QuantOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -30,7 +30,7 @@
 using namespace mlir;
 using namespace mlir::onednn_graph;
 
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOpsDialect.cpp.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsDialect.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // OneDNNGraph dialect.
@@ -39,6 +39,6 @@ using namespace mlir::onednn_graph;
 void OneDNNGraphDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOps.cpp.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.cpp.inc"
       >();
 }

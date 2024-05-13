@@ -3,7 +3,7 @@ add_mlir_dialect_library(MLIROneDNNGraph
     OneDNNGraphOps.cpp
     
     ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include/gc-dialects/OneDNNGraph
+    ${PROJECT_SOURCE_DIR}/include/gc/Dialect/OneDNNGraph
     
     DEPENDS
     MLIROneDNNGraphOpsIncGen

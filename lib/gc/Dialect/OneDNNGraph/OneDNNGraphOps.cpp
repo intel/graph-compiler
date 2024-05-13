@@ -6,13 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOps.h"
-#include "gc-dialects/OneDNNGraph/OneDNNGraphDialect.h"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/Support/Debug.h"
 
 #define GET_OP_CLASSES
-#include "gc-dialects/OneDNNGraph/OneDNNGraphOps.cpp.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.cpp.inc"
 
 namespace mlir {
 namespace onednn_graph {
