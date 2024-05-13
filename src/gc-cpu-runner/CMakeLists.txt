@@ -9,9 +9,11 @@ if(GC_LINK_DYNAMIC_LLVM)
   )
 else()
   if(NOT LLVM_LINK_LLVM_DYLIB)
-    llvm_map_components_to_libnames(llvm_libs nativecodegen)
     set(LLVM_LINK_COMPONENTS
-      ${llvm_libs}
+      Core
+      Support
+      nativecodegen
+      native
     )
   endif()
   set(MLIR_LINK_COMPONENTS
