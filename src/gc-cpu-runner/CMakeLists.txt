@@ -1,12 +1,10 @@
 # the dependency list copied from mlir/tools/mlir-cpu-runner/CMakeLists.txt of upstream
-if(NOT LLVM_LINK_LLVM_DYLIB)
-  set(LLVM_LINK_COMPONENTS
-    Core
-    Support
-    nativecodegen
-    native
-  )
-endif()
+set(LLVM_LINK_COMPONENTS
+  Core
+  Support
+  nativecodegen
+  native
+)
 set(MLIR_LINK_COMPONENTS
   MLIRAnalysis
   MLIRBuiltinToLLVMIRTranslation
