@@ -18,11 +18,19 @@ configure_lit_site_cfg(
         ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
 )
 
+configure_lit_site_cfg(
+        ${CMAKE_CURRENT_SOURCE_DIR}/gc/Unit/lit.site.cfg.py.in
+        ${CMAKE_CURRENT_BINARY_DIR}/gc/Unit/lit.site.cfg.py
+        MAIN_CONFIG
+        ${CMAKE_CURRENT_SOURCE_DIR}/gc/Unit/lit.cfg.py
+)
+
 set(GC_OPT_TEST_DEPENDS
         FileCheck count not
         # mlir-gen
         gc-opt
         gc-cpu-runner
+        GCUnitTests
         )
 
 add_lit_testsuite(gc-check "Running the regression tests"

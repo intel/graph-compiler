@@ -3,6 +3,10 @@ set(gc_opt_libs
         ${conversion_libs} 
         MLIROptLib 
         GCPasses)
+if(GC_MLIR_CXX_FLAGS)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
+endif()
+
 add_llvm_executable(gc-opt gc-opt.cpp)
 
 target_link_libraries(gc-opt PRIVATE ${gc_opt_libs})
