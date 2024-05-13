@@ -52,7 +52,7 @@ target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
 set(GC_LIB_LINKED_LIBS
         MLIRLinalgx
         MLIRMicrokernel
-        MLIROnednnGraph
+        MLIROneDNNGraph
 )
 target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
