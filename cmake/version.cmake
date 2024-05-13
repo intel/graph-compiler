@@ -1,0 +1,25 @@
+include_guard()
+
+string(REPLACE "." ";" VERSION_LIST ${PROJECT_VERSION})
+list(GET VERSION_LIST 0 GC_VERSION_MAJOR)
+list(GET VERSION_LIST 1 GC_VERSION_MINOR)
+list(GET VERSION_LIST 2 GC_VERSION_PATCH)
+
+find_package(Git)
+if(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -c log.showSignature=false log --no-abbrev-commit --oneline -1 --format=%H
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        RESULT_VARIABLE RESULT
+        OUTPUT_VARIABLE GC_VERSION_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif()
+
+if(NOT GIT_FOUND OR RESULT)
+    set(GC_VERSION_HASH "N/A")
+endif()
+
+add_compile_definitions(
+    GC_VERSION_MAJOR=${GC_VERSION_MAJOR}
+    GC_VERSION_MINOR=${GC_VERSION_MINOR}
+    GC_VERSION_PATCH=${GC_VERSION_PATCH}
+    GC_VERSION_HASH="${GC_VERSION_HASH}")

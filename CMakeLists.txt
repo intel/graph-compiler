@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(GraphCompiler LANGUAGES C CXX)
-
+project(GraphCompiler VERSION "0.1.0" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,9 +43,16 @@ set(GC_LIB_INCLUDES CACHE INTERNAL "The graph_compiler library include paths")
 add_definitions(${LLVM_DEFINITIONS})
 
 set(GC_MLIR_CXX_FLAGS "")
-if(NOT MSVC)
-    set(GC_MLIR_CXX_FLAGS "-Wno-unused-but-set-parameter")
+# Silence a false positive GCC -Wunused-but-set-parameter warning in constexpr
+# cases, by marking SelectedCase as used. See
+# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85827 for details. The issue is
+# fixed in GCC 10.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+  check_cxx_compiler_flag("-Wno-unused-but-set-parameter" CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER)
+  append_if(CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER "-Wno-unused-but-set-parameter" GC_MLIR_CXX_FLAGS)
 endif()
+include("cmake/version.cmake")
+
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
@@ -60,4 +66,5 @@ set(GC_LIB_LINKED_LIBS
 )
 target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
+add_subdirectory(unittests)
 add_subdirectory(test)
