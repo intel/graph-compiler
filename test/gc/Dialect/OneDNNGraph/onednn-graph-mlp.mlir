@@ -23,7 +23,7 @@ func.func @mlp_transpose_a(%in: tensor<512x128xbf16>,
   return %1 : tensor<128x256xbf16>
 }
 
-// CHECK-LABEL: @mlp_transpose_a
+// CHECK-LABEL: @mlp_transpose_b
 func.func @mlp_transpose_b(%in: tensor<128x512xbf16>, 
                %weight0: tensor<256x512xbf16>, %bias0: tensor<256xbf16>) -> tensor<128x256xbf16> {
   %0 = onednn_graph.matmul %in, %weight0, %bias0 {transpose_b = true}  
