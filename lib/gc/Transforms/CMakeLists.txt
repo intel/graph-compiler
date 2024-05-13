@@ -1,15 +1,8 @@
-if(GC_DEV_LINK_DYN_LLVM)
-  set(MLIR_LINK_COMPONENTS
-    MLIR
-  )
-else()
-  set(MLIR_LINK_COMPONENTS
-    MLIRIR
-    MLIRSupport
-    MLIRBufferizationToMemRef
-    MLIRBufferizationPipelines
-  )
-endif()
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
+  MLIRIR
+  MLIRSupport
+  MLIRBufferizationToMemRef
+  MLIRBufferizationPipelines)
 
 add_mlir_library(GCPasses
   TileNamed.cpp

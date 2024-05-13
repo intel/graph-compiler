@@ -1,12 +1,4 @@
-if(GC_DEV_LINK_DYN_LLVM)
-  set(MLIR_LINK_COMPONENTS
-    MLIR
-  )
-else()
-  set(MLIR_LINK_COMPONENTS
-    MLIRIR
-  )
-endif()
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
 
 add_mlir_dialect_library(MLIRLinalgx
     LinalgxDialect.cpp

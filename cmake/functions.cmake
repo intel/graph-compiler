@@ -94,3 +94,16 @@ function(gc_add_path list_name paths)
             CACHE INTERNAL "${list_name} paths"
     )
 endfunction()
+
+
+macro(gc_set_mlir_link_components VAR)
+    if(GC_DEV_LINK_DYN_LLVM)
+        set(${VAR}
+            MLIR
+        )
+    else()
+        set(${VAR}
+            ${ARGN}
+        )
+    endif()
+endmacro()
