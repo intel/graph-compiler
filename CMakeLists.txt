@@ -10,6 +10,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 option(GC_LEGACY_ENABLE ON)
 option(GC_TEST_ENABLE "Build the tests" ON)
+option(GC_LINK_DYNAMIC_LLVM "Link dynamic libraries of LLVM and MLIR" OFF)
 
 if(GC_LEGACY_ENABLE)
     add_subdirectory(legacy/core)

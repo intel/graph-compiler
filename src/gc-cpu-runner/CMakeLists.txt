@@ -1,18 +1,38 @@
-set(LLVM_LINK_COMPONENTS
-  LLVM
+if(GC_LINK_DYNAMIC_LLVM)
+  set(LLVM_LINK_COMPONENTS
+    LLVM
+    )
+  set(MLIR_LINK_COMPONENTS
+    MLIR
+    MLIRExecutionEngine
+    MLIRJitRunner
   )
+else()
+  set(LLVM_LINK_COMPONENTS
+    ""
+  )
+  set(MLIR_LINK_COMPONENTS
+    MLIRAnalysis
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRExecutionEngine
+    MLIRIR
+    MLIRJitRunner
+    MLIRLLVMDialect
+    MLIRLLVMToLLVMIRTranslation
+    MLIRToLLVMIRTranslationRegistration
+    MLIRParser
+    MLIRTargetLLVMIRExport
+    MLIRSupport
+  )
+endif()
+
 if(GC_MLIR_CXX_FLAGS)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
 endif()
 
-set(gc_cpu_runner_libs 
-        ${dialect_libs}
-        ${conversion_libs} 
+set(gc_cpu_runner_libs
         ${LLVM_LINK_COMPONENTS}
-        MLIR
-        MLIRExecutionEngine
-        MLIRJitRunner
-        GCPasses)
+        ${MLIR_LINK_COMPONENTS})
 add_llvm_executable(gc-cpu-runner gc-cpu-runner.cpp)
 
 target_link_libraries(gc-cpu-runner PRIVATE ${gc_cpu_runner_libs})
