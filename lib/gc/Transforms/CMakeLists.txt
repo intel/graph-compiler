@@ -24,3 +24,4 @@ add_mlir_library(GCPasses
     ${mlir_dialect_libs}
     ${MLIR_LINK_COMPONENTS}
   )
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

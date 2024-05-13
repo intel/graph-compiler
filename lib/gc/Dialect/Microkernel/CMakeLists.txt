@@ -21,3 +21,4 @@ add_mlir_dialect_library(MLIRMicrokernel
     LINK_LIBS PUBLIC
     ${MLIR_LINK_COMPONENTS}
 )
+set_property(GLOBAL APPEND PROPERTY GC_DIALECT_LIBS MLIRMicrokernel)
