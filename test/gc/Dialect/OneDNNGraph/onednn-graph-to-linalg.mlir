@@ -16,6 +16,10 @@ func.func @matmul_bias(%arg0: tensor<128x512xbf16>, %arg1: tensor<512x256xbf16>,
   // CHECK: [[INIT:%.+]] = tensor.empty()
   // CHECK: [[FILLED:%.+]] = linalg.fill ins([[C0]] : bf16) outs([[INIT]] : tensor<128x256xbf16>) -> tensor<128x256xbf16>
   // CHECK: linalg.matmul ins(%arg0, %arg1 : tensor<128x512xbf16>, tensor<512x256xbf16>) outs([[FILLED]] : tensor<128x256xbf16>) -> tensor<128x256xbf16>
+  // CHECK: tensor.empty()
+  // CHECK: linalg.broadcast
+  // CHECK: tensor.empty()
+  // CHECK: linalg.add
   %0 = onednn_graph.matmul %arg0, %arg1, %arg3 : (tensor<128x512xbf16>, tensor<512x256xbf16>, tensor<256xbf16>) -> tensor<128x256xbf16>
   return %0 : tensor<128x256xbf16>
 }
