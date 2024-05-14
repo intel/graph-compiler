@@ -9,4 +9,4 @@ config.gc_src_root = "@CMAKE_SOURCE_DIR@"
 config.gc_obj_root = "@CMAKE_BINARY_DIR@"
 
 # Let the main config do the real work.
-lit_config.load_config(config, "@CMAKE_SOURCE_DIR@/test/gc-dialects/Unit/lit.cfg.py")
+lit_config.load_config(config, "@CMAKE_SOURCE_DIR@/test/gc/Unit/lit.cfg.py")
