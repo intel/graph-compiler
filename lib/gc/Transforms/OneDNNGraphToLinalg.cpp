@@ -70,8 +70,10 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
   }
 }
 
-typedef Value (*GetOperandFn)(Operation *, PatternRewriter &, TensorType);
+// Typedef for function to get operands for transformed op
+typedef mlir::Value (*GetOperandFn)(Operation *, PatternRewriter &, TensorType);
 
+// Function to get operands for from original op
 struct OriginalOperand {
   template <unsigned I>
   static Value getIdx(Operation *op, PatternRewriter &b, TensorType ty) {
@@ -83,6 +85,7 @@ struct OriginalOperand {
   }
 };
 
+// Function to get constant operands
 struct ConstantOperand {
   template <int64_t I>
   static Value getConst(Operation *op, PatternRewriter &b, TensorType ty) {
@@ -182,6 +185,8 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     auto resultTy = dyn_cast<TensorType>(op->getResultTypes().front());
+    auto typeA = dyn_cast<TensorType>(op.getInputA().getType());
+    auto typeB = dyn_cast<TensorType>(op.getInputB().getType());
     //
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getZeroAttr(resultTy.getElementType()));
@@ -190,6 +195,10 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
     Value outTensor =
         rewriter.create<linalg::FillOp>(loc, zero, newTensor).getResult(0);
 
+    if (typeA.getRank() != 2 || typeB.getRank() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Currently not support multi batch matmul.");
+    }
     bool transposeA = op.getTransposeA();
     bool transposeB = op.getTransposeB();
     Operation *newOp;
@@ -216,11 +225,7 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outTensor);
     } else {
       // T(B * A)
-      int64_t rank = resultTy.getRank();
-      SmallVector<int64_t> permutation(rank);
-      std::iota(std::begin(permutation), std::end(permutation), 0);
-      permutation[rank - 2] = rank - 1;
-      permutation[rank - 1] = rank - 2;
+      SmallVector<int64_t> permutation{1, 0};
       auto matmulOp = rewriter.create<linalg::MatmulOp>(
           /*location=*/loc,
           /*resultTensorTypes=*/resultTy,
