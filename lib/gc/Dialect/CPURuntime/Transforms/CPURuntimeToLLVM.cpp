@@ -25,7 +25,7 @@
 namespace mlir::cpuruntime {
 
 void populateCPURuntimeToLLVMConversionPatterns(LLVMTypeConverter &converter,
-                                                 RewritePatternSet &patterns);
+                                                RewritePatternSet &patterns);
 
 #define GEN_PASS_DEF_CPURUNTIMETOLLVM
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h.inc"
@@ -47,7 +47,6 @@ static LLVM::LLVMFuncOp getOrDefineFunction(ModuleOp &moduleOp,
   }
   return ret;
 }
-
 
 class PrintfRewriter : public ConvertOpToLLVMPattern<PrintfOp> {
 public:
@@ -110,8 +109,7 @@ public:
   }
 };
 
-class CPURuntimeToLLVM
-    : public impl::CPURuntimeToLLVMBase<CPURuntimeToLLVM> {
+class CPURuntimeToLLVM : public impl::CPURuntimeToLLVMBase<CPURuntimeToLLVM> {
 public:
   using Base::Base;
   void runOnOperation() final {
@@ -146,7 +144,7 @@ struct CPURuntimeToDialectInterface : public ConvertToLLVMPatternInterface {
 } // namespace
 
 void populateCPURuntimeToLLVMConversionPatterns(LLVMTypeConverter &converter,
-                                                 RewritePatternSet &patterns) {
+                                                RewritePatternSet &patterns) {
   patterns.add<PrintfRewriter>(converter);
 }
 

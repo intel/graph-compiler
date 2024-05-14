@@ -17,8 +17,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "gc/Transforms/Passes.h"
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
