@@ -27,21 +27,22 @@ public:
   LogicalResult matchAndRewrite(AtParallelExitOp op,
                                 PatternRewriter &rewriter) const final {
     auto parent = op->getParentOp();
-    Operation *secondLast = nullptr;
-    while (parent && (llvm::isa<memref::AllocaScopeOp>(parent) ||
-                      llvm::isa<omp::WsloopOp>(parent))) {
-      secondLast = parent;
+    omp::ParallelOp parallel;
+    while (parent) {
+      parallel = llvm::dyn_cast<omp::ParallelOp>(parent);
+      if (parallel) {
+        break;
+      }
       parent = parent->getParentOp();
     }
-    auto parallel = llvm::dyn_cast<omp::ParallelOp>(parent);
     if (!parallel) {
       return failure();
     }
-    assert(secondLast->getBlock());
-    auto itr = secondLast->getBlock()->end();
+    auto &block = parallel.getRegion().front();
+    auto itr = block.end();
     --itr;
-    rewriter.inlineBlockBefore(&op->getRegion(0).getBlocks().front(),
-                               secondLast->getBlock(), itr);
+    rewriter.inlineBlockBefore(&op->getRegion(0).getBlocks().front(), &block,
+                               itr);
     rewriter.eraseOp(op);
     return success();
   }
