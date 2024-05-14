@@ -73,7 +73,7 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
 // Typedef for function to get operands for transformed op
 typedef mlir::Value (*GetOperandFn)(Operation *, PatternRewriter &, TensorType);
 
-// Function to get operands for from original op
+// Functions to get operands for from original op
 struct OriginalOperand {
   template <unsigned I>
   static Value getIdx(Operation *op, PatternRewriter &b, TensorType ty) {
@@ -85,17 +85,18 @@ struct OriginalOperand {
   }
 };
 
-// Function to get constant operands
+// Functions to get constant operands
 struct ConstantOperand {
   template <int64_t I>
   static Value getConst(Operation *op, PatternRewriter &b, TensorType ty) {
     const auto loc = op->getLoc();
-    if (llvm::isa<IntegerType>(ty.getElementType())) {
-      return b.create<arith::ConstantOp>( //
-          loc, DenseElementsAttr::get(ty, int64_t(I)));
-    } else if (llvm::isa<FloatType>(ty.getElementType())) {
-      return b.create<arith::ConstantOp>( //
-          loc, DenseElementsAttr::get(ty, float(I)));
+    const auto elemTy = ty.getElementType();
+    if (llvm::isa<IntegerType>(elemTy)) {
+      return b.create<arith::ConstantOp>(
+          loc, DenseElementsAttr::get(ty, b.getIntegerAttr(elemTy, I)));
+    } else if (llvm::isa<FloatType>(elemTy)) {
+      return b.create<arith::ConstantOp>(
+          loc, DenseElementsAttr::get(ty, b.getFloatAttr(elemTy, I)));
     } else {
       op->emitError("Not a supported element type for constant.\n");
       return nullptr;
@@ -188,12 +189,13 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
     auto typeA = dyn_cast<TensorType>(op.getInputA().getType());
     auto typeB = dyn_cast<TensorType>(op.getInputB().getType());
     //
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(resultTy.getElementType()));
-    Value newTensor = rewriter.create<tensor::EmptyOp>(
-        loc, resultTy.getShape(), resultTy.getElementType());
-    Value outTensor =
-        rewriter.create<linalg::FillOp>(loc, zero, newTensor).getResult(0);
+    auto getEmptyTensor = [&](TensorType tensorTy) -> Value {
+      Value zero = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getZeroAttr(tensorTy.getElementType()));
+      Value newTensor = rewriter.create<tensor::EmptyOp>(
+          loc, tensorTy.getShape(), tensorTy.getElementType());
+      return rewriter.create<linalg::FillOp>(loc, zero, newTensor).getResult(0);
+    };
 
     if (typeA.getRank() != 2 || typeB.getRank() != 2) {
       return rewriter.notifyMatchFailure(
@@ -201,9 +203,10 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
     }
     bool transposeA = op.getTransposeA();
     bool transposeB = op.getTransposeB();
-    Operation *newOp;
+    Operation *newOp = nullptr;
     if (!transposeA && !transposeB) {
       // (A * B)
+      auto outTensor = getEmptyTensor(resultTy);
       newOp = rewriter.create<linalg::MatmulOp>(
           /*location=*/loc,
           /*resultTensorTypes=*/resultTy,
@@ -211,6 +214,7 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outTensor);
     } else if (transposeA && !transposeB) {
       // T(A) * B
+      auto outTensor = getEmptyTensor(resultTy);
       newOp = rewriter.create<linalg::MatmulTransposeAOp>(
           /*location=*/loc,
           /*resultTensorTypes=*/resultTy,
@@ -218,6 +222,7 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outTensor);
     } else if (!transposeA && transposeB) {
       // A * T(B)
+      auto outTensor = getEmptyTensor(resultTy);
       newOp = rewriter.create<linalg::MatmulTransposeBOp>(
           /*location=*/loc,
           /*resultTensorTypes=*/resultTy,
@@ -225,12 +230,17 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outTensor);
     } else {
       // T(B * A)
+      const auto &resultShape = resultTy.getShape();
+      SmallVector<int64_t> transShape{resultShape[1], resultShape[0]};
       SmallVector<int64_t> permutation{1, 0};
+      auto transTy = resultTy.clone(transShape);
+      auto transTensor = getEmptyTensor(transTy);
       auto matmulOp = rewriter.create<linalg::MatmulOp>(
           /*location=*/loc,
-          /*resultTensorTypes=*/resultTy,
+          /*resultTensorTypes=*/transTy,
           /*inputs=*/ValueRange{op.getInputB(), op.getInputA()},
-          /*outputs=*/outTensor);
+          /*outputs=*/transTensor);
+      auto outTensor = getEmptyTensor(resultTy);
       newOp = rewriter.create<linalg::TransposeOp>(
           /*location=*/loc,
           /*inputs=*/matmulOp.getResult(0),
@@ -239,12 +249,15 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
     }
 
     if (op.getBias()) {
-      auto bias = createBroadcastOperand(loc, rewriter, resultTy, op.getBias());
+      Value bias =
+          createBroadcastOperand(loc, rewriter, resultTy, op.getBias());
+      Value outBias = rewriter.create<tensor::EmptyOp>(
+          loc, resultTy.getShape(), resultTy.getElementType());
       newOp = rewriter.create<linalg::AddOp>(
           /*location=*/loc,
-          /*resultTensorTypes=*/outTensor.getType(),
-          /*inputs=*/newOp->getResult(0),
-          /*outputs=*/bias);
+          /*resultTensorTypes=*/outBias.getType(),
+          /*inputs=*/ValueRange{newOp->getResult(0), bias},
+          /*outputs=*/outBias);
     }
 
     rewriter.replaceOp(op, newOp);
