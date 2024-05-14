@@ -1,5 +1,6 @@
 add_mlir_library(GCPasses
   TileNamed.cpp
+  LegalizeDtypeToF32.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include
