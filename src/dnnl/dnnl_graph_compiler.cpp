@@ -22,8 +22,10 @@
 #include <new>
 #include <string_view>
 
-#ifndef DNNL_HELPER_DLL_EXPORT
-#error DNNL_HELPER_DLL_EXPORT is not defined
+#if defined _WIN32 || defined __CYGWIN__
+#define GC_DLL_EXPORT __declspec(dllexport)
+#else
+#define GC_DLL_EXPORT __attribute__((visibility("default")))
 #endif
 
 // dnnl_graph_compiler.h interface implementation.
@@ -47,7 +49,7 @@ struct dnnl_graph_compiler {
   compile(const std::string_view &graph_json) const;
 };
 
-DNNL_HELPER_DLL_EXPORT const dnnl_graph_compiler_version *
+GC_DLL_EXPORT const dnnl_graph_compiler_version *
 dnnl_graph_compiler_get_version(void) {
   static const dnnl_graph_compiler_version ver = {
       .api_version = {DNNL_GC_API_V_MAJOR, DNNL_GC_API_V_MINOR,
@@ -59,7 +61,7 @@ dnnl_graph_compiler_get_version(void) {
   return &ver;
 }
 
-DNNL_HELPER_DLL_EXPORT dnnl_status_t
+GC_DLL_EXPORT dnnl_status_t
 dnnl_graph_compiler_create(const struct dnnl_graph_compiler_context *ctx,
                            const struct dnnl_graph_compiler **gc) {
   try {
@@ -73,12 +75,12 @@ dnnl_graph_compiler_create(const struct dnnl_graph_compiler_context *ctx,
   }
 }
 
-DNNL_HELPER_DLL_EXPORT void
+GC_DLL_EXPORT void
 dnnl_graph_compiler_destroy(const struct dnnl_graph_compiler *gc) {
   delete gc;
 }
 
-DNNL_HELPER_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
+GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
     const dnnl_graph_compiler *gc, const char *graph_json,
     const struct dnnl_graph_compiler_executable **exe) {
   try {
@@ -93,13 +95,13 @@ DNNL_HELPER_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
   }
 }
 
-DNNL_HELPER_DLL_EXPORT void dnnl_graph_compiler_destroy_executable(
+GC_DLL_EXPORT void dnnl_graph_compiler_destroy_executable(
     const struct dnnl_graph_compiler *gc,
     const struct dnnl_graph_compiler_executable *exe) {
   delete exe;
 }
 
-DNNL_HELPER_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_execute(
+GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_execute(
     const struct dnnl_graph_compiler *gc,
     const struct dnnl_graph_compiler_executable *exe,
     dnnl_graph_compiler_tensor *inputs, dnnl_graph_compiler_tensor *outputs) {
