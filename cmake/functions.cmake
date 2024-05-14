@@ -97,7 +97,7 @@ endfunction()
 
 
 macro(gc_set_mlir_link_components VAR)
-    if(GC_DEV_LINK_DYN_LLVM)
+    if(GC_DEV_LINK_LLVM_DYLIB)
         set(${VAR}
             MLIR
         )
