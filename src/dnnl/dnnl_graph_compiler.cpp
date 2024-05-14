@@ -17,6 +17,7 @@
  */
 
 #include "dnnl_graph_compiler.h"
+#include "gc_version.h"
 #include <memory>
 #include <new>
 #include <string_view>
