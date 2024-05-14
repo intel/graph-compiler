@@ -10,7 +10,5 @@ add_mlir_dialect_library(MLIRCPURuntimeDialect
         MLIRCPURuntimePassesIncGen
 
         LINK_LIBS PUBLIC
-        MLIR
-        # MLIRInferTypeOpInterface
-        # MLIRFuncDialect
+        MLIRFuncDialect
         )
