@@ -64,7 +64,7 @@ add_subdirectory(src)
 set(GC_LIB_LINKED_LIBS
         MLIRLinalgx
         MLIRMicrokernel
-        MLIROnednnGraph
+        MLIROneDNNGraph
 )
 add_library(graph_compiler SHARED ${GC_LIB_SOURCES})
 target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
