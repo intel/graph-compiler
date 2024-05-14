@@ -18,7 +18,7 @@ include "OneDNNGraphDialect.td"
 //===----------------------------------------------------------------------===//
 
 def OneDNNGraph_DataType : AnyTypeOf<[
-			                F16,
+                            F16,
                             BF16, 
                             F32, 
                             SI<32>, 

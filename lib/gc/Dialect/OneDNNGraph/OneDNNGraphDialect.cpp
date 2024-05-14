@@ -10,23 +10,6 @@
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphTypes.h"
 
-#include "mlir/Dialect/Quant/QuantOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
-#include "mlir/Dialect/Tosa/Utils/ShapeUtils.h"
-#include "mlir/Dialect/Utils/IndexingUtils.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/Matchers.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/TypeUtilities.h"
-#include "mlir/Interfaces/InferTypeOpInterface.h"
-#include "mlir/Transforms/InliningUtils.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/TypeSwitch.h"
-
 using namespace mlir;
 using namespace mlir::onednn_graph;
 
