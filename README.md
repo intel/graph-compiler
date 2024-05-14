@@ -25,12 +25,10 @@ cmake --build build --target install
 
 We have now installed LLVM at `llvm-project/llvm-install`.
 
-Clone the graph-compiler repo:
+Change working directory to graph-compiler repo and prepare the build directory:
 
 ```bash
-cd ../.. # working directory changed to parent directory of llvm-project
-git clone https://github.com/intel/graph-compiler.git
-cd graph-compiler
+cd /PATH/TO/graph-compiler
 mkdir build && cd build
 ```
 
