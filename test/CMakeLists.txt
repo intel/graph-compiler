@@ -29,6 +29,7 @@ set(GC_OPT_TEST_DEPENDS
         FileCheck count not
         # mlir-gen
         gc-opt
+        gc-cpu-runner
         GCUnitTests
         )
 
