@@ -50,5 +50,5 @@ Notes:
 
 Optional cmake options:
  * `-DGC_LEGACY_ENABLE=ON/OFF` turn on/off the legacy graph-compiler component. By default `ON`.
- * `-GC_TEST_ENABLE=ON/OFF` turn on/off building the tests . By default `ON`.
- * `-GC_DEV_LINK_LLVM_DYLIB=ON/OFF` link the dynamic LLVM/MLIR libraries if available. This option is for developer's use. By default `OFF`.
+ * `-DGC_TEST_ENABLE=ON/OFF` turn on/off building the tests . By default `ON`.
+ * `-DGC_DEV_LINK_LLVM_DYLIB=ON/OFF` link the dynamic LLVM/MLIR libraries if available. This option is for developer's use. By default `OFF`.
