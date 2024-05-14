@@ -14,3 +14,5 @@ add_mlir_library(GCPasses
     MLIRBufferizationToMemRef
     MLIRBufferizationPipelines
   )
+
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

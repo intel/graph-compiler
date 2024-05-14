@@ -18,6 +18,7 @@
  */
 
 #include "gc/Transforms/Passes.h"
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
@@ -25,9 +26,11 @@
 int main(int argc, char *argv[]) {
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
-
+  mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
+  registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   mlir::registerAllDialects(registry);
+  mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));
 }
