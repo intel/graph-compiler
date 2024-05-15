@@ -41,12 +41,12 @@ config.excludes = []
 
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.gc_obj_root, "test")
-config.gc_tools_dir = os.path.join(config.gc_obj_root, "src")
+config.gc_tools_dir = os.path.join(config.gc_obj_root, "bin")
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 
 tool_dirs = [config.gc_tools_dir, config.llvm_tools_dir]
-tools = ["gc-opt"]
+tools = ["gc-opt", "gc-cpu-runner"]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
