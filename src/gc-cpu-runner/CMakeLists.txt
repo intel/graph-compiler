@@ -4,7 +4,7 @@ if(GC_DEV_LINK_LLVM_DYLIB)
     )
   set(MLIR_LINK_COMPONENTS
     MLIR
-    MLIRExecutionEngine
+    MLIRExecutionEngineShared
     MLIRJitRunner
   )
 else()
@@ -37,8 +37,10 @@ endif()
 #LLVM_LINK_COMPONENTS is processed by LLVM cmake in add_llvm_executable
 set(gc_cpu_runner_libs
         ${MLIR_LINK_COMPONENTS})
-add_llvm_executable(gc-cpu-runner gc-cpu-runner.cpp)
+add_mlir_tool(gc-cpu-runner
+        gc-cpu-runner.cpp
+)
+llvm_update_compile_flags(gc-cpu-runner)
 
 target_link_libraries(gc-cpu-runner PRIVATE ${gc_cpu_runner_libs})
-llvm_update_compile_flags(gc-cpu-runner)
 mlir_check_all_link_libraries(gc-cpu-runner)

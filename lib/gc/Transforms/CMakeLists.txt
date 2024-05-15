@@ -5,6 +5,7 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRBufferizationPipelines)
 
 add_mlir_library(GCPasses
+  OneDNNGraphToLinalg.cpp
   TileNamed.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -16,5 +17,6 @@ add_mlir_library(GCPasses
   LINK_LIBS PUBLIC
     ${mlir_dialect_libs}
     ${MLIR_LINK_COMPONENTS}
+    MLIROneDNNGraph
   )
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

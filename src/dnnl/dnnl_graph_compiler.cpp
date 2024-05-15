@@ -22,6 +22,12 @@
 #include <new>
 #include <string_view>
 
+#if defined _WIN32 || defined __CYGWIN__
+#define GC_DLL_EXPORT __declspec(dllexport)
+#else
+#define GC_DLL_EXPORT __attribute__((visibility("default")))
+#endif
+
 // dnnl_graph_compiler.h interface implementation.
 // TODO: Implement.
 
@@ -43,7 +49,8 @@ struct dnnl_graph_compiler {
   compile(const std::string_view &graph_json) const;
 };
 
-const dnnl_graph_compiler_version *dnnl_graph_compiler_get_version(void) {
+GC_DLL_EXPORT const dnnl_graph_compiler_version *
+dnnl_graph_compiler_get_version(void) {
   static const dnnl_graph_compiler_version ver = {
       .api_version = {DNNL_GC_API_V_MAJOR, DNNL_GC_API_V_MINOR,
                       DNNL_GC_API_V_PATCH,
@@ -54,7 +61,7 @@ const dnnl_graph_compiler_version *dnnl_graph_compiler_get_version(void) {
   return &ver;
 }
 
-dnnl_status_t
+GC_DLL_EXPORT dnnl_status_t
 dnnl_graph_compiler_create(const struct dnnl_graph_compiler_context *ctx,
                            const struct dnnl_graph_compiler **gc) {
   try {
@@ -68,14 +75,14 @@ dnnl_graph_compiler_create(const struct dnnl_graph_compiler_context *ctx,
   }
 }
 
-void dnnl_graph_compiler_destroy(const struct dnnl_graph_compiler *gc) {
+GC_DLL_EXPORT void
+dnnl_graph_compiler_destroy(const struct dnnl_graph_compiler *gc) {
   delete gc;
 }
 
-dnnl_status_t
-dnnl_graph_compiler_compile(const dnnl_graph_compiler *gc,
-                            const char *graph_json,
-                            const struct dnnl_graph_compiler_executable **exe) {
+GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
+    const dnnl_graph_compiler *gc, const char *graph_json,
+    const struct dnnl_graph_compiler_executable **exe) {
   try {
     auto ptr = gc->compile(std::string_view(graph_json));
     *exe = ptr.release();
@@ -88,17 +95,16 @@ dnnl_graph_compiler_compile(const dnnl_graph_compiler *gc,
   }
 }
 
-void dnnl_graph_compiler_destroy_executable(
+GC_DLL_EXPORT void dnnl_graph_compiler_destroy_executable(
     const struct dnnl_graph_compiler *gc,
     const struct dnnl_graph_compiler_executable *exe) {
   delete exe;
 }
 
-dnnl_status_t
-dnnl_graph_compiler_execute(const struct dnnl_graph_compiler *gc,
-                            const struct dnnl_graph_compiler_executable *exe,
-                            dnnl_graph_compiler_tensor *inputs,
-                            dnnl_graph_compiler_tensor *outputs) {
+GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_execute(
+    const struct dnnl_graph_compiler *gc,
+    const struct dnnl_graph_compiler_executable *exe,
+    dnnl_graph_compiler_tensor *inputs, dnnl_graph_compiler_tensor *outputs) {
   try {
     exe->execute(inputs, outputs);
     return dnnl_success;
