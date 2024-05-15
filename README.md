@@ -8,10 +8,10 @@ All-on-one compile script is at `scripts/compile.sh`.
 To build this project step by step, first you need to find the LLVM commit-id we are using at `cmake/llvm-version.txt`. Then clone specific version of LLVM:
 
 ```bash
-LLVM_COMMIT=????? # the commit id in cmake/llvm-version.txt of this repo
+export LLVM_COMMIT_HASH=$(< cmake/llvm-version.txt)
 git clone https://github.com/llvm/llvm-project
 cd llvm-project
-git checkout $LLVM_COMMIT
+git checkout $LLVM_COMMIT_HASH
 ```
 
 Build LLVM with the command lines given in `.github/workflows/build-llvm.yml`:
