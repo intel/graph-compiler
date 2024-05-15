@@ -3,7 +3,7 @@ Graph Compiler is in active development stage.
 
 ## Build instructions
 
-All-on-one compile script is at `scripts/compile.sh`.
+All-in-one compile script is at `scripts/compile.sh`.
 
 To build this project step by step, first you need to find the LLVM commit-id we are using at `cmake/llvm-version.txt`. Then clone specific version of LLVM:
 
