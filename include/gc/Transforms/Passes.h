@@ -15,7 +15,12 @@ namespace mlir {
 namespace gc {
 
 #define GEN_PASS_DECL
+#define GEN_PASS_DECL_CSA
+#define GEN_PASS_DECL_CST
 #include "gc/Transforms/Passes.h.inc"
+
+std::unique_ptr<Pass> createCSAPass();
+std::unique_ptr<Pass> createCSTPass();
 
 #define GEN_PASS_REGISTRATION
 #include "gc/Transforms/Passes.h.inc"

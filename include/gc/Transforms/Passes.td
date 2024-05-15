@@ -17,4 +17,20 @@ def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
       ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
 }
 
+def CSA : Pass<"csa"> {
+  let summary = "Constant Subgraph Analysis";
+  let description = [{
+    This pass implements a constant subgraph analysis.
+  }];
+  let constructor = "mlir::gc::createCSAPass()";
+}
+
+def CST : Pass<"cst"> {
+  let summary = "Constant Subgraph Transform";
+  let description = [{
+    This pass implements a constant subgraph transform.
+  }];
+  let constructor = "mlir::gc::createCSTPass()";
+}
+
 #endif // GC_DIALECT_GC_PASSES

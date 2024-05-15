@@ -24,6 +24,7 @@ def OnednnGraphDialect : Dialect {
     let cppNamespace = "::mlir::onednn_graph";
 
     let useDefaultTypePrinterParser = 1;
+    let hasOperationAttrVerify = 1;
 }
 
 #endif // ONEDNNGRAPH_DIALECT

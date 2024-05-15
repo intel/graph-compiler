@@ -1,10 +1,8 @@
-add_mlir_library(GCPasses
-  TileNamed.cpp
-  CSA.cpp
-  CST.cpp
+add_mlir_library(GCAnalysis
+  DataFlow/ConstantSubgraphAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/include/
 
   DEPENDS
     GraphCompilerPassIncGen

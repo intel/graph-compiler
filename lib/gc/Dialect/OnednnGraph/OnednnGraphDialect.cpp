@@ -18,3 +18,9 @@ void OnednnGraphDialect::initialize() {
 #include "gc/Dialect/OnednnGraph/OnednnGraphOps.cpp.inc"
       >();
 }
+
+LogicalResult
+OnednnGraphDialect::verifyOperationAttribute(Operation *op,
+                                             NamedAttribute attr) {
+  return success();
+}
