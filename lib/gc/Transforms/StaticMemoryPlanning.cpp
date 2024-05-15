@@ -662,6 +662,7 @@ size_t schedule_memory_allocations(
   }
   return planner.current_alloc_size_;
 }
+
 } // namespace memoryplan
 } // namespace gc
 } // namespace mlir
