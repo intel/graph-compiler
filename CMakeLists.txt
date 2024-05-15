@@ -10,6 +10,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 option(GC_LEGACY_ENABLE ON)
 option(GC_TEST_ENABLE "Build the tests" ON)
+option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 
 if(GC_LEGACY_ENABLE)
     add_subdirectory(legacy/core)
@@ -61,13 +62,15 @@ add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
 
-add_library(graph_compiler SHARED ${GC_LIB_SOURCES})
-target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
 set(GC_LIB_LINKED_LIBS
         MLIRLinalgx
         MLIRMicrokernel
-        MLIROnednnGraph
+        MLIROneDNNGraph
 )
+add_library(graph_compiler SHARED ${GC_LIB_SOURCES})
+target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
+target_compile_options(graph_compiler PRIVATE -fvisibility=hidden)
+target_link_options(graph_compiler PRIVATE -Wl,--gc-sections)
 target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
 add_subdirectory(unittests)
