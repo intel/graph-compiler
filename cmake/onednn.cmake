@@ -14,7 +14,7 @@ if (NOT DEFINED DNNL_INCLUDES)
     set(DNNL_INCLUDES
             ${dnnl_BINARY_DIR}/include
             ${dnnl_SOURCE_DIR}/include
-            ${dnnl_SOURCE_DIR}/src/graph/backend/elyzor/include
+            ${dnnl_SOURCE_DIR}/src
     )
     set_property(GLOBAL PROPERTY DNNL_INCLUDES ${DNNL_INCLUDES})
 
