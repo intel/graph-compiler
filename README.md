@@ -46,7 +46,11 @@ Notes:
  * `/PATH/TO/llvm-project/llvm-install` should be the install path of LLVM. If you installed LLVM elsewhere by `-DCMAKE_INSTALL_PREFIX` option when building LLVM, you need to change the path in `-DMLIR_DIR` accordingly.
  *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install llvm-lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
 
-Optional cmake options:
- * `-DGC_LEGACY_ENABLE=ON/OFF` turn on/off the legacy graph-compiler component. By default `ON`.
- * `-DGC_TEST_ENABLE=ON/OFF` turn on/off building the tests . By default `ON`.
- * `-DGC_DEV_LINK_LLVM_DYLIB=ON/OFF` link the dynamic LLVM/MLIR libraries if available. This option is for developer's use. By default `OFF`.
+Graph Compiler supports the following build-time options.
+
+| CMake Option                    | Supported values (defaults in bold)    | Description                                                                            |
+|:--------------------------------|:---------------------------------------|:---------------------------------------------------------------------------------------|
+| GC_LEGACY_ENABLE                | **ON**, OFF                            | Controls building the legacy graph-compiler component                                  |
+| GC_TEST_ENABLE                  | **ON**, OFF                            | Controls building the tests                                                            |
+| GC_DEV_LINK_LLVM_DYLIB          | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer                        |
+
