@@ -1,0 +1,100 @@
+name: check clang-tidy
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+
+jobs:
+  clang_tidy:
+    runs-on: "ubuntu-latest"
+    env:
+      GH_TOKEN: ${{ github.token }}    
+
+    steps:
+    - name: Fetch sources
+      uses: actions/checkout@v4
+      with:
+        path: 'graph-compiler'
+        fetch-depth: 0
+        submodules: true
+        
+    - name: Fetch code tidy utils
+      uses: actions/checkout@v4
+      with:
+        repository: 'llvm/llvm-project'
+        ref: 'main'
+        sparse-checkout: |
+          clang-tools-extra/clang-tidy/tool/run-clang-tidy.py
+          mlir/python/requirements.txt
+          mlir/.clang-tidy
+        sparse-checkout-cone-mode: false
+        path: llvm-project
+
+    - name: Read llvm version and run id
+      shell: bash
+      run: |
+        echo LLVM_HASH=`cat graph-compiler/cmake/llvm-version.txt` >> $GITHUB_ENV
+        echo RUN_ID=`gh run list -w "LLVM Build" --repo intel/graph-compiler --json databaseId --jq '.[0].databaseId'` >> $GITHUB_ENV
+
+    - name: Fetch llvm artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: "llvm-${{ env.LLVM_HASH }}"
+        path: llvm
+        github-token: ${{ github.token }}
+        run-id: ${{ env.RUN_ID }}
+    
+    - name: Unwrap pre-built llvm
+      run: |
+        cd llvm
+        tar -zxf llvm.tgz
+
+    - name: Get merge base
+      run: |
+        cd graph-compiler
+        echo "MERGE_BASE=`git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}`" >> $GITHUB_ENV
+
+    - name: Get changed files
+      run: |
+        cd graph-compiler
+        echo "CHANGED_FILES=`git diff --name-only $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd' '`" >> $GITHUB_ENV
+        
+    - name: Prepare Environment
+      shell: bash
+      run: |
+        python3 -m pip install -r llvm-project/mlir/python/requirements.txt
+        python3 -m pip install lit
+    
+    - name: Prepare compile commands
+      shell: bash
+      run: |
+        mkdir build
+        cd build
+        cmake ../graph-compiler \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DMLIR_DIR=`pwd`/../llvm/lib/cmake/mlir \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=True \
+          -DCMAKE_C_COMPILER=`which clang` \
+          -DCMAKE_CXX_COMPILER=`which clang++` \
+          -DLLVM_EXTERNAL_LIT=`which lit`
+
+    - name: Prepare inc file
+      run: |
+        cd build
+        for f in `find ./include -name Makefile`; do
+          set +e;
+          target=`make -f $f help |grep IncGen`; 
+          if [[ $? -eq 0 ]]; then 
+            set -e;
+            cd ${f%Makefile} && make ${target#...} && cd -; 
+          fi ;
+          set -e;
+        done
+        
+    - name: Perform clang-tidy check
+      shell: bash
+      run: |
+        cd build
+        python3 ../llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -warnings-as-errors=* -p ./ -config-file ../llvm-project/mlir/.clang-tidy -clang-tidy-binary `which clang-tidy` ${{ env.CHANGED_FILES }}
