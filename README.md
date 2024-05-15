@@ -23,6 +23,10 @@ cmake -G Ninja llvm -B build -DCMAKE_INSTALL_PREFIX=llvm-install \
 cmake --build build --target install
 ```
 
+Notes
+ * It is recommended to add optional options `-DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON` to the command `cmake -G Ninja llvm ...` above. These will enable the build of LLVM/MLIR dynamic libraries and let MLIR/LLVM tools link to them, to reduce the installed binary size of LLVM/MLIR. These options also enable the `GC_DEV_LINK_LLVM_DYLIB` option of graph-compiler repo (see below).
+ * The option `-DLLVM_INSTALL_GTEST=ON` is optional, if the tests of graph-compiler are disabled (see `GC_TEST_ENABLE` below).
+
 We have now installed LLVM at `llvm-project/llvm-install`.
 
 Change working directory to graph-compiler repo and prepare the build directory:
@@ -44,7 +48,7 @@ cmake --build . --target gc-check
 
 Notes:
  * `/PATH/TO/llvm-project/llvm-install` should be the install path of LLVM. If you installed LLVM elsewhere by `-DCMAKE_INSTALL_PREFIX` option when building LLVM, you need to change the path in `-DMLIR_DIR` accordingly.
- *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install llvm-lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
+ *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
 
 Graph Compiler supports the following build-time options.
 
