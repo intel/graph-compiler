@@ -1,3 +1,9 @@
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
+  MLIRIR
+  MLIRSupport
+  MLIRBufferizationToMemRef
+  MLIRBufferizationPipelines)
+
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   TileNamed.cpp
@@ -10,9 +16,7 @@ add_mlir_library(GCPasses
 
   LINK_LIBS PUBLIC
     ${mlir_dialect_libs}
+    ${MLIR_LINK_COMPONENTS}
     MLIROneDNNGraph
-    MLIRIR
-    MLIRSupport
-    MLIRBufferizationToMemRef
-    MLIRBufferizationPipelines
   )
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

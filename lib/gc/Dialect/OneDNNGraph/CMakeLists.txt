@@ -1,3 +1,4 @@
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
 add_mlir_dialect_library(MLIROneDNNGraph
     OneDNNGraphDialect.cpp
     OneDNNGraphOps.cpp
@@ -9,5 +10,6 @@ add_mlir_dialect_library(MLIROneDNNGraph
     MLIROneDNNGraphOpsIncGen
     
     LINK_LIBS PUBLIC
-    MLIRIR
+    ${MLIR_LINK_COMPONENTS}
 )
+set_property(GLOBAL APPEND PROPERTY GC_DIALECT_LIBS MLIROneDNNGraph)
