@@ -14,7 +14,7 @@
  * limitations under the License.
  *******************************************************************************/
 
-#include "gc-dialects/Transforms/StaticMemoryPlanning.h"
+#include "gc/Transforms/StaticMemoryPlanning.h"
 
 #include "gtest/gtest.h"
 #include <iostream>

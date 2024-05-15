@@ -21,7 +21,7 @@ using namespace mlir;
 namespace mlir {
 namespace gc {
 #define GEN_PASS_DEF_MERGEALLOC
-#include "gc-dialects/Passes.h.inc"
+#include "gc/Transforms/Passes.h.inc"
 
 /// Return `true` if the given MemRef type has a static identity layout (i.e.,
 /// no layout).
