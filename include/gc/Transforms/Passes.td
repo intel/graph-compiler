@@ -17,6 +17,20 @@ def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
       ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
 }
 
+def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
+  let summary = "Lower the operations from the oneDNN Graph dialect into Linalg";
+  let description = [{
+    Lowers the `onednn_graph` ops to `linalg` ops.
+  }];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "math::MathDialect",
+    "arith::ArithDialect",
+    "tensor::TensorDialect",
+    "linalg::LinalgDialect"
+  ];
+}
+
 def CSA : Pass<"csa"> {
   let summary = "Constant Subgraph Analysis";
   let description = [{
