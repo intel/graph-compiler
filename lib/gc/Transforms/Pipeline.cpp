@@ -21,6 +21,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 
@@ -65,7 +66,9 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
   pm.addPass(mlir::func::createFuncBufferizePass());
-  pm.addPass(bufferization::createBufferResultsToOutParamsPass());
+  bufferization::BufferResultsToOutParamsOpts opt{};
+  // opt.hoistStaticAllocs = true;
+  pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   pm.addNestedPass<func::FuncOp>(
       bufferization::createBufferizationBufferizePass());
   pm.addNestedPass<func::FuncOp>(
@@ -98,14 +101,14 @@ void populateMicroKernelPasses(mlir::PassManager &pm) {
 void populateCPURuntimePasses(mlir::PassManager &pm) {
   // + flatten nested parallel pass, down-stream pass, to support coarse-grain
   // fusion
-  // pm.addNestedPass<func::FuncOp>(parallelcpu::createParallelCPUAtExitToOmp());
+  pm.addNestedPass<func::FuncOp>(cpuruntime::createCPURuntimeAtExitToOmp());
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createConvertSCFToOpenMPPass());
 }
 
 void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
   pm.addPass(createConvertSCFToCFPass());
-  // pm.addPass(parallelcpu::createParallelCPUToLLVM());
+  pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());

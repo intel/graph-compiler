@@ -15,7 +15,7 @@ func.func @main() {
     %c1 = arith.constant 1 : index
     scf.for %iv = %c0 to %c128 step %c1 {
         %4 = tensor.extract %result[%iv] : tensor<128xf32>
-        parallelcpu.printf "%f\n" %4 : f32
+        cpuruntime.printf "%f\n" %4 : f32
     }
     return
 }
