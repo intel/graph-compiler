@@ -20,4 +20,5 @@ add_mlir_library(GCPasses
     ${MLIR_LINK_COMPONENTS}
     MLIROneDNNGraph
   )
+
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)
