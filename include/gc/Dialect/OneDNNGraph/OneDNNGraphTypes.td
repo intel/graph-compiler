@@ -28,12 +28,8 @@ def OneDNNGraph_Float : AnyTypeOf<[F32,
 // Integer types.
 //===----------------------------------------------------------------------===//
 
-def OneDNNGraph_Int8 : SI<8>;
-def OneDNNGraph_UInt8 : UI<8>;
-
-def OneDNNGraph_Int :AnyTypeOf<[OneDNNGraph_Int8,
-                                OneDNNGraph_UInt8
-                                ]>;
+def OneDNNGraph_Int : AnyTypeOf<[SI<8>,
+                                 UI<8>]>;
 
 def OneDNNGraph_DataType : AnyTypeOf<[
                             OneDNNGraph_Float,

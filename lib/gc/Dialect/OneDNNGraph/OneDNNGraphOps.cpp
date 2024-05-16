@@ -24,13 +24,12 @@ LogicalResult onednn_graph::AddOp::inferReturnTypeComponents(
     SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
   llvm::SmallVector<int64_t> outShape;
   auto resultTy = dyn_cast<TensorType>(operands.front().getType());
-  auto getShapeIdx = [](ValueShapeRange operands, size_t i) {
-    return operands.getShape(i);
+  auto getShapeIdx = [&operands](size_t i) {
+    return operands.getTypes()[i].dyn_cast<TensorType>().getShape();
   };
-  llvm::SmallVector<int64_t> input1, input2;
-  getShapeIdx(operands, 0).getDims(input1);
-  getShapeIdx(operands, 1).getDims(input2);
-  auto ret = OpTrait::util::getBroadcastedShape(input1, input2, outShape);
+
+  auto ret = OpTrait::util::getBroadcastedShape(getShapeIdx(0), getShapeIdx(1),
+                                                outShape);
   inferredReturnShapes.push_back(
       ShapedTypeComponents(outShape, resultTy.getElementType()));
   return LogicalResult::success(ret);
@@ -127,17 +126,16 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
   inferredReturnShapes.push_back(retShape);
   // check for bias broadcasting
   if (adaptor.getBias()) {
-    ShapeAdaptor biasShape(adaptor.getBias().getType());
-    ShapeAdaptor matShape(retShape);
-    llvm::SmallVector<int64_t> matmulShape;
-    matShape.getDims(matmulShape);
-    llvm::SmallVector<int64_t> bcastShape;
-    biasShape.getDims(bcastShape);
+    auto biasType = adaptor.getBias().getType();
+    ShapeAdaptor biasShape(biasType);
+
     bool biasRankMatch = biasShape.getRank() == 1 ||
                          biasShape.getRank() == (int64_t)outShape.size();
     SmallVector<int64_t> resultShape;
-    if (!biasRankMatch || !OpTrait::util::getBroadcastedShape(
-                              matmulShape, bcastShape, resultShape)) {
+    if (!biasRankMatch ||
+        !OpTrait::util::getBroadcastedShape(
+            retShape.getDims(), biasType.dyn_cast<TensorType>().getShape(),
+            resultShape)) {
       return failure();
     }
   }

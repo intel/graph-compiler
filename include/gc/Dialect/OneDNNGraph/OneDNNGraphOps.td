@@ -52,7 +52,7 @@ def OneDNNGraph_MatMulOp :
     OneDNNGraph_Op<"matmul", [SameOperandsAndResultElementType, InferTensorTypeAdaptor]> {
   let summary = "Generalized matrix multiplication";
   let description = [{
-    `https://spec.oneapi.io/onednn-graph/latest/ops/matrix/MatMul_1.html`
+    `https://oneapi-src.github.io/oneDNN/dev_guide_op_matmul.html`
   }];
 
   let arguments = (ins OneDNNGraph_FloatTensor:$input_a, 
@@ -69,14 +69,14 @@ def OneDNNGraph_MatMulOp :
 def OneDNNGraph_ReLUOp : OneDNNGraph_ElemwiseUnaryOp<"relu"> {
   let summary = "element-wise relu";
   let description = [{
-    `https://spec.oneapi.io/onednn-graph/latest/ops/activation/ReLU_1.html`
+    `https://oneapi-src.github.io/oneDNN/dev_guide_op_relu.html`
   }];
 }
 
 def OneDNNGraph_AddOp : OneDNNGraph_ElemwiseBinaryOp<"add", [Commutative]> {
   let summary = "element-wise addition with multi-directional broadcast";
   let description = [{
-    `https://spec.oneapi.io/onednn-graph/latest/ops/arithmetic/Add_1.html`
+    `https://oneapi-src.github.io/oneDNN/dev_guide_op_add.html`
   }];
 }
 
