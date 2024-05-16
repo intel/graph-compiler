@@ -17,14 +17,30 @@ include "OneDNNGraphDialect.td"
 // OneDNNGraph type definitions
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// Floating-point types.
+//===----------------------------------------------------------------------===//
+def OneDNNGraph_Float : AnyTypeOf<[F32,
+			                       F16,
+			                       BF16]>;
+
+//===----------------------------------------------------------------------===//
+// Integer types.
+//===----------------------------------------------------------------------===//
+
+def OneDNNGraph_Int8 : SI<8>;
+def OneDNNGraph_UInt8 : UI<8>;
+
+def OneDNNGraph_Int :AnyTypeOf<[OneDNNGraph_Int8,
+                                OneDNNGraph_UInt8
+                                ]>;
+
 def OneDNNGraph_DataType : AnyTypeOf<[
-                            F16,
-                            BF16, 
-                            F32, 
-                            SI<32>, 
-                            SI<8>, 
-                            UI<8>]>;
+                            OneDNNGraph_Float,
+                            OneDNNGraph_Int
+                            ]>;
 
 def OneDNNGraph_LogicalTensor : TensorOf<[OneDNNGraph_DataType]>;
+def OneDNNGraph_FloatTensor : TensorOf<[OneDNNGraph_Float]>;
 
 #endif // ONEDNNGRAPH_TYPES

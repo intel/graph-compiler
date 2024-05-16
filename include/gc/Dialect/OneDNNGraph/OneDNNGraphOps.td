@@ -25,10 +25,11 @@ class OneDNNGraph_Op<string mnemonic, list<Trait> traits = []> :
         Op<OneDNNGraphDialect, mnemonic, traits>;
 
 class OneDNNGraph_ElemwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    OneDNNGraph_Op<mnemonic, traits # [SameOperandsAndResultElementType, InferTensorType]> {
-  let arguments = (ins OneDNNGraph_LogicalTensor:$input_0, 
-                       OneDNNGraph_LogicalTensor:$input_1);
-  let results = (outs OneDNNGraph_LogicalTensor:$result);
+    OneDNNGraph_Op<mnemonic, traits # [SameOperandsAndResultElementType, InferTensorType, 
+    ResultsBroadcastableShape]> {
+  let arguments = (ins OneDNNGraph_FloatTensor:$input_0, 
+                       OneDNNGraph_FloatTensor:$input_1);
+  let results = (outs OneDNNGraph_FloatTensor:$result);
 
   let assemblyFormat =
       "operands attr-dict `:` functional-type(operands, results)";
@@ -36,8 +37,8 @@ class OneDNNGraph_ElemwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 
 class OneDNNGraph_ElemwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     OneDNNGraph_Op<mnemonic, traits # [SameOperandsAndResultType]> {
-  let arguments = (ins OneDNNGraph_LogicalTensor:$operand);
-  let results = (outs OneDNNGraph_LogicalTensor:$result);
+  let arguments = (ins OneDNNGraph_FloatTensor:$operand);
+  let results = (outs OneDNNGraph_FloatTensor:$result);
 
   let assemblyFormat =
       "operands attr-dict `:` functional-type(operands, results)";
@@ -54,12 +55,12 @@ def OneDNNGraph_MatMulOp :
     `https://spec.oneapi.io/onednn-graph/latest/ops/matrix/MatMul_1.html`
   }];
 
-  let arguments = (ins OneDNNGraph_LogicalTensor:$input_a, 
-                       OneDNNGraph_LogicalTensor:$input_b, 
+  let arguments = (ins OneDNNGraph_FloatTensor:$input_a, 
+                       OneDNNGraph_FloatTensor:$input_b, 
                        Optional<OneDNNGraph_LogicalTensor>:$bias,
                        DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                        DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
-  let results = (outs OneDNNGraph_LogicalTensor:$result);
+  let results = (outs OneDNNGraph_FloatTensor:$result);
 
   let assemblyFormat =
       "operands attr-dict `:` functional-type(operands, results)";
