@@ -66,13 +66,13 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
   pm.addPass(mlir::func::createFuncBufferizePass());
-  bufferization::BufferResultsToOutParamsOpts opt{};
-  // opt.hoistStaticAllocs = true;
-  pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   pm.addNestedPass<func::FuncOp>(
       bufferization::createBufferizationBufferizePass());
   pm.addNestedPass<func::FuncOp>(
       bufferization::createFinalizingBufferizePass());
+  bufferization::BufferResultsToOutParamsOpts opt{};
+  opt.hoistStaticAllocs = true;
+  pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   // + buffer schedule pass, down-stream pass, to migrate buffer reschedule pass
   // from GC V1.
   pm.addNestedPass<func::FuncOp>(
@@ -101,7 +101,6 @@ void populateMicroKernelPasses(mlir::PassManager &pm) {
 void populateCPURuntimePasses(mlir::PassManager &pm) {
   // + flatten nested parallel pass, down-stream pass, to support coarse-grain
   // fusion
-  pm.addNestedPass<func::FuncOp>(cpuruntime::createCPURuntimeAtExitToOmp());
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createConvertSCFToOpenMPPass());
 }
