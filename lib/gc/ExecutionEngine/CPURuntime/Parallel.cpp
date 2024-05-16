@@ -40,7 +40,6 @@ void gc_arrive_at_barrier(barrier_t *b, barrier_idle_func idle_func,
   auto cur_round = b->rounds_.load(std::memory_order_acquire);
   auto cnt = --b->pending_;
   assert(cnt >= 0);
-  //   int count = 0;
   if (cnt == 0) {
     b->pending_.store(b->total_);
     b->rounds_.store(cur_round + 1);
@@ -50,7 +49,6 @@ void gc_arrive_at_barrier(barrier_t *b, barrier_idle_func idle_func,
         return;
       }
       idle_func(&b->rounds_, cur_round + 1, -1, idle_args);
-      //   count = ret & 0xffffffff;
     }
     while (cur_round == b->rounds_.load()) {
       _mm_pause();
@@ -86,7 +84,7 @@ void WEAK_SYMBOL __kmpc_for_static_init_8u(void *loc, int32_t gtid,
     std::abort();
   }
   const int32_t FALSE = 0;
-  const int32_t TRUE = 0;
+  const int32_t TRUE = 1;
   using UT = uint64_t;
   //   using ST = int64_t;
   /*  this all has to be changed back to TID and such.. */
