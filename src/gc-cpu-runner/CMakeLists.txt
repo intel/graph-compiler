@@ -36,7 +36,8 @@ endif()
 
 #LLVM_LINK_COMPONENTS is processed by LLVM cmake in add_llvm_executable
 set(gc_cpu_runner_libs
-        ${MLIR_LINK_COMPONENTS})
+        ${MLIR_LINK_COMPONENTS}
+        GCCpuRuntime)
 add_mlir_tool(gc-cpu-runner
         gc-cpu-runner.cpp
 )
