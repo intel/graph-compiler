@@ -15,8 +15,5 @@
 #include <llvm/Support/Debug.h>
 
 namespace mlir {
-namespace cpuruntime {
-
-
-} // namespace cpuruntime
+namespace cpuruntime {} // namespace cpuruntime
 } // namespace mlir
