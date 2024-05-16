@@ -1,24 +1,63 @@
 name: Graph Compiler Style Check
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
 
 permissions: read-all
 
 jobs:
-  build:
+  format-check:
     name: Style Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: 'graph-compiler'
+          fetch-depth: 0
+          submodules: true
 
-      - name: Check
+      - name: Fetch code formatting utils
+        uses: actions/checkout@v4
+        with:
+          repository: 'llvm/llvm-project'
+          ref: 'main'
+          sparse-checkout: |
+            llvm/utils/git/requirements_formatting.txt
+            llvm/utils/git/code-format-helper.py
+            clang/tools/clang-format/git-clang-format
+            .clang-format
+          sparse-checkout-cone-mode: false
+          path: llvm-project
+
+      - name: Get merge base
         run: |
-          clang-format --version
-          find . -name *.cpp -or -name *.hpp  | xargs clang-format --dry-run --Werror -style=file
+          cd graph-compiler
+          echo "MERGE_BASE=`git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}`" >> $GITHUB_ENV
+
+      - name: Get changed files
+        run: |
+          cd graph-compiler
+          echo "CHANGED_FILES=`git diff --name-only $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd,`" >> $GITHUB_ENV
+
+      - name: Prepare Environment
+        shell: bash
+        run: |
+          python3 -m pip install -r llvm-project/llvm/utils/git/requirements_formatting.txt
+          echo "CLANG_FORMAT_PATH=../llvm-project/clang/tools/clang-format/git-clang-format" >> $GITHUB_ENV
+      
+      - name: Perform format check
+        shell: bash
+        run: |
+          cd graph-compiler
+          PATH=./:$PATH python3 ../llvm-project/llvm/utils/git/code-format-helper.py \
+            --repo ${{ github.repository }} \
+            --issue-number ${{ github.event.pull_request.number }} \
+            --token ${{ github.token }} \
+            --start-rev $MERGE_BASE \
+            --end-rev ${{ github.event.pull_request.head.sha }} \
+            --changed-files "$CHANGED_FILES"
