@@ -1,5 +1,4 @@
 add_mlir_dialect_library(MLIRCPURuntimeTransforms
-        CPURuntimePasses.cpp
         CPURuntimeToLLVM.cpp
 
         ADDITIONAL_HEADER_DIRS
