@@ -30,19 +30,19 @@ namespace {
 class TileLinalg : public mlir::gc::impl::TileLinalgNamedBase<TileLinalg> {
 
   void runOnOperation() override {
-    auto *ctx = &getContext();
-    IRRewriter rewriter(ctx);
+auto *ctx = &getContext();
+IRRewriter rewriter(ctx);
 
-    llvm::SmallVector<Operation *> to_tile;
-    for (Operation &o : getOperation()->getRegion(0).front().getOperations()) {
-      if (isa<linalg::MatmulOp>(o)) {
-        to_tile.push_back(&o);
-      }
-    }
+llvm::SmallVector<Operation *> to_tile;
+for (Operation &o : getOperation()->getRegion(0).front().getOperations()) {
+  if (isa<linalg::MatmulOp>(o)) {
+    to_tile.push_back(&o);
+  }
+}
 
-    for (Operation *o : to_tile) {
-      llvm::errs() << "func op body to tile: " << *o << "\n";
-    }
+for (Operation *o : to_tile) {
+                                                                              llvm::errs() << "func op body to tile: " << *o << "\n";
+}
   }
 };
 
