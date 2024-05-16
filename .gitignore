@@ -1,4 +1,5 @@
 .*/
 !.github/
 build/
+externals/
 compile_commands.json
