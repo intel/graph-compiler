@@ -1,5 +1,5 @@
 # Graph Compiler
-Graph Compiler is a MLIR-based compiler for AI workloads. It accepts an AI computation graph from the frontend and generates the executables of it, as an end-to-end solution for AI program optimizations, code generation and runtime execution.
+Graph Compiler is an MLIR-based compiler for AI workloads. It accepts an AI computation graph from the frontend and generates the executables of it, as an end-to-end solution for AI program optimizations, code generation and runtime execution.
 
 The current frontend for Graph Compiler is [oneDNN Graph API](https://oneapi-src.github.io/oneDNN/graph_extension.html).
 
