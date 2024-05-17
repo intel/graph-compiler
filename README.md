@@ -1,9 +1,15 @@
 # Graph Compiler
-Graph Compiler is in active development stage.
+Graph Compiler is a MLIR-based compiler for AI workloads. It accepts an AI computation graph from the frontend and generates the executables of it, as an end-to-end solution for AI program optimizations, code generation and runtime execution.
+
+The current frontend for Graph Compiler is [oneDNN Graph API](https://oneapi-src.github.io/oneDNN/graph_extension.html).
 
 ## Build instructions
 
-All-in-one compile script is at `scripts/compile.sh`.
+### All-in-one compile script
+
+It is recommended for the users to use the all-in-one compile script at `scripts/compile.sh`. It downloads the LLVM dependency and builds the project.
+
+### Step-by-step build intructions
 
 To build this project step by step, first you need to find the LLVM commit-id we are using at `cmake/llvm-version.txt`. Then clone specific version of LLVM:
 
