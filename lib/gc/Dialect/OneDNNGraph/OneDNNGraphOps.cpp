@@ -23,9 +23,9 @@ LogicalResult onednn_graph::AddOp::inferReturnTypeComponents(
     OpaqueProperties properties, RegionRange regions,
     SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
   llvm::SmallVector<int64_t> outShape;
-  auto resultTy = dyn_cast<TensorType>(operands.front().getType());
+  auto resultTy = dyn_cast<ShapedType>(operands.front().getType());
   auto getShapeIdx = [&operands](size_t i) {
-    return operands.getTypes()[i].dyn_cast<TensorType>().getShape();
+    return operands.getTypes()[i].dyn_cast<ShapedType>().getShape();
   };
 
   auto ret = OpTrait::util::getBroadcastedShape(getShapeIdx(0), getShapeIdx(1),
@@ -134,7 +134,7 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
     SmallVector<int64_t> resultShape;
     if (!biasRankMatch ||
         !OpTrait::util::getBroadcastedShape(
-            retShape.getDims(), biasType.dyn_cast<TensorType>().getShape(),
+            retShape.getDims(), biasType.dyn_cast<ShapedType>().getShape(),
             resultShape)) {
       return failure();
     }
