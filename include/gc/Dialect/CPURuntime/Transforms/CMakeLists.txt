@@ -1,0 +1,5 @@
+set(LLVM_TARGET_DEFINITIONS CPURuntimePasses.td)
+mlir_tablegen(CPURuntimePasses.h.inc --gen-pass-decls -name CPURuntime)
+mlir_tablegen(CPURuntimePasses.capi.h.inc -gen-pass-capi-header --prefix CPURuntime)
+mlir_tablegen(CPURuntimePasses.capi.cpp.inc -gen-pass-capi-impl --prefix CPURuntime)
+add_public_tablegen_target(MLIRCPURuntimePassesIncGen)
