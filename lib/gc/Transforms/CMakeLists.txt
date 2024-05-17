@@ -13,6 +13,8 @@ add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   TileNamed.cpp
+  AnyTilableFusion.cpp
+  TilingUsingInterfaceX.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include
