@@ -107,7 +107,11 @@ def Linalgx_SigmoidOp : LinalgxStructuredBase_Op<"sigmoid",
 def Linalgx_Mmt2DVnniOp 
     : LinalgxStructuredBase_Op<"mmt2d_vnni", [AttrSizedOperandSegments]> {
   let summary = "Transposed matmul with 2d input and vnni packed weights";
-  let description = [{Supported format: MN * NKknv -> MK, v=1,2,4}];
+  let description = [{
+    Supported format: A[M, N] * B[N0, K0, k, n, v] -> C[M, K], with:
+      N = N0 * n
+      K = K0 * k * v; v = (1, 2, 4)
+  }];
   let arguments = (ins
       Variadic<TensorOrMemref>:$inputs,
       Variadic<TensorOrMemref>:$outputs);
@@ -157,7 +161,10 @@ def Linalgx_Mmt2DVnniOp
 def Linalgx_Mmt4DVnniOp 
     : LinalgxStructuredBase_Op<"mmt4d_vnni", [AttrSizedOperandSegments]> {
   let summary = "Transposed matmul with 4d blocking input and vnni packed weights";
-  let description = [{Supported format: MNmn * NKknv -> MKmk, v=1,2,4}];
+  let description = [{
+    Supported format: A[M, N, m, n] * B[N, K, k0, n, v] -> C[M, K, m, k], with:
+      k = k0 * v; v = (1, 2, 4)
+  }];
   let arguments = (ins
       Variadic<TensorOrMemref>:$inputs,
       Variadic<TensorOrMemref>:$outputs);
