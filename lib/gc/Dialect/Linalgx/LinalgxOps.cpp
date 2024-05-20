@@ -270,17 +270,14 @@ ArrayAttr Mmt4DVnniOp::getIndexingMaps() {
                      .getValue());
   maps.back() = simplifyAffineMap(
       maps.back().replaceDimsAndSymbols({}, symbolBindings, 7, 0));
-  llvm::errs() << maps.back() << "\n";
   maps.push_back(llvm::cast<AffineMapAttr>(mlir::parseAttribute(mapB, context))
                      .getValue());
   maps.back() = simplifyAffineMap(
       maps.back().replaceDimsAndSymbols({}, symbolBindings, 7, 0));
-  llvm::errs() << maps.back() << "\n";
   maps.push_back(llvm::cast<AffineMapAttr>(mlir::parseAttribute(mapC, context))
                      .getValue());
   maps.back() = simplifyAffineMap(
       maps.back().replaceDimsAndSymbols({}, symbolBindings, 7, 0));
-  llvm::errs() << maps.back() << "\n";
   cached = Builder(context).getAffineMapArrayAttr(maps);
   getOperation()->setAttr(memoizeAttr, cached);
   return cached;
@@ -392,7 +389,7 @@ ArrayAttr MultiBatchMatmulOp::getIndexingMaps() {
   int64_t symbols = getRank(getDpsInitOperand(0)) + 1;
   int64_t batches = getRank(getDpsInitOperand(0)) - 2;
   MLIRContext *context = getContext();
-  //
+  // Get affine_map with specified mat dims
   auto getBatchMMAffineMap = [&](int64_t mat1, int64_t mat2) {
     SmallVector<AffineExpr> exprs;
     // batch dims
@@ -405,7 +402,6 @@ ArrayAttr MultiBatchMatmulOp::getIndexingMaps() {
     exprs.push_back(getAffineDimExpr(mat2, context));
     return AffineMap::get(symbols, symbols, exprs, context);
   };
-  //
   auto symbolBindings = getSymbolBindings(*this);
   SmallVector<AffineMap> maps;
   maps.push_back(getBatchMMAffineMap(batches + 0, batches + 2));
