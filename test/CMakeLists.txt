@@ -37,7 +37,7 @@ set(GC_OPT_TEST_DEPENDS
         )
 
 if(MLIR_ENABLE_BINDINGS_PYTHON)
-        list(APPEND GC_TEST_DEPENDS GcPythonModules)
+        list(APPEND GC_OPT_TEST_DEPENDS GcPythonModules)
 endif()
 
 add_lit_testsuite(gc-check "Running the regression tests"
