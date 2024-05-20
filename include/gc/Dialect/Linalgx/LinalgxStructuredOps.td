@@ -104,4 +104,152 @@ def Linalgx_SigmoidOp : LinalgxStructuredBase_Op<"sigmoid",
   }];
 }
 
+def Linalgx_Mmt2DVnniOp 
+    : LinalgxStructuredBase_Op<"mmt2d_vnni", [AttrSizedOperandSegments]> {
+  let summary = "transpose matmul with 2d input and vnni packed weights";
+  let description = [{Supported format: MN * NKknv -> MK, v=1,2,4}];
+  let arguments = (ins
+      Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$outputs);
+  let results = (outs Variadic<TensorOrMemref>:$results);
+  let regions = (region AnyRegion:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+      OpBuilder<
+      (ins 
+        "TypeRange":$resultTensorTypes, 
+        "ValueRange":$inputs,
+        "ValueRange":$outputs,
+        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+      [{
+        buildStructuredOp($_builder, $_state, resultTensorTypes,
+          inputs, outputs, attributes, Mmt2DVnniOp::getRegionBuilder());
+      }]>
+  ];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasFolder = 1;
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = structuredOpsBaseDecls # [{
+    // Declare functions necessary for LinalgStructuredInterface.
+    SmallVector<utils::IteratorType> getIteratorTypesArray();
+    ArrayAttr getIndexingMaps();
+    static unsigned getNumRegionArgs() { return 3; }
+    std::string getLibraryCallName() {
+      return "op_has_no_registered_library_name";
+    }
+
+    // Implement functions necessary for DestinationStyleOpInterface.
+    MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+    static void regionBuilder(ImplicitLocOpBuilder &b,
+                              Block &block, ArrayRef<NamedAttribute> attrs);
+    static std::function<void(ImplicitLocOpBuilder &,
+                              Block &, ArrayRef<NamedAttribute>)>
+    getRegionBuilder() {
+      return regionBuilder;
+    }
+  }];
+}
+
+def Linalgx_Mmt4DVnniOp 
+    : LinalgxStructuredBase_Op<"mmt4d_vnni", [AttrSizedOperandSegments]> {
+  let summary = "transpose matmul with 4d blocking input and vnni packed weights";
+  let description = [{Supported format: MNmn * NKknv -> MKmk, v=1,2,4}];
+  let arguments = (ins
+      Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$outputs);
+  let results = (outs Variadic<TensorOrMemref>:$results);
+  let regions = (region AnyRegion:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+      OpBuilder<
+      (ins 
+        "TypeRange":$resultTensorTypes, 
+        "ValueRange":$inputs,
+        "ValueRange":$outputs,
+        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+      [{
+        buildStructuredOp($_builder, $_state, resultTensorTypes,
+          inputs, outputs, attributes, Mmt4DVnniOp::getRegionBuilder());
+      }]>
+  ];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasFolder = 1;
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = structuredOpsBaseDecls # [{
+    // Declare functions necessary for LinalgStructuredInterface.
+    SmallVector<utils::IteratorType> getIteratorTypesArray();
+    ArrayAttr getIndexingMaps();
+    static unsigned getNumRegionArgs() { return 3; }
+    std::string getLibraryCallName() {
+      return "op_has_no_registered_library_name";
+    }
+
+    // Implement functions necessary for DestinationStyleOpInterface.
+    MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+    static void regionBuilder(ImplicitLocOpBuilder &b,
+                              Block &block, ArrayRef<NamedAttribute> attrs);
+    static std::function<void(ImplicitLocOpBuilder &,
+                              Block &, ArrayRef<NamedAttribute>)>
+    getRegionBuilder() {
+      return regionBuilder;
+    }
+  }];
+}
+
+def Linalgx_MultiBatchMatmulOp : LinalgxStructuredBase_Op<"multi_batch_matmul", 
+      [AttrSizedOperandSegments, LinalgContractionOpInterface]> {
+  let summary = "batch matmul with variable batch dims";
+  let arguments = (ins
+      Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$outputs);
+  let results = (outs Variadic<TensorOrMemref>:$results);
+  let regions = (region AnyRegion:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+      OpBuilder<
+      (ins 
+        "TypeRange":$resultTensorTypes, 
+        "ValueRange":$inputs,
+        "ValueRange":$outputs,
+        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+      [{
+        buildStructuredOp($_builder, $_state, resultTensorTypes,
+          inputs, outputs, attributes, MultiBatchMatmulOp::getRegionBuilder());
+      }]>
+  ];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasFolder = 1;
+
+  let extraClassDeclaration = structuredOpsBaseDecls # [{
+    // Declare functions necessary for LinalgStructuredInterface.
+    SmallVector<utils::IteratorType> getIteratorTypesArray();
+    ArrayAttr getIndexingMaps();
+    static unsigned getNumRegionArgs() { return 3; }
+    std::string getLibraryCallName() {
+      return "op_has_no_registered_library_name";
+    }
+
+    // Implement functions necessary for DestinationStyleOpInterface.
+    MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+    static void regionBuilder(ImplicitLocOpBuilder &b,
+                              Block &block, ArrayRef<NamedAttribute> attrs);
+    static std::function<void(ImplicitLocOpBuilder &,
+                              Block &, ArrayRef<NamedAttribute>)>
+    getRegionBuilder() {
+      return regionBuilder;
+    }
+  }];
+}
+
 #endif // LINALGX_STRUCTURED_OPS
