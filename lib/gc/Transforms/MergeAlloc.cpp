@@ -1,6 +1,6 @@
 //===- MergeAlloc.cpp - Calling convention conversion ---------------------===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -9,10 +9,12 @@
 #include "gc/Transforms/Passes.h"
 #include "gc/Transforms/StaticMemoryPlanning.h"
 
+#include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -53,20 +55,12 @@ struct Tick {
   }
 };
 
-TypedValue<MemRefType> getMemrefBase(TypedValue<MemRefType> v) {
-  auto op = v.getDefiningOp();
-  if (auto viewop = dyn_cast_if_present<ViewLikeOpInterface>(op)) {
-    return getMemrefBase(cast<TypedValue<MemRefType>>(viewop.getViewSource()));
-  }
-  return v;
-}
-
 bool isMergeableAlloc(Operation *op, int64_t tick) {
   if (tick == COMPLEX_ACCESS) {
     return false;
   }
   if (!hasStaticIdentityLayout(
-          op->getResultTypes().front().cast<MemRefType>())) {
+          cast<MemRefType>(op->getResultTypes().front()))) {
     return false;
   }
   // currently only support alignment: none, 1, 2, 4, 8, 16, 32, 64
@@ -93,7 +87,7 @@ Operation *getAllocScope(Operation *op) {
 }
 
 FailureOr<size_t> getAllocSize(Operation *op) {
-  auto refType = op->getResultTypes().front().cast<MemRefType>();
+  auto refType = cast<MemRefType>(op->getResultTypes().front());
   int64_t size = refType.getElementTypeBitWidth() / 8;
   // treat bool (i1) as 1 byte. It may not be true for all targets, but we at
   // least have a large enough size for i1
@@ -117,11 +111,30 @@ struct ComplexScope {
   llvm::SmallPtrSet<Operation *, 8> operations;
   ComplexScope(Operation *scope, int64_t startTick)
       : scope{scope}, startTick{startTick} {}
+  // returns true of an allocation either is not defined in the scope, or the
+  // allocation escapes from the scope
+  bool needsResetTick(Operation *scope, Operation *allocation,
+                      const mlir::BufferViewFlowAnalysis &aliasAnaly) const {
+    // if the allocation is not in the scope, conservatively set the ticks
+    if (!scope->isProperAncestor(allocation)) {
+      return true;
+    }
+    // if the allocation and its alias are used outside of the scope
+    for (auto &&alias : aliasAnaly.resolve(allocation->getResult(0))) {
+      for (auto &&userOp : alias.getUsers()) {
+        if (!scope->isProperAncestor(userOp) && !isMemoryEffectFree(userOp)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // called when walk() runs outside of the scope
-  void onPop(int64_t endTick, llvm::DenseMap<Operation *, Tick> &allocTicks) {
+  void onPop(int64_t endTick, const mlir::BufferViewFlowAnalysis &aliasAnaly,
+             llvm::DenseMap<Operation *, Tick> &allocTicks) {
     for (auto op : operations) {
-      // if the allocation is not in the scope, conservatively set the ticks
-      if (!scope->isProperAncestor(op)) {
+      if (needsResetTick(scope, op, aliasAnaly)) {
         // let all referenced buffers have overlapped lifetime
         auto &tick = allocTicks[op];
         tick.access(startTick);
@@ -132,16 +145,18 @@ struct ComplexScope {
 };
 
 struct TickCollecter {
+  const mlir::BufferViewFlowAnalysis &aliasAnaly;
   int64_t curTick = 0;
   llvm::DenseMap<Operation *, Tick> allocTicks;
   llvm::SmallVector<ComplexScope> complexScopeStack;
-
+  TickCollecter(const mlir::BufferViewFlowAnalysis &aliasAnaly)
+      : aliasAnaly{aliasAnaly} {}
   void popScopeIfNecessary(Operation *op) {
     // first check if we have walked outside of the previous ComplexScope
     while (!complexScopeStack.empty()) {
       auto &scope = complexScopeStack.back();
       if (!op || !scope.scope->isProperAncestor(op)) {
-        scope.onPop(curTick, allocTicks);
+        scope.onPop(curTick, aliasAnaly, allocTicks);
         complexScopeStack.pop_back();
       } else {
         break;
@@ -152,13 +167,14 @@ struct TickCollecter {
   void forwardTick() { curTick++; }
 
   void accessValue(Value v, bool complex) {
-    if (v.getType().isa<MemRefType>()) {
-      auto base = getMemrefBase(llvm::cast<TypedValue<MemRefType>>(v));
-      auto defop = base.getDefiningOp();
-      if (isa_and_present<memref::AllocOp>(defop)) {
-        allocTicks[defop].access(complex ? COMPLEX_ACCESS : curTick);
-        if (!complexScopeStack.empty()) {
-          complexScopeStack.back().operations.insert(defop);
+    if (auto refv = dyn_cast<TypedValue<MemRefType>>(v)) {
+      for (auto &&base : aliasAnaly.resolveReverse(refv)) {
+        auto defop = base.getDefiningOp();
+        if (isa_and_present<memref::AllocOp>(defop)) {
+          allocTicks[defop].access(complex ? COMPLEX_ACCESS : curTick);
+          if (!complexScopeStack.empty()) {
+            complexScopeStack.back().operations.insert(defop);
+          }
         }
       }
     }
@@ -175,8 +191,9 @@ struct TickCollecter {
   }
 
   void onReturnOp(Operation *op) {
+    bool isTopLevel = isa<func::FuncOp>(op->getParentOp());
     for (auto val : op->getOperands()) {
-      accessValue(val, true);
+      accessValue(val, isTopLevel);
     }
   }
 
@@ -237,8 +254,10 @@ struct TickCollecter {
 } // namespace
 
 FailureOr<mlir::gc::memoryplan::ScopeTraceData>
-collectMemoryTrace(Operation *root, bool markOnly) {
-  TickCollecter collecter;
+collectMemoryTrace(Operation *root,
+                   const mlir::BufferViewFlowAnalysis &aliasAnaly,
+                   bool markOnly) {
+  TickCollecter collecter{aliasAnaly};
   root->walk<WalkOrder::PreOrder>([&](Operation *op) {
     collecter.popScopeIfNecessary(op);
     collecter.forwardTick();
@@ -246,7 +265,8 @@ collectMemoryTrace(Operation *root, bool markOnly) {
       collecter.onMemrefViews(viewop);
     } else if (op->hasTrait<OpTrait::ReturnLike>()) {
       collecter.onReturnOp(op);
-    } else {
+    } else if (!isMemoryEffectFree(op)) {
+      // if the op has no memory effects, it don't contribute to liveness
       collecter.onGeneralOp(op);
     }
     // finally, if op is complex scope, push one ComplexScope
@@ -281,7 +301,9 @@ struct MergeAllocPass : mlir::gc::impl::MergeAllocBase<MergeAllocPass> {
   using parent = mlir::gc::impl::MergeAllocBase<MergeAllocPass>;
   void runOnOperation() override {
     auto op = getOperation();
-    auto tracesOrFail = mlir::gc::collectMemoryTrace(op, this->optionCheck);
+    mlir::BufferViewFlowAnalysis aliasAnaly{op};
+    auto tracesOrFail =
+        mlir::gc::collectMemoryTrace(op, aliasAnaly, this->optionCheck);
     if (failed(tracesOrFail)) {
       signalPassFailure();
       return;

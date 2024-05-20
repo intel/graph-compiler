@@ -75,3 +75,55 @@ func.func @basic2() {
   "test.source"(%c)  : (memref<8x64xi8>) -> ()
   return
 }
+
+// check that the operations without memory effects do not contribute to the lifetime of the buffer
+// CHECK-DAG: func.func @no_mem_effect() attributes {__mergealloc_scope = [[TOPSCOPE3:[0-9]+]]
+func.func @no_mem_effect() {
+  // CHECK: %[[B:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE3]], 4, 4>}
+  %b = memref.alloc() : memref<8x64xi8>
+  %0 = memref.extract_aligned_pointer_as_index %b : memref<8x64xi8> -> index
+  "test.source"(%b)  : (memref<8x64xi8>) -> ()
+  return
+}
+
+// check that Alias Buffers' lifetimes work well
+// CHECK-DAG: func.func @alias_ref(%[[ARG0:.*]]: i1) attributes {__mergealloc_scope = [[TOPSCOPE4:[0-9]+]]
+func.func @alias_ref(%pred : i1) {
+  // CHECK: %[[A:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE4]], 5, 5>}
+  %a = memref.alloc() : memref<8x64xi8>
+  // CHECK: %[[B:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE4]], 5, 6>}
+  %b = memref.alloc() : memref<8x64xi8>
+  %c = arith.select %pred, %a, %b : i1, memref<8x64xi8>
+  "test.source"(%c)  : (memref<8x64xi8>) -> ()
+  "test.source"(%b)  : (memref<8x64xi8>) -> ()
+  return
+}
+
+// CHECK-DAG: func.func @escape_from_if()  attributes {__mergealloc_scope = [[TOPSCOPE5:[0-9]+]]
+func.func @escape_from_if() {
+  %ctrue = arith.constant 1 : i1
+  // check that f lives at the whole range of the following scf.if 
+  // CHECK-DAG: %[[F:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE5]], 4, 13>}
+  %f = memref.alloc() : memref<8x64xf32>
+  // tick of the scf.if starts from 4 and ends at 14
+  // CHECK: scf.if
+  %c = scf.if %ctrue -> memref<8x64xf32> {
+    "test.source"(%f)  : (memref<8x64xf32>) -> ()
+    // CHECK-DAG: %[[G:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE5]], 4, 14>}
+    %g = memref.alloc() : memref<8x64xf32>
+    "test.source"(%g)  : (memref<8x64xf32>) -> ()
+    scf.yield %g : memref<8x64xf32>
+  } else {
+    // h fully overlaps with g
+    // CHECK-DAG: %[[H:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE5]], 4, 14>}
+    %h = memref.alloc() : memref<8x64xf32>
+    "test.source"(%h)  : (memref<8x64xf32>) -> ()
+    // J only used in the scf.if, don't need conservative lifetime
+    // CHECK-DAG: %[[J:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE5]], 12, 12>}
+    %j = memref.alloc() : memref<8x64xf32>
+    "test.source"(%j)  : (memref<8x64xf32>) -> ()
+    scf.yield %h : memref<8x64xf32>
+  }
+  "test.source"(%c)  : (memref<8x64xf32>) -> ()
+  return
+}
