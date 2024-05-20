@@ -9,12 +9,27 @@
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Parser/Parser.h"
+
 using namespace mlir;
 using namespace mlir::linalgx;
+
+#include "gc/Dialect/Linalgx/LinalgxOpsDialect.cpp.inc"
 
 void LinalgxDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "gc/Dialect/Linalgx/LinalgxOps.cpp.inc"
+      >();
+  addOperations<
+#define GET_OP_LIST
+#include "gc/Dialect/Linalgx/LinalgxStructuredOps.cpp.inc"
       >();
 }
