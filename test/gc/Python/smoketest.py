@@ -35,3 +35,25 @@ def testCreatetOp():
                 result = onednn_graph.AddOp(arg0, arg1).result
                 func.ReturnOp([result])
         print(module)
+
+
+# CHECK-LABEL: TEST: testPassManager
+@run
+def testPassManager():
+    with Context():
+        onednn_graph.register_dialect()
+        module = Module.parse(
+            """
+            // CHECK: [[C0:%.+]] = arith.constant 0
+            // CHECK: [[INIT:%.+]] = tensor.empty()
+            // CHECK: [[FILLED:%.+]] = linalg.fill ins([[C0]] : bf16) outs([[INIT]] : tensor<128x256xbf16>) -> tensor<128x256xbf16>
+            // CHECK: linalg.matmul ins(%arg0, %arg1 : tensor<128x512xbf16>, tensor<512x256xbf16>) outs([[FILLED]] : tensor<128x256xbf16>) -> tensor<128x256xbf16>
+            func.func @matmul(%arg0: tensor<128x512xbf16>, %arg1: tensor<512x256xbf16>) -> tensor<128x256xbf16> {
+                %0 = onednn_graph.matmul %arg0, %arg1 : (tensor<128x512xbf16>, tensor<512x256xbf16>) -> tensor<128x256xbf16>
+                return %0 : tensor<128x256xbf16>
+            }
+            """
+        )
+        pm = PassManager.parse("builtin.module(convert-onednn-graph-to-linalg)")
+        pm.run(module.operation)
+        print(module)
