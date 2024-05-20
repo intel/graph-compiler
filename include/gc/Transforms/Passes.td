@@ -11,12 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
-  let summary = "Tile linalg named operations.";
-  let dependentDialects =
-      ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
-}
-
 #ifdef GC_HAS_ONEDNN_DIALECT
 def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   let summary =
@@ -71,6 +65,18 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
            "Decide if enable cost model to control iterative fusion.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
            "Set default TileSize for the certain type of op, saying `matmul:{32,32}`">,
+    ];
+}
+def DeepTileContractionNamedOp
+    : Pass<"deep-tile-contraction-named-op", "func::FuncOp"> {
+  let summary = "Tile linalg contraction named operation deeply";
+  let description =
+      [{The pass tries to tile the linalg contraction named op deeply.}];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "arith::ArithDialect",
+    "tensor::TensorDialect",
+    "linalg::LinalgDialect",
   ];
 }
 
