@@ -200,12 +200,11 @@ LogicalResult Mmt2DVnniOp::verify() {
   // check rank
   auto hasRank = shapeA.hasRank() && shapeB.hasRank() && shapeC.hasRank();
   if (!hasRank)
-    return failure();
+    return emitOpError() << "input/output must have rank.";
   auto checkRank = (shapeA.getRank() == 2) && (shapeB.getRank() == 5) &&
                    (shapeC.getRank() == 2);
-  if (!checkRank) {
-    return failure();
-  }
+  if (!checkRank)
+    return emitOpError() << "not supported input/output shape.";
   // match M, N, K dims
   bool matchM = shapeA.getDimSize(0) == shapeC.getDimSize(0);
   bool matchN =
@@ -217,7 +216,7 @@ LogicalResult Mmt2DVnniOp::verify() {
                    (shapeB.getDimSize(4) == 4);
   bool result = matchM && matchN && matchK && matchVnni;
   if (!result)
-    return failure();
+    return emitOpError() << "input/output dims packing not match.";
   return success();
 }
 
@@ -336,12 +335,11 @@ LogicalResult Mmt4DVnniOp::verify() {
   // check rank
   auto hasRank = shapeA.hasRank() && shapeB.hasRank() && shapeC.hasRank();
   if (!hasRank)
-    return failure();
+    return emitOpError() << "input/output must have rank.";
   auto checkRank = (shapeA.getRank() == 4) && (shapeB.getRank() == 5) &&
                    (shapeC.getRank() == 4);
-  if (!checkRank) {
-    return failure();
-  }
+  if (!checkRank)
+    return emitOpError() << "not supported input/output shape.";
   // match M0, M1, N0, N1, K0, K dims
   bool matchM0 = shapeA.getDimSize(0) == shapeC.getDimSize(0);
   bool matchM1 = shapeA.getDimSize(2) == shapeC.getDimSize(2);
@@ -355,7 +353,7 @@ LogicalResult Mmt4DVnniOp::verify() {
   bool result = matchM0 && matchM1 && matchN0 && matchN1 && matchK0 && matchK &&
                 matchVnni;
   if (!result)
-    return failure();
+    return emitOpError() << "input/output dims packing not match.";
   return success();
 }
 
