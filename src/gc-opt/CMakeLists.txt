@@ -15,7 +15,7 @@ endif()
 set(gc_opt_libs 
         ${dialect_libs}
         ${conversion_libs} 
-        ${MLIR_LINK_COMPONENTS} 
+        ${MLIR_LINK_COMPONENTS}
         GCPasses)
 
 if(GC_MLIR_CXX_FLAGS)
