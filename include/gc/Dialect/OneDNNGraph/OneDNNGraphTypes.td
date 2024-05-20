@@ -11,7 +11,7 @@
 
 include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/AttrTypeBase.td"
-include "OneDNNGraphDialect.td"
+include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.td"
 
 //===----------------------------------------------------------------------===//
 // OneDNNGraph type definitions

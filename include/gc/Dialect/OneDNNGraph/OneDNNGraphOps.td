@@ -14,8 +14,8 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
-include "OneDNNGraphDialect.td"
-include "OneDNNGraphTypes.td"
+include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.td"
+include "gc/Dialect/OneDNNGraph/OneDNNGraphTypes.td"
 
 //===----------------------------------------------------------------------===//
 // Base OneDNNGraph operation definition.

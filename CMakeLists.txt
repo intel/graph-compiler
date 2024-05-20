@@ -33,6 +33,11 @@ include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
+if(MLIR_ENABLE_BINDINGS_PYTHON)
+  include(MLIRDetectPythonEnv)
+  mlir_configure_python_dev_packages()
+endif()
+
 include_directories(
         ${LLVM_INCLUDE_DIRS}
         ${MLIR_INCLUDE_DIRS}
@@ -61,6 +66,10 @@ include("cmake/version.cmake")
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
+if(MLIR_ENABLE_BINDINGS_PYTHON)
+  message(STATUS "Enabling Python API")
+  add_subdirectory(python)
+endif()
 
 set(GC_LIB_LINKED_LIBS
         MLIRLinalgx
