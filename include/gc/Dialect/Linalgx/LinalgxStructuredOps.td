@@ -57,7 +57,8 @@ def TensorOrMemref :
 
 def Linalgx_SigmoidOp : LinalgxStructuredBase_Op<"sigmoid", 
       [AttrSizedOperandSegments]> {
-  let summary = "batch matmul with variable batch dims";
+  let summary = [{Applies sigmoid(x) elementwise.}];
+  let description = [{No numeric casting is performed on the input operand.}];
   let arguments = (ins
       Variadic<TensorOrMemref>:$inputs,
       Variadic<TensorOrMemref>:$outputs);
