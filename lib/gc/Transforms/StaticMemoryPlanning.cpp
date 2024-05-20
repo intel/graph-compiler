@@ -306,10 +306,7 @@ struct memory_state {
     // if the old memory chunk is based on a offset of the base tensor
     // and we require that we should use zero offset on that tensor, we
     // cannot reuse it
-    if (old_is_split && info->second == inplace_kind::ZERO_OFFSET) {
-      return false;
-    }
-    return true;
+    return !(old_is_split && info->second == inplace_kind::ZERO_OFFSET);
   }
 
   // find the range of chunks in cur_chunks_ that can be merged for inplace
