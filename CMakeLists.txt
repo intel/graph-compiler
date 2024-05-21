@@ -52,7 +52,7 @@ include(AddMLIR)
 include(HandleLLVMOptions)
 
 if(GC_ENABLE_BINDINGS_PYTHON AND NOT MLIR_ENABLE_BINDINGS_PYTHON)
-  message(STATUS "Enabling Python API failed due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
+  message(STATUS "Failed to enable Python API due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
   set(GC_ENABLE_BINDINGS_PYTHON OFF CACHE BOOL "" FORCE)
 endif()
 
