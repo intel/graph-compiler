@@ -108,7 +108,7 @@ def Linalgx_Mmt2DVnniOp
     : LinalgxStructuredBase_Op<"mmt2d_vnni", [AttrSizedOperandSegments]> {
   let summary = "Transposed matmul with 2d input and vnni packed weights";
   let description = [{
-    Supported format: A[M, N] * B[N0, K0, k, n, v] -> C[M, K], with:
+    Supported format: A[M, K] * B[N0, K0, k, n, v] -> C[M, N], with:
       N = N0 * n
       K = K0 * k * v; v = (1, 2, 4)
   }];
@@ -162,7 +162,7 @@ def Linalgx_Mmt4DVnniOp
     : LinalgxStructuredBase_Op<"mmt4d_vnni", [AttrSizedOperandSegments]> {
   let summary = "Transposed matmul with 4d blocking input and vnni packed weights";
   let description = [{
-    Supported format: A[M, N, m, n] * B[N, K, k0, n, v] -> C[M, K, m, k], with:
+    Supported format: A[M, K, m, k] * B[N, K, k0, n, v] -> C[M, N, m, n], with:
       k = k0 * v; v = (1, 2, 4)
   }];
   let arguments = (ins
