@@ -12,7 +12,7 @@ target_include_directories(graph_compiler_static PUBLIC ${GC_LIB_INCLUDES})
 add_subdirectory(dnnl)
 
 llvm_canonicalize_cmake_booleans(
-        MLIR_ENABLE_BINDINGS_PYTHON
+        GC_ENABLE_BINDINGS_PYTHON
 )
 configure_lit_site_cfg(
         ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
@@ -36,7 +36,7 @@ set(GC_OPT_TEST_DEPENDS
         GCUnitTests
         )
 
-if(MLIR_ENABLE_BINDINGS_PYTHON)
+if(GC_ENABLE_BINDINGS_PYTHON)
         list(APPEND GC_OPT_TEST_DEPENDS GcPythonModules)
 endif()
 
