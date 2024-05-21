@@ -89,7 +89,7 @@ void SigmoidOp::getEffects(
 SmallVector<utils::IteratorType> Mmt2DVnniOp::getIteratorTypesArray() {
   return SmallVector<utils::IteratorType>{
       utils::IteratorType::parallel,  utils::IteratorType::parallel,
-      utils::IteratorType::reduction, utils::IteratorType::reduction,
+      utils::IteratorType::parallel,  utils::IteratorType::reduction,
       utils::IteratorType::reduction, utils::IteratorType::reduction};
 }
 

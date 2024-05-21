@@ -40,7 +40,7 @@ func.func @generalize_mmt2d_vnni(%arg0: tensor<256x64xf32>, %arg1: tensor<16x2x8
 
 // CHECK: linalg.generic
 // CHECK-SAME: indexing_maps = [#[[MAP0]], #[[MAP1]], #[[MAP2]]]
-// CHECK-SAME: iterator_types =  ["parallel", "parallel", "reduction", "reduction", "reduction", "reduction"]
+// CHECK-SAME: iterator_types =  ["parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]
 // CHECK-SAME: ins(%{{.+}}, %{{.+}} : tensor<256x64xf32>, tensor<16x2x8x32x4xf32>)
 // CHECK-SAME: outs(%{{.+}} : tensor<256x512xf32>)
 
