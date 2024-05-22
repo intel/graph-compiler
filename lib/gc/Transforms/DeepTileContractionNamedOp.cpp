@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "./Tiling.hpp"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -262,19 +263,16 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPoint(currentOp);
       // TODO: add split reduction support here
-      //   if (auto partialInterface =
-      //           dyn_cast<PartialReductionOpInterface>(currentOp.getOperation()))
-      //           {
-      //     auto tilingResult = linalg::tileReductionUsingForall(
-      //         b, cast<PartialReductionOpInterface>(currentOp.getOperation()),
-      //         numThreads, tileSizes, std::nullopt);
-      //     if (failed(tilingResult))
-      //       return failure();
-      //     currentOp =
-      //     dyn_cast<linalg::LinalgOp>(tilingResult->parallelTiledOp);
-      //   } else
-      if (auto tilingInterface =
-              cast<TilingInterface>(currentOp.getOperation())) {
+      if (auto partialInterface =
+              dyn_cast<PartialReductionOpInterface>(currentOp.getOperation())) {
+        auto tilingResult = linalgX::tileAllUsingForall(
+            b, cast<PartialReductionOpInterface>(currentOp.getOperation()),
+            numThreads, tileSizes, std::nullopt);
+        if (failed(tilingResult))
+          return failure();
+        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->parallelTiledOp);
+      } else if (auto tilingInterface =
+                     cast<TilingInterface>(currentOp.getOperation())) {
         auto tilingResult = linalg::tileToForallOpUsingTileSizes(
             b, tilingInterface, tileSizes, std::nullopt);
         if (failed(tilingResult))
