@@ -7,22 +7,31 @@ func.func @sigmoid(%arg0: tensor<4x256x64xbf16>, %arg1: tensor<4x256x64xbf16>) -
   return %0 : tensor<4x256x64xbf16>
 }
 
-// CHECK-LABEL: @mmt2d_vnni
-func.func @mmt2d_vnni(%arg0: tensor<256x64xf32>, %arg1: tensor<16x2x8x32x4xf32>, 
+// CHECK-LABEL: @mm2d_vnni
+func.func @mm2d_vnni(%arg0: tensor<256x64xf32>, %arg1: tensor<16x2x8x32x4xf32>, 
                       %arg2: tensor<256x512xf32>) -> tensor<256x512xf32> {
-  // CHECK: linalgx.mmt2d_vnni
-  %0 = linalgx.mmt2d_vnni ins(%arg0, %arg1 : tensor<256x64xf32>, tensor<16x2x8x32x4xf32>) 
+  // CHECK: linalgx.mm2d_vnni
+  %0 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<256x64xf32>, tensor<16x2x8x32x4xf32>) 
                           outs(%arg2 : tensor<256x512xf32>) -> tensor<256x512xf32>
   return %0 : tensor<256x512xf32>
 }
 
-// CHECK-LABEL: @mmt4d_vnni
-func.func @mmt4d_vnni(%arg0: tensor<2x8x32x32xbf16>, %arg1: tensor<4x8x16x32x2xbf16>, 
+// CHECK-LABEL: @mm4d_vnni
+func.func @mm4d_vnni(%arg0: tensor<2x8x32x32xbf16>, %arg1: tensor<4x8x16x32x2xbf16>, 
                       %arg2: tensor<2x4x32x32xbf16>) -> tensor<2x4x32x32xbf16> {
-  // CHECK: linalgx.mmt4d_vnni
-  %0 = linalgx.mmt4d_vnni ins(%arg0, %arg1 : tensor<2x8x32x32xbf16>, tensor<4x8x16x32x2xbf16>) 
+  // CHECK: linalgx.mm4d_vnni
+  %0 = linalgx.mm4d_vnni ins(%arg0, %arg1 : tensor<2x8x32x32xbf16>, tensor<4x8x16x32x2xbf16>) 
                           outs(%arg2 : tensor<2x4x32x32xbf16>) -> tensor<2x4x32x32xbf16>
   return %0 : tensor<2x4x32x32xbf16>
+}
+
+// CHECK-LABEL: @batch_reduce_matmul_vnni
+func.func @batch_reduce_matmul_vnni(%arg0: tensor<512x32x64xbf16>, %arg1: tensor<512x16x128x4xbf16>, 
+                      %arg2: tensor<32x128xbf16>) -> tensor<32x128xbf16> {
+  // CHECK: linalgx.batch_reduce_matmul_vnni
+  %0 = linalgx.batch_reduce_matmul_vnni ins(%arg0, %arg1 : tensor<512x32x64xbf16>, tensor<512x16x128x4xbf16>) 
+                          outs(%arg2 : tensor<32x128xbf16>) -> tensor<32x128xbf16>
+  return %0 : tensor<32x128xbf16>
 }
 
 // CHECK-LABEL: @multi_batch_matmul

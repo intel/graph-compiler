@@ -83,17 +83,17 @@ void SigmoidOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// Mmt2DVnniOp
+// Mm2DVnniOp
 //===----------------------------------------------------------------------===//
 
-SmallVector<utils::IteratorType> Mmt2DVnniOp::getIteratorTypesArray() {
+SmallVector<utils::IteratorType> Mm2DVnniOp::getIteratorTypesArray() {
   return SmallVector<utils::IteratorType>{
       utils::IteratorType::parallel,  utils::IteratorType::parallel,
       utils::IteratorType::parallel,  utils::IteratorType::reduction,
       utils::IteratorType::reduction, utils::IteratorType::reduction};
 }
 
-static SmallVector<AffineExpr> getSymbolBindings(Mmt2DVnniOp self) {
+static SmallVector<AffineExpr> getSymbolBindings(Mm2DVnniOp self) {
   MLIRContext *context = self.getContext();
 
   auto vnniShape = ShapeAdaptor(self.getInputs()[1].getType());
@@ -115,7 +115,7 @@ static SmallVector<AffineExpr> getSymbolBindings(Mmt2DVnniOp self) {
   return exprs;
 }
 
-ArrayAttr Mmt2DVnniOp::getIndexingMaps() {
+ArrayAttr Mm2DVnniOp::getIndexingMaps() {
   static const char memoizeAttr[] = "linalg.memoized_indexing_maps";
   ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
   if (cached)
@@ -147,10 +147,10 @@ ArrayAttr Mmt2DVnniOp::getIndexingMaps() {
   return cached;
 }
 
-void Mmt2DVnniOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                ArrayRef<NamedAttribute> attrs) {
+void Mm2DVnniOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                               ArrayRef<NamedAttribute> attrs) {
   assert(3 > 0 && block.getNumArguments() == 3 &&
-         "Mmt2DVnniOp regionBuilder expects 3 (>=0) args");
+         "Mm2DVnniOp regionBuilder expects 3 (>=0) args");
   RegionBuilderHelper helper(b, block);
   SmallVector<Value> yields;
 
@@ -167,21 +167,21 @@ void Mmt2DVnniOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
   helper.yieldOutputs(yields);
 }
 
-ParseResult Mmt2DVnniOp::parse(OpAsmParser &parser, OperationState &result) {
+ParseResult Mm2DVnniOp::parse(OpAsmParser &parser, OperationState &result) {
   return ::parseNamedStructuredOp(parser, result,
-                                  Mmt2DVnniOp::getNumRegionArgs(),
-                                  Mmt2DVnniOp::getRegionBuilder());
+                                  Mm2DVnniOp::getNumRegionArgs(),
+                                  Mm2DVnniOp::getRegionBuilder());
 }
 
-void Mmt2DVnniOp::print(OpAsmPrinter &p) {
+void Mm2DVnniOp::print(OpAsmPrinter &p) {
   ::printNamedStructuredOp(p, getOperation(), getInputs(), getOutputs());
 }
 
-LogicalResult Mmt2DVnniOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+LogicalResult Mm2DVnniOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
   return memref::foldMemRefCast(*this);
 }
 
-void Mmt2DVnniOp::getEffects(
+void Mm2DVnniOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
   if (hasPureTensorSemantics())
@@ -190,7 +190,7 @@ void Mmt2DVnniOp::getEffects(
                         getDpsInits());
 }
 
-LogicalResult Mmt2DVnniOp::verify() {
+LogicalResult Mm2DVnniOp::verify() {
   // A[M, K]
   // B[N0, K0, K1, N1, K2]
   // C[M, N]
@@ -212,8 +212,7 @@ LogicalResult Mmt2DVnniOp::verify() {
   bool matchK =
       shapeA.getDimSize(1) ==
       (shapeB.getDimSize(1) * shapeB.getDimSize(2) * shapeB.getDimSize(4));
-  bool matchVnni = (shapeB.getDimSize(4) == 1) || (shapeB.getDimSize(4) == 2) ||
-                   (shapeB.getDimSize(4) == 4);
+  bool matchVnni = (shapeB.getDimSize(4) == 2) || (shapeB.getDimSize(4) == 4);
   bool result = matchM && matchN && matchK && matchVnni;
   if (!result)
     return emitOpError() << "input/output dims packing not match.";
@@ -221,10 +220,10 @@ LogicalResult Mmt2DVnniOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// Mmt4DVnniOp
+// Mm4DVnniOp
 //===----------------------------------------------------------------------===//
 
-SmallVector<utils::IteratorType> Mmt4DVnniOp::getIteratorTypesArray() {
+SmallVector<utils::IteratorType> Mm4DVnniOp::getIteratorTypesArray() {
   return SmallVector<utils::IteratorType>{
       utils::IteratorType::parallel,  utils::IteratorType::parallel,
       utils::IteratorType::parallel,  utils::IteratorType::parallel,
@@ -232,7 +231,7 @@ SmallVector<utils::IteratorType> Mmt4DVnniOp::getIteratorTypesArray() {
       utils::IteratorType::reduction};
 }
 
-static SmallVector<AffineExpr> getSymbolBindings(Mmt4DVnniOp self) {
+static SmallVector<AffineExpr> getSymbolBindings(Mm4DVnniOp self) {
   MLIRContext *context = self.getContext();
 
   auto vnniShape = ShapeAdaptor(self.getInputs()[1].getType());
@@ -250,7 +249,7 @@ static SmallVector<AffineExpr> getSymbolBindings(Mmt4DVnniOp self) {
   return exprs;
 }
 
-ArrayAttr Mmt4DVnniOp::getIndexingMaps() {
+ArrayAttr Mm4DVnniOp::getIndexingMaps() {
   static const char memoizeAttr[] = "linalg.memoized_indexing_maps";
   ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
   if (cached)
@@ -282,10 +281,10 @@ ArrayAttr Mmt4DVnniOp::getIndexingMaps() {
   return cached;
 }
 
-void Mmt4DVnniOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
-                                ArrayRef<NamedAttribute> attrs) {
+void Mm4DVnniOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                               ArrayRef<NamedAttribute> attrs) {
   assert(3 > 0 && block.getNumArguments() == 3 &&
-         "Mmt4DVnniOp regionBuilder expects 3 (>=0) args");
+         "Mm4DVnniOp regionBuilder expects 3 (>=0) args");
   RegionBuilderHelper helper(b, block);
   SmallVector<Value> yields;
 
@@ -302,21 +301,21 @@ void Mmt4DVnniOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
   helper.yieldOutputs(yields);
 }
 
-ParseResult Mmt4DVnniOp::parse(OpAsmParser &parser, OperationState &result) {
+ParseResult Mm4DVnniOp::parse(OpAsmParser &parser, OperationState &result) {
   return ::parseNamedStructuredOp(parser, result,
-                                  Mmt4DVnniOp::getNumRegionArgs(),
-                                  Mmt4DVnniOp::getRegionBuilder());
+                                  Mm4DVnniOp::getNumRegionArgs(),
+                                  Mm4DVnniOp::getRegionBuilder());
 }
 
-void Mmt4DVnniOp::print(OpAsmPrinter &p) {
+void Mm4DVnniOp::print(OpAsmPrinter &p) {
   ::printNamedStructuredOp(p, getOperation(), getInputs(), getOutputs());
 }
 
-LogicalResult Mmt4DVnniOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+LogicalResult Mm4DVnniOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
   return memref::foldMemRefCast(*this);
 }
 
-void Mmt4DVnniOp::getEffects(
+void Mm4DVnniOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
   if (hasPureTensorSemantics())
@@ -325,7 +324,7 @@ void Mmt4DVnniOp::getEffects(
                         getDpsInits());
 }
 
-LogicalResult Mmt4DVnniOp::verify() {
+LogicalResult Mm4DVnniOp::verify() {
   // A[M0, K0, M1, K]
   // B[N0, K0, K1, N1, K2]
   // C[M0, N0, M1, N1]
@@ -348,10 +347,143 @@ LogicalResult Mmt4DVnniOp::verify() {
   bool matchK0 = shapeA.getDimSize(1) == shapeB.getDimSize(1);
   bool matchK =
       shapeA.getDimSize(3) == (shapeB.getDimSize(2) * shapeB.getDimSize(4));
-  bool matchVnni = (shapeB.getDimSize(4) == 1) || (shapeB.getDimSize(4) == 2) ||
-                   (shapeB.getDimSize(4) == 4);
+  bool matchVnni = (shapeB.getDimSize(4) == 2) || (shapeB.getDimSize(4) == 4);
   bool result = matchM0 && matchM1 && matchN0 && matchN1 && matchK0 && matchK &&
                 matchVnni;
+  if (!result)
+    return emitOpError() << "input/output dims packing not match.";
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// BatchReduceMatmulVnniOp
+//===----------------------------------------------------------------------===//
+
+SmallVector<utils::IteratorType>
+BatchReduceMatmulVnniOp::getIteratorTypesArray() {
+  return SmallVector<utils::IteratorType>{
+      utils::IteratorType::parallel, utils::IteratorType::parallel,
+      utils::IteratorType::reduction, utils::IteratorType::reduction,
+      utils::IteratorType::reduction};
+}
+
+static SmallVector<AffineExpr> getSymbolBindings(BatchReduceMatmulVnniOp self) {
+  MLIRContext *context = self.getContext();
+
+  auto vnniShape = ShapeAdaptor(self.getInputs()[1].getType());
+
+  SmallVector<AffineExpr> exprs;
+  exprs.push_back(getAffineSymbolExpr(0, context));
+  exprs.push_back(getAffineSymbolExpr(1, context));
+  exprs.push_back(getAffineSymbolExpr(2, context));
+  exprs.push_back(getAffineSymbolExpr(3, context));
+
+  int64_t cst4 = vnniShape.getDimSize(3);
+  exprs.push_back(getAffineConstantExpr(cst4, context));
+  return exprs;
+}
+
+ArrayAttr BatchReduceMatmulVnniOp::getIndexingMaps() {
+  static const char memoizeAttr[] = "linalg.memoized_indexing_maps";
+  ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
+  if (cached)
+    return cached;
+
+  static auto mapA = "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4] -> "
+                     "(d2, d0, d3 * s4 + d4)>";
+  static auto mapB = "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4] -> "
+                     "(d2, d3, d1, d4)>";
+  static auto mapC = "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4] -> "
+                     "(d0, d1)>";
+  MLIRContext *context = getContext();
+  auto symbolBindings = getSymbolBindings(*this);
+  SmallVector<AffineMap> maps;
+  maps.push_back(llvm::cast<AffineMapAttr>(mlir::parseAttribute(mapA, context))
+                     .getValue());
+  maps.back() = simplifyAffineMap(
+      maps.back().replaceDimsAndSymbols({}, symbolBindings, 5, 0));
+  maps.push_back(llvm::cast<AffineMapAttr>(mlir::parseAttribute(mapB, context))
+                     .getValue());
+  maps.back() = simplifyAffineMap(
+      maps.back().replaceDimsAndSymbols({}, symbolBindings, 5, 0));
+  maps.push_back(llvm::cast<AffineMapAttr>(mlir::parseAttribute(mapC, context))
+                     .getValue());
+  maps.back() = simplifyAffineMap(
+      maps.back().replaceDimsAndSymbols({}, symbolBindings, 5, 0));
+  cached = Builder(context).getAffineMapArrayAttr(maps);
+  getOperation()->setAttr(memoizeAttr, cached);
+  return cached;
+}
+
+void BatchReduceMatmulVnniOp::regionBuilder(ImplicitLocOpBuilder &b,
+                                            Block &block,
+                                            ArrayRef<NamedAttribute> attrs) {
+  assert(3 > 0 && block.getNumArguments() == 3 &&
+         "BatchReduceMatmulVnniOp regionBuilder expects 3 (>=0) args");
+  RegionBuilderHelper helper(b, block);
+  SmallVector<Value> yields;
+
+  Value value1 =
+      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
+                         block.getArgument(0));
+  Value value2 =
+      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
+                         block.getArgument(1));
+  Value value3 = helper.buildBinaryFn(BinaryFn::mul, value1, value2);
+  Value value4 =
+      helper.buildBinaryFn(BinaryFn::add, block.getArgument(2), value3);
+  yields.push_back(value4);
+  helper.yieldOutputs(yields);
+}
+
+ParseResult BatchReduceMatmulVnniOp::parse(OpAsmParser &parser,
+                                           OperationState &result) {
+  return ::parseNamedStructuredOp(parser, result,
+                                  BatchReduceMatmulVnniOp::getNumRegionArgs(),
+                                  BatchReduceMatmulVnniOp::getRegionBuilder());
+}
+
+void BatchReduceMatmulVnniOp::print(OpAsmPrinter &p) {
+  ::printNamedStructuredOp(p, getOperation(), getInputs(), getOutputs());
+}
+
+LogicalResult BatchReduceMatmulVnniOp::fold(FoldAdaptor,
+                                            SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void BatchReduceMatmulVnniOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  if (hasPureTensorSemantics())
+    return;
+  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
+                        getDpsInits());
+}
+
+LogicalResult BatchReduceMatmulVnniOp::verify() {
+  // A[B, M, K]
+  // B[B, K0, N, K1]
+  // C[M, N]
+  auto shapeA = ShapeAdaptor(getInputs()[0].getType());
+  auto shapeB = ShapeAdaptor(getInputs()[1].getType());
+  auto shapeC = ShapeAdaptor(getOutputs()[0].getType());
+  // check rank
+  auto hasRank = shapeA.hasRank() && shapeB.hasRank() && shapeC.hasRank();
+  if (!hasRank)
+    return emitOpError() << "input/output must have rank.";
+  auto checkRank = (shapeA.getRank() == 3) && (shapeB.getRank() == 4) &&
+                   (shapeC.getRank() == 2);
+  if (!checkRank)
+    return emitOpError() << "not supported input/output shape.";
+  // match B, M, N, K dims
+  bool matchB = shapeA.getDimSize(0) == shapeB.getDimSize(0);
+  bool matchM = shapeA.getDimSize(1) == shapeC.getDimSize(0);
+  bool matchN = shapeB.getDimSize(2) == shapeC.getDimSize(1);
+  bool matchK =
+      shapeA.getDimSize(2) == (shapeB.getDimSize(1) * shapeB.getDimSize(3));
+  bool matchVnni = (shapeB.getDimSize(3) == 2) || (shapeB.getDimSize(3) == 4);
+  bool result = matchB && matchM && matchN && matchK && matchVnni;
   if (!result)
     return emitOpError() << "input/output dims packing not match.";
   return success();
