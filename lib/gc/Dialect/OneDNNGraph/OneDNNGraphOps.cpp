@@ -17,59 +17,22 @@
 namespace mlir {
 namespace onednn_graph {
 
-// https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md
-template <typename ShapeRange>
-static LogicalResult inferBroadcastShape(
-    ShapeRange operands, SmallVector<int64_t> &outShape,
-    const std::function<ShapeAdaptor(ShapeRange, size_t)> &getShapeIdx) {
-  int64_t outRank = 0;
-  for (size_t i = 0; i < operands.size(); i++) {
-    auto shape = getShapeIdx(operands, i);
-    if (!shape.hasRank()) {
-      return failure();
-    }
-    outRank = std::max(outRank, shape.getRank());
-  }
-  // Start with all 1 dim
-  outShape.clear();
-  outShape.resize(outRank, 1);
-  // Scan each shape for match dims
-  for (size_t i = 0; i < operands.size(); i++) {
-    auto shape = getShapeIdx(operands, i);
-    auto diff = outShape.size() - shape.getRank();
-    for (int64_t j = 0; j < shape.getRank(); j++) {
-      auto dim1 = outShape[diff + j];
-      auto dim2 = shape.getDimSize(j);
-      auto resolvedDim = dim1;
-
-      if (dim1 == 1) {
-        resolvedDim = dim2;
-      } else if (dim2 == 1) {
-        resolvedDim = dim1;
-      } else if (dim1 != dim2) {
-        return failure();
-      }
-      outShape[diff + j] = resolvedDim;
-    }
-  }
-  return success();
-}
-
 LogicalResult onednn_graph::AddOp::inferReturnTypeComponents(
     MLIRContext *context, ::std::optional<Location> location,
     ValueShapeRange operands, DictionaryAttr attributes,
     OpaqueProperties properties, RegionRange regions,
     SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
   llvm::SmallVector<int64_t> outShape;
-  auto resultTy = dyn_cast<TensorType>(operands.front().getType());
-  auto getShapeIdx = [](ValueShapeRange operands, size_t i) {
-    return operands.getShape(i);
+  auto resultTy = dyn_cast<ShapedType>(operands.front().getType());
+  auto getShapeIdx = [&operands](size_t i) {
+    return operands.getTypes()[i].dyn_cast<ShapedType>().getShape();
   };
-  auto ret =
-      inferBroadcastShape<ValueShapeRange>(operands, outShape, getShapeIdx);
+
+  auto ret = OpTrait::util::getBroadcastedShape(getShapeIdx(0), getShapeIdx(1),
+                                                outShape);
   inferredReturnShapes.push_back(
       ShapedTypeComponents(outShape, resultTy.getElementType()));
-  return ret;
+  return LogicalResult::success(ret);
 }
 
 LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
@@ -158,22 +121,21 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
     // Not supported
     return failure();
   }
-  auto getShapeIdx = [](ArrayRef<ShapeAdaptor> operands, size_t i) {
-    return operands[i];
-  };
   // final shape
   auto retShape = ShapedTypeComponents(outShape, lhsShape.getElementType());
   inferredReturnShapes.push_back(retShape);
   // check for bias broadcasting
   if (adaptor.getBias()) {
-    ShapeAdaptor biasShape(adaptor.getBias().getType());
-    ShapeAdaptor matShape(retShape);
+    auto biasType = adaptor.getBias().getType();
+    ShapeAdaptor biasShape(biasType);
+
     bool biasRankMatch = biasShape.getRank() == 1 ||
                          biasShape.getRank() == (int64_t)outShape.size();
-    SmallVector<int64_t> bcastShape;
+    SmallVector<int64_t> resultShape;
     if (!biasRankMatch ||
-        failed(inferBroadcastShape<ArrayRef<ShapeAdaptor>>(
-            {matShape, biasShape}, bcastShape, getShapeIdx))) {
+        !OpTrait::util::getBroadcastedShape(
+            retShape.getDims(), biasType.dyn_cast<ShapedType>().getShape(),
+            resultShape)) {
       return failure();
     }
   }
