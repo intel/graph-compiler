@@ -1,16 +1,15 @@
-//===----------------------------------------------------------------------===//
-//===- DeepTileContractionNamedOp.cpp - the Fusion for any tilable MLIR
-// operation --*- C++
-//-*-=//
-//-*-===//
-//
+//===-- DeepTileContractionNamedOp.cpp - DESC -------------------*- C++ -*-===//
+// 
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
+// 
 //===----------------------------------------------------------------------===//
 
 #include "./Tiling.hpp"
+#include "gc/Dialect/Arith/Utils/EasyBuild.h"
+#include "gc/IR/EasyBuild.h"
+#include "gc/IR/EasyBuildSCF.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -179,6 +178,7 @@ struct OuterLoopGenerationResult {
   SmallVector<Operation *> tiledOps;
   /// The `scf.for` operations that iterate over the tiles.
   SmallVector<LoopLikeOpInterface> loops;
+  SmallVector<LoopLikeOpInterface> reductionLoops;
   /// Values to use as replacements for the untiled op. Is the same size as the
   /// number of results of the untiled op.
   SmallVector<Value> replacements;
@@ -192,6 +192,8 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
   auto nestedTileSizes = option.nestedTileSizes;
   auto loopType = option.loopType;
   auto loopDim = option.loopDim;
+  SmallVector<mlir::utils::IteratorType> iteratorTypes =
+      linalgOp.getIteratorTypesArray();
 
   if (loopType.size() != loopDim.size() ||
       loopDim.size() != nestedTileSizes.size()) {
@@ -228,6 +230,13 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         return failure();
       b.replaceOp(currentOp, tilingResult->replacements);
       currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+
+      for (auto [dim, loop] : llvm::zip(currentDim, tilingResult->loops)) {
+        if (iteratorTypes[dim] == mlir::utils::IteratorType::reduction) {
+          result.reductionLoops.push_back(loop);
+        }
+        result.loops.push_back(loop);
+      }
     } else if (type == OuterLoopGenerationOption::LoopType::ForallOp) {
       SmallVector<OpFoldResult> tileSizes(
           currentOp.getNumLoops(), getAsIndexOpFoldResult(b.getContext(), 0));
@@ -262,7 +271,6 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
 
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPoint(currentOp);
-      // TODO: add split reduction support here
       if (auto partialInterface =
               dyn_cast<PartialReductionOpInterface>(currentOp.getOperation())) {
         auto tilingResult = linalgX::tileAllUsingForall(
@@ -395,8 +403,9 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
 }
 
 /*
-forall([PM, PN]: [MThreads, NThreads) {
-  for(PK : KThreads) {
+matmul(A, B) -> C
+---------------->
+forall([PM, PN, PK]: [MThreads, NThreads, KThreads]) {
     CSlice = [KThreads, PM * MOuterBlock: (PM + 1) * MOuterBlock,
      PN * NOuterBlock: (PN + 1) * NOuterBlock]
     ASlice = A[PM * MOuterBlock: (PM + 1) * MOuterBlock, PK * KOuterBlock * (PK
@@ -404,7 +413,6 @@ forall([PM, PN]: [MThreads, NThreads) {
     BSlice = B[PK * KOuterBlock * (PK + 1) * KOuterBlock, PN *
 NOuterBlock: (PN + 1) * NOuterBlock] CSlice2 = CSlice[PK, PM * MOuterBlock: (PM
 + 1) * MOuterBlock, PN * NOuterBlock: (PN + 1) * NOuterBlock]
-
     MNumBlock = MOuterBlock / MBlock
     NNumBlock = NOuterBlock / NBlock
     KNumBlock = KOuterBlock / KBlovk
@@ -426,9 +434,8 @@ iin_block_: (in + 1) * iin_block_] (init with 0 when ok == 0)
 A=ASlice3, B=BSlice3, C=CSlice4, onlyUpdate=(ok!=0));
       }
     }
-  }
-  C = final_reduce(CSlice)
 }
+C = final_reduce(CSlice)
 */
 struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   using OpInterfaceRewritePattern<linalg::LinalgOp>::OpInterfaceRewritePattern;
@@ -506,14 +513,15 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 
   struct innerBodyGenerationOption {
-    bool hasFillOp = false;
-    Value fillValue;
+    Operation *fillOp;
+    SmallVector<LoopLikeOpInterface> KLoopHandles;
   };
 
-  LogicalResult
-  innerBodyGeneration(RewriterBase &rewriter, linalg::LinalgOp originOp,
-                      linalg::LinalgOp currentOp,
-                      const innerBodyGenerationOption &option) const {
+  LogicalResult innerBodyGeneration(RewriterBase &rewriter,
+                                    linalg::LinalgOp originOp,
+                                    linalg::LinalgOp currentOp,
+                                    innerBodyGenerationOption &option) const {
+    mlir::easybuild::EasyBuilder eb{rewriter, originOp.getLoc()};
     auto operandDimTypes = getOprandDimType(originOp);
     MatmulConfig cfg = getDefaultMatmulConfig(originOp);
     auto AShape = originOp.getShape(originOp.getDpsInputOperand(0));
@@ -655,19 +663,34 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     rewriter.replaceOp(currentOp, matmul.getOperation()->getResult(0));
     currentOp = matmul;
 
-    if (option.hasFillOp) {
-      // TODO: support partial K in sinsngle threads, control flow may need
-      // easy builder support
+    if (auto fillOp = llvm::dyn_cast_or_null<linalg::FillOp>(option.fillOp)) {
+      auto fillValue = fillOp.getDpsInputs()[0];
+      rewriter.replaceOp(fillOp, fillOp.getDpsInits()[0]);
+
       rewriter.setInsertionPointAfter(currentOp);
-      auto fillOp = rewriter.create<linalg::FillOp>(
-          currentOp->getLoc(), option.fillValue, currentOp.getDpsInits()[0]);
-      IRMapping mapping;
-      mapping.map(currentOp.getDpsInits()[0], fillOp.getResult(0));
-      auto res = rewriter.clone(*(currentOp.getOperation()), mapping);
-      rewriter.replaceOp(currentOp, res);
-      currentOp = dyn_cast<linalg::LinalgOp>(res);
+      auto cond = eb(true);
+      for (auto loop : option.KLoopHandles) {
+        auto induceVar = eb.wrap<mlir::easybuild::EBUnsigned>(
+            loop.getLoopRegions().front()->front().getArgument(0));
+        auto currentCond = induceVar == eb.toIndex(0);
+        cond = cond & currentCond;
+      }
+      EB_scf_if(cond, {currentOp.getDpsInits()[0].getType()}) {
+        auto fillOp = rewriter.create<linalg::FillOp>(
+            currentOp->getLoc(), fillValue, currentOp.getDpsInits()[0]);
+        IRMapping mapping;
+        mapping.map(currentOp.getDpsInits()[0], fillOp.getResult(0));
+        auto res = rewriter.clone(*(currentOp.getOperation()), mapping);
+        eb.yield(res->getResult(0));
+      }
+      EB_else {
+        auto res = rewriter.clone(*(currentOp.getOperation()));
+        eb.yield(res->getResult(0));
+      }
+      auto ifOp = eb.getLastOperaion();
+      rewriter.replaceOp(currentOp, ifOp);
+      ifOp->getParentOfType<func::FuncOp>().dump();
     }
-    currentOp.getOperation()->getParentOfType<func::FuncOp>().dump();
     return success();
   }
 
@@ -680,34 +703,21 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     if (linalgOp.getOperation()->getParentOfType<scf::ForallOp>())
       return failure();
 
-    // Step 1. Match and remove the init/fill operation
-    // Fuse the fill op manually before fusion support this case(fuse it into
-    // if-else block)
-    bool hasFillOp = false;
-    Value fillValue;
-    SmallVector<LoopLikeOpInterface> KLoopHandle;
-    if (auto op = dyn_cast<linalg::FillOp>(
-            linalgOp.getDpsInits()[0].getDefiningOp())) {
-      hasFillOp = true;
-      fillValue = op.getDpsInputs()[0];
-      rewriter.replaceOp(op, op.getDpsInits()[0]);
-    }
+    Operation *fillOp = linalgOp.getDpsInits()[0].getDefiningOp();
 
-    // Step 2. The processes of outer Loop Generation
+    // Step 1. generate the outer loop
     // 2.0 Get the iteration infomation first
     MatmulConfig cfg = getDefaultMatmulConfig(linalgOp);
-    // TODO: move the reduction dim to the front. (M, N, threads) ->
-    // (threads, M, N)
     auto outerLoopResult = outerLoopGeneration(rewriter, linalgOp, cfg);
     if (failed(outerLoopResult)) {
       return failure();
     }
     linalgOp = dyn_cast<linalg::LinalgOp>(outerLoopResult->tiledOps.back());
 
-    // Step 3 inner loop generation, convert the linalg.generic to brgemm
-    if (failed(innerBodyGeneration(
-            rewriter, matmulOp, linalgOp,
-            innerBodyGenerationOption{hasFillOp, fillValue}))) {
+    // Step 2 generate inner loop body, convert the linalg.generic to brgemm
+    auto option =
+        innerBodyGenerationOption{fillOp, outerLoopResult->reductionLoops};
+    if (failed(innerBodyGeneration(rewriter, matmulOp, linalgOp, option))) {
       return failure();
     }
     return success();
