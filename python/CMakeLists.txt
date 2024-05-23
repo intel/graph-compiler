@@ -29,6 +29,13 @@ add_compile_definitions("MLIR_PYTHON_PACKAGE_PREFIX=gc_mlir.")
 
 declare_mlir_python_sources(GcPythonSources)
 
+declare_mlir_python_sources(GcPythonSources.Common
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
+  ADD_TO_PARENT GcPythonSources
+  SOURCES
+    # init hooks
+    _mlir_libs/_site_initialize_0.py
+)
 
 ################################################################################
 # Dialect bindings

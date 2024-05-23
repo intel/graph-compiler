@@ -41,7 +41,6 @@ def testCreatetOp():
 @run
 def testPassManager():
     with Context():
-        onednn_graph.register_dialect()
         module = Module.parse(
             """
             // CHECK: [[C0:%.+]] = arith.constant 0
