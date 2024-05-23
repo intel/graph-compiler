@@ -19,7 +19,6 @@ def run(f):
 @run
 def testCreatetOp():
     with Context() as ctx, Location.unknown():
-        onednn_graph.register_dialect()
         module = Module.create()
         f32 = F32Type.get(ctx)
         tensor_type = RankedTensorType.get([128, 256], f32)

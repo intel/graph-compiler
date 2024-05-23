@@ -33,6 +33,8 @@ declare_mlir_python_sources(GcPythonSources.Common
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
   ADD_TO_PARENT GcPythonSources
   SOURCES
+    __init__.py
+    dialects/__init__.py
     # init hooks
     _mlir_libs/_site_initialize_0.py
 )
