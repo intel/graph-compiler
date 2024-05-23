@@ -11,6 +11,7 @@ add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   DeepTileContractionNamedOp.cpp
+  Tiling.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include
