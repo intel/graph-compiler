@@ -1,5 +1,4 @@
 //===- Parallel.cpp - Definitions for parallel runtime  -----------*- C++ -*-=//
-//-*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -28,9 +27,9 @@ struct barrier_t {
   char padding_[64 - 4 * sizeof(int32_t)];
 };
 
-typedef uint64_t (*barrier_idle_func)(std::atomic<int32_t> *remaining,
-                                      int32_t expected_remain, int32_t tid,
-                                      void *args);
+using barrier_idle_func = uint64_t (*)(std::atomic<int32_t> *remaining,
+                                       int32_t expected_remain, int32_t tid,
+                                       void *args);
 } // namespace
 
 extern "C" {
