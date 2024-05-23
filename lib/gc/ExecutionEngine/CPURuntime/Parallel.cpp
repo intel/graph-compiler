@@ -74,6 +74,8 @@ int WEAK_SYMBOL __kmpc_global_thread_num(void *loc) {
   return omp_get_thread_num();
 }
 
+// The implementation was extracted and simplified from LLVM libomp
+// at openmp/runtime/src/kmp_sched.cpp
 void WEAK_SYMBOL __kmpc_for_static_init_8u(void *loc, int32_t gtid,
                                            int32_t schedtype,
                                            int32_t *plastiter, uint64_t *plower,
