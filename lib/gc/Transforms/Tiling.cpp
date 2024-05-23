@@ -855,7 +855,7 @@ tileAllUsingForall(RewriterBase &b, PartialReductionOpInterface op,
     return b.notifyMatchFailure(op, "if tile sizes are present it must have as "
                                     "many elements as number of threads");
 
-  if (redDims.front() >= numThreads.size())
+  if ((unsigned)redDims.front() >= numThreads.size())
     return b.notifyMatchFailure(
         op, "reduction dimension must be mapped to threads");
 
@@ -926,7 +926,7 @@ tileAllUsingForall(RewriterBase &b, PartialReductionOpInterface op,
         }
 
         auto nonZeroDimIdx = 0;
-        for (auto dim = 0; dim < numThreads.size(); dim++) {
+        for (auto dim = 0UL; dim < numThreads.size(); dim++) {
           if (!isConstantIntValue(numThreads[dim], 0)) {
             if (llvm::find(redDims, dim) != redDims.end())
               outOffsets[dim] = forallOp.getInductionVars()[nonZeroDimIdx];
@@ -985,7 +985,7 @@ tileAllUsingForall(RewriterBase &b, PartialReductionOpInterface op,
     int64_t offIdx = 0;
     int64_t sizeIdx = 0;
     int64_t nonZeroDimIdx = 0;
-    for (int64_t i = 0; i < numThreads.size(); ++i) {
+    for (auto i = 0UL; i < numThreads.size(); ++i) {
       if (llvm::find(redDims, i) != redDims.end()) {
         if (hasReductionThreads) {
           resultOffsetsRank.push_back(
