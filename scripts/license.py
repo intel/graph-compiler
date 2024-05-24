@@ -93,7 +93,7 @@ def fix_llvm_license(var: Dict[str, str]):
 
     print(part1 + part2 + part3)
     for i in range(1, len(llvm_license) - 1):
-        print(cmt + " " + llvm_license[i])
+        print((cmt + " " + llvm_license[i]).rstrip())
     part1 = cmt + "==="
     part3 = "===" + cmt
     part2 = "-" * (WIDTH - len(part1) - len(part3))
