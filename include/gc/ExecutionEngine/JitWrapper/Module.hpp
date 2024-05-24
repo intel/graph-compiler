@@ -9,6 +9,8 @@
 #ifndef GC_EXECUTIONENGINE_JITWRAPPER_H
 #define GC_EXECUTIONENGINE_JITWRAPPER_H
 
+#include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
+#include "mlir/ExecutionEngine/CRunnerUtils.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include <memory>
 #include <string_view>
@@ -19,23 +21,53 @@ namespace gc {
 
 const DialectRegistry &initAndGetDialects();
 
+// the pointers to XXXMemRefType
+using GeneralMemrefPtr = void *;
 using JitModuleFuncT = void (*)(void **);
 
 class JitModule : public std::enable_shared_from_this<JitModule> {
 public:
   static llvm::Expected<std::shared_ptr<JitModule>>
-  create(Operation *op, bool transform, llvm::StringRef entry_name = {},
-         const ExecutionEngineOptions &options = {},
-         std::unique_ptr<llvm::TargetMachine> tm = nullptr);
+  create(Operation *op, const ExecutionEngineOptions &options = {},
+         std::unique_ptr<llvm::TargetMachine> tm = nullptr,
+         bool transform = true);
 
-  void call(void **args) { entry(args); }
+  // args should be an array of XXXMemrefType*
+  void call(GeneralMemrefPtr *args);
 
-  JitModule(std::unique_ptr<ExecutionEngine> engine, JitModuleFuncT entry);
+  JitModule(
+      std::unique_ptr<ExecutionEngine> engine, JitModuleFuncT compute,
+      JitModuleFuncT fold, size_t numOrigArgs,
+      // The code inside `engine` has the ownership of the buffer
+      llvm::ArrayRef<uint32_t> computeArgs,
+      // The code inside `engine` has the ownership  of the buffer
+      llvm::ArrayRef<uint32_t> foldArgs,
+      std::vector<std::shared_ptr<cached_graph_tensor>> &&cachekeepAlive = {});
   ~JitModule();
 
 private:
   std::unique_ptr<ExecutionEngine> engine;
-  JitModuleFuncT entry;
+  JitModuleFuncT compute;
+  JitModuleFuncT fold;
+  size_t numOrigArgs;
+  // `keepAlive` has the ownership of the objects pointed by this vector
+  llvm::SmallVector<const_cache_proxy *> cacheBases;
+  struct CacheBufferInfo {
+    // index in cacheBases
+    size_t baseIdx;
+    size_t offset;
+  };
+  // the info for each folded cached buffer
+  llvm::SmallVector<CacheBufferInfo, 8> cacheInfo;
+  // holding the pointers to StridedMemRefType<T, Rank> of folded cache
+  // `keepAlive` holds the the ownership of the pointers
+  llvm::SmallVector<GeneralMemrefPtr> fastFoldBuffers;
+  // The code inside `engine` has the ownership of the buffer
+  llvm::ArrayRef<uint32_t> foldArgs;
+  // The code inside `engine` has the ownership of the buffer
+  llvm::ArrayRef<uint32_t> computeArgs;
+
+  std::vector<std::shared_ptr<cached_graph_tensor>> keepAlive;
 };
 
 } // namespace gc
