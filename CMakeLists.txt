@@ -1,3 +1,20 @@
+################################################################################
+# Copyright (C) 2024 Intel Corporation
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+# http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions
+# and limitations under the License.
+# SPDX-License-Identifier: Apache-2.0
+################################################################################
+
 cmake_minimum_required(VERSION 3.20)
 project(GraphCompiler VERSION "0.1.0" LANGUAGES C CXX)
 
@@ -10,6 +27,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 option(GC_LEGACY_ENABLE ON)
 option(GC_TEST_ENABLE "Build the tests" ON)
+option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 
 if(GC_LEGACY_ENABLE)
@@ -32,6 +50,16 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
+
+if(GC_ENABLE_BINDINGS_PYTHON AND NOT MLIR_ENABLE_BINDINGS_PYTHON)
+  message(STATUS "Failed to enable Python API due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
+  set(GC_ENABLE_BINDINGS_PYTHON OFF CACHE BOOL "" FORCE)
+endif()
+
+if(GC_ENABLE_BINDINGS_PYTHON)
+  include(MLIRDetectPythonEnv)
+  mlir_configure_python_dev_packages()
+endif()
 
 include_directories(
         ${LLVM_INCLUDE_DIRS}
@@ -61,6 +89,10 @@ include("cmake/version.cmake")
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
+if(GC_ENABLE_BINDINGS_PYTHON)
+  message(STATUS "Enabling Python API")
+  add_subdirectory(python)
+endif()
 
 set(GC_LIB_LINKED_LIBS
         MLIRLinalgx

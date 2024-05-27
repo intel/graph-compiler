@@ -100,7 +100,7 @@ def fix_llvm_license(var: Dict[str, str]):
     print(part1 + part2 + part3)
         
 def use_llvm_license(path: str) -> bool:
-    for folder in ["lib/gc/", 'include/gc/', 'unittests/']:
+    for folder in ["lib/gc/", 'include/gc/', 'unittests/', 'python/gc_mlir']:
         if path.startswith(folder) or path.startswith('./' + folder):
             return True
     return False
