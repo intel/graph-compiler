@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -28,6 +29,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
+
+// #include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
 
 namespace mlir {
 namespace gc {
@@ -293,6 +296,101 @@ void postponeBroadcast(Block &block) {
 
 static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
 
+// get from dnnl_graph_compiler_context
+// void *allocator(size_t size) { return std::aligned_alloc(64, size); }
+// void deallocator(void *ptr) { std::free(ptr); }
+
+// std::shared_ptr<const_cache_proxy> create_const_cache_proxy(size_t size) {
+//   // simply allocate buffer and return
+//   std::shared_ptr<void> base =
+//       std::shared_ptr<void>{std::aligned_alloc(64, size), [](void *p) {
+//       std::free(p); }};
+//   return std::make_shared<const_cache_proxy>(base, base.get(), size, true);
+// }
+
+size_t divide_and_ceil(size_t x, size_t y) { return (x + y - 1) / y; }
+
+// Manager
+struct const_graph_tensor_cache_manager {
+  // dnnl_graph_compiler_context *ctx;
+
+  uint64_t cached_tensor_global_id = 0;
+
+  // singleton
+  static std::shared_ptr<const_graph_tensor_cache_manager> get() {
+    static std::shared_ptr<const_graph_tensor_cache_manager> c =
+        std::make_shared<const_graph_tensor_cache_manager>();
+    return c;
+  }
+
+  // alloc and set the buf_base_ and offset_ attributes of cache
+  std::vector<uint64_t> alloc(std::vector<size_t> buffers_size) {
+    size_t total_size = 0;
+    for (size_t i = 0; i < buffers_size.size(); i++) {
+      total_size += divide_and_ceil(buffers_size[i], 64) * 64;
+    }
+    llvm::dbgs() << "Alloc total size: " << total_size << '\n';
+    // auto base = create_const_cache_proxy(total_size);
+    std::vector<uint64_t> global_ids(buffers_size.size());
+    size_t offset = 0;
+    for (size_t i = 0; i < buffers_size.size(); i++) {
+      llvm::dbgs() << "Alloc offset: " << offset << '\n';
+      // reg_cached_tensor(cached_tensor_global_id, base, offset);
+      global_ids[i] = cached_tensor_global_id;
+      ++cached_tensor_global_id;
+      offset += divide_and_ceil(buffers_size[i], 64) * 64;
+    }
+    return global_ids;
+  }
+};
+
+// static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
+//                       StringRef name, int64_t value) {
+//   OpBuilder::InsertionGuard insertGuard(builder);
+//   builder.setInsertionPointToStart(module.getBody());
+
+//   auto type = IntegerType::get(builder.getContext(), 8);
+//   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
+//       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+//       builder.getIndexAttr(value),
+//       /*alignment=*/0);
+// }
+
+// static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
+//                            StringRef name, ArrayRef<int64_t> array) {
+//   OpBuilder::InsertionGuard insertGuard(builder);
+//   builder.setInsertionPointToStart(module.getBody());
+
+//   auto type = LLVM::LLVMArrayType::get(
+//       IntegerType::get(builder.getContext(), 8), array.size());
+//   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
+//       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+//       builder.getIndexArrayAttr(array),
+//       /*alignment=*/0);
+// }
+
+static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
+                           StringRef name, ArrayRef<int64_t> array) {
+  OpBuilder::InsertionGuard insertGuard(builder);
+  builder.setInsertionPointToStart(module.getBody());
+
+  MemRefType type = MemRefType::Builder(array.size(), builder.getIndexType());
+  IntegerAttr memrefAlignment = IntegerAttr();
+  auto global = builder.create<memref::GlobalOp>(
+      loc, name,
+      /*sym_visibility=*/builder.getStringAttr("public"),
+      /*type=*/type,
+      /*initial_value=*/builder.getIndexTensorAttr(array),
+      /*constant=*/true,
+      /*alignment=*/memrefAlignment);
+}
+
+static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
+                      StringRef name, int64_t value) {
+  SmallVector<int64_t> array{value};
+  addGlobalArray(module, loc, builder, name, array);
+}
+
 // Operate on tensors. Create fold() and compute() on module. The
 // folded weights and first-run flag is maintained by upper-level runtime.
 void CST::runOnOperation() {
@@ -436,15 +534,38 @@ void CST::runOnOperation() {
                                      });
   }
 
+  // Allocate buffer for outputValuesInFold
+  std::vector<size_t> buffersSize;
+  for (Value &tensor : outputValuesInFold) {
+    llvm::dbgs() << "Allocate buffer for tensor: " << tensor << "\n";
+    buffersSize.push_back(
+        getTensorSize(dyn_cast<TensorType>(tensor.getType())));
+  }
+  auto manager = const_graph_tensor_cache_manager::get();
+  SmallVector<int64_t> globalIndexes;
+  for (auto id : manager->alloc(buffersSize)) {
+    globalIndexes.push_back(id);
+  }
+  globalIndexes.insert(globalIndexes.begin(), globalIndexes.size());
+  addGlobalArray(moduleOp, moduleOp.getLoc(), builder, "__fold_buffer_ids",
+                 globalIndexes);
+
   foldFunc.setVisibility(SymbolTable::Visibility::Public);
   moduleOp.push_back(foldFunc);
   symbolTable.insert(foldFunc);
+
+  SmallVector<int64_t> foldArgs;
+  SmallVector<int64_t> foldIds;
+  SmallVector<int64_t> computeArgs;
 
   // modify the BlockArguments of block
   size_t oriNumArgs = block.getNumArguments();
   size_t argIdx = 0;
   for (size_t id = 0; id < oriNumArgs; ++id) {
     if (constArgsIndexes.count(id) == 1) {
+      foldArgs.push_back(id);
+      foldIds.push_back(argIdx + oriNumArgs);
+      computeArgs.push_back(argIdx + oriNumArgs);
       auto loc = block.getArgument(id).getLoc();
       BlockArgument foldArg =
           block.insertArgument(id, outputTypes[argIdx], loc);
@@ -477,8 +598,23 @@ void CST::runOnOperation() {
       }
       block.eraseArgument(id + 1);
       ++argIdx;
+    } else {
+      computeArgs.push_back(id);
     }
   }
+
+  for (auto id : foldIds) {
+    foldArgs.insert(foldArgs.end(), id);
+  }
+  foldArgs.insert(foldArgs.begin(), foldArgs.size());
+  addGlobalArray(moduleOp, moduleOp.getLoc(), builder, "__fold_args", foldArgs);
+
+  computeArgs.insert(computeArgs.begin(), computeArgs.size());
+  addGlobalArray(moduleOp, moduleOp.getLoc(), builder, "__compute_args",
+                 computeArgs);
+
+  addGlobal(moduleOp, moduleOp.getLoc(), builder, "__num_orig_num_args",
+            oriNumArgs);
 
   // modify the compute func signature
   func::FuncOp computeFunc = cast<func::FuncOp>(topFunc);
