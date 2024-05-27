@@ -101,12 +101,11 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
     bool canonicalized = true;
     int64_t last = -1;
     for (const auto axis : op.getAxes()) {
-      int64_t curr = axis;
-      if (curr <= last) {
+      if (axis <= last) {
         canonicalized = false;
         break;
       }
-      last = curr;
+      last = axis;
     }
     if (canonicalized) {
       return failure();
