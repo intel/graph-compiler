@@ -100,12 +100,12 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
     // consider canonicalized if all axes are non-negative in ascending order
     int64_t last = -1;
     bool canonicalized = true;
-    for (const auto axis : op.getAxes()) {
-      if (axis <= last) {
+    for (size_t i = 0; i < axis.size(); i++) {
+      if (axis[i] <= last) {
         canonicalized = false;
         break;
       }
-      last = axis;
+      last = axis[i];
     }
     if (canonicalized) {
       return failure();
