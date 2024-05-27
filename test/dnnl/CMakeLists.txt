@@ -5,11 +5,13 @@ foreach (TEST_RESOURCE ${TEST_RESOURCES})
 endforeach ()
 
 file(GLOB TEST_SOURCES Test*.cpp)
-
 foreach (TEST_SOURCE ${TEST_SOURCES})
     get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
-    target_include_directories(${TEST_NAME} PUBLIC ${GC_LIB_INCLUDES})
+    target_include_directories(${TEST_NAME} PUBLIC
+            ${GC_LIB_INCLUDES}
+            ${CMAKE_SOURCE_DIR}/src/dnnl
+    )
     target_link_libraries(${TEST_NAME} graph_compiler_static
             gtest
             gtest_main

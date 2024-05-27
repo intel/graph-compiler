@@ -59,11 +59,11 @@ struct dnnl_graph_compiler {
   }
 
   [[nodiscard]] std::unique_ptr<const dnnl_graph_compiler_executable>
-  compile(const std::string_view &graph_json) const {
+  compile(const std::string_view &json) const {
     std::vector<size_t> inputIds;
     std::vector<size_t> outputIds;
     // mlir::ModuleOp module =
-    JsonParser::parse(context, graph_json, inputIds, outputIds);
+    JsonParser::parse(context, json, inputIds, outputIds);
 
     // TODO: Compile the module
 

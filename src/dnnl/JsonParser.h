@@ -172,16 +172,16 @@ public:
    * @brief Parse the oneDNN JSON and convert to MLIR module.
    *
    * @param context MLIR context.
-   * @param graph_json JSON string containing the oneDNN graph.
+   * @param json JSON string containing the oneDNN graph.
    * @param inputIds Input tensor IDs are added to this vector.
    * @param outputIds Output tensor IDs are added to this vector.
    * @return The resulting MLIR module.
    */
   static mlir::ModuleOp parse(mlir::MLIRContext &context,
-                              const std::string_view &graph_json,
+                              const std::string_view &json,
                               std::vector<size_t> &inputIds,
                               std::vector<size_t> &outputIds) {
-    std::istringstream stream(graph_json.data());
+    std::istringstream stream(json.data());
     JsonParser parser(context, stream, inputIds, outputIds);
     return parser.parse();
   }
