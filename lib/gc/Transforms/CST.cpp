@@ -66,6 +66,23 @@ int64_t getTensorSize(TensorType t) {
   return size;
 }
 
+bool singleOperand(Operation *op) {
+  if (op->getNumOperands() > 1) {
+    Value firstOperand = op->getOperand(0);
+    for (int64_t i = 1; i < op->getNumOperands(); ++i) {
+      Value operand = op->getOperand(i);
+      if (firstOperand == operand) {
+        continue;
+      }
+      auto parentOp = operand.getDefiningOp();
+      if (parentOp && !isa<tensor::EmptyOp>(parentOp)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool canMoveBefore(Operation *op) {
   if (op->getDialect()->getNamespace() ==
       arith::ArithDialect::getDialectNamespace()) {
@@ -341,7 +358,8 @@ void CST::runOnOperation() {
       while (!v.getUsers().empty()) {
         // v.getUsers().size() should be 1
         Operation *user = *(v.getUsers().begin());
-        if (!isInConstantSubgraph(user)) {
+        // If user is not const or user has multiple operand, we reach the end
+        if (!isInConstantSubgraph(user) || !singleOperand(user)) {
           outputTypes.push_back(v.getType());
           outputValues.push_back(v);
           break;
@@ -437,6 +455,7 @@ void CST::runOnOperation() {
 
       std::deque<Value> dq;
       SmallVector<Operation *> opsToErase;
+      std::unordered_set<Operation *> opsToEraseSet;
       dq.push_back(block.getArgument(id + 1));
       while (!dq.empty()) {
         Value v = dq.front();
@@ -445,7 +464,11 @@ void CST::runOnOperation() {
           for (auto res : op->getResults()) {
             dq.push_back(res);
           }
+          if (opsToEraseSet.count(op)) {
+            break;
+          }
           opsToErase.push_back(op);
+          opsToEraseSet.insert(op);
         }
       }
 
