@@ -1,17 +1,10 @@
-//===- EasyBuild.h - Easy Arith IR Builder utilities ------------*- C++ -*-===//
+//===-- EasyBuild.h - DESC --------------------------------------*- C++ -*-===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
-// This header file defines the easy-build utilities for arith dialects. It
-// provides the utility functions, classes and operators to make it easir to
-// program arith dialect operations in C++
-//
-//===----------------------------------------------------------------------===//
-
 #ifndef MLIR_DIALECT_ARITH_UTILS_EASYBUILD_H
 #define MLIR_DIALECT_ARITH_UTILS_EASYBUILD_H
 #include "gc/IR/EasyBuild.h"
@@ -28,12 +21,8 @@ namespace impl {
 
 template <std::size_t size> struct ToFloatType {};
 
-template <> struct ToFloatType<4> {
-  using type = Float32Type;
-};
-template <> struct ToFloatType<8> {
-  using type = Float64Type;
-};
+template <> struct ToFloatType<4> { using type = Float32Type; };
+template <> struct ToFloatType<8> { using type = Float64Type; };
 
 inline Type getElementType(Value v) {
   auto type = v.getType();
