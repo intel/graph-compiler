@@ -1,9 +1,9 @@
 //===-- DeepTileContractionNamedOp.cpp - DESC -------------------*- C++ -*-===//
-// 
+//
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// 
+//
 //===----------------------------------------------------------------------===//
 
 #include "./Tiling.hpp"
@@ -273,9 +273,19 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
       b.setInsertionPoint(currentOp);
       if (auto partialInterface =
               dyn_cast<PartialReductionOpInterface>(currentOp.getOperation())) {
+        for (auto [idx, tile] : llvm::enumerate(tileSizes)) {
+          if (isConstantIntValue(tile, 0)) {
+            tileSizes[idx] = loopRanges[idx].size;
+          }
+        }
+
+        SmallVector<OpFoldResult> newParallelDims;
+        for (auto i = 0UL; i < reductionDims.size(); i++) {
+          newParallelDims.push_back(getAsIndexOpFoldResult(b.getContext(), i));
+        }
         auto tilingResult = linalgX::tileAllUsingForall(
-            b, cast<PartialReductionOpInterface>(currentOp.getOperation()),
-            numThreads, tileSizes, std::nullopt);
+            b, cast<PartialReductionOpInterface>(currentOp.getOperation()), {},
+            tileSizes, newParallelDims, std::nullopt);
         if (failed(tilingResult))
           return failure();
         currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->parallelTiledOp);
