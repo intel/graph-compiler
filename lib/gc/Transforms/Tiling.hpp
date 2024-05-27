@@ -44,11 +44,10 @@ FailureOr<linalg::ForallReductionTilingResult> tileReductionUsingForall(
     ArrayRef<OpFoldResult> threadNums, ArrayRef<OpFoldResult> tileSizes,
     ArrayRef<OpFoldResult> newParallelDims, std::optional<ArrayAttr> mapping);
 
-FailureOr<linalg::ForallReductionTilingResult>
-tileAllUsingForall(RewriterBase &b, PartialReductionOpInterface op,
-                   ArrayRef<OpFoldResult> numThreads,
-                   ArrayRef<OpFoldResult> tileSizes,
-                   std::optional<ArrayAttr> mapping);
+FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
+    RewriterBase &b, PartialReductionOpInterface op,
+    ArrayRef<OpFoldResult> numThreads, ArrayRef<OpFoldResult> tileSizes,
+    ArrayRef<OpFoldResult> newParallelDims, std::optional<ArrayAttr> mapping);
 
 } // namespace linalgX
 } // namespace mlir
