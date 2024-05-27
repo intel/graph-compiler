@@ -24,6 +24,7 @@
 extern "C" {
 #endif
 
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.capi.h.inc"
 #include "gc/Transforms/Passes.capi.h.inc"
 #ifdef __cplusplus
 }

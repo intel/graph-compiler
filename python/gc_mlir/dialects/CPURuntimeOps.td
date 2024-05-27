@@ -1,0 +1,6 @@
+#ifndef PYTHON_BINDINGS_CPURUNTIME_OPS
+#define PYTHON_BINDINGS_CPURUNTIME_OPS
+
+include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.td"
+
+#endif // PYTHON_BINDINGS_CPURUNTIME_OPS

@@ -11,4 +11,4 @@
 
 include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.td"
 
-#endif
+#endif // PYTHON_BINDINGS_ONEDNNGRAPH_OPS
