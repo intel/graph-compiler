@@ -62,23 +62,8 @@ struct dnnl_graph_compiler {
   compile(const std::string_view &graph_json) const {
     std::vector<size_t> inputIds;
     std::vector<size_t> outputIds;
-    mlir::ModuleOp module =
-        JsonParser::parse(context, graph_json, inputIds, outputIds);
-
-#ifndef NDEBUG // TODO: Remove this block
-    auto &out = llvm::outs();
-    out << "OneDNN JSON to MLIR:\n";
-    module.print(out);
-    out << "Input IDs: ";
-    for (auto i : inputIds) {
-      out << i << ' ';
-    }
-    out << "\nOutput IDs: ";
-    for (auto i : outputIds) {
-      out << i << ' ';
-    }
-    out << '\n';
-#endif
+    // mlir::ModuleOp module =
+    JsonParser::parse(context, graph_json, inputIds, outputIds);
 
     // TODO: Compile the module
 

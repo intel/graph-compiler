@@ -17,6 +17,7 @@ static void compile(const char *fileName) {
   dnnl_graph_compiler_destroy(gc);
 }
 
+// TODO: Add results validation
 TEST(TestJsonParser, AddRelu) { compile("add_relu.json"); }
 TEST(TestJsonParser, Mpl) { compile("mpl.json"); }
 
