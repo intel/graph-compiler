@@ -98,22 +98,23 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
                                 PatternRewriter &rewriter) const override {
     auto rank = dyn_cast<ShapedType>(op.getOperand().getType()).getRank();
     // consider canonicalized if all axes are non-negative in ascending order
-    int64_t last = -1;
+    ArrayRef<int64_t> axes = op.getAxes();
     bool canonicalized = true;
-    for (size_t i = 0; i < axis.size(); i++) {
-      if (axis[i] <= last) {
+    int64_t last = -1;
+    for (size_t i = 0; i < axes.size(); i++) {
+      if (axes[i] <= last) {
         canonicalized = false;
         break;
       }
-      last = axis[i];
+      last = axes[i];
     }
     if (canonicalized) {
       return failure();
     }
     // canonicalize the reduce axes
-    auto axes = canonicalizeReduceAxes(op.getAxes(), rank);
+    auto new_axes = canonicalizeReduceAxes(axes, rank);
     rewriter.replaceOpWithNewOp<ReduceOp>(op, op.getType(), op.getOperand(),
-                                          axes, op.getKeepDims());
+                                          new_axes, op.getKeepDims());
     return success();
   }
 };
@@ -121,7 +122,8 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
 #define REDUCE_OP_SHAPE_CANONICALIZE(OP)                                       \
   void OP::getCanonicalizationPatterns(RewritePatternSet &results,             \
                                        MLIRContext *context) {                 \
-    results.add<CanonicalizeReduceOp<OP>>(context);                            \
+    using CanonicalizeOp = CanonicalizeReduceOp<OP>;                           \
+    results.add<CanonicalizeOp>(context);                                      \
   }
 
 #define REDUCE_OP_SHAPE_INFER(OP)                                              \
