@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
@@ -26,9 +27,11 @@
 int main(int argc, char *argv[]) {
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
-
+  mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
+  registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   mlir::registerAllDialects(registry);
+  mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));

@@ -1,0 +1,32 @@
+name: Graph Compiler License Check
+
+on:
+  pull_request:
+
+permissions: read-all
+
+jobs:
+  license-check:
+    name: License Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Get merge base
+        run: |
+          echo "MERGE_BASE=`git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}`" >> $GITHUB_ENV
+
+      - name: Get changed files
+        run: |
+          echo "CHANGED_FILES=`git diff --name-only $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd,`" >> $GITHUB_ENV
+
+      - name: Perform license check
+        run: "python scripts/license.py --files $CHANGED_FILES"
