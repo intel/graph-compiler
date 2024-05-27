@@ -16,7 +16,7 @@ namespace gc {
 std::ostream &operator<<(std::ostream &ss, const TensorLayout &layout) {
   SmallVector<int64_t> outerAxis = layout.getOuterAxis();
   SmallVector<int64_t> innerAxis = layout.getInnerAxis();
-  SmallVector<int64_t> tileSizes = layout.getTileSizes();
+  SmallVector<OpFoldResult> tileSizes = layout.getTileSizes();
   ss << "[";
   for (size_t i = 0; i < outerAxis.size(); ++i) {
     if (i != 0) {
@@ -35,7 +35,9 @@ std::ostream &operator<<(std::ostream &ss, const TensorLayout &layout) {
       if (i != 0) {
         ss << ", ";
       }
-      ss << tileSizes[i];
+      if (getConstantIntValue(tileSizes[i]).has_value()) {
+        ss << *getConstantIntValue(tileSizes[i]);
+      }
     }
     ss << "}";
   }
@@ -120,10 +122,10 @@ inferTargetLayout(TensorLayout layoutBase,
   int64_t dimDifference = indexMap.size() - layoutBase.getTensorRank();
   SmallVector<int64_t> baseOuterAxis = layoutBase.getOuterAxis();
   SmallVector<int64_t> baseInnerAxis = layoutBase.getInnerAxis();
-  SmallVector<int64_t> baseTileSizes = layoutBase.getTileSizes();
+  SmallVector<OpFoldResult> baseTileSizes = layoutBase.getTileSizes();
   SmallVector<int64_t> targetOuterAxis;
   SmallVector<int64_t> targetInnerAxis;
-  SmallVector<int64_t> targetTileSizes;
+  SmallVector<OpFoldResult> targetTileSizes;
   DenseMap<int64_t, int64_t> reverseIndexMap =
       getReversedIndexMap(indexMap, layoutBase.getTensorRank());
   for (auto oa : baseOuterAxis) {
@@ -184,6 +186,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       }
 
       // ------ Get Current Op's Suggested Layout & Do Propagation ------
+      IRRewriter rewriter(linalgOp);
       if (mlir::linalg::isaContractionOpInterface(linalgOp)) {
         // query the cost model
         // OperatorLayout suggestedLayout = costModel->queryLayout(linalgOp,
@@ -191,11 +194,20 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 
         // hardcode one for now
         // A side layout, [0, 1, 0, 1]; {32, 32}
-        TensorLayout A_layout({0, 1}, {0, 1}, {32, 32});
+        TensorLayout A_layout(
+            {0, 1}, {0, 1},
+            SmallVector<OpFoldResult>{rewriter.getIndexAttr(32),
+                                      rewriter.getIndexAttr(32)});
         // B side layout, [1, 0, 0, 1]; {32, 32}
-        TensorLayout B_layout({1, 0}, {0, 1}, {32, 32});
+        TensorLayout B_layout(
+            {1, 0}, {0, 1},
+            SmallVector<OpFoldResult>{rewriter.getIndexAttr(32),
+                                      rewriter.getIndexAttr(32)});
         // C side layout, [0, 1, 0, 1]; {32, 32}
-        TensorLayout C_layout({0, 1}, {0, 1}, {32, 32});
+        TensorLayout C_layout(
+            {0, 1}, {0, 1},
+            SmallVector<OpFoldResult>{rewriter.getIndexAttr(32),
+                                      rewriter.getIndexAttr(32)});
         OperatorLayout suggestedLayout({A_layout, B_layout}, {C_layout});
         layout[linalgOp] = suggestedLayout;
       } else {

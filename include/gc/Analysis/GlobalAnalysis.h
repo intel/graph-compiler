@@ -23,6 +23,7 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
 
@@ -34,7 +35,7 @@ using namespace mlir;
 class TensorLayout {
 public:
   TensorLayout(ArrayRef<int64_t> outerAxis, ArrayRef<int64_t> innerAxis,
-               ArrayRef<int64_t> tileSizes) {
+               ArrayRef<OpFoldResult> tileSizes) {
     assert(innerAxis.size() == tileSizes.size());
     for (auto oa : outerAxis) {
       OuterAxis.push_back(oa);
@@ -59,7 +60,7 @@ public:
     SmallVector<int64_t> outerAxis(rank, 0);
     std::iota(outerAxis.begin(), outerAxis.end(), 0);
     return TensorLayout(outerAxis, SmallVector<int64_t>{},
-                        SmallVector<int64_t>{});
+                        SmallVector<OpFoldResult>{});
   }
 
   size_t getTensorRank() const { return OuterAxis.size(); }
@@ -68,7 +69,7 @@ public:
 
   SmallVector<int64_t> getInnerAxis() const { return InnerAxis; }
 
-  SmallVector<int64_t> getTileSizes() const { return TileSizes; }
+  SmallVector<OpFoldResult> getTileSizes() const { return TileSizes; }
 
   friend std::ostream &operator<<(std::ostream &ss, const TensorLayout &layout);
 
@@ -77,7 +78,7 @@ public:
 private:
   SmallVector<int64_t> OuterAxis;
   SmallVector<int64_t> InnerAxis;
-  SmallVector<int64_t> TileSizes;
+  SmallVector<OpFoldResult> TileSizes;
 };
 
 class OperatorLayout {
