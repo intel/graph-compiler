@@ -302,9 +302,8 @@ static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
 
 std::shared_ptr<ConstCacheProxy> createConstCacheProxy(size_t size) {
   // simply allocate buffer and return
-  std::shared_ptr<void> base =
-      std::shared_ptr<void>{std::aligned_alloc(64, size), [](void *p) {
-      std::free(p); }};
+  std::shared_ptr<void> base = std::shared_ptr<void>{
+      std::aligned_alloc(64, size), [](void *p) { std::free(p); }};
   return std::make_shared<ConstCacheProxy>(base, base.get(), size, true);
 }
 
@@ -324,72 +323,63 @@ struct constGraphTensorCacheManager {
   }
 
   // alloc and set the buf_base_ and offset_ attributes of cache
-  std::vector<uint64_t> alloc(std::vector<size_t> buffers_size) {
-    size_t total_size = 0;
-    for (size_t i = 0; i < buffers_size.size(); i++) {
-      total_size += divideAndCeil(buffers_size[i], 64) * 64;
+  std::vector<uint64_t> alloc(std::vector<size_t> buffersSize) {
+    size_t totalSize = 0;
+    for (size_t i = 0; i < buffersSize.size(); i++) {
+      totalSize += divideAndCeil(buffersSize[i], 64) * 64;
     }
-    llvm::dbgs() << "Alloc total size: " << total_size << '\n';
-    auto base = createConstCacheProxy(total_size);
-    std::vector<uint64_t> global_ids(buffers_size.size());
+    llvm::dbgs() << "Alloc total size: " << totalSize << '\n';
+    auto base = createConstCacheProxy(totalSize);
+    std::vector<uint64_t> globalIds(buffersSize.size());
     size_t offset = 0;
-    for (size_t i = 0; i < buffers_size.size(); i++) {
+    for (size_t i = 0; i < buffersSize.size(); i++) {
       llvm::dbgs() << "Alloc offset: " << offset << '\n';
       regCachedTensor(cachedTensorGlobalId, base, offset);
-      global_ids[i] = cachedTensorGlobalId;
+      globalIds[i] = cachedTensorGlobalId;
       ++cachedTensorGlobalId;
-      offset += divideAndCeil(buffers_size[i], 64) * 64;
+      offset += divideAndCeil(buffersSize[i], 64) * 64;
     }
-    return global_ids;
+    return globalIds;
   }
 };
 
-static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
-                      StringRef name, int64_t value) {
+static void addGlobalI32(ModuleOp module, Location loc, OpBuilder &builder,
+                         StringRef name, int32_t value) {
   OpBuilder::InsertionGuard insertGuard(builder);
   builder.setInsertionPointToStart(module.getBody());
 
-  auto type = IntegerType::get(builder.getContext(), 8);
+  auto type = IntegerType::get(builder.getContext(), 32);
   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-      builder.getIndexAttr(value),
+      builder.getI32IntegerAttr(value),
       /*alignment=*/0);
 }
 
-static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
-                           StringRef name, ArrayRef<int64_t> array) {
+static void addGlobalI64Array(ModuleOp module, Location loc, OpBuilder &builder,
+                              StringRef name, ArrayRef<int64_t> array) {
   OpBuilder::InsertionGuard insertGuard(builder);
   builder.setInsertionPointToStart(module.getBody());
 
   auto type = LLVM::LLVMArrayType::get(
-      IntegerType::get(builder.getContext(), 8), array.size());
+      IntegerType::get(builder.getContext(), 64), array.size());
   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-      builder.getIndexArrayAttr(array),
+      builder.getI64ArrayAttr(array),
       /*alignment=*/0);
 }
 
-// static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
-//                            StringRef name, ArrayRef<int64_t> array) {
-//   OpBuilder::InsertionGuard insertGuard(builder);
-//   builder.setInsertionPointToStart(module.getBody());
+static void addGlobalI32Array(ModuleOp module, Location loc, OpBuilder &builder,
+                              StringRef name, ArrayRef<int32_t> array) {
+  OpBuilder::InsertionGuard insertGuard(builder);
+  builder.setInsertionPointToStart(module.getBody());
 
-//   MemRefType type = MemRefType::Builder(array.size(), builder.getIndexType());
-//   IntegerAttr memrefAlignment = IntegerAttr();
-//   auto global = builder.create<memref::GlobalOp>(
-//       loc, name,
-//       /*sym_visibility=*/builder.getStringAttr("public"),
-//       /*type=*/type,
-//       /*initial_value=*/builder.getIndexTensorAttr(array),
-//       /*constant=*/true,
-//       /*alignment=*/memrefAlignment);
-// }
-
-// static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
-//                       StringRef name, int64_t value) {
-//   SmallVector<int64_t> array{value};
-//   addGlobalArray(module, loc, builder, name, array);
-// }
+  auto type = LLVM::LLVMArrayType::get(
+      IntegerType::get(builder.getContext(), 32), array.size());
+  LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
+      loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+      builder.getI32ArrayAttr(array),
+      /*alignment=*/0);
+}
 
 // Operate on tensors. Create fold() and compute() on module. The
 // folded weights and first-run flag is maintained by upper-level runtime.
@@ -547,16 +537,16 @@ void CST::runOnOperation() {
     globalIndexes.push_back(id);
   }
   globalIndexes.insert(globalIndexes.begin(), globalIndexes.size());
-  addGlobalArray(moduleOp, moduleOp.getLoc(), builder, "__fold_buffer_ids",
-                 globalIndexes);
+  addGlobalI64Array(moduleOp, moduleOp.getLoc(), builder, "__fold_buffer_ids",
+                    globalIndexes);
 
   foldFunc.setVisibility(SymbolTable::Visibility::Public);
   moduleOp.push_back(foldFunc);
   symbolTable.insert(foldFunc);
 
-  SmallVector<int64_t> foldArgs;
-  SmallVector<int64_t> foldIds;
-  SmallVector<int64_t> computeArgs;
+  SmallVector<int32_t> foldArgs;
+  SmallVector<int32_t> foldIds;
+  SmallVector<int32_t> computeArgs;
 
   // modify the BlockArguments of block
   size_t oriNumArgs = block.getNumArguments();
@@ -607,14 +597,15 @@ void CST::runOnOperation() {
     foldArgs.insert(foldArgs.end(), id);
   }
   foldArgs.insert(foldArgs.begin(), foldArgs.size());
-  addGlobalArray(moduleOp, moduleOp.getLoc(), builder, "__fold_args", foldArgs);
+  addGlobalI32Array(moduleOp, moduleOp.getLoc(), builder, "__fold_args",
+                    foldArgs);
 
   computeArgs.insert(computeArgs.begin(), computeArgs.size());
-  addGlobalArray(moduleOp, moduleOp.getLoc(), builder, "__compute_args",
-                 computeArgs);
+  addGlobalI32Array(moduleOp, moduleOp.getLoc(), builder, "__compute_args",
+                    computeArgs);
 
-  addGlobal(moduleOp, moduleOp.getLoc(), builder, "__num_orig_num_args",
-            oriNumArgs);
+  addGlobalI32(moduleOp, moduleOp.getLoc(), builder, "__num_orig_num_args",
+               oriNumArgs);
 
   // modify the compute func signature
   func::FuncOp computeFunc = cast<func::FuncOp>(topFunc);
