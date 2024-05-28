@@ -98,6 +98,8 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
                                 PatternRewriter &rewriter) const override {
     auto rank = dyn_cast<ShapedType>(op.getOperand().getType()).getRank();
     // consider canonicalized if all axes are non-negative in ascending order
+    // Note: disable tidy here due to dangling reference in OperationState
+    // NOLINTBEGIN
     bool canonicalized = true;
     int64_t last = -1;
     for (const auto axis : op.getAxes()) {
@@ -112,12 +114,10 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
     }
     // canonicalize the reduce axes
     auto new_axes = canonicalizeReduceAxes(op.getAxes(), rank);
-    // NOLINTBEGIN
-    // Note: disable tidy here due to dangling reference in OperationState
     auto new_op = rewriter.create<ReduceOp>(
         op.getLoc(), op.getType(), op.getOperand(), new_axes, op.getKeepDims());
-    // NOLINTEND
     rewriter.replaceOp(op, new_op);
+    // NOLINTEND
     return success();
   }
 };
