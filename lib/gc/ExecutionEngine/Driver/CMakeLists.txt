@@ -27,7 +27,7 @@ else()
 endif()
 
 add_mlir_library(GCJitWrapper
-  Module.cpp
+  Driver.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include

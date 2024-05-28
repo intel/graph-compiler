@@ -1,3 +1,10 @@
+//===-- ConstantCache.hpp - Constant cache interfaces -----------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 #ifndef GC_EXECUTIONENGINE_CPURUNTIME_CONSTANT_CACHE_H
 #define GC_EXECUTIONENGINE_CPURUNTIME_CONSTANT_CACHE_H
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
@@ -14,76 +21,70 @@ namespace gc {
  * when the object is initialized (see init()). When the refcount counts down to
  * 0, the additional shared ptr is reset.
  */
-struct ref_count_managed {
-  ref_count_managed() = default;
-  ref_count_managed(const std::shared_ptr<void> &keep_alive) {
-    init(keep_alive);
-  }
+struct RefCountManaged {
+  RefCountManaged() = default;
+  RefCountManaged(const std::shared_ptr<void> &keep_alive) { init(keep_alive); }
   void init(const std::shared_ptr<void> &keep_alive) {
-    keep_alive_ = keep_alive;
-    ref_count_.store(1);
+    keepAlive = keep_alive;
+    refCount.store(1);
   }
 
-  void ref() { ++ref_count_; }
+  void ref() { ++refCount; }
   void deref() {
-    auto newv = --ref_count_;
+    auto newv = --refCount;
     if (newv == 0) {
-      keep_alive_ = nullptr;
+      keepAlive = nullptr;
     }
   }
 
-  // atomically check if ref_count_ > 0. if so, ref() the object and return
-  // true. Otherwise (if ref_count_==0), return false
-  bool check_alive_and_ref() {
-    auto oldv = ref_count_.load();
+  // atomically check if refCount > 0. if so, ref() the object and return
+  // true. Otherwise (if refCount==0), return false
+  bool checkAliveAndRef() {
+    auto oldv = refCount.load();
     for (;;) {
       if (oldv <= 0) {
         return false;
       }
-      if (ref_count_.compare_exchange_strong(oldv, oldv + 1)) {
+      if (refCount.compare_exchange_strong(oldv, oldv + 1)) {
         return true;
       }
-      // CAS failed, oldv has now the newest known value of ref_count_
+      // CAS failed, oldv has now the newest known value of refCount
     }
   }
 
-  bool is_alive() const { return ref_count_ > 0; }
-  void *unsafe_get_ptr() const { return keep_alive_.get(); }
+  bool isAlive() const { return refCount > 0; }
+  void *getPtrUnsafe() const { return keepAlive.get(); }
 
 private:
-  std::shared_ptr<void> keep_alive_;
-  std::atomic<int> ref_count_{0};
+  std::shared_ptr<void> keepAlive;
+  std::atomic<int> refCount{0};
 };
 
 /**
  * The proxy for the constant cache of Graph API. It holds a shared ptr pointing
  * to the cache item in the cache manager (keep_alive) to extend the lifetime by
- * refcount, @see ref_count_managed. To access the memory buffer of the const
- * cache, use sc_acquire_const_cache and sc_release_const_cache functions. They
- * will ref/deref the ConstCacheProxy to make sure the cache is alive after
- * calling sc_acquire_const_cache and before sc_release_const_cache. The cache
- * manager of Graph API may evict the cache item by dereferenceing this
- * ref_count_managed object. sc_{acquire,release}_const_cache functions will
- * find out that the cache has been invalidated and they will then use the
- * memory allocator in the runtime::stream_t to re-allocate the buffer. Usually
- * we expect JIT modules to hold shared ptr to ConstCacheProxy via
- * cached_const_graph_tensor.
- * If is_lazy_ == true, the cache item's lifetime will be managed by the cache
- * manager of Graph API and it is filled with data after the first execution of
- * the computation. Otherwise, the cache item is always alive as long as the
- * jit_module of the kernel is alive.
+ * refcount, @see RefCountManaged. To access the memory buffer of the const
+ * cache, use acauire/release functions. They will ref/deref the ConstCacheProxy
+ * to make sure the cache is alive after calling acauire and before release. The
+ * cache manager of Graph API may evict the cache item by dereferenceing this
+ * RefCountManaged object. {acquire,release} functions will find out that the
+ * cache has been invalidated. Usually we expect JIT modules to hold shared ptr
+ * to ConstCacheProxy via  CachedGraphTensor. If is_lazy_ == true, the cache
+ * item's lifetime will be managed by the cache manager of Graph API and it is
+ * filled with data after the first execution of the computation. Otherwise, the
+ * cache item is always alive as long as the jit_module of the kernel is alive.
  */
-struct ConstCacheProxy : ref_count_managed {
+struct ConstCacheProxy : RefCountManaged {
   ConstCacheProxy(const std::shared_ptr<void> &keep_alive, void *buffer,
-                    size_t size, bool is_lazy)
-      : ref_count_managed(keep_alive), size_(size), is_lazy_(is_lazy),
+                  size_t size, bool is_lazy)
+      : RefCountManaged(keep_alive), size_(size), is_lazy_(is_lazy),
         buffer_(buffer) {}
   ~ConstCacheProxy();
 
   // get the buffer and increment the refcount. If the buffer is evicted,
   // returns null
   void *acquire(int32_t *inited) {
-    if (check_alive_and_ref()) {
+    if (checkAliveAndRef()) {
       *inited = *inited && initialized_;
       return buffer_;
     }
@@ -91,7 +92,7 @@ struct ConstCacheProxy : ref_count_managed {
   }
   // decrement the refcount
   bool release() {
-    if (is_alive()) {
+    if (isAlive()) {
       deref();
       initialized_ = 1;
       return true;
@@ -101,7 +102,7 @@ struct ConstCacheProxy : ref_count_managed {
 
   // return the buffer. Do not directly use the buffer because it may be already
   // release! To access the buffer, always acquire() before using it.
-  void *get_buffer_unsafe() const { return buffer_; }
+  void *getBufferUnsafe() const { return buffer_; }
 
   size_t size_;
   // if the buffer is lazy-initialized. If false, it should be filled before
@@ -119,7 +120,7 @@ struct CachedGraphTensor {
   std::shared_ptr<ConstCacheProxy> base;
   size_t offset;
   CachedGraphTensor(const std::shared_ptr<ConstCacheProxy> &base,
-                      size_t offset);
+                    size_t offset);
   friend class JitModule;
 
 private:
@@ -127,9 +128,8 @@ private:
 };
 
 std::shared_ptr<CachedGraphTensor> queryCacheTensor(uint64_t key);
-bool regCachedTensor(uint64_t key,
-                       const std::shared_ptr<ConstCacheProxy> &base,
-                       size_t offset);
+bool regCachedTensor(uint64_t key, const std::shared_ptr<ConstCacheProxy> &base,
+                     size_t offset);
 
 } // namespace gc
 } // namespace mlir

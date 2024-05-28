@@ -1,4 +1,4 @@
-//===- Module.cpp -----------------------------------------------*- C++ -*-===//
+//===-- Driver.cpp - Top-level MLIR compiler driver -------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/ExecutionEngine/JitWrapper/Module.hpp"
+#include "gc/ExecutionEngine/Driver/Driver.hpp"
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"

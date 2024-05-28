@@ -1,4 +1,4 @@
-//===- Module.h - Jit module and Execution engine wrapper -------*- C++ -*-===//
+//===-- Driver.hpp - The top-level MLIR compiler driver ---------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_EXECUTIONENGINE_JITWRAPPER_H
-#define GC_EXECUTIONENGINE_JITWRAPPER_H
+#ifndef GC_EXECUTIONENGINE_DRIVER_DRIVER_H
+#define GC_EXECUTIONENGINE_DRIVER_DRIVER_H
 
 #include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
 #include "mlir/ExecutionEngine/CRunnerUtils.h"

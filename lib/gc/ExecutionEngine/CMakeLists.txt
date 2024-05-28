@@ -1,2 +1,2 @@
 add_subdirectory(CPURuntime)
-add_subdirectory(JitWrapper)
+add_subdirectory(Driver)

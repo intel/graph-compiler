@@ -1,3 +1,11 @@
+//===-- ConstantCache.cpp - Constant cache ----------------------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
 #include <string.h>
 #include <unordered_map>
@@ -11,7 +19,7 @@ CachedGraphTensor::CachedGraphTensor(
     const std::shared_ptr<ConstCacheProxy> &base, size_t offset)
     : base{base}, offset{offset} {
   // todo: fill in real values
-  ref.basePtr = (char *)base->get_buffer_unsafe() + offset;
+  ref.basePtr = (char *)base->getBufferUnsafe() + offset;
   ref.data = ref.basePtr;
   ref.offset = 0;
   memset(ref.sizes, 0, sizeof(ref.sizes));
