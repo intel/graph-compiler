@@ -77,7 +77,7 @@ jobs:
         run: |
           pip install wheel
           cd python
-          cov-build --dir $HOME/cov-int --no-command
+          cov-build --dir $HOME/cov-int scripts/compile.sh
           tail $HOME/cov-int/build-log.txt
 
       - name: Create coverity results tarball
