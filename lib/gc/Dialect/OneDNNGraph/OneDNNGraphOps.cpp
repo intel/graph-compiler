@@ -112,8 +112,12 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
     }
     // canonicalize the reduce axes
     auto new_axes = canonicalizeReduceAxes(op.getAxes(), rank);
-    rewriter.replaceOpWithNewOp<ReduceOp>(op, op.getType(), op.getOperand(),
-                                          new_axes, op.getKeepDims());
+    // NOLINTBEGIN
+    // Note: disable tidy here due to dangling reference in OperationState
+    auto new_op = rewriter.create<ReduceOp>(
+        op.getLoc(), op.getType(), op.getOperand(), new_axes, op.getKeepDims());
+    // NOLINTEND
+    rewriter.replaceOp(op, new_op);
     return success();
   }
 };
