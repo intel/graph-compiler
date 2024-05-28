@@ -30,7 +30,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 
-// #include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
+#include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
 
 namespace mlir {
 namespace gc {
@@ -300,13 +300,13 @@ static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
 // void *allocator(size_t size) { return std::aligned_alloc(64, size); }
 // void deallocator(void *ptr) { std::free(ptr); }
 
-// std::shared_ptr<const_cache_proxy> create_const_cache_proxy(size_t size) {
-//   // simply allocate buffer and return
-//   std::shared_ptr<void> base =
-//       std::shared_ptr<void>{std::aligned_alloc(64, size), [](void *p) {
-//       std::free(p); }};
-//   return std::make_shared<const_cache_proxy>(base, base.get(), size, true);
-// }
+std::shared_ptr<const_cache_proxy> create_const_cache_proxy(size_t size) {
+  // simply allocate buffer and return
+  std::shared_ptr<void> base =
+      std::shared_ptr<void>{std::aligned_alloc(64, size), [](void *p) {
+      std::free(p); }};
+  return std::make_shared<const_cache_proxy>(base, base.get(), size, true);
+}
 
 size_t divide_and_ceil(size_t x, size_t y) { return (x + y - 1) / y; }
 
@@ -330,12 +330,12 @@ struct const_graph_tensor_cache_manager {
       total_size += divide_and_ceil(buffers_size[i], 64) * 64;
     }
     llvm::dbgs() << "Alloc total size: " << total_size << '\n';
-    // auto base = create_const_cache_proxy(total_size);
+    auto base = create_const_cache_proxy(total_size);
     std::vector<uint64_t> global_ids(buffers_size.size());
     size_t offset = 0;
     for (size_t i = 0; i < buffers_size.size(); i++) {
       llvm::dbgs() << "Alloc offset: " << offset << '\n';
-      // reg_cached_tensor(cached_tensor_global_id, base, offset);
+      reg_cached_tensor(cached_tensor_global_id, base, offset);
       global_ids[i] = cached_tensor_global_id;
       ++cached_tensor_global_id;
       offset += divide_and_ceil(buffers_size[i], 64) * 64;
@@ -344,52 +344,52 @@ struct const_graph_tensor_cache_manager {
   }
 };
 
-// static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
-//                       StringRef name, int64_t value) {
-//   OpBuilder::InsertionGuard insertGuard(builder);
-//   builder.setInsertionPointToStart(module.getBody());
+static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
+                      StringRef name, int64_t value) {
+  OpBuilder::InsertionGuard insertGuard(builder);
+  builder.setInsertionPointToStart(module.getBody());
 
-//   auto type = IntegerType::get(builder.getContext(), 8);
-//   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
-//       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-//       builder.getIndexAttr(value),
-//       /*alignment=*/0);
-// }
-
-// static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
-//                            StringRef name, ArrayRef<int64_t> array) {
-//   OpBuilder::InsertionGuard insertGuard(builder);
-//   builder.setInsertionPointToStart(module.getBody());
-
-//   auto type = LLVM::LLVMArrayType::get(
-//       IntegerType::get(builder.getContext(), 8), array.size());
-//   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
-//       loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-//       builder.getIndexArrayAttr(array),
-//       /*alignment=*/0);
-// }
+  auto type = IntegerType::get(builder.getContext(), 8);
+  LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
+      loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+      builder.getIndexAttr(value),
+      /*alignment=*/0);
+}
 
 static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
                            StringRef name, ArrayRef<int64_t> array) {
   OpBuilder::InsertionGuard insertGuard(builder);
   builder.setInsertionPointToStart(module.getBody());
 
-  MemRefType type = MemRefType::Builder(array.size(), builder.getIndexType());
-  IntegerAttr memrefAlignment = IntegerAttr();
-  auto global = builder.create<memref::GlobalOp>(
-      loc, name,
-      /*sym_visibility=*/builder.getStringAttr("public"),
-      /*type=*/type,
-      /*initial_value=*/builder.getIndexTensorAttr(array),
-      /*constant=*/true,
-      /*alignment=*/memrefAlignment);
+  auto type = LLVM::LLVMArrayType::get(
+      IntegerType::get(builder.getContext(), 8), array.size());
+  LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
+      loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+      builder.getIndexArrayAttr(array),
+      /*alignment=*/0);
 }
 
-static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
-                      StringRef name, int64_t value) {
-  SmallVector<int64_t> array{value};
-  addGlobalArray(module, loc, builder, name, array);
-}
+// static void addGlobalArray(ModuleOp module, Location loc, OpBuilder &builder,
+//                            StringRef name, ArrayRef<int64_t> array) {
+//   OpBuilder::InsertionGuard insertGuard(builder);
+//   builder.setInsertionPointToStart(module.getBody());
+
+//   MemRefType type = MemRefType::Builder(array.size(), builder.getIndexType());
+//   IntegerAttr memrefAlignment = IntegerAttr();
+//   auto global = builder.create<memref::GlobalOp>(
+//       loc, name,
+//       /*sym_visibility=*/builder.getStringAttr("public"),
+//       /*type=*/type,
+//       /*initial_value=*/builder.getIndexTensorAttr(array),
+//       /*constant=*/true,
+//       /*alignment=*/memrefAlignment);
+// }
+
+// static void addGlobal(ModuleOp module, Location loc, OpBuilder &builder,
+//                       StringRef name, int64_t value) {
+//   SmallVector<int64_t> array{value};
+//   addGlobalArray(module, loc, builder, name, array);
+// }
 
 // Operate on tensors. Create fold() and compute() on module. The
 // folded weights and first-run flag is maintained by upper-level runtime.
