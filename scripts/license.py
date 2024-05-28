@@ -15,10 +15,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import datetime, sys, re, argparse
-from typing import Dict, Set
+from typing import Dict, Set, List
 
 WIDTH: int = 80
-intel_license: list[str] = [
+intel_license: List[str] = [
     'Copyright \\(C\\) (\\d\\d\\d\\d-)?$YEAR Intel Corporation',
     '',
     'Licensed under the Apache License, Version 2.0 (the "License");',
@@ -35,7 +35,7 @@ intel_license: list[str] = [
     'SPDX-License-Identifier: Apache-2.0',
 ]
 
-llvm_license: list[str] = [
+llvm_license: List[str] = [
     "===-{1,2} $FILE - .* -*\\*- $LANG -\\*-===",
     '',
     'This file is licensed under the Apache License v2.0 with LLVM Exceptions.',
@@ -45,7 +45,7 @@ llvm_license: list[str] = [
     "===-*===",
 ]
 
-def check_license(filepath: str, license: list[str], var: Dict[str, str], re_line: Set[int]):
+def check_license(filepath: str, license: List[str], var: Dict[str, str], re_line: Set[int]):
     with open(filepath, 'r') as f:
         idx: int = 0
         for line in f.readlines():
@@ -117,7 +117,7 @@ for filepath in args.files.split(','):
     var: Dict[str, str] = {}
     re_line: Set[int] = set()
 
-    lic = list[str]
+    lic = List[str]
 
     if filepath.startswith("test/") or filepath.startswith("./test/"):
         continue
