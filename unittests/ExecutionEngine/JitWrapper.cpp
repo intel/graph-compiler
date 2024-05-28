@@ -111,11 +111,11 @@ TEST(ExecutionEngine, JitWrapperCached) {
 
   // foldedA and foldedB uses this buffer
   auto ret = std::shared_ptr<float[]>(new float[128 * 2]);
-  auto proxy = std::make_shared<gc::const_cache_proxy>(
+  auto proxy = std::make_shared<gc::ConstCacheProxy>(
       ret, ret.get(), 128 * 2 * sizeof(float), true);
 
-  ASSERT_TRUE(gc::reg_cached_tensor(114514, proxy, 0));
-  ASSERT_TRUE(gc::reg_cached_tensor(1919810, proxy, 128 * sizeof(float)));
+  ASSERT_TRUE(gc::regCachedTensor(114514, proxy, 0));
+  ASSERT_TRUE(gc::regCachedTensor(1919810, proxy, 128 * sizeof(float)));
 
   ASSERT_TRUE(module);
   auto jited = gc::JitModule::create(module.get());

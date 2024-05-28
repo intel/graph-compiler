@@ -4,11 +4,11 @@
 
 namespace mlir::gc {
 
-const_cache_proxy::~const_cache_proxy() = default;
+ConstCacheProxy::~ConstCacheProxy() = default;
 
 
-cached_graph_tensor::cached_graph_tensor(
-    const std::shared_ptr<const_cache_proxy> &base, size_t offset)
+CachedGraphTensor::CachedGraphTensor(
+    const std::shared_ptr<ConstCacheProxy> &base, size_t offset)
     : base{base}, offset{offset} {
   // todo: fill in real values
   ref.basePtr = (char *)base->get_buffer_unsafe() + offset;
@@ -18,9 +18,9 @@ cached_graph_tensor::cached_graph_tensor(
   memset(ref.strides, 0, sizeof(ref.strides));
 }
 
-static std::unordered_map<uint64_t, std::shared_ptr<cached_graph_tensor>> cache;
+static std::unordered_map<uint64_t, std::shared_ptr<CachedGraphTensor>> cache;
 
-std::shared_ptr<cached_graph_tensor> query_cached_tensor(uint64_t key) {
+std::shared_ptr<CachedGraphTensor> queryCacheTensor(uint64_t key) {
   auto itr = cache.find(key);
   if (itr != cache.end()) {
     return itr->second;
@@ -28,13 +28,13 @@ std::shared_ptr<cached_graph_tensor> query_cached_tensor(uint64_t key) {
   return nullptr;
 }
 
-bool reg_cached_tensor(uint64_t key,
-                       const std::shared_ptr<const_cache_proxy> &base,
+bool regCachedTensor(uint64_t key,
+                       const std::shared_ptr<ConstCacheProxy> &base,
                        size_t offset) {
-  if (query_cached_tensor(key)) {
+  if (queryCacheTensor(key)) {
     return false;
   }
-  cache[key] = std::make_shared<cached_graph_tensor>(base, offset);
+  cache[key] = std::make_shared<CachedGraphTensor>(base, offset);
   return true;
 }
 } // namespace mlir::gc

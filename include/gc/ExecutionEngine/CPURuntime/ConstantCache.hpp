@@ -60,25 +60,25 @@ private:
  * to the cache item in the cache manager (keep_alive) to extend the lifetime by
  * refcount, @see ref_count_managed. To access the memory buffer of the const
  * cache, use sc_acquire_const_cache and sc_release_const_cache functions. They
- * will ref/deref the const_cache_proxy to make sure the cache is alive after
+ * will ref/deref the ConstCacheProxy to make sure the cache is alive after
  * calling sc_acquire_const_cache and before sc_release_const_cache. The cache
  * manager of Graph API may evict the cache item by dereferenceing this
  * ref_count_managed object. sc_{acquire,release}_const_cache functions will
  * find out that the cache has been invalidated and they will then use the
  * memory allocator in the runtime::stream_t to re-allocate the buffer. Usually
- * we expect JIT modules to hold shared ptr to const_cache_proxy via
+ * we expect JIT modules to hold shared ptr to ConstCacheProxy via
  * cached_const_graph_tensor.
  * If is_lazy_ == true, the cache item's lifetime will be managed by the cache
  * manager of Graph API and it is filled with data after the first execution of
  * the computation. Otherwise, the cache item is always alive as long as the
  * jit_module of the kernel is alive.
  */
-struct const_cache_proxy : ref_count_managed {
-  const_cache_proxy(const std::shared_ptr<void> &keep_alive, void *buffer,
+struct ConstCacheProxy : ref_count_managed {
+  ConstCacheProxy(const std::shared_ptr<void> &keep_alive, void *buffer,
                     size_t size, bool is_lazy)
       : ref_count_managed(keep_alive), size_(size), is_lazy_(is_lazy),
         buffer_(buffer) {}
-  ~const_cache_proxy();
+  ~ConstCacheProxy();
 
   // get the buffer and increment the refcount. If the buffer is evicted,
   // returns null
@@ -115,10 +115,10 @@ private:
   int32_t initialized_ = 0;
 };
 
-struct cached_graph_tensor {
-  std::shared_ptr<const_cache_proxy> base;
+struct CachedGraphTensor {
+  std::shared_ptr<ConstCacheProxy> base;
   size_t offset;
-  cached_graph_tensor(const std::shared_ptr<const_cache_proxy> &base,
+  CachedGraphTensor(const std::shared_ptr<ConstCacheProxy> &base,
                       size_t offset);
   friend class JitModule;
 
@@ -126,9 +126,9 @@ private:
   StridedMemRefType<char, 8> ref;
 };
 
-std::shared_ptr<cached_graph_tensor> query_cached_tensor(uint64_t key);
-bool reg_cached_tensor(uint64_t key,
-                       const std::shared_ptr<const_cache_proxy> &base,
+std::shared_ptr<CachedGraphTensor> queryCacheTensor(uint64_t key);
+bool regCachedTensor(uint64_t key,
+                       const std::shared_ptr<ConstCacheProxy> &base,
                        size_t offset);
 
 } // namespace gc

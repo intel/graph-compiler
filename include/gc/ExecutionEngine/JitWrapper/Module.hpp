@@ -42,7 +42,7 @@ public:
       llvm::ArrayRef<uint32_t> computeArgs,
       // The code inside `engine` has the ownership  of the buffer
       llvm::ArrayRef<uint32_t> foldArgs,
-      std::vector<std::shared_ptr<cached_graph_tensor>> &&cachekeepAlive = {});
+      std::vector<std::shared_ptr<CachedGraphTensor>> &&cachekeepAlive = {});
   ~JitModule();
 
 private:
@@ -51,7 +51,7 @@ private:
   JitModuleFuncT fold;
   size_t numOrigArgs;
   // `keepAlive` has the ownership of the objects pointed by this vector
-  llvm::SmallVector<const_cache_proxy *> cacheBases;
+  llvm::SmallVector<ConstCacheProxy *> cacheBases;
   struct CacheBufferInfo {
     // index in cacheBases
     size_t baseIdx;
@@ -67,7 +67,7 @@ private:
   // The code inside `engine` has the ownership of the buffer
   llvm::ArrayRef<uint32_t> computeArgs;
 
-  std::vector<std::shared_ptr<cached_graph_tensor>> keepAlive;
+  std::vector<std::shared_ptr<CachedGraphTensor>> keepAlive;
 };
 
 } // namespace gc

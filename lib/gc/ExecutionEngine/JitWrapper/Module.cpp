@@ -125,10 +125,10 @@ JitModule::create(Operation *op, const ExecutionEngineOptions &options,
     }
   } while (0);
 
-  std::vector<std::shared_ptr<cached_graph_tensor>> foldInfo;
+  std::vector<std::shared_ptr<CachedGraphTensor>> foldInfo;
   foldInfo.reserve(foldBufferIds.size());
   for (auto bufId : foldBufferIds) {
-    auto ret = query_cached_tensor(bufId);
+    auto ret = queryCacheTensor(bufId);
     if (!ret) {
       return llvm::make_error<llvm::StringError>(
           "Failed to query the folded cached tensor",
@@ -149,7 +149,7 @@ JitModule::JitModule(
     llvm::ArrayRef<uint32_t> computeArgs,
     // The code inside `engine` has the ownership  of the buffer
     llvm::ArrayRef<uint32_t> foldArgs,
-    std::vector<std::shared_ptr<cached_graph_tensor>> &&cachekeepAlive)
+    std::vector<std::shared_ptr<CachedGraphTensor>> &&cachekeepAlive)
     : engine{std::move(engine)}, compute{compute}, fold{fold},
       numOrigArgs{numOrigArgs}, foldArgs{foldArgs}, computeArgs{computeArgs},
       keepAlive{std::move(cachekeepAlive)} {
