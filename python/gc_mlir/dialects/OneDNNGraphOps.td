@@ -1,14 +1,14 @@
-//===-- Example.cpp - Tests for Example -------------------------*- C++ -*-===//
-//
+//===-- OneDNNGraphOps.td - DESC ---------------------------*- tablegen -*-===//
+// 
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
+// 
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gtest/gtest.h"
+#ifndef PYTHON_BINDINGS_ONEDNNGRAPH_OPS
+#define PYTHON_BINDINGS_ONEDNNGRAPH_OPS
 
-TEST(example, HelloWorld) {
-  ASSERT_EQ(mlir::linalgx::LinalgxDialect::getDialectNamespace(), "linalgx");
-}
+include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.td"
+
+#endif
