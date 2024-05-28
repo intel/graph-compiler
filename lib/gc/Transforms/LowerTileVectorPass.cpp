@@ -39,6 +39,7 @@ bool is_innermost_ir(Operation *op) {
       inner_most = false;
       return WalkResult::interrupt();
     }
+    return WalkResult::advance();
   });
   return inner_most;
 }

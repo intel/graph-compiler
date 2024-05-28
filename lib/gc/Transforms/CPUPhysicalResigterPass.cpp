@@ -20,7 +20,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
 #include "llvm/Support/Casting.h"
 #include <deque>
 #include <optional>
@@ -57,6 +59,7 @@ bool is_innermost_operation(Operation *op) {
       inner_most = false;
       return WalkResult::interrupt();
     }
+    return WalkResult::advance();
   });
   return inner_most;
 }
@@ -861,9 +864,10 @@ void generateGroupOpVectorizedIR(
   // 3 Update loop result uses
   updateLoopResultUses(idx, opGroups.size(), groupResultYeildSet, func,
                        &forOp.value(), mapOpResultToYield);
+  moveLoopInvariantCode(forOp.value());
 }
 
-/// Pass that lower to tile vector.
+/// Pass that lower to physical vector.
 struct CPUPhysicalRegisterPass
     : public impl::CPUPhysicalRegisterPassBase<CPUPhysicalRegisterPass> {
 
@@ -882,6 +886,8 @@ struct CPUPhysicalRegisterPass
     //    dependency.
     //    d. reduction. Need to analysis broadcast dim and the
     //    data dependency.
+    // Same group operations have no data dependencies. They can be fused into a
+    // common for loop body.
 
     // Using queue to store the operation order. In order to ensure that
     // subsequent moves to the operation will not cause semantic changes.
@@ -953,6 +959,11 @@ struct CPUPhysicalRegisterPass
                                   groupOpDestination, mapOpResultToYield, func,
                                   opPermuationMap);
     }
+
+    // 4. Some IR cleanup work
+    DominanceInfo domInfo;
+    auto reWriter = IRRewriter(func);
+    eliminateCommonSubExpressions(reWriter, domInfo, func);
   }
 };
 } // namespace
