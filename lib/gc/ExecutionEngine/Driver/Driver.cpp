@@ -123,7 +123,7 @@ JitModule::create(Operation *op, const ExecutionEngineOptions &options,
       auto raw = reinterpret_cast<uint32_t *>(*expect);
       computeArgs = llvm::ArrayRef<uint32_t>{raw + 1, raw[0]};
     }
-  } while (0);
+  } while (false);
 
   std::vector<std::shared_ptr<CachedGraphTensor>> foldInfo;
   foldInfo.reserve(foldBufferIds.size());
