@@ -4,6 +4,9 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRBufferizationToMemRef
   MLIRBufferizationPipelines)
 
+get_property(mlir_dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
@@ -17,6 +20,7 @@ add_mlir_library(GCPasses
 
   LINK_LIBS PUBLIC
     ${mlir_dialect_libs}
+    ${mlir_conversion_libs}
     ${MLIR_LINK_COMPONENTS}
     MLIROneDNNGraph
   )
