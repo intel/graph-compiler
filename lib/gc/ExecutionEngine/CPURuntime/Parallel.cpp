@@ -1,5 +1,4 @@
-//===- Parallel.cpp - Definitions for parallel runtime  -----------*- C++ -*-=//
-//-*-===//
+//===-- Parallel.cpp - parallel ---------------------------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -28,9 +27,9 @@ struct barrier_t {
   char padding_[64 - 4 * sizeof(int32_t)];
 };
 
-typedef uint64_t (*barrier_idle_func)(std::atomic<int32_t> *remaining,
-                                      int32_t expected_remain, int32_t tid,
-                                      void *args);
+using barrier_idle_func = uint64_t (*)(std::atomic<int32_t> *remaining,
+                                       int32_t expected_remain, int32_t tid,
+                                       void *args);
 } // namespace
 
 extern "C" {
@@ -40,7 +39,6 @@ void gc_arrive_at_barrier(barrier_t *b, barrier_idle_func idle_func,
   auto cur_round = b->rounds_.load(std::memory_order_acquire);
   auto cnt = --b->pending_;
   assert(cnt >= 0);
-  //   int count = 0;
   if (cnt == 0) {
     b->pending_.store(b->total_);
     b->rounds_.store(cur_round + 1);
@@ -50,7 +48,6 @@ void gc_arrive_at_barrier(barrier_t *b, barrier_idle_func idle_func,
         return;
       }
       idle_func(&b->rounds_, cur_round + 1, -1, idle_args);
-      //   count = ret & 0xffffffff;
     }
     while (cur_round == b->rounds_.load()) {
       _mm_pause();
@@ -77,6 +74,8 @@ int WEAK_SYMBOL __kmpc_global_thread_num(void *loc) {
   return omp_get_thread_num();
 }
 
+// The implementation was extracted and simplified from LLVM libomp
+// at openmp/runtime/src/kmp_sched.cpp
 void WEAK_SYMBOL __kmpc_for_static_init_8u(void *loc, int32_t gtid,
                                            int32_t schedtype,
                                            int32_t *plastiter, uint64_t *plower,
@@ -86,7 +85,7 @@ void WEAK_SYMBOL __kmpc_for_static_init_8u(void *loc, int32_t gtid,
     std::abort();
   }
   const int32_t FALSE = 0;
-  const int32_t TRUE = 0;
+  const int32_t TRUE = 1;
   using UT = uint64_t;
   //   using ST = int64_t;
   /*  this all has to be changed back to TID and such.. */
