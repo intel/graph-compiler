@@ -31,6 +31,19 @@ using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::tensor;
 
+static SmallVector<int64_t> getPackedAxes(ArrayRef<int64_t> dimensions,
+                                          TensorLayout targetLayout) {
+  SmallVector<int64_t> result(dimensions);
+  auto innerPos = targetLayout.getInnerAxis();
+  for (size_t i = 0; i < dimensions.size(); ++i) {
+    if (std::find(innerPos.begin(), innerPos.end(), dimensions[i]) !=
+        innerPos.end()) {
+      result.push_back(i + targetLayout.getOuterAxis().size());
+    }
+  }
+  return result;
+}
+
 static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
                                                  linalg::LinalgOp linalgOp,
                                                  OperatorLayout opLayout) {
@@ -125,10 +138,30 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
       ValueRange{inputsAndInits}.take_front(linalgOp.getNumDpsInputs());
   ValueRange inits =
       ValueRange{inputsAndInits}.take_back(linalgOp.getNumDpsInits());
-  // TODO(yifei): the axis info of reduce/broadcast/transpose may change
-  auto packedLinalgOp = mlir::clone(
-      rewriter, linalgOp, SmallVector<Type>{inputsAndInits.back().getType()},
-      inputsAndInits);
+  // TODO(yifei): deal with reduce/broadcast/transpose
+  // TODO(yifei): deal with generic
+  linalg::LinalgOp packedLinalgOp;
+  if (auto reduceOp = dyn_cast<linalg::ReduceOp>(&linalgOp)) {
+    SmallVector<int64_t> packedAxes =
+        getPackedAxes(reduceOp->getDimensions(), inputLayouts[0]);
+    packedLinalgOp = rewriter.create<linalg::ReduceOp>(
+        loc, inits.getTypes(), inputs, inits, packedAxes);
+    packedLinalgOp->getRegion(0).takeBody(linalgOp->getRegion(0));
+  } else if (auto broadcastOp = dyn_cast<linalg::BroadcastOp>(&linalgOp)) {
+    packedLinalgOp = rewriter.create<linalg::BroadcastOp>(
+        loc, inputs[0], inits[0], broadcastOp->getDimensions());
+  } else if (isa<linalg::TransposeOp>(linalgOp)) {
+    // remove transpose op
+  } else if (isa<linalg::SoftmaxOp>(linalgOp) ||
+             isa<linalg::GenericOp>(linalgOp) || isa<linalg::MapOp>(linalgOp) ||
+             isa<linalg::YieldOp>(linalgOp) || isa<linalg::IndexOp>(linalgOp)) {
+    return failure(
+        "Packing logic not implemented for SoftMax/Generic/Map/Yield/Index.");
+  } else {
+    packedLinalgOp = mlir::clone(
+        rewriter, linalgOp, SmallVector<Type>{inputsAndInits.back().getType()},
+        inputsAndInits);
+  }
 
   // Step 4. Unpack all the op results.
   for (OpResult result : packedLinalgOp->getResults()) {
@@ -195,7 +228,6 @@ void PropagateLayout::runOnOperation() {
         FailureOr<linalg::PackResult> packedOp =
             packNamedOp(rewriter, linalgOp, *opLayout);
       }
-      graph->dump();
     }
   }
   graph->dump();

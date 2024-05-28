@@ -1,5 +1,4 @@
-//===- GlobalAnalysis.cpp - Propagate pack unpack on linalg named ops --*- C++
-//-*-===//
+//===- GlobalAnalysis.cpp - Propagate packing on linalg named ops *- C++-*-===//
 //
 // This file is only temporarily used to extend upstream or upcoming utility in
 // TilingInterface, which finally aims for upstream.
@@ -101,7 +100,8 @@ inferIndexingMapRelation(AffineMap indexingMapBase,
 
 // given j --> i and max rank of i, return i --> j
 static DenseMap<int64_t, int64_t>
-getReversedIndexMap(DenseMap<int64_t, int64_t> indexMap, size_t maxRank) {
+getReversedIndexMap(const DenseMap<int64_t, int64_t> &indexMap,
+                    size_t maxRank) {
   DenseMap<int64_t, int64_t> res;
   for (auto pair : indexMap) {
     if (pair.second >= 0) {
@@ -118,7 +118,7 @@ getReversedIndexMap(DenseMap<int64_t, int64_t> indexMap, size_t maxRank) {
 
 static FailureOr<TensorLayout>
 inferTargetLayout(TensorLayout layoutBase,
-                  DenseMap<int64_t, int64_t> indexMap) {
+                  const DenseMap<int64_t, int64_t> &indexMap) {
   int64_t dimDifference = indexMap.size() - layoutBase.getTensorRank();
   SmallVector<int64_t> baseOuterAxis = layoutBase.getOuterAxis();
   SmallVector<int64_t> baseInnerAxis = layoutBase.getInnerAxis();
