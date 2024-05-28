@@ -300,26 +300,26 @@ static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
 // void *allocator(size_t size) { return std::aligned_alloc(64, size); }
 // void deallocator(void *ptr) { std::free(ptr); }
 
-std::shared_ptr<const_cache_proxy> create_const_cache_proxy(size_t size) {
+std::shared_ptr<ConstCacheProxy> createConstCacheProxy(size_t size) {
   // simply allocate buffer and return
   std::shared_ptr<void> base =
       std::shared_ptr<void>{std::aligned_alloc(64, size), [](void *p) {
       std::free(p); }};
-  return std::make_shared<const_cache_proxy>(base, base.get(), size, true);
+  return std::make_shared<ConstCacheProxy>(base, base.get(), size, true);
 }
 
-size_t divide_and_ceil(size_t x, size_t y) { return (x + y - 1) / y; }
+size_t divideAndCeil(size_t x, size_t y) { return (x + y - 1) / y; }
 
 // Manager
-struct const_graph_tensor_cache_manager {
+struct constGraphTensorCacheManager {
   // dnnl_graph_compiler_context *ctx;
 
-  uint64_t cached_tensor_global_id = 0;
+  uint64_t cachedTensorGlobalId = 0;
 
   // singleton
-  static std::shared_ptr<const_graph_tensor_cache_manager> get() {
-    static std::shared_ptr<const_graph_tensor_cache_manager> c =
-        std::make_shared<const_graph_tensor_cache_manager>();
+  static std::shared_ptr<constGraphTensorCacheManager> get() {
+    static std::shared_ptr<constGraphTensorCacheManager> c =
+        std::make_shared<constGraphTensorCacheManager>();
     return c;
   }
 
@@ -327,18 +327,18 @@ struct const_graph_tensor_cache_manager {
   std::vector<uint64_t> alloc(std::vector<size_t> buffers_size) {
     size_t total_size = 0;
     for (size_t i = 0; i < buffers_size.size(); i++) {
-      total_size += divide_and_ceil(buffers_size[i], 64) * 64;
+      total_size += divideAndCeil(buffers_size[i], 64) * 64;
     }
     llvm::dbgs() << "Alloc total size: " << total_size << '\n';
-    auto base = create_const_cache_proxy(total_size);
+    auto base = createConstCacheProxy(total_size);
     std::vector<uint64_t> global_ids(buffers_size.size());
     size_t offset = 0;
     for (size_t i = 0; i < buffers_size.size(); i++) {
       llvm::dbgs() << "Alloc offset: " << offset << '\n';
-      reg_cached_tensor(cached_tensor_global_id, base, offset);
-      global_ids[i] = cached_tensor_global_id;
-      ++cached_tensor_global_id;
-      offset += divide_and_ceil(buffers_size[i], 64) * 64;
+      regCachedTensor(cachedTensorGlobalId, base, offset);
+      global_ids[i] = cachedTensorGlobalId;
+      ++cachedTensorGlobalId;
+      offset += divideAndCeil(buffers_size[i], 64) * 64;
     }
     return global_ids;
   }
@@ -541,7 +541,7 @@ void CST::runOnOperation() {
     buffersSize.push_back(
         getTensorSize(dyn_cast<TensorType>(tensor.getType())));
   }
-  auto manager = const_graph_tensor_cache_manager::get();
+  auto manager = constGraphTensorCacheManager::get();
   SmallVector<int64_t> globalIndexes;
   for (auto id : manager->alloc(buffersSize)) {
     globalIndexes.push_back(id);

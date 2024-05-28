@@ -45,6 +45,10 @@ def CST : Pass<"cst"> {
     This pass implements a constant subgraph transform.
   }];
   let constructor = "mlir::gc::createCSTPass()";
+  let dependentDialects = [
+      "tensor::TensorDialect",
+      "linalg::LinalgDialect",
+      "LLVM::LLVMDialect"];
 }
 
 #endif // GC_DIALECT_GC_PASSES
