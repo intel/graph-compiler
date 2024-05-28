@@ -1,9 +1,9 @@
-//===- OneDNNGraphTypes.h - OneDNN input dialect types -----*- tablegen -*-===//
-//
+//===-- OneDNNGraphTypes.td - DESC -------------------------*- tablegen -*-===//
+// 
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
+// 
 //===----------------------------------------------------------------------===//
 
 #ifndef ONEDNNGRAPH_TYPES
@@ -11,7 +11,7 @@
 
 include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/AttrTypeBase.td"
-include "OneDNNGraphDialect.td"
+include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.td"
 
 //===----------------------------------------------------------------------===//
 // OneDNNGraph type definitions
