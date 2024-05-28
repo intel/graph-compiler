@@ -50,3 +50,11 @@ tool_dirs = [config.gc_tools_dir, config.llvm_tools_dir]
 tools = ["gc-opt", "gc-cpu-runner"]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
+
+llvm_config.with_environment(
+    "PYTHONPATH",
+    [
+        os.path.join(config.mlir_obj_dir, "python_packages", "gc_mlir_core"),
+    ],
+    append_path=True,
+)

@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2024 Intel Corporation
  *
@@ -16,22 +17,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string>
+#ifndef GC_MLIR_C_DIALECTS_H
+#define GC_MLIR_C_DIALECTS_H
 
-static std::string read_str_resource(const std::string &name) {
-  std::filesystem::path res_dir{"resources"};
-  auto path = std::filesystem::absolute(res_dir / name);
-  std::ifstream file(path);
+#include "mlir-c/IR.h"
 
-  if (!file) {
-    throw std::runtime_error("Unable to open file " + path.string());
-  }
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-  std::stringstream buffer;
-  buffer << file.rdbuf();
-  file.close();
-  return buffer.str();
+MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph);
+
+#ifdef __cplusplus
 }
+#endif
+#endif // GC_MLIR_C_DIALECTS_H

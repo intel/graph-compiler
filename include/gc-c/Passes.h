@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2024 Intel Corporation
  *
@@ -16,22 +17,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string>
+#ifndef GCEXT_MLIR_C_PASSES_H
+#define GCEXT_MLIR_C_PASSES_H
 
-static std::string read_str_resource(const std::string &name) {
-  std::filesystem::path res_dir{"resources"};
-  auto path = std::filesystem::absolute(res_dir / name);
-  std::ifstream file(path);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-  if (!file) {
-    throw std::runtime_error("Unable to open file " + path.string());
-  }
-
-  std::stringstream buffer;
-  buffer << file.rdbuf();
-  file.close();
-  return buffer.str();
+#include "gc/Transforms/Passes.capi.h.inc"
+#ifdef __cplusplus
 }
+#endif
+#endif // GCEXT_MLIR_C_PASSES_H
