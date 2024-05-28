@@ -6,6 +6,7 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
 
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
+  Pipeline.cpp
   TileNamed.cpp
 
   ADDITIONAL_HEADER_DIRS
