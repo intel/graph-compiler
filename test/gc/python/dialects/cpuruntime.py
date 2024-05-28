@@ -3,8 +3,9 @@
 # ===============================================================================
 # RUN: %python %s | FileCheck %s
 
-from gc_mlir.ir import *
 from gc_mlir.dialects import cpuruntime, func
+from gc_mlir.ir import *
+from gc_mlir.passmanager import PassManager
 
 
 def run(f):
@@ -32,3 +33,23 @@ def testCPURuntimeOps():
         # CHECK:       }
         print(module)
 
+
+# CHECK-LABEL: TEST: testConvertToLLVM
+@run
+def testConvertToLLVM():
+    with Context():
+        module = Module.parse(
+            """
+            module {
+                func.func @do_print(%arg0: f32, %arg1: i32) {
+                    cpuruntime.printf "Hello world %f %d" %arg0, %arg1 : f32, i32
+                    return
+                }
+            }
+            """
+        )
+        pm = PassManager.parse("builtin.module(convert-cpuruntime-to-llvm)")
+        # CHECK-NOT: cpuruntime.printf
+        # CHECK: llvm.call @printf
+        pm.run(module.operation)
+        print(module)
