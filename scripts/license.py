@@ -87,14 +87,14 @@ def fix_llvm_license(var: Dict[str, str]):
     elif lang == "C\\+\\+":
         lang = "C++"
 
-    part1 = "%s===-- %s - DESC " % (cmt, var['$FILE'])
+    part1 = "%s===-- %s - DESC " % ((cmt + " " if lang == "Python" else cmt), var['$FILE'])
     part3 = "-*- %s -*-===%s" % (lang, cmt)
     part2 = "-" * (WIDTH - len(part1) - len(part3))
 
     print(part1 + part2 + part3)
     for i in range(1, len(llvm_license) - 1):
         print((cmt + " " + llvm_license[i]).rstrip())
-    part1 = cmt + "==="
+    part1 = (cmt + " " if lang == "Python" else cmt) + "==="
     part3 = "===" + cmt
     part2 = "-" * (WIDTH - len(part1) - len(part3))
     print(part1 + part2 + part3)
