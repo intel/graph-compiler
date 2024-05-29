@@ -28,7 +28,7 @@ jobs:
 
       - name: Make cache directory
         run: |
-          mkdir /cache
+          sudo install -d -o $(id -u) /cache
 
       - name: Load coverity from cache
         id: coverity-cache
