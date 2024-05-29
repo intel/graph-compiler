@@ -20,8 +20,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          path: graph-compiler
 
       - name: Install Python 3.10
         uses: actions/setup-python@v5
