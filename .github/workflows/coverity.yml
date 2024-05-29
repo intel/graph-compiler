@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          path: graph-compiler
 
       - name: Install Python 3.10
         uses: actions/setup-python@v5
@@ -79,8 +81,7 @@ jobs:
 
       - name: Run coverity build
         run: |
-          pip install wheel
-          cd python
+          cd graph-compiler
           cov-build --dir $HOME/cov-int scripts/compile.sh
           tail $HOME/cov-int/build-log.txt
 
