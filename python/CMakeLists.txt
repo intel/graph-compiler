@@ -74,6 +74,7 @@ add_mlir_python_common_capi_library(GcPythonCAPI
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources.Core
+    MLIRPythonSources.ExecutionEngine
 )
 
 ################################################################################
@@ -87,6 +88,7 @@ add_mlir_python_modules(GcPythonModules
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources
+    MLIRPythonSources.ExecutionEngine
   COMMON_CAPI_LINK_LIBS
     GcPythonCAPI
   )
