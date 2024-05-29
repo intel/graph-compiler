@@ -151,8 +151,8 @@ JitModule::JitModule(
     llvm::ArrayRef<uint32_t> foldArgs,
     std::vector<std::shared_ptr<CachedGraphTensor>> &&cachekeepAlive)
     : engine{std::move(engine)}, compute{compute}, fold{fold},
-      numOrigArgs{numOrigArgs}, foldArgs{foldArgs}, computeArgs{computeArgs},
-      keepAlive{std::move(cachekeepAlive)} {
+      numOrigArgs{numOrigArgs}, foldArgs{foldArgs},
+      computeArgs{computeArgs}, keepAlive{std::move(cachekeepAlive)} {
   for (const auto &cache : keepAlive) {
     auto currentItr =
         std::find(cacheBases.begin(), cacheBases.end(), cache->base.get());

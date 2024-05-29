@@ -14,7 +14,6 @@ namespace mlir::gc {
 
 ConstCacheProxy::~ConstCacheProxy() = default;
 
-
 CachedGraphTensor::CachedGraphTensor(
     const std::shared_ptr<ConstCacheProxy> &base, size_t offset)
     : base{base}, offset{offset} {
@@ -36,9 +35,8 @@ std::shared_ptr<CachedGraphTensor> queryCacheTensor(uint64_t key) {
   return nullptr;
 }
 
-bool regCachedTensor(uint64_t key,
-                       const std::shared_ptr<ConstCacheProxy> &base,
-                       size_t offset) {
+bool regCachedTensor(uint64_t key, const std::shared_ptr<ConstCacheProxy> &base,
+                     size_t offset) {
   if (queryCacheTensor(key)) {
     return false;
   }
