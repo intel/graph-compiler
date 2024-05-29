@@ -22,7 +22,8 @@ static const std::string DNNL_BRGEMM_TILERELEASE_NAME =
     "dnnl_brgemm_tilerelease";
 static const std::string DNNL_BRGEMM_EXECUTE_NAME = "dnnl_brgemm_execute";
 
-static int64_t getDnnlDataTypeVal(RewriterBase &rewriter, Attribute attr) {
+static inline int64_t getDnnlDataTypeVal(RewriterBase &rewriter,
+                                         Attribute attr) {
   auto context = rewriter.getContext();
   auto tattr = dyn_cast_or_null<TypeAttr>(attr);
   assert(tattr);

@@ -56,8 +56,7 @@ set(gc_cpu_runner_libs
         ${MLIR_LINK_COMPONENTS}
         GCCpuRuntime)
 add_mlir_tool(gc-cpu-runner
-        gc-cpu-runner.cpp
-)
+        gc-cpu-runner.cpp)
 llvm_update_compile_flags(gc-cpu-runner)
 
 target_link_libraries(gc-cpu-runner PRIVATE ${gc_cpu_runner_libs})

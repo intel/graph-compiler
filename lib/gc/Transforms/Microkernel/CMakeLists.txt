@@ -2,12 +2,9 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
 
 include(onednn)
 
-message(WARNING ${dnnl_SOURCE_DIR})
+get_property(DNNL_INCLUDES GLOBAL PROPERTY DNNL_INCLUDES)
 
-include_directories(
-        ${dnnl_SOURCE_DIR}/include
-        ${dnnl_BINARY_DIR}/include
-)
+include_directories(${DNNL_INCLUDES})
 
 add_mlir_dialect_library(MLIRMicrokernelTransforms
 	ConvertLinalgToMicrokernel.cpp
@@ -25,3 +22,5 @@ add_mlir_dialect_library(MLIRMicrokernelTransforms
         ${MLIR_LINK_COMPONENTS}
 	GCMLIRUtils
         )
+
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS MLIRMicrokernelTransforms)

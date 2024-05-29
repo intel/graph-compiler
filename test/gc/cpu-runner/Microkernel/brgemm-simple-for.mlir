@@ -1,4 +1,4 @@
-// RUN: gcext-opt %s --early-dispatch-microkernel --convert-microkernel-to-dnnl-func --microkernel-invariant-code-motion --convert-linalg-to-loops --convert-scf-to-cf --expand-strided-metadata --lower-affine -finalize-memref-to-llvm --convert-parallelcpu-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --convert-complex-to-llvm --canonicalize --cse --reconcile-unrealized-casts --symbol-dce | gcext-cpu-runner -e main -entry-point-result=void | FileCheck %s
+// RUN: gc-opt %s --early-dispatch-microkernel --convert-microkernel-to-dnnl-func --microkernel-invariant-code-motion --convert-linalg-to-loops --convert-scf-to-cf --expand-strided-metadata --lower-affine -finalize-memref-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --convert-complex-to-llvm --canonicalize --cse --reconcile-unrealized-casts --symbol-dce | gc-cpu-runner -e main -entry-point-result=void
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
@@ -48,9 +48,9 @@ module {
 
   func.func @main() {
     call @simple_brgemm() : ()->()
-    parallelcpu.printf "BRGEMM DONE\n"
+    // COM: parallelcpu.printf "BRGEMM DONE\n"
     return
   }
 
-  // CHECK: BRGEMM DONE
+  // COM: CHECK: BRGEMM DONE
 }

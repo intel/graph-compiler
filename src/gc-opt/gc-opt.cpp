@@ -31,6 +31,7 @@ int main(int argc, char *argv[]) {
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
+  mlir::microkernel::registerMicrokernelPasses();
 
   mlir::DialectRegistry registry;
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();

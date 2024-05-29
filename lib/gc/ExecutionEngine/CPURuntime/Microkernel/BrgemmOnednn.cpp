@@ -43,7 +43,7 @@ __attribute__((weak)) void print_verbose_header() {}
 } // namespace dnnl
 
 static constexpr int PALETTE_SIZE = 64;
-static std::vector<brgemm_t> brgemm_desc_list;
+static std::vector<brgemm_desc_t> brgemm_desc_list;
 static std::vector<brgemm_kernel_t *> brgemm_kernel_list;
 
 extern "C" {
@@ -53,10 +53,10 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
   std::cout << ">>> Brgemm dispatch: " << std::endl;
-  brgemm_desc_list.emplace_back(brgemm_t());
+  brgemm_desc_list.emplace_back(brgemm_desc_t());
   brgemm_kernel_list.emplace_back(nullptr);
 
-  brgemm_t &desc = brgemm_desc_list.back();
+  brgemm_desc_t &desc = brgemm_desc_list.back();
   auto &kernel = brgemm_kernel_list.back();
   brgemm_strides_t stride_info{stride_a, stride_b};
 
@@ -81,7 +81,7 @@ void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
          "Invalid kernel handler");
   std::cout << ">>> Brgemm tileconfig: " << kernel_idx << std::endl;
 
-  brgemm_t &desc = brgemm_desc_list[kernel_idx];
+  brgemm_desc_t &desc = brgemm_desc_list[kernel_idx];
   if (!desc.is_tmm) {
     return;
   }
@@ -110,7 +110,7 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
          "Invalid kernel handler");
 
   std::cout << ">>> Brgemm Execute: " << kernel_idx << std::endl;
-  brgemm_t &desc = brgemm_desc_list[kernel_idx];
+  brgemm_desc_t &desc = brgemm_desc_list[kernel_idx];
   brgemm_kernel_t *kernel = brgemm_kernel_list[kernel_idx];
 
   size_t A_offset_in_bytes =

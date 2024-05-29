@@ -1,4 +1,4 @@
-// RUN: gcext-opt %s -convert-linalg-to-microkernel -split-input-file | FileCheck %s
+// RUN: gc-opt %s -convert-linalg-to-microkernel -split-input-file | FileCheck %s
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {

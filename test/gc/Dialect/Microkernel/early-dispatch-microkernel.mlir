@@ -1,4 +1,4 @@
-// RUN: gcext-opt %s -early-dispatch-microkernel -split-input-file | FileCheck %s
+// RUN: gc-opt %s -early-dispatch-microkernel -split-input-file | FileCheck %s
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
@@ -40,10 +40,10 @@ module {
 // CHECK: llvm.mlir.global_ctors {ctors = [@[[G_CTOR_NAME:.+]]], priorities = [[[G_CTOR_PRIOR:.+]] : i32]}
 // CHECK: llvm.mlir.global internal @[[G_NAME:.+]]() {addr_space = 0 : i32} : i64
 
-// llvm.func @[[G_CTOR_NAME]]() -> i64
-// CHECK: %[[KERNEL:.+]] = microkernel.brgemm.dispatch [32, 32, 32, 32, 32, 32, 1024, 1024] flags = (stride) data_type = (f32, f32)
-// CHECK-NEXT: %[[G_PTR:.+]] = llvm.mlir.addressof @[[G_NAME]] : !llvm.ptr
-// CHECK-NEXT: llvm.store %[[KERNEL]], %[[G_PTR]] : i64, !llvm.ptr
+// CHECK: llvm.func @[[G_CTOR_NAME]]() -> i64 {
+// CHECK-DAG: %[[G_PTR:.+]] = llvm.mlir.addressof @[[G_NAME]] : !llvm.ptr
+// CHECK-DAG: %[[KERNEL:.+]] = microkernel.brgemm.dispatch [32, 32, 32, 32, 32, 32, 1024, 1024] flags = (stride) data_type = (f32, f32)
+// CHECK: llvm.store %[[KERNEL]], %[[G_PTR]] : i64, !llvm.ptr
 
 // CHECK-LABEL: simple_brgemm
 // CHECK: %[[CST16:.+]] = arith.constant 16 : i64
