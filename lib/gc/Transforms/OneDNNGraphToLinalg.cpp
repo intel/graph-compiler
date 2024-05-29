@@ -437,16 +437,34 @@ struct ConvertOneDNNGraphToLinalg
     // add lowering target
     ConversionTarget target(getContext());
     target.addIllegalDialect<onednn_graph::OneDNNGraphDialect>();
-    target
-        .addLegalDialect<BuiltinDialect, arith::ArithDialect, math::MathDialect,
-                         linalg::LinalgDialect, linalgx::LinalgxDialect,
-                         func::FuncDialect, tensor::TensorDialect>();
+    target.addLegalDialect<
+        // clang-format off
+        BuiltinDialect, 
+        math::MathDialect,
+        func::FuncDialect, 
+        arith::ArithDialect, 
+        tensor::TensorDialect,
+        linalg::LinalgDialect, 
+        linalgx::LinalgxDialect
+        // clang-format on
+        >();
     // set pattern
     RewritePatternSet patterns(ctx);
-    patterns
-        .add<AddOpLowering, MulOpLowering, SubOpLowering, DivOpLowering,
-             PowOpLowering, ReLUOpLowering, MatMulOpLowering, TypeCastLowering,
-             SigmoidOpLowering, ReduceSumOpLowering, ReduceMeanOpLowering>(ctx);
+    patterns.add<
+        // clang-format off
+        AddOpLowering, 
+        MulOpLowering, 
+        SubOpLowering, 
+        DivOpLowering,
+        PowOpLowering, 
+        ReLUOpLowering, 
+        MatMulOpLowering, 
+        TypeCastLowering,
+        SigmoidOpLowering, 
+        ReduceSumOpLowering, 
+        ReduceMeanOpLowering
+        // clang-format on
+        >(ctx);
     // perform conversion
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
