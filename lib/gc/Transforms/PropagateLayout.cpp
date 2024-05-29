@@ -1,5 +1,4 @@
-//===- PropagateLayout.cpp - Propagate pack unpack on linalg named ops --*- C++
-//-*-===//
+//===- PropagateLayout.cpp - Propagate packing on linalg named ops*- C++-*-===//
 //
 // This file is only temporarily used to extend upstream or upcoming utility in
 // TilingInterface, which finally aims for upstream.
@@ -44,6 +43,29 @@ static SmallVector<int64_t> getPackedAxes(ArrayRef<int64_t> dimensions,
   return result;
 }
 
+static SmallVector<int64_t> getPackedPermAxes(ArrayRef<int64_t> plainPermAxes,
+                                              TensorLayout inputLayout,
+                                              TensorLayout outputLayout) {
+  // dim(result, i) = dim(input, permutation[i])
+  // input: permutation[i] --> output: i
+  // input: permutation[i] --> packed input: std::find(permutation[i]) - begin()
+  // output: i --> packed output: std::find(permutation[i]) - begin()
+  size_t packedRank =
+      outputLayout.getInnerAxis().size() + outputLayout.getOuterAxis().size();
+  SmallVector<int64_t> result(packedRank, 0);
+  SmallVector<int64_t> inputCount(inputLayout.getOuterAxis().size(), 0);
+  auto inputP2B = TensorLayout::getPlain2PackedMapping(inputLayout);
+  for (size_t i = 0; i < packedRank; ++i) {
+    // packedOutput[i] --> output[?]
+    size_t originalOutputAxis = *outputLayout.getOriginalAxis(i);
+    size_t originalInputAxis = plainPermAxes[originalOutputAxis];
+    SmallVector<int64_t> packedInputAxes = inputP2B[originalInputAxis];
+    result[i] = packedInputAxes[inputCount[originalInputAxis]++];
+  }
+  return result;
+}
+
+// extends mlir/lib/Dialect/Linalg/Transforms/Transforms.cpp's linalg::pack
 static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
                                                  linalg::LinalgOp linalgOp,
                                                  OperatorLayout opLayout) {
@@ -150,8 +172,11 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
   } else if (auto broadcastOp = dyn_cast<linalg::BroadcastOp>(&linalgOp)) {
     packedLinalgOp = rewriter.create<linalg::BroadcastOp>(
         loc, inputs[0], inits[0], broadcastOp->getDimensions());
-  } else if (isa<linalg::TransposeOp>(linalgOp)) {
-    // remove transpose op
+  } else if (auto transposeOp = dyn_cast<linalg::TransposeOp>(&linalgOp)) {
+    SmallVector<int64_t> packedPermAxes = getPackedPermAxes(
+        transposeOp->getPermutation(), inputLayouts[0], initLayouts[0]);
+    packedLinalgOp = rewriter.create<linalg::TransposeOp>(
+        loc, inputs[0], inits[0], packedPermAxes);
   } else if (isa<linalg::SoftmaxOp>(linalgOp) ||
              isa<linalg::GenericOp>(linalgOp) || isa<linalg::MapOp>(linalgOp) ||
              isa<linalg::YieldOp>(linalgOp) || isa<linalg::IndexOp>(linalgOp)) {
@@ -175,7 +200,8 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
     // Build the symmetrical UnPackOp to the existing PackOp.
     unPackOps.push_back(rewriter.create<tensor::UnPackOp>(
         packedLinalgOp->getLoc(), result, maybePackedInit.getSource(),
-        maybePackedInit.getInnerDimsPos(), maybePackedInit.getMixedTiles()));
+        maybePackedInit.getInnerDimsPos(), maybePackedInit.getMixedTiles(),
+        maybePackedInit.getOuterDimsPerm()));
     results.push_back(unPackOps.back());
   }
 

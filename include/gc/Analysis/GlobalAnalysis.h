@@ -55,6 +55,31 @@ public:
                         SmallVector<OpFoldResult>{});
   }
 
+  static DenseMap<int64_t, SmallVector<int64_t>>
+  getPlain2PackedMapping(TensorLayout layout) {
+    DenseMap<int64_t, SmallVector<int64_t>> p2b;
+    SmallVector<int64_t> outerAxis = layout.getOuterAxis();
+    SmallVector<int64_t> innerAxis = layout.getInnerAxis();
+    for (size_t i = 0; i < outerAxis.size(); ++i) {
+      p2b[outerAxis[i]].push_back(i);
+    }
+    for (size_t i = 0; i < innerAxis.size(); ++i) {
+      p2b[innerAxis[i]].push_back(outerAxis.size() + i);
+    }
+    return p2b;
+  }
+
+  FailureOr<int64_t> getOriginalAxis(int64_t idx) {
+    size_t totalRank = OuterAxis.size() + InnerAxis.size();
+    if (idx >= totalRank) {
+      return failure("Index out of range.");
+    } else if (idx >= OuterAxis.size()) {
+      return InnerAxis[idx - OuterAxis.size()];
+    } else {
+      return OuterAxis[idx];
+    }
+  }
+
   size_t getTensorRank() const { return OuterAxis.size(); }
 
   SmallVector<int64_t> getOuterAxis() const { return OuterAxis; }
@@ -112,7 +137,7 @@ public:
     if (layout.find(op) != layout.end())
       return layout[op];
     else
-      return op->emitError("Current op does not have layout information.");
+      return failure("Current op does not have layout information.");
   }
 
 private:

@@ -53,10 +53,10 @@ std::ostream &operator<<(std::ostream &ss, const OperatorLayout &opLayout) {
   ss << "operator has " << opLayout.getSupportedInputLayouts().size()
      << " inputs; " << opLayout.getSupportedOutputLayouts().size()
      << " outputs." << std::endl;
-  for (auto layout : opLayout.getSupportedInputLayouts()) {
+  for (const auto &layout : opLayout.getSupportedInputLayouts()) {
     ss << "input layout: " << layout << std::endl;
   }
-  for (auto layout : opLayout.getSupportedOutputLayouts()) {
+  for (const auto &layout : opLayout.getSupportedOutputLayouts()) {
     ss << "output layout: " << layout << std::endl;
   }
   return ss;
