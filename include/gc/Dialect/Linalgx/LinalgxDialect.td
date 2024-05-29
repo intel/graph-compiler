@@ -24,7 +24,27 @@ def LinalgxDialect : Dialect {
     }];
     let cppNamespace = "::mlir::linalgx";
 
-    let useDefaultTypePrinterParser = 1;
+    let dependentDialects = [
+        "arith::ArithDialect",
+        "affine::AffineDialect",
+        "math::MathDialect",
+        "memref::MemRefDialect",
+        "tensor::TensorDialect",
+    ];
+
+    let extraClassDeclaration = [{
+        /// Attribute name used to memoize indexing maps for named ops.
+        constexpr const static ::llvm::StringLiteral
+            kMemoizedIndexingMapsAttrName = "linalg.memoized_indexing_maps";
+
+        using RegionBuilderFunType = llvm::function_ref<
+        void(ImplicitLocOpBuilder &b, Block &, ArrayRef<NamedAttribute>)>;
+        RegionBuilderFunType getRegionBuilder(StringRef name) {
+        return namedStructuredOpRegionBuilders.lookup(name);
+        }
+        private:
+        llvm::StringMap<RegionBuilderFunType> namedStructuredOpRegionBuilders;
+    }];
 }
 
 #endif // LINALGX_DIALECT

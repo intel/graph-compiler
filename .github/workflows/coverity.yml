@@ -55,6 +55,7 @@ jobs:
 
       - name: Run coverity build
         run: |
+          
           cov-build --dir $HOME/cov-int scripts/compile.sh
           tail $HOME/cov-int/build-log.txt
 
