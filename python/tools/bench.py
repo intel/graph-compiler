@@ -14,6 +14,7 @@ from utils import (
     emit_benchmark_wrapped_main_func,
 )
 import numpy as np
+import os
 
 
 def python_bench(
@@ -27,9 +28,13 @@ def python_bench(
     warm_up=20,
 ) -> float:
     print("python timeit")
-    engine = GraphComplier([], passes).compile_and_jit(
-        ir_module, ir_printing=ir_printing
-    )
+    engine = GraphComplier(
+        [
+            os.getenv("MLIR_C_RUNNER_UTILS", ""),
+            os.getenv("MLIR_RUNNER_UTILS", ""),
+        ],
+        passes,
+    ).compile_and_jit(ir_module, ir_printing=ir_printing)
     func = engine.lookup(entry_name)
     packed_args = (ctypes.c_void_p * len(mlir_args))()
     for argNum in range(len(mlir_args)):
@@ -60,7 +65,13 @@ def MBR_bench(
     main_module_with_benchmark = ir.Module.parse(
         str(timer_func) + str(wrapped_func) + str(kernel_func)
     )
-    complier = GraphComplier([], passes)
+    complier = GraphComplier(
+        [
+            os.getenv("MLIR_C_RUNNER_UTILS", ""),
+            os.getenv("MLIR_RUNNER_UTILS", ""),
+        ],
+        passes,
+    )
     engine = complier.compile_and_jit(
         main_module_with_benchmark, ir_printing=ir_printing
     )

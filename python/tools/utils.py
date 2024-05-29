@@ -150,6 +150,7 @@ def get_kernel_func_from_module(
 def get_default_passes():
     passes = """
         builtin.module(    
+            convert-onednn-graph-to-linalg,
             func.func(linalg-generalize-named-ops),
             func.func(linalg-fuse-elementwise-ops),
             convert-shape-to-std,
