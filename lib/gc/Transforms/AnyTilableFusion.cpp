@@ -39,25 +39,12 @@ namespace gc {
 #define GEN_PASS_DEF_ANYTILABLEFUSION
 #include "gc/Transforms/Passes.h.inc"
 
-namespace {
-
 struct SystemDesc {
   // get runtime OMP_NUM_THREADS
   uint32_t getNumThreads();
   // get cache size by cacheLevel
   size_t getCacheSize(uint8_t cacheLevel);
 };
-
-SmallVector<LoopLikeOpInterface> static getOuterLoopsOfSliceOp(
-    OffsetSizeAndStrideOpInterface sliceOp) {
-  SmallVector<LoopLikeOpInterface> outerLoops;
-  auto forOp = sliceOp->getParentOfType<LoopLikeOpInterface>();
-  while (forOp) {
-    outerLoops.push_back(forOp);
-    forOp = forOp->getParentOfType<LoopLikeOpInterface>();
-  }
-  return {outerLoops.rbegin(), outerLoops.rend()};
-}
 
 template <typename T> class FusionAnchorBase {
   static_assert(
@@ -139,15 +126,15 @@ verifyTilableOpTileSizesOnDimAndTileMap(RewriterBase &rewriter, Operation *op,
       targetTileSizes =
           llvm::to_vector(tileSizes.take_back(targetInnerTileSizes.size()));
     } else // tileSize comes from OpOperand
-        if (std::is_same<T, OffsetSizeAndStrideOpInterface>::value) {
-      targetTileSizes = llvm::to_vector(tileSizes);
-      DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
-          packOp.getDimAndTileMapping();
-      targetInnerTileSizes.resize(dimAndTileMapping.size());
-      for (const auto &dimAndTile : dimAndTileMapping) {
-        targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
+      if (std::is_same<T, OffsetSizeAndStrideOpInterface>::value) {
+        targetTileSizes = llvm::to_vector(tileSizes);
+        DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
+            packOp.getDimAndTileMapping();
+        targetInnerTileSizes.resize(dimAndTileMapping.size());
+        for (const auto &dimAndTile : dimAndTileMapping) {
+          targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
+        }
       }
-    }
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(op)) {
     // tileSize comes from OpResult
     if (std::is_same<T, tensor::ExtractSliceOp>::value) {
@@ -159,11 +146,11 @@ verifyTilableOpTileSizesOnDimAndTileMap(RewriterBase &rewriter, Operation *op,
         targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
       }
     } else // tileSize comes from OpOperand
-        if (std::is_same<T, OffsetSizeAndStrideOpInterface>::value) {
-      targetInnerTileSizes = unPackOp.getInnerTiles();
-      targetTileSizes =
-          llvm::to_vector(tileSizes.take_back(targetInnerTileSizes.size()));
-    }
+      if (std::is_same<T, OffsetSizeAndStrideOpInterface>::value) {
+        targetInnerTileSizes = unPackOp.getInnerTiles();
+        targetTileSizes =
+            llvm::to_vector(tileSizes.take_back(targetInnerTileSizes.size()));
+      }
   }
 
   // check tileSizes is full on or multiple of `inner_tile_size`
@@ -205,11 +192,7 @@ FusionAnchorBase<T>::selectCandidateByCostModel(RewriterBase &rewriter,
   if (candidateSliceOpList.empty())
     return failure();
   /// TODO: use cost model
-  if (std::is_same<T, tensor::ExtractSliceOp>::value) {
-    return cast<T>(candidateSliceOpList.front());
-  } else {
-    return cast<T>(candidateSliceOpList.back());
-  }
+  return cast<T>(candidateSliceOpList.front());
 }
 
 // Target at tensor.extract_slice
@@ -361,98 +344,6 @@ getProducerFusionAnchorFromOpOperand(RewriterBase &rewriter,
   return failure();
 }
 
-/** Get the Result of top-level Loop which yield the target InsertSliceOp
- *
- * %1 = scf.for
- *  %2 = scf.for
- *   %3 = scf.for
- *      ...
- *      %4 = insert
- *      yield %4
- *   %5 = insert %3
- *   yield %5
- *  yield %2
- *
- * @param targetSliceOp: %4 = insert
- * @return Result Value: %1
- *         Collected insertSliceOp List during walk including targetSliceOp:
- *                %4 = insert and %5 = insert %3
- */
-FailureOr<std::pair<Value, SmallVector<OffsetSizeAndStrideOpInterface>>>
-getResultOfTopLevelLoopYieldInsertSliceOp(
-    OffsetSizeAndStrideOpInterface targetSliceOp, int curDepth = 0) {
-  // control recursive time in avoid of stack overflow
-  if (curDepth > MAX_DEPTH)
-    return failure();
-
-  SmallVector<OffsetSizeAndStrideOpInterface> candidateSliceOpList;
-  candidateSliceOpList.push_back(targetSliceOp);
-  Value resultOfLoop;
-  if (auto sliceOp = dyn_cast<tensor::ParallelInsertSliceOp>(
-          targetSliceOp.getOperation())) {
-    Value destValue = sliceOp.getDest();
-    auto iterArg = cast<BlockArgument>(destValue);
-    auto forallOp = dyn_cast<scf::ForallOp>(iterArg.getOwner()->getParentOp());
-    if (!forallOp)
-      return failure();
-    resultOfLoop = forallOp.getTiedOpResult(forallOp.getTiedOpOperand(iterArg));
-  } else if (auto sliceOp = dyn_cast<tensor::InsertSliceOp>(
-                 targetSliceOp.getOperation())) {
-    Value resultValue = sliceOp.getResult();
-    for (auto &useOperand : resultValue.getUses()) {
-      if (auto yieldOp = dyn_cast<scf::YieldOp>(useOperand.getOwner())) {
-        if (llvm::detail::isPresent(resultOfLoop))
-          return failure();
-        auto forOp = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp());
-        if (!forOp)
-          return failure();
-        resultOfLoop = forOp->getResult(useOperand.getOperandNumber());
-      }
-    }
-  }
-
-  if (!llvm::detail::isPresent(resultOfLoop))
-    return failure();
-
-  while (true) {
-    bool walkThroughOuterLoop = false;
-    for (auto &useOperand : resultOfLoop.getUses()) {
-      if (auto sliceOp =
-              dyn_cast<tensor::ParallelInsertSliceOp>(useOperand.getOwner())) {
-        auto resultAndSliceOpsPair =
-            getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp, curDepth + 1);
-        if (failed(resultAndSliceOpsPair))
-          return failure();
-        candidateSliceOpList.append((*resultAndSliceOpsPair).second.begin(),
-                                    (*resultAndSliceOpsPair).second.end());
-        return std::make_pair((*resultAndSliceOpsPair).first,
-                              candidateSliceOpList);
-      } else if (auto sliceOp =
-                     dyn_cast<tensor::InsertSliceOp>(useOperand.getOwner())) {
-        auto resultAndSliceOpsPair =
-            getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp, curDepth + 1);
-        if (failed(resultAndSliceOpsPair))
-          return failure();
-        candidateSliceOpList.append((*resultAndSliceOpsPair).second.begin(),
-                                    (*resultAndSliceOpsPair).second.end());
-        return std::make_pair((*resultAndSliceOpsPair).first,
-                              candidateSliceOpList);
-      } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOperand.getOwner())) {
-        // walk through outer loop
-        auto forOp = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp());
-        if (!forOp)
-          return failure();
-        resultOfLoop = forOp->getResult(useOperand.getOperandNumber());
-        walkThroughOuterLoop = true;
-        break;
-      }
-    }
-    if (!walkThroughOuterLoop)
-      break;
-  }
-  return std::make_pair(resultOfLoop, candidateSliceOpList);
-}
-
 /**
  * Find the untiled Consumer op based on given OpResult of Tiled Op, E.g.
  *
@@ -493,7 +384,7 @@ getConsumerFusionAnchorFromOpResult(RewriterBase &rewriter,
     return failure();
 
   auto resultAndSliceOpsPair =
-      getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp);
+      scfX::getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp);
   if (failed(resultAndSliceOpsPair))
     return failure();
 
@@ -530,7 +421,7 @@ static Operation *preOpFuseProducerOfOpOperand(
   if (failed(candidateSliceOp)) {
     return nullptr;
   }
-  auto outerLoops = getOuterLoopsOfSliceOp(*candidateSliceOp);
+  auto outerLoops = scfX::getOuterLoopsOfSliceOp(*candidateSliceOp);
   std::optional<scf::SCFFuseProducerOfSliceResult> fusedResult =
       scfX::tileAndFuseProducerOfSlice(rewriter, *candidateSliceOp, outerLoops);
 
@@ -562,7 +453,7 @@ static SmallVector<Operation *> postOpFuseConsumerOfOpResult(
     std::optional<scf::SCFFuseConsumerOfSliceResult> fusedResult =
         scfX::tileAndFuseConsumerOfSlice(rewriter, *candidateSliceOp);
     if (fusedResult) {
-      tiledConsumerList.push_back(fusedResult.value().tiledAndFusedConsumer);
+      tiledConsumerList.push_back(fusedResult.value().tiledOps[0]);
       rewriter.eraseOp(consAnchor.getFusableOp());
     }
   }
@@ -712,6 +603,5 @@ public:
   }
 };
 
-} // namespace
 } // namespace gc
 } // namespace mlir
