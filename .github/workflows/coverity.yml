@@ -28,7 +28,7 @@ jobs:
         run: |
           cd $HOME
           test ! -f coverity/bin/cov-build && {
-            wget https://scan.coverity.com/download/linux64 --no-verbose --post-data "token=$COVERITY_TOKEN&project=intel%2Fgraph-compiler" -O coverity.tgz
+            curl -X POST https://scan.coverity.com/download/linux64 -d "token=$COVERITY_TOKEN&project=intel%2Fgraph-compiler" -o coverity.tgz
             tar zxf coverity.tgz
             mv -T cov-analysis-linux64-* coverity
           }
