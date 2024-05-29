@@ -92,8 +92,8 @@ TEST(TestJsonParser, AddRelu) {
   ASSERT_EQ(attrs.size(), 1);
   ASSERT_EQ(attrs.begin()->getName(),
             mlir::StringAttr::get(addOp->getContext(), "auto_broadcast"));
-  ASSERT_EQ(mlir::cast<mlir::StringAttr>(attrs.begin()->getValue()).getValue(),
-            "numpy");
+  ASSERT_FALSE(
+      mlir::cast<mlir::BoolAttr>(attrs.begin()->getValue()).getValue());
   checkTensorType(addOp->getOperandTypes()[0]);
   checkTensorType(addOp->getOperandTypes()[1]);
   checkTensorType(addOp->getResultTypes()[0]);
