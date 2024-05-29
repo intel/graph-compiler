@@ -1,17 +1,17 @@
 # Copyright (C) 2024 Intel Corporation
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 # http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions
 # and limitations under the License.
-# 
+#
 # SPDX-License-Identifier: Apache-2.0
 
 import datetime, sys, re, argparse
@@ -73,7 +73,7 @@ def fix_intel_license(var: Dict[str, str]):
         cmt = "#"
     print('%s Copyright (C) %s Intel Corporation' % (cmt, var['$YEAR']))   
     for i in range(1, len(intel_license)):
-        print('%s %s' % (cmt, intel_license[i]))   
+        print((cmt + " " + intel_license[i]).rstrip())
     if var['$LANG'] == "C\\+\\+":
         print(" */")
     elif lang == "cmake" or lang == "Python":
@@ -87,27 +87,27 @@ def fix_llvm_license(var: Dict[str, str]):
     elif lang == "C\\+\\+":
         lang = "C++"
 
-    part1 = "%s===-- %s - DESC " % (cmt, var['$FILE'])
+    part1 = "%s===-- %s - DESC " % ((cmt + " " if lang == "Python" else cmt), var['$FILE'])
     part3 = "-*- %s -*-===%s" % (lang, cmt)
     part2 = "-" * (WIDTH - len(part1) - len(part3))
 
     print(part1 + part2 + part3)
     for i in range(1, len(llvm_license) - 1):
         print((cmt + " " + llvm_license[i]).rstrip())
-    part1 = cmt + "==="
+    part1 = (cmt + " " if lang == "Python" else cmt) + "==="
     part3 = "===" + cmt
     part2 = "-" * (WIDTH - len(part1) - len(part3))
     print(part1 + part2 + part3)
-        
+
 def use_llvm_license(path: str) -> bool:
     for folder in ["lib/gc/", 'include/gc/', 'unittests/', 'python/gc_mlir']:
         if path.startswith(folder) or path.startswith('./' + folder):
             return True
     return False
-                
+
 year: int = datetime.datetime.now().year
 success: bool = True
-                
+
 parser = argparse.ArgumentParser(prog = "benchgc license checker")
 parser.add_argument("--files", required=True, type = str, help = "comma seperated file list")
 args = parser.parse_args()
@@ -160,5 +160,5 @@ for filepath in args.files.split(','):
             fix_intel_license(var)
     else:
         print("Success      : %s" % filepath)
-            
+
 sys.exit(0 if success else 1)
