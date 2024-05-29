@@ -149,18 +149,6 @@ Operation *createElemwiseOp(Location loc, PatternRewriter &rewriter,
       /*inputs=*/inputs,
       /*outputs=*/outTensor);
 }
-// template <typename UnaryOp, typename LoweredOp, GetOperandFn GetOperand>
-// struct UnaryElemwiseLowering : public OpConversionPattern<UnaryOp> {
-//   using OpConversionPattern<UnaryOp>::OpConversionPattern;
-//   LogicalResult
-//   matchAndRewrite(UnaryOp op, typename UnaryOp::Adaptor adaptor,
-//                   ConversionPatternRewriter &rewriter) const final {
-
-// template <typename UnaryOp, typename LoweredOp, GetOperandFn GetOperand>
-// struct UnaryElemwiseLowering : public OpRewritePattern<UnaryOp> {
-//   using OpRewritePattern<UnaryOp>::OpRewritePattern;
-//   LogicalResult matchAndRewrite(UnaryOp op,
-//                                 PatternRewriter &rewriter) const final {
 
 template <typename UnaryOp, typename LoweredOp, GetOperandFn GetOperand>
 struct UnaryElemwiseLowering : public OpRewritePattern<UnaryOp> {
@@ -174,12 +162,7 @@ struct UnaryElemwiseLowering : public OpRewritePattern<UnaryOp> {
       return rewriter.notifyMatchFailure(op, "Fail to get operand.");
     }
     auto unaryOp = createElemwiseOp<LoweredOp>(loc, rewriter, resultTy, {inOp});
-    llvm::errs() << op->getNumResults() << "\n";
-    llvm::errs() << unaryOp->getNumResults() << "\n";
-    llvm::errs() << *unaryOp << "\n";
-
     rewriter.replaceOp(op, unaryOp);
-    llvm::errs() << *unaryOp->getParentOp() << "\n";
     return success();
   }
 };
@@ -454,9 +437,10 @@ struct ConvertOneDNNGraphToLinalg
     // add lowering target
     ConversionTarget target(getContext());
     target.addIllegalDialect<onednn_graph::OneDNNGraphDialect>();
-    target.addLegalDialect<BuiltinDialect, arith::ArithDialect,
-                           linalg::LinalgDialect, linalgx::LinalgxDialect,
-                           func::FuncDialect, tensor::TensorDialect>();
+    target
+        .addLegalDialect<BuiltinDialect, arith::ArithDialect, math::MathDialect,
+                         linalg::LinalgDialect, linalgx::LinalgxDialect,
+                         func::FuncDialect, tensor::TensorDialect>();
     // set pattern
     RewritePatternSet patterns(ctx);
     patterns
@@ -464,11 +448,6 @@ struct ConvertOneDNNGraphToLinalg
              PowOpLowering, ReLUOpLowering, MatMulOpLowering, TypeCastLowering,
              SigmoidOpLowering, ReduceSumOpLowering, ReduceMeanOpLowering>(ctx);
     // perform conversion
-
-    // if (failed(applyPatternsAndFoldGreedily(getOperation(),
-    //                                         std::move(patterns)))) {
-    //   signalPassFailure();
-    // }
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
