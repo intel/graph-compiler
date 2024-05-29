@@ -343,41 +343,43 @@ struct constGraphTensorCacheManager {
   }
 };
 
-static void addGlobalI32(ModuleOp module, Location loc, OpBuilder &builder,
+static void addGlobalI32(ModuleOp &module, Location loc, OpBuilder &builder,
                          StringRef name, int32_t value) {
   OpBuilder::InsertionGuard insertGuard(builder);
   builder.setInsertionPointToStart(module.getBody());
 
   auto type = IntegerType::get(builder.getContext(), 32);
   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
-      loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
+      loc, type, /*isConstant=*/true, LLVM::Linkage::External, name,
       builder.getI32IntegerAttr(value),
       /*alignment=*/0);
 }
 
-static void addGlobalI64Array(ModuleOp module, Location loc, OpBuilder &builder,
-                              StringRef name, ArrayRef<int64_t> array) {
+static void addGlobalI64Array(ModuleOp &module, Location loc,
+                              OpBuilder &builder, StringRef name,
+                              ArrayRef<int64_t> array) {
   OpBuilder::InsertionGuard insertGuard(builder);
   builder.setInsertionPointToStart(module.getBody());
 
   auto type = LLVM::LLVMArrayType::get(
       IntegerType::get(builder.getContext(), 64), array.size());
   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
-      loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-      builder.getI64ArrayAttr(array),
+      loc, type, /*isConstant=*/true, LLVM::Linkage::External, name,
+      builder.getI64TensorAttr(array),
       /*alignment=*/0);
 }
 
-static void addGlobalI32Array(ModuleOp module, Location loc, OpBuilder &builder,
-                              StringRef name, ArrayRef<int32_t> array) {
+static void addGlobalI32Array(ModuleOp &module, Location loc,
+                              OpBuilder &builder, StringRef name,
+                              ArrayRef<int32_t> array) {
   OpBuilder::InsertionGuard insertGuard(builder);
   builder.setInsertionPointToStart(module.getBody());
 
   auto type = LLVM::LLVMArrayType::get(
       IntegerType::get(builder.getContext(), 32), array.size());
   LLVM::GlobalOp global = builder.create<LLVM::GlobalOp>(
-      loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, name,
-      builder.getI32ArrayAttr(array),
+      loc, type, /*isConstant=*/true, LLVM::Linkage::External, name,
+      builder.getI32TensorAttr(array),
       /*alignment=*/0);
 }
 
@@ -493,7 +495,7 @@ void CST::runOnOperation() {
 
   FunctionType foldFuncType =
       FunctionType::get(context, inputTypes, outputTypes);
-  auto foldFunc =
+  func::FuncOp foldFunc =
       builder.create<func::FuncOp>(topFunc.getLoc(), funcName, foldFuncType);
   Block *foldBlock = foldFunc.addEntryBlock();
   // values of folded constant weights in foldBlock
@@ -541,6 +543,8 @@ void CST::runOnOperation() {
                     globalIndexes);
 
   foldFunc.setVisibility(SymbolTable::Visibility::Public);
+  foldFunc->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
+                    UnitAttr::get(context));
   moduleOp.push_back(foldFunc);
   symbolTable.insert(foldFunc);
 
