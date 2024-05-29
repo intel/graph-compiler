@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/ExecutionEngine/Driver/Driver.hpp"
+#include "gc/ExecutionEngine/Driver/Driver.h"
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
@@ -201,7 +201,7 @@ void JitModule::call(GeneralMemrefPtr *args) {
   for (auto b : cacheBases) {
     auto ptr = b->acquire(&inited);
     if (unlikely(!ptr)) {
-      ptr = std::aligned_alloc(/*alignment*/ 64, b->size_);
+      ptr = std::aligned_alloc(/*alignment*/ 64, b->size);
       inited = 0;
     }
     foldBasePtr.push_back((char *)ptr);

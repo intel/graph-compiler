@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/ExecutionEngine/Driver/Driver.hpp"
+#include "gc/ExecutionEngine/Driver/Driver.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/ExecutionEngine/MemRefUtils.h"
 #include "mlir/IR/AsmState.h"

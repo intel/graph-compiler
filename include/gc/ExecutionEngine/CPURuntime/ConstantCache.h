@@ -1,4 +1,4 @@
-//===-- ConstantCache.hpp - Constant cache interfaces -----------*- C++ -*-===//
+//===-- ConstantCache.h - Constant cache interfaces -------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -23,9 +23,9 @@ namespace gc {
  */
 struct RefCountManaged {
   RefCountManaged() = default;
-  RefCountManaged(const std::shared_ptr<void> &keep_alive) { init(keep_alive); }
-  void init(const std::shared_ptr<void> &keep_alive) {
-    keepAlive = keep_alive;
+  RefCountManaged(const std::shared_ptr<void> &vkeepAlive) { init(vkeepAlive); }
+  void init(const std::shared_ptr<void> &vkeepAlive) {
+    keepAlive = vkeepAlive;
     refCount.store(1);
   }
 
@@ -62,31 +62,31 @@ private:
 
 /**
  * The proxy for the constant cache of Graph API. It holds a shared ptr pointing
- * to the cache item in the cache manager (keep_alive) to extend the lifetime by
+ * to the cache item in the cache manager (keepAlive) to extend the lifetime by
  * refcount, @see RefCountManaged. To access the memory buffer of the const
  * cache, use acauire/release functions. They will ref/deref the ConstCacheProxy
  * to make sure the cache is alive after calling acauire and before release. The
  * cache manager of Graph API may evict the cache item by dereferenceing this
  * RefCountManaged object. {acquire,release} functions will find out that the
  * cache has been invalidated. Usually we expect JIT modules to hold shared ptr
- * to ConstCacheProxy via  CachedGraphTensor. If is_lazy_ == true, the cache
+ * to ConstCacheProxy via  CachedGraphTensor. If isLazy == true, the cache
  * item's lifetime will be managed by the cache manager of Graph API and it is
  * filled with data after the first execution of the computation. Otherwise, the
  * cache item is always alive as long as the jit_module of the kernel is alive.
  */
 struct ConstCacheProxy : RefCountManaged {
-  ConstCacheProxy(const std::shared_ptr<void> &keep_alive, void *buffer,
+  ConstCacheProxy(const std::shared_ptr<void> &vkeepAlive, void *buffer,
                   size_t size, bool is_lazy)
-      : RefCountManaged(keep_alive), size_(size), is_lazy_(is_lazy),
-        buffer_(buffer) {}
+      : RefCountManaged(vkeepAlive), size(size), isLazy(is_lazy),
+        buffer(buffer) {}
   ~ConstCacheProxy();
 
   // get the buffer and increment the refcount. If the buffer is evicted,
   // returns null
   void *acquire(int32_t *inited) {
     if (checkAliveAndRef()) {
-      *inited = *inited && initialized_;
-      return buffer_;
+      *inited = *inited && initialized;
+      return buffer;
     }
     return nullptr;
   }
@@ -94,7 +94,7 @@ struct ConstCacheProxy : RefCountManaged {
   bool release() {
     if (isAlive()) {
       deref();
-      initialized_ = 1;
+      initialized = 1;
       return true;
     }
     return false;
@@ -102,18 +102,18 @@ struct ConstCacheProxy : RefCountManaged {
 
   // return the buffer. Do not directly use the buffer because it may be already
   // release! To access the buffer, always acquire() before using it.
-  void *getBufferUnsafe() const { return buffer_; }
+  void *getBufferUnsafe() const { return buffer; }
 
-  size_t size_;
+  size_t size;
   // if the buffer is lazy-initialized. If false, it should be filled before
   // computation
-  bool is_lazy_;
+  bool isLazy;
 
 private:
   // raw pointer to the buffer
-  void *buffer_;
+  void *buffer;
   // if the buffer has been initialized. calling release() will set this to 1
-  int32_t initialized_ = 0;
+  int32_t initialized = 0;
 };
 
 struct CachedGraphTensor {

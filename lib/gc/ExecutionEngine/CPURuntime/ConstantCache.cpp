@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
+#include "gc/ExecutionEngine/CPURuntime/ConstantCache.h"
 #include <string.h>
 #include <unordered_map>
 
