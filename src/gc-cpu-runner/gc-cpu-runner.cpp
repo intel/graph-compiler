@@ -27,7 +27,11 @@
 #include "llvm/Support/TargetSelect.h"
 #include <stdio.h>
 
+extern int gc_runtime_keep_alive;
+
 int main(int argc, char **argv) {
+  // keeps GCCPURuntime linked
+  gc_runtime_keep_alive = 0;
   llvm::InitLLVM y(argc, argv);
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
