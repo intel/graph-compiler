@@ -28,40 +28,35 @@
 
 namespace mlir::gc {
 
+// linalg + linalgX + tensor
 void populateFrontendPasses(mlir::PassManager &pm) {
   // pm.addPass(onednn_graph::createConvertOneDNNGraphToLinalg());
 }
-// linalg + linalgX + tensor ==> GC V1 GIR
 
+// scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
 void populateTensorPasses(mlir::PassManager &pm) {
-  // + padding propagation pass, upstream-able 127x127 -> tilling size:32
-  // ->padding to 128x128
-  // + layout propagation pass, upstream-able 4x32x4x32 ->
-  // tensor.pack/tensor.unpack
-  // + tensor constant propagation pass, down-stream pass, designed to support
-  // oneDNN graph spec
-  // + linalg.matmul lowering to (scf.loop + linalg.brgemm) pass, upstream-able
-  // + fine-grain fusion pass, upstream-able -> scf.for + linalgx.mask
-  // + lower linalg to arith/math on virtual vector pass, up-streamable
+  // todo: padding propagation pass
+  // todo: layout propagation pass
+  // todo: tensor constant propagation pass
+  // todo: linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
+  // todo: fine-grain fusion pass
+  // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
 }
-// scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack ==>
-// GC V1 TIR
 
-void populateVectorPasses(mlir::PassManager &pm) {
-  // + bf16 promotion pass, down-stream pass, device dependent pass, maybe can
-  // upstream
-  // + bf16 cast elimilation pass, down-stream pass, fast-math kind pass,
-  // designed to support oneDNN graph spec
-  pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
-  // + lower to physical vector pass, down-stream pass, device dependent pass,
-  // maybe can upstream
-}
 // scf + arith + math + vector + tensor + linalg.brgemm
+void populateVectorPasses(mlir::PassManager &pm) {
+  // todo: bf16 promotion pass, device dependent pass
+  // todo: bf16 cast elimilation pass, fast-math kind pass, designed to support
+  // oneDNN graph spec
+  pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
+  // todo: lower to physical vector pass, device dependent pass
+}
 
+// scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::PassManager &pm) {
   bufferization::OneShotBufferizationOptions options;
   pm.addPass(bufferization::createOneShotBufferizePass(options));
@@ -74,34 +69,27 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
-  // + buffer schedule pass, down-stream pass, to migrate buffer reschedule pass
-  // from GC V1.
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createBufferHoistingPass()); // Need to improve this pass
-                                                  // to support thread-local
-                                                  // allocator.
+  // todo: buffer schedule pass
+  // todo: Need to improve this pass to support nested parallel.
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
   pm.addPass(createBufferizationToMemRefPass());
 }
-// scf + arith + math + vector + memref + linalg.brgemm
 
-void populateMicroKernelPasses(mlir::PassManager &pm) {
-  // + ConvertLinalgToMicrokernel pass, upstream-able,
-  // + CleanupInvalidMicrokernel pass, upstream-able
-  // + InvariantMicrokernelMotion pass, upstream-able
-  // + ConvertMicrokernelToDnnlFunc, down-stream pass, to lower brgemm to dnnl
-  // call
-  // + ConvertMicrokernelToXsmm, down-stream pass, to lower brgemm to libxsmm
-  // call
-  // + LowerMicrokernel pass, upstream-able
-  // + DispatchMicrokernel, down-stream pass
-}
 // scf + arith + math + vector + memref + func/microkernel
+void populateMicroKernelPasses(mlir::PassManager &pm) {
+  // todo: ConvertLinalgToMicrokernel pass
+  // todo: CleanupInvalidMicrokernel pass
+  // todo: InvariantMicrokernelMotion pass
+  // todo: ConvertMicrokernelToDnnlFunc to lower brgemm to dnnl call
+  // todo: ConvertMicrokernelToXsmm, to lower brgemm to libxsmm call
+  // todo: LowerMicrokernel pass
+  // todo: DispatchMicrokernel
+}
 
 void populateCPURuntimePasses(mlir::PassManager &pm) {
-  // + flatten nested parallel pass, down-stream pass, to support coarse-grain
-  // fusion
+  // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createConvertSCFToOpenMPPass());
 }
