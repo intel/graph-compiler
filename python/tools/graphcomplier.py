@@ -6,6 +6,11 @@ from typing import Sequence
 
 class GraphComplier:
     def __init__(self, shared_libs: Sequence[str], pipeline: str, opt_level: int = 3):
+        # todo
+        shared_libs = [
+            "/home/xurui/mlir/llvm-project/install/lib/libmlir_runner_utils.so",
+            "/home/xurui/mlir/llvm-project/install/lib/libmlir_c_runner_utils.so",
+        ]
         self.shared_libs = shared_libs
         self.pipeline = pipeline
         self.opt_level = opt_level
