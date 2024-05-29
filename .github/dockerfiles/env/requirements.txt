@@ -1,0 +1,8 @@
+# See also
+# https://github.com/jupyterhub/zero-to-jupyterhub-k8s/blob/main/images/singleuser-sample/requirements.in
+# https://github.com/jupyterhub/zero-to-jupyterhub-k8s/blob/main/images/singleuser-sample/requirements.txt
+jupyterhub==4.0.2
+jupyterlab
+nbclassic
+nbgitpuller
+jupyter-server-proxy

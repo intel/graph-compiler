@@ -65,12 +65,13 @@ function(gc_fetch_content
                 FetchContent_Populate(${name})
                 FetchContent_GetProperties(${name})
                 set(${name}_POPULATED TRUE PARENT_SCOPE)
-                set(${name}_SOURCE_DIR ${${name}_SOURCE_DIR} PARENT_SCOPE)
-                set(${name}_BINARY_DIR ${${name}_BINARY_DIR} PARENT_SCOPE)
             endif ()
         else ()
             FetchContent_MakeAvailable(${name})
         endif ()
+
+        set(${name}_SOURCE_DIR ${${name}_SOURCE_DIR} PARENT_SCOPE)
+        set(${name}_BINARY_DIR ${${name}_BINARY_DIR} PARENT_SCOPE)
     endif ()
 endfunction()
 
