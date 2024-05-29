@@ -59,15 +59,30 @@ SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
   return ret;
 }
 
-SmallVector<int64_t> getReducedShape(ShapeAdaptor operandShape,
-                                     ArrayRef<int64_t> axes, bool keep_dims) {
-  SmallVector<int64_t> outputShape;
+SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes,
+                                          int64_t rank) {
+  auto reduceAxes = canonicalizeReduceAxes(axes, rank);
+  SmallVector<int64_t> keepAxes;
+  for (int64_t dim = 0, idx = 0; dim < rank; dim++) {
+    if (idx < (int64_t)reduceAxes.size() && reduceAxes[idx] == dim) {
+      idx++;
+      continue;
+    }
+    keepAxes.push_back(dim);
+  }
+  return keepAxes;
+}
+
+SmallVector<int64_t> inferReducedShape(ShapeAdaptor operandShape,
+                                       ArrayRef<int64_t> axes, bool keep_dims) {
   // get reduce axis one by one
+  auto canonicalized = canonicalizeReduceAxes(axes, operandShape.getRank());
   size_t index = 0;
   auto getNextReduceAxis = [&]() {
-    return (index >= axes.size()) ? -1 : axes[index++];
+    return (index >= canonicalized.size()) ? -1 : canonicalized[index++];
   };
   // get reduced shape
+  SmallVector<int64_t> outputShape;
   auto rank = operandShape.getRank();
   auto axis = getNextReduceAxis();
   for (int64_t idx = 0; idx < rank; idx++) {
@@ -93,7 +108,7 @@ static LogicalResult InferReduceReturnTypes(
     return success();
   }
   inferredReturnShapes.push_back(ShapedTypeComponents(
-      getReducedShape(operandShape, axes, keep_dims), elemType));
+      inferReducedShape(operandShape, axes, keep_dims), elemType));
   return success();
 }
 
@@ -142,12 +157,10 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
       SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {           \
     llvm::SmallVector<int64_t> outShape;                                       \
     auto operandTy = dyn_cast<ShapedType>(adaptor.getOperand().getType());     \
-    auto rank = operandTy.getRank();                                           \
     ShapeAdaptor inputShape(operandTy);                                        \
-    return InferReduceReturnTypes(                                             \
-        inputShape, operandTy.getElementType(),                                \
-        canonicalizeReduceAxes(adaptor.getAxes(), rank),                       \
-        adaptor.getKeepDims(), inferredReturnShapes);                          \
+    return InferReduceReturnTypes(inputShape, operandTy.getElementType(),      \
+                                  adaptor.getAxes(), adaptor.getKeepDims(),    \
+                                  inferredReturnShapes);                       \
   }
 
 #define REDUCE_OP_VERIFY(OP)                                                   \

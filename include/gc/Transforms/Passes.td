@@ -27,7 +27,8 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
     "math::MathDialect",
     "arith::ArithDialect",
     "tensor::TensorDialect",
-    "linalg::LinalgDialect"
+    "linalg::LinalgDialect",
+    "linalgx::LinalgxDialect"
   ];
 }
 
