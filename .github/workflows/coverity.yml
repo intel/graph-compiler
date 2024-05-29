@@ -23,7 +23,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download coverity
-        if: ${{ steps.coverity-cache.outputs.status == 'miss' }}
         env:
           COVERITY_TOKEN: ${{ secrets.COVERITY_TOKEN }}
         run: |
