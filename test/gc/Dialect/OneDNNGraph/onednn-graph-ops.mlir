@@ -20,18 +20,18 @@ func.func @relu(%arg0: tensor<128x512xbf16>) -> tensor<128x512xbf16> {
   return %0 : tensor<128x512xbf16>
 }
 
-// CHECK-LABEL: @type_cast
-func.func @type_cast(%arg0: tensor<128x512xbf16>) -> tensor<128x512xf32> {
-  // CHECK: onednn_graph.type_cast 
-  %0 = onednn_graph.type_cast %arg0 : (tensor<128x512xbf16>) -> tensor<128x512xf32>
-  return %0 : tensor<128x512xf32>
-}
-
 // CHECK-LABEL: @sigmoid
 func.func @sigmoid(%arg0: tensor<128x512xbf16>) -> tensor<128x512xbf16> {
   // CHECK: onednn_graph.sigmoid 
   %0 = onednn_graph.sigmoid %arg0 : (tensor<128x512xbf16>) -> tensor<128x512xbf16>
   return %0 : tensor<128x512xbf16>
+}
+
+// CHECK-LABEL: @type_cast
+func.func @type_cast(%arg0: tensor<128x512xbf16>) -> tensor<128x512xf32> {
+  // CHECK: onednn_graph.type_cast 
+  %0 = onednn_graph.type_cast %arg0 : (tensor<128x512xbf16>) -> tensor<128x512xf32>
+  return %0 : tensor<128x512xf32>
 }
 
 // CHECK-LABEL: @pow
