@@ -59,15 +59,9 @@ SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
   return ret;
 }
 
-static LogicalResult InferReduceReturnTypes(
-    ShapeAdaptor operandShape, Type elemType, ArrayRef<int64_t> axes,
-    bool keep_dims,
-    SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
-  // no reduce axes
-  if (axes.empty()) {
-    inferredReturnShapes.push_back(ShapedTypeComponents(operandShape));
-    return success();
-  }
+SmallVector<int64_t> getReducedShape(ShapeAdaptor operandShape,
+                                     ArrayRef<int64_t> axes, bool keep_dims) {
+  SmallVector<int64_t> outputShape;
   // get reduce axis one by one
   size_t index = 0;
   auto getNextReduceAxis = [&]() {
@@ -76,7 +70,6 @@ static LogicalResult InferReduceReturnTypes(
   // get reduced shape
   auto rank = operandShape.getRank();
   auto axis = getNextReduceAxis();
-  SmallVector<int64_t> outputShape;
   for (int64_t idx = 0; idx < rank; idx++) {
     if (idx == axis) {
       axis = getNextReduceAxis();
@@ -87,7 +80,20 @@ static LogicalResult InferReduceReturnTypes(
       outputShape.push_back(operandShape.getDimSize(idx));
     }
   }
-  inferredReturnShapes.push_back(ShapedTypeComponents(outputShape, elemType));
+  return outputShape;
+}
+
+static LogicalResult InferReduceReturnTypes(
+    ShapeAdaptor operandShape, Type elemType, ArrayRef<int64_t> axes,
+    bool keep_dims,
+    SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
+  // no reduce axes
+  if (axes.empty()) {
+    inferredReturnShapes.push_back(ShapedTypeComponents(operandShape));
+    return success();
+  }
+  inferredReturnShapes.push_back(ShapedTypeComponents(
+      getReducedShape(operandShape, axes, keep_dims), elemType));
   return success();
 }
 
@@ -180,6 +186,7 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
                          const ShapeAdaptor &rhsShape, int64_t range,
                          int64_t diff, SmallVector<int64_t> &outDims) {
     for (int64_t i = 0; i < range; i++) {
+      // TODO(longsheng): add OpTrait::util::getBroadcastedShape for batch
       int64_t idx = i - diff;
       if ((idx >= 0) && (lhsShape.getDimSize(i) != rhsShape.getDimSize(idx))) {
         return failure();

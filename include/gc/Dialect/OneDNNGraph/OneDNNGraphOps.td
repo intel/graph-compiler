@@ -78,7 +78,7 @@ def OneDNNGraph_MatMulOp :
 
   let arguments = (ins OneDNNGraph_FloatTensor:$input_a, 
                        OneDNNGraph_FloatTensor:$input_b, 
-                       Optional<OneDNNGraph_LogicalTensor>:$bias,
+                       Optional<OneDNNGraph_FloatTensor>:$bias,
                        DefaultValuedOptionalAttr<BoolAttr, "false">:$transpose_a,
                        DefaultValuedOptionalAttr<BoolAttr, "false">:$transpose_b);
   let results = (outs OneDNNGraph_FloatTensor:$result);
