@@ -73,12 +73,10 @@ JitModule::create(Operation *op, const DriverOptions &options) {
   return std::make_shared<JitModule>(std::move(engine), compute);
 }
 
-JitModule::JitModule(
-    std::unique_ptr<ExecutionEngine> engine, JitModuleFuncT compute)
-    : engine{std::move(engine)}, compute{compute} {
-}
+JitModule::JitModule(std::unique_ptr<ExecutionEngine> engine,
+                     JitModuleFuncT compute)
+    : engine{std::move(engine)}, compute{compute} {}
 JitModule::~JitModule() = default;
-
 
 } // namespace gc
 } // namespace mlir
