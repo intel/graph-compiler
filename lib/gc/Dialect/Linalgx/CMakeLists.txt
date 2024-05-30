@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRLinalgx
     
     DEPENDS
     MLIRLinalgxOpsIncGen
+    MLIRLinalgxStructuredOpsIncGen
     
     LINK_LIBS PUBLIC
     ${MLIR_LINK_COMPONENTS}
