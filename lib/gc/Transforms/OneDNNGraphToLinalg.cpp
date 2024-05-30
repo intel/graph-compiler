@@ -31,7 +31,7 @@ namespace mlir {
 namespace onednn_graph {
 SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t>, int64_t);
 SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t>, int64_t);
-SmallVector<int64_t> inferReducedShape(ShapeAdaptor, ArrayRef<int64_t>, bool);
+SmallVector<int64_t> inferReducedShape(ShapedType, ArrayRef<int64_t>, bool);
 } // namespace onednn_graph
 namespace gc {
 #define GEN_PASS_DEF_CONVERTONEDNNGRAPHTOLINALG
@@ -43,8 +43,8 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
-                             TensorType ty, Value op) {
-  auto opTy = dyn_cast<TensorType>(op.getType());
+                             ShapedType ty, Value op) {
+  auto opTy = dyn_cast<ShapedType>(op.getType());
   llvm::ArrayRef<int64_t> bcastShape = ty.getShape();
   llvm::ArrayRef<int64_t> opShape = opTy.getShape();
   int64_t diff = bcastShape.size() - opShape.size();
@@ -77,12 +77,12 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
 }
 
 // Typedef for function to get operands for transformed op
-typedef mlir::Value (*GetOperandFn)(Operation *, PatternRewriter &, TensorType);
+typedef mlir::Value (*GetOperandFn)(Operation *, PatternRewriter &, ShapedType);
 
 // Functions to get operands for from original op
 struct OriginalOperand {
   template <unsigned I>
-  static Value getIdx(Operation *op, PatternRewriter &b, TensorType ty) {
+  static Value getIdx(Operation *op, PatternRewriter &b, ShapedType ty) {
     if (I >= op->getNumOperands()) {
       op->emitError("Index exceeds operand num.\n");
       return nullptr;
@@ -94,7 +94,7 @@ struct OriginalOperand {
 // Functions to get constant operands
 struct ConstantOperand {
   template <int64_t I>
-  static Value getConst(Operation *op, PatternRewriter &b, TensorType ty) {
+  static Value getConst(Operation *op, PatternRewriter &b, ShapedType ty) {
     const auto loc = op->getLoc();
     const auto elemTy = ty.getElementType();
     if (llvm::isa<IntegerType>(elemTy)) {
@@ -109,7 +109,7 @@ struct ConstantOperand {
     }
   }
   template <const char *Attr>
-  static Value getAttr(Operation *op, PatternRewriter &b, TensorType ty) {
+  static Value getAttr(Operation *op, PatternRewriter &b, ShapedType ty) {
     const auto loc = op->getLoc();
     const auto elemTy = ty.getElementType();
     if (!op->hasAttr(Attr)) {
@@ -156,7 +156,7 @@ struct UnaryElemwiseLowering : public OpRewritePattern<UnaryOp> {
   LogicalResult matchAndRewrite(UnaryOp op,
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
-    auto resultTy = dyn_cast<TensorType>(op->getResultTypes().front());
+    auto resultTy = dyn_cast<ShapedType>(op->getResultTypes().front());
     auto inOp = GetOperand(op, rewriter, resultTy);
     if (!inOp) {
       return rewriter.notifyMatchFailure(op, "Fail to get operand.");
@@ -174,7 +174,7 @@ struct BinaryElemwiseLowering : public OpRewritePattern<BinaryOp> {
   LogicalResult matchAndRewrite(BinaryOp op,
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
-    auto resultTy = dyn_cast<TensorType>(op->getResultTypes().front());
+    auto resultTy = dyn_cast<ShapedType>(op->getResultTypes().front());
     auto lhsOp = GetOperandLHS(op, rewriter, resultTy);
     auto rhsOp = GetOperandRHS(op, rewriter, resultTy);
     if (!lhsOp || !rhsOp) {
@@ -283,8 +283,7 @@ struct ReduceOpLowering : public OpRewritePattern<ReduceOp> {
     }
     // Get params
     auto operandTy = cast<ShapedType>(op.getOperand().getType());
-    auto reducedShape =
-        inferReducedShape(ShapeAdaptor(operandTy), op.getAxes(), false);
+    auto reducedShape = inferReducedShape(operandTy, op.getAxes(), false);
     auto reduceAxes = canonicalizeReduceAxes(op.getAxes(), operandTy.getRank());
     auto keepAxes = canonicalizeKeepAxes(op.getAxes(), operandTy.getRank());
     // replace Op with linalg/tensor
@@ -340,29 +339,62 @@ using ReduceMeanOpLowering = ReduceOpLowering<onednn_graph::ReduceMeanOp>;
 // MatMulOp lowering
 //===----------------------------------------------------------------------===//
 
+struct MatMulOpBatchFlatten : public OpRewritePattern<MatMulOp> {
+  using OpRewritePattern<MatMulOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(MatMulOp op,
+                                PatternRewriter &rewriter) const final {
+    auto loc = op->getLoc();
+    auto typeA = dyn_cast<ShapedType>(op.getInputA().getType());
+    auto typeB = dyn_cast<ShapedType>(op.getInputB().getType());
+    auto resultTy = dyn_cast<ShapedType>(op->getResultTypes().front());
+    // Format batch dims in 3dx2d so inputs comply with linalg
+    if (typeA.getRank() > 2 && typeB.getRank() == 2 && !op.getTransposeA()) {
+      // flatten batched 3d inputA to 2d shape
+      int64_t dim = 0;
+      int64_t collapse = 1;
+      SmallVector<SmallVector<int64_t, 2>> reassociation(2);
+      for (; dim < typeA.getRank() - 1; dim++) {
+        collapse *= typeA.getDimSize(dim);
+        reassociation[0].push_back(dim);
+      }
+      reassociation[1].push_back(dim);
+      // reassociation = {[0, 1, ...], [r-1]}
+      // collapseShape = [D(0)*D(1)*..., D(r-1)]
+      ShapedType collapseTy = RankedTensorType::get(
+          {collapse, typeA.getShape().back()}, typeA.getElementType());
+      // transform to collapse + matmul + expand
+      auto newCollapse = rewriter.create<tensor::CollapseShapeOp>(
+          loc, collapseTy, op.getInputA(), reassociation);
+      auto newMatmul = rewriter.create<onednn_graph::MatMulOp>(
+          loc, newCollapse->getResult(0), op.getInputB(), op.getBias(),
+          op.getTransposeA(), op.getTransposeB());
+      auto newExpand = rewriter.create<tensor::ExpandShapeOp>(
+          loc, resultTy, newMatmul->getResult(0), reassociation);
+      rewriter.replaceOp(op, newExpand);
+      return success();
+    }
+    return failure();
+  }
+};
+
 struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
   using OpRewritePattern<MatMulOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(MatMulOp op,
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
-    auto resultTy = dyn_cast<TensorType>(op->getResultTypes().front());
-    auto typeA = dyn_cast<TensorType>(op.getInputA().getType());
-    auto typeB = dyn_cast<TensorType>(op.getInputB().getType());
-    //
-    auto getEmptyTensor = [&](TensorType tensorTy) -> Value {
+    // Make empty tensor
+    auto getEmptyTensor = [&](ShapedType tensorTy) -> Value {
       Value zero = rewriter.create<arith::ConstantOp>(
           loc, rewriter.getZeroAttr(tensorTy.getElementType()));
       Value newTensor = rewriter.create<tensor::EmptyOp>(
           loc, tensorTy.getShape(), tensorTy.getElementType());
       return rewriter.create<linalg::FillOp>(loc, zero, newTensor).getResult(0);
     };
-
-    if (typeA.getRank() != 2 || typeB.getRank() != 2) {
-      return rewriter.notifyMatchFailure(
-          op, "Currently not support multi batch matmul.");
-    }
-    bool transposeA = op.getTransposeA();
-    bool transposeB = op.getTransposeB();
+    // Get inputs
+    auto transposeA = op.getTransposeA();
+    auto transposeB = op.getTransposeB();
+    auto resultTy = dyn_cast<ShapedType>(op->getResultTypes().front());
+    // Lower to matmul
     Operation *newOp = nullptr;
     if (!transposeA && !transposeB) {
       // (A * B)
@@ -407,7 +439,7 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outTensor,
           /*permutation=*/permutation);
     }
-
+    // Lowering bias add
     if (op.getBias()) {
       Value bias =
           createBroadcastOperand(loc, rewriter, resultTy, op.getBias());
@@ -431,10 +463,24 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
 
 struct ConvertOneDNNGraphToLinalg
     : public impl::ConvertOneDNNGraphToLinalgBase<ConvertOneDNNGraphToLinalg> {
-
   void runOnOperation() final {
     auto *ctx = &getContext();
-    // add lowering target
+    // ==========================================
+    // perform pre conversion
+    // ==========================================
+    RewritePatternSet pre_patterns(ctx);
+    pre_patterns.add<
+        // clang-format off
+        MatMulOpBatchFlatten
+        // clang-format on
+        >(ctx);
+    if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                            std::move(pre_patterns)))) {
+      signalPassFailure();
+    }
+    // ==========================================
+    // perform conversion
+    // ==========================================
     ConversionTarget target(getContext());
     target.addIllegalDialect<onednn_graph::OneDNNGraphDialect>();
     target.addLegalDialect<
@@ -448,7 +494,6 @@ struct ConvertOneDNNGraphToLinalg
         linalgx::LinalgxDialect
         // clang-format on
         >();
-    // set pattern
     RewritePatternSet patterns(ctx);
     patterns.add<
         // clang-format off
@@ -465,7 +510,6 @@ struct ConvertOneDNNGraphToLinalg
         ReduceMeanOpLowering
         // clang-format on
         >(ctx);
-    // perform conversion
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
