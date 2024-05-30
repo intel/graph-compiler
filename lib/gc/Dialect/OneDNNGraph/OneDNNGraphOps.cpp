@@ -76,10 +76,10 @@ SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes,
 SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
                                        ArrayRef<int64_t> axes, bool keepDims) {
   // get reduce axis one by one
-  auto canonicalized = canonicalizeReduceAxes(axes, operandShape.getRank());
+  auto reduceAxes = canonicalizeReduceAxes(axes, operandShape.getRank());
   size_t index = 0;
   auto getNextReduceAxis = [&]() {
-    return (index >= canonicalized.size()) ? -1 : canonicalized[index++];
+    return (index >= reduceAxes.size()) ? -1 : reduceAxes[index++];
   };
   // get reduced shape
   SmallVector<int64_t> outputShape;
