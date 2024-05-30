@@ -480,8 +480,8 @@ struct LowerTileVectorPass
     tensor::populateFoldTensorEmptyPatterns(patterns, true);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
     vector::VectorTransformsOptions vectorTransformOptions;
-    vector::populateVectorMultiReductionLoweringPatterns(
-        patterns, vectorTransformOptions.vectorMultiReductionLowering);
+    // vector::populateVectorMultiReductionLoweringPatterns(
+    //     patterns, vectorTransformOptions.vectorMultiReductionLowering);
     // vector::populateVectorShapeCastLoweringPatterns(patterns);
 
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
