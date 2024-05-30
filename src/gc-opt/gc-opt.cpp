@@ -21,6 +21,7 @@
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -49,6 +50,8 @@ int main(int argc, char *argv[]) {
   mlir::gc::registerCPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
+  mlir::microkernel::registerMicrokernelPasses();
+
   mlir::DialectRegistry registry;
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
