@@ -51,4 +51,26 @@ def ConvertMicrokernelToDnnlFunc: Pass<"convert-microkernel-to-dnnl-func", "::ml
                            "microkernel::MicrokernelDialect"];
 }
 
+def EarlyDispatchMicrokernel: Pass<"early-dispatch-microkernel", "::mlir::ModuleOp"> {
+  let summary = "Early dispatch microkernel during compile time";
+  let description = [{
+    Early dispatch microkernel during compile time.
+  }];
+  let dependentDialects = ["func::FuncDialect",
+                           "memref::MemRefDialect",
+                           "LLVM::LLVMDialect",
+                           "microkernel::MicrokernelDialect"];
+}
+
+def MicrokernelInvariantCodeMotion: Pass<"microkernel-invariant-code-motion", "::mlir::ModuleOp"> {
+  let summary = "Hoist invariant microkernel code to avoid redundant execution";
+  let description = [{
+    Hoist invariant microkernel code to avoid redundant execution.
+  }];
+  let dependentDialects = ["func::FuncDialect",
+                           "memref::MemRefDialect",
+                           "LLVM::LLVMDialect",
+                           "microkernel::MicrokernelDialect"];
+}
+
 #endif // GC_DIALECT_MICROKERNELPASSES
