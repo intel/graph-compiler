@@ -18,18 +18,24 @@ namespace mlir {
 class DialectRegistry;
 namespace gc {
 
-const DialectRegistry &initAndGetDialects();
+const DialectRegistry &initCompilerAndGetDialects();
 
 // the pointers to XXXMemRefType
 using GeneralMemrefPtr = void *;
 using JitModuleFuncT = void (*)(void **);
 
+struct DriverOptions {
+  // the optimization level for the LLVM-JIT
+  llvm::CodeGenOptLevel jitCodeGenOptLevel = llvm::CodeGenOptLevel::Aggressive;
+  // whether to run the MLIR transformation passes
+  bool runTransforms = true;
+  // todo: target machine, etc.
+};
+
 class JitModule {
 public:
   static llvm::Expected<std::shared_ptr<JitModule>>
-  create(Operation *op, const ExecutionEngineOptions &options = {},
-         std::unique_ptr<llvm::TargetMachine> tm = nullptr,
-         bool transform = true);
+  create(Operation *op, const DriverOptions &options = {});
 
   // args should be an array of XXXMemrefType*
   void call(GeneralMemrefPtr *args, std::size_t numArgs) {

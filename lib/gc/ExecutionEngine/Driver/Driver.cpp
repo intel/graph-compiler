@@ -37,7 +37,7 @@ static DialectRegistry initDialects() {
   return registry;
 }
 
-const DialectRegistry &initAndGetDialects() {
+const DialectRegistry &initCompilerAndGetDialects() {
   static DialectRegistry reg = initDialects();
   return reg;
 }
@@ -45,9 +45,8 @@ const DialectRegistry &initAndGetDialects() {
 static const char defaultComputeName[] = "_mlir_ciface_compute";
 
 llvm::Expected<std::shared_ptr<JitModule>>
-JitModule::create(Operation *op, const ExecutionEngineOptions &options,
-                  std::unique_ptr<llvm::TargetMachine> tm, bool transform) {
-  if (transform) {
+JitModule::create(Operation *op, const DriverOptions &options) {
+  if (options.runTransforms) {
     mlir::PassManager pm{op->getContext()};
     populateCPUPipeline(pm);
     if (auto result = pm.run(op); failed(result)) {
@@ -55,7 +54,10 @@ JitModule::create(Operation *op, const ExecutionEngineOptions &options,
           "MLIR pass error", llvm::inconvertibleErrorCode());
     }
   }
-  auto exec = ExecutionEngine::create(op, options, std::move(tm));
+  ExecutionEngineOptions exeOptions;
+  exeOptions.jitCodeGenOptLevel = options.jitCodeGenOptLevel;
+  std::unique_ptr<llvm::TargetMachine> tm = nullptr;
+  auto exec = ExecutionEngine::create(op, exeOptions, std::move(tm));
   if (!exec) {
     return exec.takeError();
   }

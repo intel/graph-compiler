@@ -40,7 +40,7 @@ extern int gc_runtime_keep_alive;
 
 TEST(ExecutionEngine, JitWrapper) {
   gc_runtime_keep_alive = 0;
-  MLIRContext ctx{gc::initAndGetDialects()};
+  MLIRContext ctx{gc::initCompilerAndGetDialects()};
   std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
       llvm::MemoryBuffer::getMemBuffer(code1);
   // Parse the input mlir.
