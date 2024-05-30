@@ -10,6 +10,7 @@ add_mlir_dialect_library(MLIRMicrokernel
     
     DEPENDS
     MLIRMicrokernelOpsIncGen
+    MLIRMicrokernelPassesIncGen
     
     LINK_LIBS PUBLIC
     ${MLIR_LINK_COMPONENTS}
