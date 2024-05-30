@@ -50,20 +50,14 @@ def check_license(filepath: str, license: List[str], var: Dict[str, str], re_lin
         idx: int = 0
         for line in f.readlines():
             lic: str = license[idx]
-            # check the string directly
-            if license == llvm_license_py:
-                if lic != line[:-1]:
-                    return False
-                idx += 1
-            else:
-                # replace the variable defined in license
-                for k, v in var.items():
-                    lic = lic.replace(k, v)
-                if idx in re_line:
-                    if re.search(lic, line) is not None and ("RE_WIDTH" not in var or int(var["RE_WIDTH"]) + 1 == len(line)):
-                        idx += 1
-                elif line.find(lic) != -1:
+            # replace the variable defined in license
+            for k, v in var.items():
+                lic = lic.replace(k, v)
+            if idx in re_line:
+                if re.search(lic, line) is not None and ("RE_WIDTH" not in var or int(var["RE_WIDTH"]) + 1 == len(line)):
                     idx += 1
+            elif line.find(lic) != -1:
+                idx += 1
             if idx == len(license):
                 return True
         return False
@@ -88,16 +82,10 @@ def fix_intel_license(var: Dict[str, str]):
 def fix_llvm_license(var: Dict[str, str]):
     lang: str = var['$LANG']
     cmt: str = "//" # comment char
-    if lang == "C\\+\\+":
-        lang = "C++"
-        
     if lang == "Python":
-        for i in range(len(llvm_license_py)):
-            print((llvm_license_py[i]))
-    else:
-        part1 = "%s===-- %s - DESC " % (cmt, var['$FILE'])
-        part3 = "-*- %s -*-===%s" % (lang, cmt)
-        part2 = "-" * (WIDTH - len(part1) - len(part3))
+        cmt = "#"
+    elif lang == "C\\+\\+":
+        lang = "C++"
 
     part1 = "%s===-- %s - DESC " % ((cmt + " " if lang == "Python" else cmt), var['$FILE'])
     part3 = "-*- %s -*-===%s" % (lang, cmt)
@@ -143,18 +131,15 @@ for filepath in args.files.split(','):
 
     is_llvm_license = use_llvm_license(filepath)
     if is_llvm_license:
-        # llvm license, only check python/cpp now   
-        if name.endswith(".py"):
-            lic = llvm_license_py
-        else:
-            lic = llvm_license
-            re_line.add(0)
-            re_line.add(6)
-            var['$FILE'] = name
-            # the line we read contains a '\n' character, so the expected length should be 81
-            var['RE_WIDTH'] = str(WIDTH)
-            if name.endswith(".td"):
-                var['$LANG'] = "tablegen"
+        # llvm license, only check python/cpp now
+        lic = llvm_license
+        re_line.add(0)
+        re_line.add(6)
+        var['$FILE'] = name
+        # the line we read contains a '\n' character, so the expected length should be 81
+        var['RE_WIDTH'] = str(WIDTH)
+        if name.endswith(".td"):
+            var['$LANG'] = "tablegen"
     else:
         # intel license
         lic = intel_license
