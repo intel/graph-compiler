@@ -74,7 +74,7 @@ SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes,
 }
 
 SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
-                                       ArrayRef<int64_t> axes, bool keep_dims) {
+                                       ArrayRef<int64_t> axes, bool keepDims) {
   // get reduce axis one by one
   auto canonicalized = canonicalizeReduceAxes(axes, operandShape.getRank());
   size_t index = 0;
@@ -88,7 +88,7 @@ SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
   for (int64_t idx = 0; idx < rank; idx++) {
     if (idx == axis) {
       axis = getNextReduceAxis();
-      if (keep_dims) {
+      if (keepDims) {
         outputShape.push_back(1);
       }
     } else {
@@ -99,7 +99,7 @@ SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
 }
 
 static LogicalResult InferReduceReturnTypes(
-    ShapedType operandTy, ArrayRef<int64_t> axes, bool keep_dims,
+    ShapedType operandTy, ArrayRef<int64_t> axes, bool keepDims,
     SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
   // no reduce axes
   if (axes.empty()) {
@@ -107,7 +107,7 @@ static LogicalResult InferReduceReturnTypes(
     return success();
   }
   inferredReturnShapes.push_back(
-      ShapedTypeComponents(inferReducedShape(operandTy, axes, keep_dims),
+      ShapedTypeComponents(inferReducedShape(operandTy, axes, keepDims),
                            operandTy.getElementType()));
   return success();
 }

@@ -56,9 +56,7 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
     llvm::SmallVector<int64_t> bcastDims;
     for (int64_t i = 0; i < (int64_t)bcastShape.size(); i++) {
       int64_t idxOp = i - diff;
-      if (idxOp < 0) {
-        bcastDims.push_back(i);
-      } else if (bcastShape[i] != opShape[idxOp]) {
+      if (idxOp < 0 || bcastShape[i] != opShape[idxOp]) {
         bcastDims.push_back(i);
       }
     }
@@ -77,7 +75,8 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
 }
 
 // Typedef for function to get operands for transformed op
-typedef mlir::Value (*GetOperandFn)(Operation *, PatternRewriter &, ShapedType);
+using GetOperandFn = mlir::Value (*)(Operation *, PatternRewriter &,
+                                     ShapedType);
 
 // Functions to get operands for from original op
 struct OriginalOperand {
@@ -468,14 +467,14 @@ struct ConvertOneDNNGraphToLinalg
     // ==========================================
     // perform pre conversion
     // ==========================================
-    RewritePatternSet pre_patterns(ctx);
-    pre_patterns.add<
+    RewritePatternSet patternsPre(ctx);
+    patternsPre.add<
         // clang-format off
         MatMulOpBatchFlatten
         // clang-format on
         >(ctx);
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
-                                            std::move(pre_patterns)))) {
+                                            std::move(patternsPre)))) {
       signalPassFailure();
     }
     // ==========================================
