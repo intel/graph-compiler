@@ -19,6 +19,7 @@
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
@@ -52,6 +53,7 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
+  registry.insert<mlir::microkernel::MicrokernelDialect>();
   mlir::registerAllDialects(registry);
 #ifdef GC_USE_GPU
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
