@@ -40,7 +40,7 @@ extern int gc_runtime_keep_alive;
 
 TEST(ExecutionEngine, JitWrapper) {
   gc_runtime_keep_alive = 0;
-  MLIRContext ctx{gc::initAndGetDialects()};
+  MLIRContext ctx{gc::initCompilerAndGetDialects()};
   std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
       llvm::MemoryBuffer::getMemBuffer(code1);
   // Parse the input mlir.
@@ -100,7 +100,7 @@ func.func @compute(%ax2: tensor<128xf32>, %bx2: tensor<128xf32>, %c: tensor<128x
 )mlir";
 
 TEST(ExecutionEngine, JitWrapperCached) {
-  MLIRContext ctx{gc::initAndGetDialects()};
+  MLIRContext ctx{gc::initCompilerAndGetDialects()};
   std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
       llvm::MemoryBuffer::getMemBuffer(code2);
   // Parse the input mlir.
