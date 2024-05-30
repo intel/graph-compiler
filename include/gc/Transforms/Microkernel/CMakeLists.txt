@@ -1,0 +1,6 @@
+set(LLVM_TARGET_DEFINITIONS MicrokernelPasses.td)
+mlir_tablegen(MicrokernelPasses.h.inc --gen-pass-decls -name Microkernel)
+mlir_tablegen(MicrokernelPasses.capi.h.inc -gen-pass-capi-header --prefix Microkernel)
+mlir_tablegen(MicrokernelPasses.capi.cpp.inc -gen-pass-capi-impl --prefix Microkernel)
+add_public_tablegen_target(MLIRMicrokernelPassesIncGen)
+add_mlir_doc(MicrokernelPasses GraphCompilerMicrokernelPasses ./ -gen-pass-doc)

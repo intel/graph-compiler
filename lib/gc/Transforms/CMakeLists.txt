@@ -26,3 +26,5 @@ add_mlir_library(GCPasses
   )
 
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)
+
+add_subdirectory(Microkernel)
