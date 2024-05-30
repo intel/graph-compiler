@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -14,6 +15,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -477,6 +479,10 @@ struct LowerTileVectorPass
     tensor::populateFoldTensorSubsetOpPatterns(patterns);
     tensor::populateFoldTensorEmptyPatterns(patterns, true);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
+    vector::VectorTransformsOptions vectorTransformOptions;
+    vector::populateVectorMultiReductionLoweringPatterns(
+        patterns, vectorTransformOptions.vectorMultiReductionLowering);
+    // vector::populateVectorShapeCastLoweringPatterns(patterns);
 
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
   }

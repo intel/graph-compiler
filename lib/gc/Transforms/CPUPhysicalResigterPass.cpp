@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -15,6 +16,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -25,9 +27,11 @@
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
 #include "llvm/Support/Casting.h"
 #include <deque>
+#include <iostream>
 #include <optional>
 #include <queue>
 #include <tuple>
+#include <utility>
 
 namespace mlir {
 namespace gc {
@@ -149,7 +153,6 @@ void setOpVectorizationPermutationMap(Operation *op, IRRewriter &rewriter,
 void maybeYieldValue(OpBuilder &b, Location loc, ValueRange value) {
   bool hasRetVal = !value.empty();
   if (hasRetVal) {
-    assert(!value.empty() && "Expected non-empty value");
     b.create<scf::YieldOp>(loc, value);
   } else {
     b.create<scf::YieldOp>(loc);
@@ -171,6 +174,9 @@ void checkAndSetOperand(
   if (llvm::dyn_cast<vector::TransferWriteOp>(op) ||
       llvm::dyn_cast<vector::TransferReadOp>(op)) {
     assert(opPermuationMap.contains(op));
+    op->dump();
+    std::cout << inductionVars.size() << std::endl;
+
     auto permutationMap = opPermuationMap.at(op);
 
     auto dimExpr = permutationMap.getResults();
@@ -535,8 +541,7 @@ Operation *createTensorEmptyBefore(Operation *op) {
       dynDims.push_back(reWriter.create<tensor::DimOp>(reWriter.getUnknownLoc(),
                                                        op->getResult(0), i));
   }
-  return reWriter.create<tensor::EmptyOp>(reWriter.getUnknownLoc(),
-                                          rtType.getShape(),
+  return reWriter.create<tensor::EmptyOp>(op->getLoc(), rtType.getShape(),
                                           rtType.getElementType(), dynDims);
 }
 
@@ -706,7 +711,7 @@ void analysisGroupOperationResults(
     llvm::SmallVector<llvm::SetVector<Value>, 8> &groupResultYeildSet,
     llvm::SmallVector<llvm::SetVector<Value>, 8> &groupOpDestination) {
   llvm::DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
-
+  IRRewriter rewriter(func);
   func.walk<WalkOrder::PreOrder>([&](Operation *op) {
     for (auto [idx, opd] : llvm::enumerate(op->getOperands())) {
       auto sourceOp = opd.getDefiningOp();
@@ -757,6 +762,13 @@ void analysisGroupOperationResults(
       }
     }
   });
+  // If the group operations do not have result need to be returned, these are
+  // useless code.
+  for (auto [idx, grp] : enumerate(opGroups)) {
+    if (groupResultYeildSet[idx].empty()) {
+      std::queue<Operation *>().swap(grp);
+    }
+  }
   LDBG("Complete analysis group operation results\n");
 }
 
@@ -815,24 +827,25 @@ mlir::FailureOr<scf::ForOp> generateVectorizedForLoop(
 }
 
 void updateLoopResultUses(
-    const size_t groupIdx, const size_t groupSize,
+    const size_t groupIdx,
     llvm::SmallVector<llvm::SetVector<Value>, 8> &groupResultYeildSet,
-    const func::FuncOp &func, scf::ForOp *forOp,
-    IRMapping &mapOpResultToYield) {
+    scf::ForOp *forOp) {
+  if (groupResultYeildSet[groupIdx].empty()) {
+    return;
+  }
+  IRRewriter rewriter(*forOp);
+  OpBuilder::InsertionGuard g(rewriter);
+  // Only different group operation operand need to be replaced due to same
+  // group operation should directly use original operand.
+  auto producerOp = groupResultYeildSet[groupIdx].front().getDefiningOp();
+  auto needToReplaced = [&](OpOperand &operand) {
+    return producerOp->getBlock() != operand.getOwner()->getBlock();
+  };
   // update loop result uses
   for (auto [retIdx, rt] : llvm::enumerate(groupResultYeildSet[groupIdx])) {
-    mapOpResultToYield.map(rt, forOp->getResult(retIdx));
+    producerOp = rt.getDefiningOp();
+    rewriter.replaceUsesWithIf(rt, forOp->getResult(retIdx), needToReplaced);
   }
-  auto currentIdx = groupIdx;
-  func->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    for (auto [opdIdx, opd] : llvm::enumerate(op->getOperands())) {
-      if (groupResultYeildSet[currentIdx].contains(opd) &&
-          opd.getDefiningOp() != op &&
-          opd.getDefiningOp()->getBlock() != op->getBlock()) {
-        op->setOperand(opdIdx, mapOpResultToYield.getValueMap().at(opd));
-      }
-    }
-  });
 }
 
 void generateGroupOpVectorizedIR(
@@ -862,8 +875,7 @@ void generateGroupOpVectorizedIR(
     return;
   }
   // 3 Update loop result uses
-  updateLoopResultUses(idx, opGroups.size(), groupResultYeildSet, func,
-                       &forOp.value(), mapOpResultToYield);
+  updateLoopResultUses(idx, groupResultYeildSet, &forOp.value());
   moveLoopInvariantCode(forOp.value());
 }
 

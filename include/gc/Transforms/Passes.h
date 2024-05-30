@@ -9,9 +9,18 @@
 #ifndef GC_PASSES_H
 #define GC_PASSES_H
 
+#include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
+namespace vector {
+#define GEN_PASS_DECL
+#include "gc/Transforms/Passes.h.inc"
+/// Creates an instance of the `vector.multi_reduction` lowering pass.
+std::unique_ptr<Pass> createLowerVectorMultiReductionPass(
+    VectorMultiReductionLowering option =
+        VectorMultiReductionLowering::InnerParallel);
+} // namespace vector
 namespace gc {
 
 #define GEN_PASS_DECL
