@@ -7,10 +7,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
+#include "gc/Dialect/Microkernel/MicrokernelEnum.h"
 #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 
 using namespace mlir;
 using namespace mlir::microkernel;
+
+#include "gc/Dialect/Microkernel/MicrokernelOpsDialect.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// Microkernel dialect.
+//===----------------------------------------------------------------------===//
 
 void MicrokernelDialect::initialize() {
   addOperations<
