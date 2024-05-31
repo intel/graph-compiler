@@ -144,7 +144,24 @@ void JsonParser::readOp() {
       _reader.begin_object();
       while (_reader.next_object_item(&_str)) {
         auto name = mlir::StringAttr::get(_builder.getContext(), _str);
-        _attributes.emplace_back(name, readAttr());
+        auto value = readAttr();
+
+        if (name == "auto_broadcast") { // Convert to boolean
+          if (value.getTypeID() != mlir::StringAttr::getTypeID()) {
+            _str = "auto_broadcast";
+            throwErr<std::invalid_argument>("Invalid attribute type: ");
+          }
+          if (_str == "numpy") {
+            value = _builder.getBoolAttr(true);
+          } else if (_str == "none") {
+            value = _builder.getBoolAttr(false);
+          } else {
+            throwErr<std::invalid_argument>(
+                "Invalid auto_broadcast attribute value: ");
+          }
+        }
+
+        _attributes.emplace_back(name, value);
       }
     } else if (_str == "inputs") {
       _reader.begin_array();
