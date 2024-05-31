@@ -20,6 +20,10 @@
 # this is for developer local check only.
 # not used by github action
 
+check_tool() {
+  which $1 &> /dev/null || (echo "$1 not found!" && exit 1)
+}
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --format)
@@ -61,6 +65,11 @@ if [ -n "$CHECK_TIDY" ]; then
     echo "The environment variable MLIR_DIR is not set."
     exit 1
   fi
+  check_tool "clang"
+  check_tool "clang++"
+  check_tool "clang-tidy"
+  check_tool "lit"
+
   TIDY_ROOT=${PROJECT_ROOT}/build/tidy
   mkdir -p ${TIDY_ROOT}
   cd ${TIDY_ROOT}
@@ -89,6 +98,7 @@ fi
 
 if [ -n "$CHECK_FORMAT" ]; then
   echo "start format check..."
+  check_tool "clang-format"
   cd $PROJECT_ROOT
   echo "$CHANGED_FILES" | egrep "*\\.(h|hpp|c|cpp)$" | xargs clang-format --dry-run --Werror -style=file
 fi
