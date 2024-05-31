@@ -42,6 +42,22 @@ namespace {
 // Util funcs
 //===----------------------------------------------------------------------===//
 
+SmallVector<SmallVector<int64_t, 2>>
+computeReassociationByAnchor(ArrayRef<int64_t> anchorDims, int64_t rank) {
+  // Compute reassociation indices according to
+  // sorted anchor dims [a, b, ..., c] and original rank n, i.e. a<b<...<c<n
+  // so reassociation = [[0,...a...][...b...][...c...,n-1]]
+  SmallVector<SmallVector<int64_t, 2>> reassociation(anchorDims.size());
+  for (int64_t dim = 0, pos = 0; dim < rank; dim++) {
+    assert(anchorDims[pos] < rank);
+    reassociation[pos].push_back(dim);
+    if ((pos + 1 < (int64_t)anchorDims.size()) && anchorDims[pos] == dim) {
+      pos++;
+    }
+  }
+  return reassociation;
+}
+
 Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
                              ShapedType ty, Value op) {
   auto opTy = dyn_cast<ShapedType>(op.getType());
@@ -53,12 +69,31 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
     return op;
   } else {
     // get broadcast dimensions
+    llvm::SmallVector<int64_t> keepDims;
     llvm::SmallVector<int64_t> bcastDims;
+    llvm::SmallVector<int64_t> collapseShape;
     for (int64_t i = 0; i < (int64_t)bcastShape.size(); i++) {
       int64_t idxOp = i - diff;
-      if (idxOp < 0 || bcastShape[i] != opShape[idxOp]) {
+      if (idxOp < 0) {
         bcastDims.push_back(i);
+      } else if (bcastShape[i] != opShape[idxOp]) {
+        assert(opShape[idxOp] == 1);
+        bcastDims.push_back(i);
+      } else {
+        keepDims.push_back(idxOp);
+        collapseShape.push_back(opShape[idxOp]);
       }
+    }
+    // If dimensions with size 1 need to be broadcasted, need to collapse
+    Value newVal = op;
+    if (collapseShape.size() < opShape.size()) {
+      assert(collapseShape.size() + bcastDims.size() == bcastShape.size());
+      auto reassociation =
+          computeReassociationByAnchor(keepDims, opTy.getRank());
+      ShapedType collapseTy =
+          RankedTensorType::get(collapseShape, opTy.getElementType());
+      newVal = rewriter.create<tensor::CollapseShapeOp>(loc, collapseTy, newVal,
+                                                        reassociation);
     }
     // create a new output tensor
     Value initTensor =
@@ -66,7 +101,7 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
     return rewriter
         .create<linalg::BroadcastOp>(
             /*location=*/loc,
-            /*inputs=*/op,
+            /*inputs=*/newVal,
             /*inits=*/initTensor,
             /*dimensions=*/bcastDims)
         .getResults()
@@ -256,14 +291,8 @@ static Operation *createLoweredReduceOp(
   // If keep dims, create tensor::ExpandShapeOp
   if (keepDims) {
     assert(keepAxes.size() == reducedShape.size());
-    // Compute reassociation indices
-    SmallVector<SmallVector<int64_t, 2>> reassociation(reducedShape.size());
-    for (int64_t dim = 0, pos = 0; dim < resultTy.getRank(); dim++) {
-      reassociation[pos].push_back(dim);
-      if ((pos + 1 < (int64_t)keepAxes.size()) && keepAxes[pos] == dim) {
-        pos++;
-      }
-    }
+    auto reassociation =
+        computeReassociationByAnchor(keepAxes, resultTy.getRank());
     newOp = rewriter.create<tensor::ExpandShapeOp>(
         loc, resultTy, newOp->getResult(0), reassociation);
   }

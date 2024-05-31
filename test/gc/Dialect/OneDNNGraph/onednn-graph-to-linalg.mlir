@@ -82,6 +82,18 @@ func.func @add_bcast(%arg0: tensor<128x256xf32>, %arg1: tensor<256xf32>) -> tens
   return %0 : tensor<128x256xf32>
 }
 
+// CHECK-LABEL: @mul_bacst
+func.func @mul_bacst(%arg0: tensor<512x64xbf16>, %arg1: tensor<1x64xbf16>) -> tensor<512x64xbf16> {
+  // CHECK: tensor.collapse_shape
+  // CHECK-SAME: tensor<1x64xbf16> into tensor<64xbf16>
+  // CHECK: tensor.empty()
+  // CHECK: linalg.broadcast
+  // CHECK: tensor.empty()
+  // CHECK: linalg.mul
+  %0 = onednn_graph.mul %arg0, %arg1 : (tensor<512x64xbf16>, tensor<1x64xbf16>) -> tensor<512x64xbf16>
+  return %0 : tensor<512x64xbf16>
+}
+
 // CHECK-LABEL: @relu
 func.func @relu(%arg0: tensor<128x256xbf16>) -> tensor<128x256xbf16> {
   // CHECK: arith.constant dense<0.0{{.*}}>
