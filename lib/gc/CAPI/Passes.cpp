@@ -7,16 +7,20 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Transforms/Passes.h"
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "mlir-c/Pass.h"
 #include "mlir/CAPI/Pass.h"
 
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.capi.h.inc"
 #include "gc/Transforms/Passes.capi.h.inc"
 using namespace mlir::gc;
+using namespace mlir::cpuruntime;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.capi.cpp.inc"
 #include "gc/Transforms/Passes.capi.cpp.inc"
 
 #ifdef __cplusplus

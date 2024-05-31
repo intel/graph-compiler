@@ -88,10 +88,12 @@ jobs:
         cd build
         for f in $(find ./include -name Makefile); do
           set +e;
-          target=$(make -f $f help |grep IncGen); 
+          targets=$(make -f $f help |grep IncGen); 
           if [[ $? -eq 0 ]]; then 
             set -e;
-            cd ${f%Makefile} && make ${target#...} && cd -; 
+            for target in $targets; do
+              cd ${f%Makefile} && make ${target#...} && cd -; 
+            done
           fi ;
           set -e;
         done

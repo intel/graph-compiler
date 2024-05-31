@@ -40,4 +40,20 @@ PYBIND11_MODULE(_gc_mlir, m) {
         }
       },
       py::arg("context") = py::none(), py::arg("load") = true);
+
+  //===----------------------------------------------------------------------===//
+  // CPURuntime
+  //===----------------------------------------------------------------------===//
+  mlirRegisterCPURuntimePasses();
+  auto cpuruntimeM = m.def_submodule("cpuruntime");
+  cpuruntimeM.def(
+      "register_dialect",
+      [](MlirContext context, bool load) {
+        MlirDialectHandle dialect = mlirGetDialectHandle__cpuruntime__();
+        mlirDialectHandleRegisterDialect(dialect, context);
+        if (load) {
+          mlirDialectHandleLoadDialect(dialect, context);
+        }
+      },
+      py::arg("context") = py::none(), py::arg("load") = true);
 }
