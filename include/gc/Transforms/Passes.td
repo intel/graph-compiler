@@ -44,4 +44,19 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "vector::VectorDialect"];
 }
 
+def BufferNestedParallelLoopHoisting :
+  Pass<"buffer-nested-parallel-loop-hoisting", "func::FuncOp"> {
+  let summary = "Hoist thread-local allocation operations by moving them "
+                "out of parallellized loop nests";
+  let description = [{
+    This pass implements an approach to aggressively move thread-local
+    allocations which are used inside the inner parallel loop to the place of
+    out of parallelized loop nests. It does not move allocations into common
+    dominators.
+  }];
+  let dependentDialects = ["memref::MemRefDialect",
+      "scf::SCFDialect",
+      "bufferization::BufferizationDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
