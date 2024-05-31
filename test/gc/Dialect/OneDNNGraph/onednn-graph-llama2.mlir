@@ -64,18 +64,38 @@
 // CHECK-NOT: any
 
 
-func.func @llama2_mlp_test(%2: tensor<1x32x4096xbf16>, %3: tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16> {
-  %5 = onednn_graph.matmul %2, %3 {transpose_b = true} 
-       : (tensor<1x32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16>
+// func.func @llama2_mlp_test(%2: tensor<1x32x4096xbf16>, %3: tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16> {
+//   %5 = onednn_graph.matmul %2, %3 {transpose_b = true} 
+//        : (tensor<1x32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16>
 
-  return %5 : tensor<1x32x4096xbf16>
+//   return %5 : tensor<1x32x4096xbf16>
+// }
+
+// func.func @main() {
+//   %2 = tensor.empty() : tensor<1x32x4096xbf16>
+//   %3 = tensor.empty() : tensor<4096x4096xbf16>
+
+//   %61 = func.call @llama2_mlp_test(%2, %3) : (tensor<1x32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16>
+//   return
+// }
+
+func.func @llama2_mlp_test(%arg0: tensor<128x512xf32>, %arg1: tensor<256x512xf32>) -> tensor<128x256xf32> {
+    %cst = arith.constant 0.000000e+00 : f32
+    %0 = tensor.empty() : tensor<128x256xf32>
+    %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<128x256xf32>) -> tensor<128x256xf32>
+    %2 = linalg.matmul_transpose_b ins(%arg0, %arg1 : tensor<128x512xf32>, tensor<256x512xf32>) outs(%1 : tensor<128x256xf32>) -> tensor<128x256xf32>
+    return %2 : tensor<128x256xf32>
 }
 
 func.func @main() {
-  %2 = tensor.empty() : tensor<1x32x4096xbf16>
-  %3 = tensor.empty() : tensor<4096x4096xbf16>
+  %cst = arith.constant 0.000000e+00 : f32
 
-  %61 = func.call @llama2_mlp_test(%2, %3) : (tensor<1x32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16>
+  %0 = tensor.empty() : tensor<128x512xf32>
+  %1 = tensor.empty() : tensor<256x512xf32>
+
+  %2 = linalg.fill ins(%cst : f32) outs(%0 : tensor<128x512xf32>) -> tensor<128x512xf32>
+  %3 = linalg.fill ins(%cst : f32) outs(%1 : tensor<256x512xf32>) -> tensor<256x512xf32>
+
+  %61 = func.call @llama2_mlp_test(%2, %3) : (tensor<128x512xf32>, tensor<256x512xf32>) -> tensor<128x256xf32>
   return
 }
-
