@@ -8,9 +8,11 @@
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
@@ -388,6 +390,64 @@ static LogicalResult computeAllResultTileForOpGivenOperandSliceOp(
   return success();
 }
 
+// Considering multi-level tensor.*SliceOp maybe based on different
+// coordination, this utils compute the real SliceParameters coordinated on ROOT
+// SliceOp. E.g
+//             %0 = insert_slice %1 into %2[OFFSET1] [SIZE1]
+//         %3 = insert_slice %4 into %5[OFFSET2] [SIZE2]
+//
+// where the coordination can be illustrated as follow:
+//
+//  %3 ----------------------------------
+//  |         |         |
+//  | OFFSET2 | OFFSET1 |
+//  | ------ %0         |
+//  |                   |
+//  |                   |
+//  |------------------ %1 ------ |
+//  |                   |  SIZE1  |
+//  |                   |         |
+//  |                   |         |
+//  |                   | ------- |
+//  |
+//
+// The real OFFSET of %1 coordinated on %3 is actually `OFFSET1` + `OFFSET2`
+static FailureOr<linalg::SliceParameters>
+computeRealSliceParamCoordinatedRootSliceOp(
+    RewriterBase &rewriter, Location loc,
+    OffsetSizeAndStrideOpInterface candidateSliceOp,
+    MutableArrayRef<OffsetSizeAndStrideOpInterface> candidateSliceOpList) {
+  if (llvm::any_of(candidateSliceOp.getMixedStrides(), [](OpFoldResult stride) {
+        return !isConstantIntValue(stride, 1);
+      })) {
+    return rewriter.notifyMatchFailure(candidateSliceOp,
+                                       "candidateSliceOp has stride");
+  }
+  SmallVector<OpFoldResult> realOffsets = candidateSliceOp.getMixedOffsets();
+  // real offsets equals to accumulative offsets of outer candidates
+  for (auto iter = candidateSliceOpList.rbegin(); *iter != candidateSliceOp;
+       iter++) {
+    // assert each outer candidate slice has no stride
+    if (llvm::any_of(iter->getMixedStrides(), [](OpFoldResult stride) {
+          return !isConstantIntValue(stride, 1);
+        })) {
+      return failure();
+    }
+    for (auto &&[ofr1, ofr2] :
+         llvm::zip_equal(realOffsets, iter->getMixedOffsets())) {
+      using AVE = affine::AffineValueExpr;
+      affine::AffineBuilder ab(rewriter, loc);
+      AffineExpr dim0, dim1, sym;
+      bindDims(rewriter.getContext(), dim0, dim1);
+      bindSymbols(rewriter.getContext(), sym);
+      auto aveOffset1 = AVE(dim0).bind(ofr1), aveOffset2 = AVE(dim1).bind(ofr2);
+      ofr1 = ab.add(aveOffset1, aveOffset2);
+    }
+  }
+  return linalg::SliceParameters{realOffsets, candidateSliceOp.getMixedSizes(),
+                                 candidateSliceOp.getMixedStrides()};
+}
+
 /// Implementation of fusing consumer of a single slice by computing the
 /// slice of the consumer in-place for scf loop.
 FailureOr<scf::SCFFuseConsumerOfSliceResult>
@@ -401,7 +461,8 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
 
   // 1. Get the real consumer of candidate
   // tensor.insert_slice/parallel_insert_slice by walking through
-  // scf.for/scf.forall and collect all [Parallel]insertSliceOp(s) along the way
+  // scf.for/scf.forall and collect all [Parallel]insertSliceOp(s) along the
+  // way.
   FailureOr<std::pair<Value, SmallVector<OffsetSizeAndStrideOpInterface>>>
       resultAndSliceOpsPair = scfX::getResultOfTopLevelLoopYieldInsertSliceOp(
           cast<OffsetSizeAndStrideOpInterface>(candidateSliceOp));
@@ -422,7 +483,7 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
         consumerOp, "consumer op's operand doesn't seem to be an OpResult");
   }
 
-  // 2. Get all outer loops of candidateSliceOp
+  // 2. Get all outer loops of candidateSliceOp.
   SmallVector<LoopLikeOpInterface> outerLoops = getOuterLoopsOfSliceOp(
       cast<OffsetSizeAndStrideOpInterface>(candidateSliceOp));
 
@@ -445,7 +506,7 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
   }
   ValueRange newInitAppend = dpsInits;
 
-  // 4. reconstruct nested loop from outer to inner
+  // 4. reconstruct nested loop from outer to inner.
   SmallVector<OffsetSizeAndStrideOpInterface> candidateSliceOpList =
       (*resultAndSliceOpsPair).second;
   SmallVector<LoopLikeOpInterface> newOuterLoops;
@@ -513,7 +574,7 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
     newOuterLoops.push_back(newLoopOp);
   }
 
-  // 5.a reconstruct inner-most loop
+  // 5.a reconstruct inner-most loop.
   LoopLikeOpInterface oldInnerMostLoop = outerLoops.back(), newInnerMostLoop;
   Location loc = oldInnerMostLoop->getLoc();
   rewriter.setInsertionPoint(oldInnerMostLoop);
@@ -545,7 +606,7 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
   rewriter.mergeBlocks(oldLoopBody, newLoopBody,
                        newLoopBody->getArguments().take_front(oldNumArguments));
   // 5.c replace the result of old oldInnerMostLoop with newInnerMostLoop's
-  // results
+  // results.
   rewriter.replaceOp(oldInnerMostLoop,
                      newInnerMostLoop->getResults().take_front(
                          oldInnerMostLoop->getNumResults()));
@@ -555,20 +616,26 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
   // candidateSliceOp whereas in the scf.forall case this is created from the
   // operands of tensor.parallel_insert_slice.
   tensor::InsertSliceOp clonedInsertSliceOp;
-  // we need to compute real offset and size for multi-level insertSliceOp
-  // according the candidateSliceOpList
   if (auto sliceOp =
           dyn_cast<tensor::ParallelInsertSliceOp>(candidateSliceOp)) {
     auto newForallOp = cast<scf::ForallOp>(newInnerMostLoop);
     rewriter.setInsertionPoint(newForallOp.getTerminator());
-    clonedInsertSliceOp = rewriter.create<tensor::InsertSliceOp>(
-        loc, sliceOp.getSource(), sliceOp.getDest(), sliceOp.getMixedOffsets(),
-        sliceOp.getMixedSizes(), sliceOp.getMixedStrides());
   } else {
     rewriter.setInsertionPoint(candidateSliceOp);
-    clonedInsertSliceOp =
-        cast<tensor::InsertSliceOp>(rewriter.clone(*candidateSliceOp));
   }
+  FailureOr<linalg::SliceParameters> realSliceParams =
+      computeRealSliceParamCoordinatedRootSliceOp(
+          rewriter, loc, cast<OffsetSizeAndStrideOpInterface>(candidateSliceOp),
+          candidateSliceOpList);
+  if (failed(realSliceParams))
+    return failure();
+  // create dummy insertSliceOp to align with the requirement of current
+  // Tiling interface and fix potential semantic mismatch with later
+  // extractSliceOp generated by `getTiledImplementation`.
+  clonedInsertSliceOp = rewriter.create<tensor::InsertSliceOp>(
+      loc, candidateSliceOp->getOperand(0), candidateSliceOp->getOperand(1),
+      (*realSliceParams).offsets, (*realSliceParams).sizes,
+      (*realSliceParams).strides);
 
   // 7.a. Clone consumer op.
   auto newForOpBlockArgsForConsumerDest =
@@ -623,7 +690,7 @@ mlir::scfX::tileAndFuseConsumerOfSlice(RewriterBase &rewriter,
 
   newOuterLoops.push_back(cast<LoopLikeOpInterface>(newInnerMostLoop));
 
-  // 10. reconstruct terminator of outer loop by inner loop
+  // 10. reconstruct terminator of outer loop by inner loop.
   auto outerCandidateIter = candidateSliceOpList.rbegin();
   for (auto [outerLoop, innerLoop] :
        llvm::zip_equal(MutableArrayRef(newOuterLoops).drop_back(),
