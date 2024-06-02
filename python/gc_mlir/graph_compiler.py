@@ -3,8 +3,12 @@ from gc_mlir import ir
 from gc_mlir import passmanager
 from typing import Sequence
 
+__all__ = [
+    "GraphCompiler",
+]
 
-class GraphComplier:
+
+class GraphCompiler:
     def __init__(self, shared_libs: Sequence[str], pipeline: str, opt_level: int = 3):
         self.shared_libs = shared_libs
         self.pipeline = pipeline

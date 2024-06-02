@@ -1,20 +1,91 @@
 import argparse
+from abc import ABC, abstractmethod
 
-from driver import *
-from gc_mlir.ir import FunctionType, InsertionPoint, Location, Module, RankedTensorType
+import numpy as np
+from gc_mlir import ir
 from gc_mlir.dialects import func, onednn_graph
 from utils import (
+    get_default_passes,
     get_kernel_func_from_module,
     make_tensor,
     mlir_type,
     to_bool_vector,
     to_int_vector,
 )
+from typing import List
 
 
-class MLPParams(DriverParams):
+class Driver(ABC):
+    """Abstract class for driver."""
+
+    @staticmethod
+    @abstractmethod
+    def add_args(parser: argparse.ArgumentParser):
+        pass
+
+    @abstractmethod
+    def handle_args(self, args: argparse.Namespace):
+        pass
+
+    def __init__(self, ctx: ir.Context, args: argparse.Namespace):
+        self.main_entry = "main_entry"
+        self.handle_args(args)
+        self.ir_module = self.init_module(ctx)
+
+    @abstractmethod
+    def init_module(self, ctx: ir.Context) -> ir.Module:
+        pass
+
+    @abstractmethod
+    def prepare_np_args(self) -> "list[np.ndarray]":
+        pass
+
+    @abstractmethod
+    def prepare_np_res(self) -> "list[np.ndarray]":
+        pass
+
+    def get_passes(self) -> str:
+        return get_default_passes()
+
+
+class LoadMLIR(Driver):
     @staticmethod
     def add_args(parser: argparse.ArgumentParser):
+        parser.add_argument("--path", type=str, required=True)
+        parser.add_argument("--entry", type=str, default="main_entry")
+
+    def handle_args(self, args: argparse.Namespace):
+        self.path = args.path
+        self.main_entry = args.entry
+
+    def _get_mlir(self):
+        with open(self.path, "r") as file:
+            content = file.read()
+        return content
+
+    def init_module(self, ctx: ir.Context) -> ir.Module:
+        module = ir.Module.parse(self._get_mlir(), ctx)
+        return module
+
+    def prepare_np_args(self) -> List[np.ndarray]:
+        bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
+        np_args = []
+        for arg in bench_func.arguments:
+            np_args.append(make_tensor(arg.type))
+        return np_args
+
+    def prepare_np_res(self) -> List[np.ndarray]:
+        bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
+        np_res = []
+        for res in bench_func.type.results:
+            np_res.append(make_tensor(res))
+        return np_res
+
+
+class MLP(Driver):
+    @staticmethod
+    def add_args(parser: argparse.ArgumentParser):
+        print("mlp add args")
         parser.add_argument("--batch_size", type=int, default=1)
         parser.add_argument("--hidden_size_list", type=str, default="")
         parser.add_argument("--has_bias", type=str, default="")
@@ -32,46 +103,42 @@ class MLPParams(DriverParams):
             default="f32",
         )
 
-    def __init__(self, params: dict):
-        self.batch_size = int(params["batch_size"])
+    def handle_args(self, args: argparse.Namespace):
+        self.batch_size = args.batch_size
         assert self.batch_size > 0, "batch size should be greater than 0"
-        self.hidden_size_list = to_int_vector(params["hidden_size_list"])
+
+        self.hidden_size_list = to_int_vector(args.hidden_size_list)
         layers = len(self.hidden_size_list) - 1
         assert layers >= 1, "hidden_size_list should have at least 2 elements"
 
         self.has_bias = (
             [False] * layers
-            if "has_bias" not in params
-            else to_bool_vector(params["has_bias"])
+            if "has_bias" not in args.__dict__
+            else to_bool_vector(args.has_bias)
         )
+
         assert (
             len(self.has_bias) == layers
         ), "has_bias should have the same length as hidden_size_list"
 
-        # todo
-        self.has_ln = to_bool_vector(params["has_ln"])
-        self.act_type = params["act_type"]
-        self.dtype = params["dtype"]
-
-
-class MLP(Driver):
-    def __init__(self, ctx: ir.Context, params: dict, main_entry: str = "main_entry"):
-        self.params = MLPParams(params)
-        super().__init__(ctx)
+        # TODO
+        self.has_ln = to_bool_vector(args.has_ln)
+        self.act_type = args.act_type
+        self.dtype = args.dtype
 
     def init_module(self, ctx: ir.Context) -> ir.Module:
-        with ctx, Location.unknown():
+        with ctx, ir.Location.unknown():
             layers = len(self.params.hidden_size_list) - 1
-            module = Module.create()
+            module = ir.Module.create()
             dtype = mlir_type(self.params.dtype, ctx)
-            src = RankedTensorType.get(
+            src = ir.RankedTensorType.get(
                 [self.params.batch_size, self.params.hidden_size_list[0]], dtype
             )
             weights = []
             bias = []
             for i in range(layers):
                 weights.append(
-                    RankedTensorType.get(
+                    ir.RankedTensorType.get(
                         [
                             self.params.hidden_size_list[i],
                             self.params.hidden_size_list[i + 1],
@@ -81,25 +148,25 @@ class MLP(Driver):
                 )
                 if self.params.has_bias[i]:
                     bias.append(
-                        RankedTensorType.get(
+                        ir.RankedTensorType.get(
                             [self.params.hidden_size_list[i + 1]], dtype
                         )
                     )
-            result = RankedTensorType.get(
+            result = ir.RankedTensorType.get(
                 [
                     self.params.batch_size,
                     self.params.hidden_size_list[-1],
                 ],
                 dtype,
             )
-            with InsertionPoint(module.body):
+            with ir.InsertionPoint(module.body):
                 f = func.FuncOp(
                     name="mlp",
-                    type=FunctionType.get(
+                    type=ir.FunctionType.get(
                         inputs=[src] + weights + bias, results=[result]
                     ),
                 )
-                with InsertionPoint(f.add_entry_block()):
+                with ir.InsertionPoint(f.add_entry_block()):
                     data = f.entry_block.arguments[0]
                     bias_idx = len(weights) + 1
                     for i in range(layers):
@@ -117,17 +184,16 @@ class MLP(Driver):
                             transpose_b=False,
                         ).result
                     func.ReturnOp([data])
-            print(module)
         return module
 
-    def prepare_np_args(self) -> 'list[np.ndarray]':
+    def prepare_np_args(self) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_args = []
         for arg in bench_func.arguments:
             np_args.append(make_tensor(arg.type))
         return np_args
 
-    def prepare_np_res(self) -> 'list[np.ndarray]':
+    def prepare_np_res(self) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_res = []
         for res in bench_func.type.results:

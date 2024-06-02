@@ -34,6 +34,7 @@ declare_mlir_python_sources(GcPythonSources.Common
   ADD_TO_PARENT GcPythonSources
   SOURCES
     __init__.py
+    graph_compiler.py
     dialects/__init__.py
     # init hooks
     _mlir_libs/_site_initialize_0.py

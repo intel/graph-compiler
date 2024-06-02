@@ -4,11 +4,13 @@ import numpy as np
 from gc_mlir import ir
 from gc_mlir import runtime as rt
 from gc_mlir.dialects import arith, func, memref
+from typing import List
 
 
-def emit_timer_func() -> func.FuncOp:
-    i64_type = ir.IntegerType.get_signless(64)
-    nanoTime = func.FuncOp("nanoTime", ([], [i64_type]), visibility="private")
+def emit_nano_time() -> func.FuncOp:
+    nanoTime = func.FuncOp(
+        "nanoTime", ([], [ir.IntegerType.get_signless(64)]), visibility="private"
+    )
     nanoTime.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
     return nanoTime
 
@@ -16,11 +18,13 @@ def emit_timer_func() -> func.FuncOp:
 def emit_benchmark_wrapped_main_func(
     kernel_func: func.FuncOp, timer_func: func.FuncOp
 ) -> func.FuncOp:
-    i64_type = ir.IntegerType.get_signless(64)
-    memref_of_i64_type = ir.MemRefType.get([1], i64_type)
+    memref_of_i64_type = ir.MemRefType.get([1], ir.IntegerType.get_signless(64))
+    wrapped_func_name = "wrapped_main"
+    assert wrapped_func_name != str(
+        kernel_func.name
+    ), "wrapped function name should be different from kernel function name"
     wrapped_func = func.FuncOp(
-        # Same signature and an extra buffer of indices to save timings.
-        "main",
+        wrapped_func_name,
         (kernel_func.arguments.types + [memref_of_i64_type], kernel_func.type.results),
         visibility="public",
     )
@@ -40,8 +44,8 @@ def emit_benchmark_wrapped_main_func(
     return wrapped_func
 
 
-
 def numpy_to_ctypes(np_dtype):
+    print(np_dtype)
     if np_dtype == np.int32:
         return ctypes.c_int
     elif np_dtype == np.float64:
@@ -66,7 +70,7 @@ def numpy_to_ctypes(np_dtype):
         raise ValueError("Unsupported NumPy data type")
 
 
-def np_args_to_mlir_args(np_args: "list[np.ndarray]") -> "list":
+def np_args_to_mlir_args(np_args: List[np.ndarray]) -> List:
     mlir_args = []
     for arg in np_args:
         mlir_args.append(
@@ -88,7 +92,7 @@ def np_res_to_mlir_res(np_res: "list[np.ndarray]") -> "list":
     return mlir_res
 
 
-def get_tensor_mlir_args(f: "func.FuncOp", np_args: "list[np.ndarray]"):
+def get_tensor_mlir_args(f: func.FuncOp, np_args: List[np.ndarray]):
     compiled_program_args = []
     for res in np_args[: len(f.type.results)]:
         compiled_program_args.append(
@@ -174,13 +178,13 @@ def get_default_passes():
     return passes
 
 
-def to_int_vector(s: str) -> 'list[int]':
+def to_int_vector(s: str) -> List[int]:
     if not s or len(s) == 0:
         return []
     return [int(i) for i in s.strip().split("x")]
 
 
-def to_bool_vector(s: str) -> 'list[bool]':
+def to_bool_vector(s: str) -> List[bool]:
     if not s or len(s) == 0:
         return []
     return [bool(i) for i in s.strip().split("x")]
