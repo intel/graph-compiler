@@ -24,19 +24,19 @@ check_tool() {
   which $1 &> /dev/null || (echo "$1 not found!" && exit 1)
 }
 
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --format)
+for arg in "$@"; do
+  case $arg in
+    -f|--format)
       CHECK_FORMAT=1
-      shift
       ;;
-    --tidy)
+    -t|--tidy)
       CHECK_TIDY=1
-      shift
       ;;
-    --license)
+    -l|--license)
       CHECK_LICENSE=1
-      shift
+      ;;
+    -c|--clean)
+      CLEANUP=1
       ;;
     *) # Handle other unknown options
       echo "Unknown option: $1"
@@ -48,9 +48,8 @@ done
 # set PR_REF if your pr target is not main
 : ${PR_REF:=main}
 
-
-PROJECT_ROOT=$(pwd)/$(dirname "${BASH_SOURCE[0]}")/../
-cd $PROJECT_ROOT
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)/../"
+cd "$PROJECT_ROOT"
 
 MERGE_BASE=$(git merge-base $PR_REF HEAD)
 CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD)
@@ -70,9 +69,11 @@ if [ -n "$CHECK_TIDY" ]; then
   check_tool "clang-tidy"
   check_tool "lit"
 
-  TIDY_ROOT=${PROJECT_ROOT}/build/tidy
-  mkdir -p ${TIDY_ROOT}
-  cd ${TIDY_ROOT}
+  TIDY_ROOT="${PROJECT_ROOT}/build/tidy"
+  [ -n "$CLEANUP" ] && rm -rf "${TIDY_ROOT}"
+  mkdir -p "${TIDY_ROOT}"
+  cd "${TIDY_ROOT}"
+
   cmake ../../ \
     -DCMAKE_BUILD_TYPE=Release \
     -DMLIR_DIR=${MLIR_DIR} \
