@@ -59,13 +59,11 @@ void populateVectorPasses(mlir::PassManager &pm) {
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::PassManager &pm) {
   bufferization::OneShotBufferizationOptions options;
+  options.bufferizeFunctionBoundaries = true;
+  options.setFunctionBoundaryTypeConversion(
+      bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
-  pm.addPass(mlir::func::createFuncBufferizePass());
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createBufferizationBufferizePass());
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createFinalizingBufferizePass());
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
