@@ -9,11 +9,11 @@ func.func @sigmoid(%arg0: tensor<4x256x64xbf16>, %arg1: tensor<4x256x64xbf16>) -
 
 // CHECK-LABEL: @mm2d_vnni
 func.func @mm2d_vnni(%arg0: tensor<256x64xi8>, %arg1: tensor<16x2x8x32x4xi8>, 
-                      %arg2: tensor<256x512xi8>) -> tensor<256x512xi8> {
+                      %arg2: tensor<256x512xi32>) -> tensor<256x512xi32> {
   // CHECK: linalgx.mm2d_vnni
   %0 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<256x64xi8>, tensor<16x2x8x32x4xi8>) 
-                          outs(%arg2 : tensor<256x512xi8>) -> tensor<256x512xi8>
-  return %0 : tensor<256x512xi8>
+                          outs(%arg2 : tensor<256x512xi32>) -> tensor<256x512xi32>
+  return %0 : tensor<256x512xi32>
 }
 
 // CHECK-LABEL: @mm4d_vnni
