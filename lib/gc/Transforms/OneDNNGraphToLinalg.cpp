@@ -32,7 +32,8 @@ namespace mlir {
 namespace onednn_graph {
 SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t>, int64_t);
 SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t>, int64_t, bool);
-SmallVector<int64_t> inferReducedShape(ShapedType, ArrayRef<int64_t>, bool, bool);
+SmallVector<int64_t> inferReducedShape(ShapedType, ArrayRef<int64_t>, bool,
+                                       bool);
 } // namespace onednn_graph
 namespace gc {
 #define GEN_PASS_DEF_CONVERTONEDNNGRAPHTOLINALG

@@ -61,10 +61,9 @@ SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
 
 SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes, int64_t rank,
                                           bool canonicalized = false) {
-  // get canonicalize reduce axes
-  SmallVector<int64_t> newCanonicalized =
-      canonicalized ? SmallVector<int64_t>{}
-                    : canonicalizeReduceAxes(axes, rank);
+  // get canonicalized reduce axes
+  auto newCanonicalized = canonicalized ? SmallVector<int64_t>{}
+                                        : canonicalizeReduceAxes(axes, rank);
   auto reduceAxes = canonicalized ? axes : ArrayRef<int64_t>(newCanonicalized);
   // get kept axes
   SmallVector<int64_t> keepAxes;
@@ -81,10 +80,10 @@ SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes, int64_t rank,
 SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
                                        ArrayRef<int64_t> axes, bool keepDims,
                                        bool canonicalized = false) {
-  // get canonicalize reduce axes
-  SmallVector<int64_t> newCanonicalized =
-      canonicalized ? SmallVector<int64_t>{}
-                    : canonicalizeReduceAxes(axes, operandShape.getRank());
+  // get canonicalized reduce axes
+  auto rank = operandShape.getRank();
+  auto newCanonicalized = canonicalized ? SmallVector<int64_t>{}
+                                        : canonicalizeReduceAxes(axes, rank);
   auto reduceAxes = canonicalized ? axes : ArrayRef<int64_t>(newCanonicalized);
   // get reduce axis one by one
   size_t index = 0;
@@ -93,7 +92,6 @@ SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
   };
   // get reduced shape
   SmallVector<int64_t> outputShape;
-  auto rank = operandShape.getRank();
   auto axis = getNextReduceAxis();
   for (int64_t idx = 0; idx < rank; idx++) {
     if (idx == axis) {
@@ -144,10 +142,10 @@ struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
       return failure();
     }
     // canonicalize the reduce axes
-    auto new_axes = canonicalizeReduceAxes(op.getAxes(), rank);
-    auto new_op = rewriter.create<ReduceOp>(
-        op.getLoc(), op.getType(), op.getOperand(), new_axes, op.getKeepDims());
-    rewriter.replaceOp(op, new_op);
+    auto newAxes = canonicalizeReduceAxes(op.getAxes(), rank);
+    auto newOp = rewriter.create<ReduceOp>(
+        op.getLoc(), op.getType(), op.getOperand(), newAxes, op.getKeepDims());
+    rewriter.replaceOp(op, newOp);
     // NOLINTEND
     return success();
   }
