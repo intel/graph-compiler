@@ -159,9 +159,7 @@ verifyTilableOpTileSizesOnDimAndTileMap(RewriterBase &rewriter, Operation *op,
     if (isEqualConstantIntOrValue(tile, innerTile))
       continue;
     FailureOr<int64_t> cstSize = ValueBoundsConstraintSet::computeConstantBound(
-        presburger::BoundType::UB,
-        getValueOrCreateConstantIndexOp(rewriter, op->getLoc(), tile),
-        /*dim=*/std::nullopt,
+        presburger::BoundType::UB, tile,
         /*stopCondition=*/nullptr, /*closedUB=*/true);
     std::optional<int64_t> cstInnerSize = getConstantIntValue(innerTile);
     if (!failed(cstSize) && cstInnerSize) {
@@ -441,6 +439,7 @@ static SmallVector<Operation *> postOpFuseConsumerOfOpResult(
   if (failed(consAnchorList))
     return tiledConsumerList;
 
+  // sorted by userList and position in parentBlock
   for (auto &consAnchor : *consAnchorList) {
     if (alreadyTiledOps.count(consAnchor.getFusableOp()))
       continue;
