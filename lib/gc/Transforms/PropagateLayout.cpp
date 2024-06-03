@@ -75,10 +75,6 @@ FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
   LLVM_DEBUG(llvm::dbgs() << "Try packing named op "
                           << linalgOp.getOperation()->getName() << ".\n");
   Location loc = linalgOp->getLoc();
-  SmallVector<AffineMap> indexingMaps = linalgOp.getIndexingMapsArray();
-  SmallVector<utils::IteratorType> iteratorTypes =
-      linalgOp.getIteratorTypesArray();
-
   SmallVector<tensor::PackOp> packOps;
   SmallVector<tensor::UnPackOp> unPackOps;
   SmallVector<Value> inputsAndInits, results;
@@ -215,8 +211,9 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
   IRRewriter rewriter(ctx);
   auto walk = graph->walk([&](Operation *op) {
     FailureOr<OperatorLayout> opLayout = controlFn(op);
-    if (isa<linalg::LinalgOp>(op) && !mlir::linalg::isaContractionOpInterface(
-                                         dyn_cast<linalg::LinalgOp>(op))) {
+    if ((isa<linalg::LinalgOp>(op) && !mlir::linalg::isaContractionOpInterface(
+                                          dyn_cast<linalg::LinalgOp>(op))) ||
+        isa<tensor::ExpandShapeOp>(op) || isa<tensor::PadOp>(op)) {
       if (failed(opLayout)) {
         LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName()
                                 << "does not have layout information.\n");
@@ -235,9 +232,35 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
           if (failed(packedOp)) {
             return WalkResult::skip();
           }
+        } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
+          Location loc = expandShapeOp->getLoc();
+          auto inputLayout = opLayout->getSupportedInputLayouts()[0];
+          auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
+          Value dest = tensor::PackOp::createDestinationTensor(
+              rewriter, loc, expandShapeOp.getSrc(), inputLayout.getTileSizes(),
+              inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
+          Value packedSource = rewriter.create<tensor::PackOp>(
+              loc, expandShapeOp.getSrc(), dest, inputLayout.getInnerAxis(),
+              inputLayout.getTileSizes(), std::nullopt,
+              inputLayout.getOuterAxis());
+          auto resultType = RankedTensorType::get(
+              expandShapeOp.getStaticOutputShape(),
+              expandShapeOp.getSrcType().getElementType());
+          RankedTensorType resultPackType = tensor::PackOp::inferPackedType(
+              resultType, vector::getAsIntegers(outputLayout.getTileSizes()),
+              outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
+          auto reassocExpand = getReassociationIndicesForReshape(
+              cast<ShapedType>(dest.getType()), resultPackType);
+          auto packedExpandShape = rewriter.create<tensor::ExpandShapeOp>(
+              loc, expandShapeOp.getSrcType().getElementType(), packedSource,
+              *reassocExpand);
+          Value result = rewriter.create<tensor::UnPackOp>(
+              packedExpandShape->getLoc(), packedExpandShape, packedExpandShape,
+              outputLayout.getInnerAxis(), outputLayout.getTileSizes(),
+              outputLayout.getOuterAxis());
+          rewriter.replaceOp(expandShapeOp, result);
         }
       }
-    } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
     }
     return WalkResult::advance();
   });

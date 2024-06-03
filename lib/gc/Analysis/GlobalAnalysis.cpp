@@ -155,10 +155,9 @@ inferTargetLayout(TensorLayout layoutBase,
 
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   root->walk([&](Operation *op) {
-    // get input layouts
-    LLVM_DEBUG(llvm::dbgs()
-               << "Inferring layoutCache of op: " << op->getName() << "\n");
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Inferring layout of op: " << op->getName() << "\n");
       auto curInputs = linalgOp.getDpsInputOperands();
       auto curResults = linalgOp.getOperation()->getResults();
       // ---------------- Get Current Input Layouts -------------------
@@ -258,12 +257,14 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       }
       auto inputOuterAxis = curInputLayout.getOuterAxis();
       auto inputInnerAxis = curInputLayout.getInnerAxis();
+      int64_t diffDifference = staticOutputShape.size() - inputShape.size();
       int64_t startIdx = 0;
       SmallVector<int64_t> outputOuterAxis, outputInnerAxis;
       for (int64_t i = 0; i < static_cast<int64_t>(staticOutputShape.size());
            ++i) {
         if (outputInputIdxMapping.find(i) != outputInputIdxMapping.end()) {
-          outputOuterAxis.push_back(inputOuterAxis[outputInputIdxMapping[i]]);
+          outputOuterAxis.push_back(inputOuterAxis[outputInputIdxMapping[i]] +
+                                    diffDifference);
         } else {
           outputOuterAxis.push_back(startIdx++);
         }
