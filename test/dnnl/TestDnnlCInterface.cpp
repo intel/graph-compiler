@@ -16,13 +16,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "dnnl_graph_compiler.h"
-#include "dnnl_test_utils.hpp"
-#include "gc_version.h"
 #include <gtest/gtest.h>
 
-TEST(dnnl_graph_compiler, c_interface) {
-  auto json = read_str_resource("mul_quantize.json");
+#include "DnnlTestUtils.h"
+#include "gc_version.h"
+#include "graph/backend/elyzor/include/dnnl_graph_compiler.h"
+
+TEST(TestDnnlCInterface, basicWorkflow) {
+  auto json = read_str_resource("mpl.json");
 
   const struct dnnl_graph_compiler_context ctx = {.num_threads = 4};
   const struct dnnl_graph_compiler *gc;
@@ -48,7 +49,7 @@ TEST(dnnl_graph_compiler, c_interface) {
   dnnl_graph_compiler_destroy(gc);
 }
 
-TEST(dnnl_graph_compiler, get_version) {
+TEST(TestDnnlCInterface, get_version) {
   auto v = dnnl_graph_compiler_get_version();
 
   ASSERT_NE(v, nullptr);

@@ -1,3 +1,5 @@
+[<img src="https://scan.coverity.com/projects/30281/badge.svg">](https://scan.coverity.com/projects/intel-graph-compiler)
+
 # Graph Compiler
 Graph Compiler is an end-to-end, MLIR-based compiler designed to enhance the performance of deep learning workloads. It accepts computation graphs from the frontend, applies domain-specific optimizations and transformations, generates code, and manages runtime execution.
 
@@ -63,4 +65,5 @@ Graph Compiler supports the following build-time options.
 | GC_LEGACY_ENABLE                | **ON**, OFF                            | Controls building the legacy graph-compiler component                                  |
 | GC_TEST_ENABLE                  | **ON**, OFF                            | Controls building the tests                                                            |
 | GC_DEV_LINK_LLVM_DYLIB          | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer                        |
+| GC_ENABLE_BINDINGS_PYTHON       | **ON**, OFF                            | Controls building the Python API                                                       |
 
