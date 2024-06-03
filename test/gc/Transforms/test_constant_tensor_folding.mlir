@@ -1,4 +1,4 @@
-// RUN: gc-opt --split-input-file -pass-pipeline="builtin.module(csa,cst)" %s | FileCheck %s
+// RUN: gc-opt --split-input-file -pass-pipeline="builtin.module(constant-subgraph-analysis,constant-tensor-folding)" %s | FileCheck %s
 
 // CHECK-LABEL: func.func @entry
 #map = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d2, d4, d6)>

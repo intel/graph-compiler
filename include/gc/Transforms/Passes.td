@@ -31,20 +31,20 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   ];
 }
 
-def CSA : Pass<"csa"> {
+def ConstantSubgraphAnalysis : Pass<"constant-subgraph-analysis"> {
   let summary = "Constant Subgraph Analysis";
   let description = [{
     This pass implements a constant subgraph analysis.
   }];
-  let constructor = "mlir::gc::createCSAPass()";
+  let constructor = "mlir::gc::createConstantSubgraphAnalysisPass()";
 }
 
-def CST : Pass<"cst"> {
-  let summary = "Constant Subgraph Transform";
+def ConstantTensorFolding : Pass<"constant-tensor-folding"> {
+  let summary = "Constant Tensor Folding Transform";
   let description = [{
-    This pass implements a constant subgraph transform.
+    This pass implements a constant tensor folding transform.
   }];
-  let constructor = "mlir::gc::createCSTPass()";
+  let constructor = "mlir::gc::createConstantTensorFoldingPass()";
   let dependentDialects = [
       "tensor::TensorDialect",
       "linalg::LinalgDialect",

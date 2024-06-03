@@ -15,12 +15,12 @@ namespace mlir {
 namespace gc {
 
 #define GEN_PASS_DECL
-#define GEN_PASS_DECL_CSA
-#define GEN_PASS_DECL_CST
+#define GEN_PASS_DECL_CONSTANTSUBGRAPHANALYSIS
+#define GEN_PASS_DECL_CONSTANTTENSORFOLDING
 #include "gc/Transforms/Passes.h.inc"
 
-std::unique_ptr<Pass> createCSAPass();
-std::unique_ptr<Pass> createCSTPass();
+std::unique_ptr<Pass> createConstantSubgraphAnalysisPass();
+std::unique_ptr<Pass> createConstantTensorFoldingPass();
 
 #define GEN_PASS_REGISTRATION
 #include "gc/Transforms/Passes.h.inc"

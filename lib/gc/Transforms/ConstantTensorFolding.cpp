@@ -1,4 +1,5 @@
-//===- CST.cpp - Constant Subgraph Transform -----------------===//
+//===- ConstantTensorFolding.cpp - Constant Subgraph Transform
+//-----------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -34,7 +35,7 @@
 
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_CST
+#define GEN_PASS_DEF_CONSTANTTENSORFOLDING
 #include "gc/Transforms/Passes.h.inc"
 } // namespace gc
 
@@ -42,7 +43,8 @@ using namespace mlir;
 
 namespace gc {
 
-struct CST : public impl::CSTBase<CST> {
+struct ConstantTensorFolding
+    : public impl::ConstantTensorFoldingBase<ConstantTensorFolding> {
   void runOnOperation() override;
 };
 
@@ -385,7 +387,7 @@ static void addGlobalI32Array(ModuleOp &module, Location loc,
 
 // Operate on tensors. Create fold() and compute() on module. The
 // folded weights and first-run flag is maintained by upper-level runtime.
-void CST::runOnOperation() {
+void ConstantTensorFolding::runOnOperation() {
   Operation *topOp = getOperation();
   MLIRContext *context = topOp->getContext();
   // A ModuleOp contains a single region, which contains a single block.
@@ -679,7 +681,9 @@ void CST::runOnOperation() {
   }
 }
 
-std::unique_ptr<Pass> createCSTPass() { return std::make_unique<CST>(); }
+std::unique_ptr<Pass> createConstantTensorFoldingPass() {
+  return std::make_unique<ConstantTensorFolding>();
+}
 
 } // namespace gc
 } // namespace mlir

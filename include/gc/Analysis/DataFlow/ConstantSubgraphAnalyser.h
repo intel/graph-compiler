@@ -1,4 +1,4 @@
-//===- ConstantSubgraphAnalysis.h - Constant subgraph analysis ------===//
+//===- ConstantSubgraphAnalyser.h - Constant subgraph analysis ------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,8 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_ANALYSIS_DATAFLOW_CONSTANTSUBGRAPHANALYSIS_H
-#define MLIR_ANALYSIS_DATAFLOW_CONSTANTSUBGRAPHANALYSIS_H
+#ifndef MLIR_ANALYSIS_DATAFLOW_CONSTANTSUBGRAPHANALYSER_H
+#define MLIR_ANALYSIS_DATAFLOW_CONSTANTSUBGRAPHANALYSER_H
 
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include <optional>
@@ -87,10 +87,10 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// ConstantSubgraphAnalysis
+// ConstantSubgraphAnalyser
 //===----------------------------------------------------------------------===//
 
-class ConstantSubgraphAnalysis
+class ConstantSubgraphAnalyser
     : public SparseForwardDataFlowAnalysis<Lattice<InConstantSubgraph>> {
 public:
   using SparseForwardDataFlowAnalysis::SparseForwardDataFlowAnalysis;
@@ -103,13 +103,13 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// RunConstantSubgraphAnalysis
+// RunConstantSubgraphAnalyser
 //===----------------------------------------------------------------------===//
 
 /// Runs constant subgraph analysis on the IR defined by `op`.
-struct RunConstantSubgraphAnalysis {
+struct RunConstantSubgraphAnalyser {
 public:
-  RunConstantSubgraphAnalysis();
+  RunConstantSubgraphAnalyser();
 
   void run(Operation *op);
 
@@ -124,4 +124,4 @@ private:
 } // end namespace dataflow
 } // end namespace mlir
 
-#endif // MLIR_ANALYSIS_DATAFLOW_CONSTANTSUBGRAPHANALYSIS_H
+#endif // MLIR_ANALYSIS_DATAFLOW_CONSTANTSUBGRAPHANALYSER_H

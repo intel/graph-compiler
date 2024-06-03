@@ -1,4 +1,4 @@
-// RUN: gc-opt --split-input-file -pass-pipeline="builtin.module(csa,cst)" %s | FileCheck %s
+// RUN: gc-opt --split-input-file -pass-pipeline="builtin.module(constant-subgraph-analysis,constant-tensor-folding)" %s | FileCheck %s
 
 // CHECK-LABEL: func.func @entry
 module {

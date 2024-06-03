@@ -1,11 +1,11 @@
-//===- ConstantSubgraphAnalysis.cpp - Constant subgraph analysis ----===//
+//===- ConstantSubgraphAnalyser.cpp - Constant subgraph analysis ----===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "gc/Analysis/DataFlow/ConstantSubgraphAnalysis.h"
+#include "gc/Analysis/DataFlow/ConstantSubgraphAnalyser.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -46,13 +46,13 @@ void InConstantSubgraph::print(raw_ostream &os) const {
 }
 
 //===----------------------------------------------------------------------===//
-// ConstantSubgraphAnalysis
+// ConstantSubgraphAnalyser
 //===----------------------------------------------------------------------===//
 
-void ConstantSubgraphAnalysis::visitOperation(
+void ConstantSubgraphAnalyser::visitOperation(
     Operation *op, ArrayRef<const Lattice<InConstantSubgraph> *> operands,
     ArrayRef<Lattice<InConstantSubgraph> *> results) {
-  LLVM_DEBUG(llvm::dbgs() << "ConstantSubgraphAnalysis: Visiting operation:\n"
+  LLVM_DEBUG(llvm::dbgs() << "ConstantSubgraphAnalyser: Visiting operation:\n"
                           << *op << "\n");
 
   bool in = true;
@@ -92,7 +92,7 @@ void ConstantSubgraphAnalysis::visitOperation(
   }
 }
 
-void ConstantSubgraphAnalysis::setToEntryState(
+void ConstantSubgraphAnalyser::setToEntryState(
     Lattice<InConstantSubgraph> *lattice) {
   if (auto blockArg = cast<BlockArgument>(lattice->getPoint())) {
     auto parent_op = blockArg.getParentBlock()->getParentOp();
@@ -121,12 +121,12 @@ void ConstantSubgraphAnalysis::setToEntryState(
 }
 
 //===----------------------------------------------------------------------===//
-// RunConstantSubgraphAnalysis
+// RunConstantSubgraphAnalyser
 //===----------------------------------------------------------------------===//
 
 /// Get the operations whose inputs and outputs are all constant values.
 /// These operations will be put into a seperate subgraph.
-void RunConstantSubgraphAnalysis::getConstantSubgraph(DataFlowSolver &solver,
+void RunConstantSubgraphAnalyser::getConstantSubgraph(DataFlowSolver &solver,
                                                       Operation *topFunc) {
   OpBuilder builder(topFunc->getContext());
   SmallVector<Operation *> constantOperations;
@@ -161,19 +161,19 @@ void RunConstantSubgraphAnalysis::getConstantSubgraph(DataFlowSolver &solver,
   }
 }
 
-RunConstantSubgraphAnalysis::RunConstantSubgraphAnalysis() {
+RunConstantSubgraphAnalyser::RunConstantSubgraphAnalyser() {
   solver.load<DeadCodeAnalysis>();
-  solver.load<ConstantSubgraphAnalysis>();
+  solver.load<ConstantSubgraphAnalyser>();
 }
 
-void RunConstantSubgraphAnalysis::run(Operation *topFunc) {
+void RunConstantSubgraphAnalyser::run(Operation *topFunc) {
   if (failed(solver.initializeAndRun(topFunc))) {
     return;
   }
   getConstantSubgraph(solver, topFunc);
 }
 
-bool RunConstantSubgraphAnalysis::getInConstantSubgraph(Value val) {
+bool RunConstantSubgraphAnalyser::getInConstantSubgraph(Value val) {
   auto *lattice = solver.lookupState<Lattice<InConstantSubgraph>>(val);
   const InConstantSubgraph &latticeValue = lattice->getValue();
   return latticeValue.getInConstantSubgraph();

@@ -1,4 +1,5 @@
-//===- CSA.cpp - Constant Subgraph Analysis -----------------===//
+//===- ConstantSubgraphAnalysis.cpp - Constant Subgraph Analysis
+//-----------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,7 +11,7 @@
 // in MLIR.
 //
 //===----------------------------------------------------------------------===//
-#include "gc/Analysis/DataFlow/ConstantSubgraphAnalysis.h"
+#include "gc/Analysis/DataFlow/ConstantSubgraphAnalyser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/Pass/Pass.h"
@@ -18,7 +19,7 @@
 
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_CSA
+#define GEN_PASS_DEF_CONSTANTSUBGRAPHANALYSIS
 #include "gc/Transforms/Passes.h.inc"
 } // namespace gc
 
@@ -27,11 +28,12 @@ using namespace mlir::dataflow;
 
 namespace gc {
 
-struct CSA : public impl::CSABase<CSA> {
+struct ConstantSubgraphAnalysis
+    : public impl::ConstantSubgraphAnalysisBase<ConstantSubgraphAnalysis> {
   void runOnOperation() override;
 };
 
-void CSA::runOnOperation() {
+void ConstantSubgraphAnalysis::runOnOperation() {
   Operation *op = getOperation();
   auto &func =
       op->getRegions().front().getBlocks().front().getOperations().front();
@@ -41,11 +43,13 @@ void CSA::runOnOperation() {
   // func.setAttr("onednn_graph.const_args",
   //     builder.getI32ArrayAttr({1,2,3,4}));
 
-  RunConstantSubgraphAnalysis csa;
-  (void)csa.run(&func);
+  RunConstantSubgraphAnalyser runAnalyser;
+  (void)runAnalyser.run(&func);
 }
 
-std::unique_ptr<Pass> createCSAPass() { return std::make_unique<CSA>(); }
+std::unique_ptr<Pass> createConstantSubgraphAnalysisPass() {
+  return std::make_unique<ConstantSubgraphAnalysis>();
+}
 
 } // namespace gc
 } // namespace mlir

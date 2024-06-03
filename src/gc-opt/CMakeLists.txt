@@ -17,8 +17,7 @@ set(gc_opt_libs
         ${conversion_libs} 
         ${MLIR_LINK_COMPONENTS} 
         GCPasses
-        GCAnalysis
-        GCCpuRuntime)
+        GCAnalysis)
 
 if(GC_MLIR_CXX_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")

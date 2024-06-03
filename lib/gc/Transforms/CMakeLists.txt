@@ -7,8 +7,8 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   TileNamed.cpp
-  CSA.cpp
-  CST.cpp
+  ConstantSubgraphAnalysis.cpp
+  ConstantTensorFolding.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include

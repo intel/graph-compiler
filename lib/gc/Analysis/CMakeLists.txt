@@ -1,5 +1,5 @@
 add_mlir_library(GCAnalysis
-  DataFlow/ConstantSubgraphAnalysis.cpp
+  DataFlow/ConstantSubgraphAnalyser.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include/
