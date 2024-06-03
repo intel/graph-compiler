@@ -120,13 +120,15 @@ ArrayAttr Mm2DVnniOp::getIndexingMaps() {
   ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
   if (cached)
     return cached;
-
-  static auto mapA = "affine_map<(d0, d1, d2, d3, d4, d5)[s0, s1, s2, s3, "
-                     "s4, s5] -> (d0, (d3 * s4 + d4) * s5 + d5)>";
-  static auto mapB = "affine_map<(d0, d1, d2, d3, d4, d5)[s0, s1, s2, s3, "
-                     "s4, s5] -> (d1, d3, d4, d2, d5)>";
-  static auto mapC = "affine_map<(d0, d1, d2, d3, d4, d5)[s0, s1, s2, s3, "
-                     "s4, s5] -> (d0, d1 * s2 + d2)>";
+  constexpr const char *mapA =
+      "affine_map<(d0, d1, d2, d3, d4, d5)[s0, s1, s2, s3, s4, s5]"
+      " -> (d0, (d3 * s4 + d4) * s5 + d5)>";
+  constexpr const char *mapB =
+      "affine_map<(d0, d1, d2, d3, d4, d5)[s0, s1, s2, s3, s4, s5]"
+      " -> (d1, d3, d4, d2, d5)>";
+  constexpr const char *mapC =
+      "affine_map<(d0, d1, d2, d3, d4, d5)[s0, s1, s2, s3, s4, s5]"
+      " -> (d0, d1 * s2 + d2)>";
   MLIRContext *context = getContext();
   auto symbolBindings = getSymbolBindings(*this);
   SmallVector<AffineMap> maps;
@@ -259,13 +261,15 @@ ArrayAttr Mm4DVnniOp::getIndexingMaps() {
   ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
   if (cached)
     return cached;
-
-  static auto mapA = "affine_map<(d0, d1, d2, d3, d4, d5, d6)[s0, s1, s2, s3, "
-                     "s4, s5, s6] -> (d0, d4, d2, d5 * s6 + d6)>";
-  static auto mapB = "affine_map<(d0, d1, d2, d3, d4, d5, d6)[s0, s1, s2, s3, "
-                     "s4, s5, s6] -> (d1, d4, d5, d3, d6)>";
-  static auto mapC = "affine_map<(d0, d1, d2, d3, d4, d5, d6)[s0, s1, s2, s3, "
-                     "s4, s5, s6] -> (d0, d1, d2, d3)>";
+  constexpr const char *mapA =
+      "affine_map<(d0, d1, d2, d3, d4, d5, d6)[s0, s1, s2, s3, s4, s5, s6]"
+      " -> (d0, d4, d2, d5 * s6 + d6)>";
+  constexpr const char *mapB =
+      "affine_map<(d0, d1, d2, d3, d4, d5, d6)[s0, s1, s2, s3, s4, s5, s6]"
+      " -> (d1, d4, d5, d3, d6)>";
+  constexpr const char *mapC =
+      "affine_map<(d0, d1, d2, d3, d4, d5, d6)[s0, s1, s2, s3, s4, s5, s6]"
+      " -> (d0, d1, d2, d3)>";
   MLIRContext *context = getContext();
   auto symbolBindings = getSymbolBindings(*this);
   SmallVector<AffineMap> maps;
@@ -397,13 +401,15 @@ ArrayAttr BatchReduceMatmulVnniOp::getIndexingMaps() {
   ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
   if (cached)
     return cached;
-
-  static auto mapA = "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4] -> "
-                     "(d2, d0, d3 * s4 + d4)>";
-  static auto mapB = "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4] -> "
-                     "(d2, d3, d1, d4)>";
-  static auto mapC = "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4] -> "
-                     "(d0, d1)>";
+  constexpr const char *mapA =
+      "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4]"
+      " -> (d2, d0, d3 * s4 + d4)>";
+  constexpr const char *mapB =
+      "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4]"
+      " -> (d2, d3, d1, d4)>";
+  constexpr const char *mapC =
+      "affine_map<(d0, d1, d2, d3, d4)[s0, s1, s2, s3, s4]"
+      " -> (d0, d1)>";
   MLIRContext *context = getContext();
   auto symbolBindings = getSymbolBindings(*this);
   SmallVector<AffineMap> maps;
