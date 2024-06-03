@@ -1,4 +1,5 @@
-// RUN: gc-opt %s --gc-cpu-pipeline | gc-cpu-runner -e main_disabled -entry-point-result=void | FileCheck --allow-empty %s
+// RUN: gc-opt %s -o=/dev/null 2>&1
+// gc-opt %s --gc-cpu-pipeline | gc-cpu-runner -e main -entry-point-result=void | FileCheck --allow-empty %s
 // Disabled for now because CI does not have bf16 lib support, once we add our bf16 legalizer, we can enable
 
 func.func @llama2_mlp(%2: tensor<1x32x4096xbf16>, %3: tensor<4096x4096xbf16>, %1 : tensor<1x32x4096xbf16>, %00: tensor<1xf32>, 
@@ -74,10 +75,6 @@ func.func @main() {
   tensor<11008x4096xbf16>, tensor<11008x4096xbf16>, tensor<4096x11008xbf16>, tensor<1xf32>, tensor<4096xbf16>) 
     -> (tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>)
 
-  return
-}
-
-func.func @main_disabled() {
   return
 }
 // CHECK-NOT: any
