@@ -66,4 +66,17 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   ];
 }
 
+def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
+  let summary = "All-in-one pipeline for GC for CPU";
+  let dependentDialects = ["onednn_graph::OneDNNGraphDialect",
+      "tensor::TensorDialect",
+      "memref::MemRefDialect",
+      "linalg::LinalgDialect",
+      "LLVM::LLVMDialect",
+      "scf::SCFDialect",
+      "bufferization::BufferizationDialect",
+      "omp::OpenMPDialect",
+      "vector::VectorDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES

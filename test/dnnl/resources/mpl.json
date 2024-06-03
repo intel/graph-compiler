@@ -1,0 +1,162 @@
+{
+  "version": "3.5.0",
+  "engine_kind": "cpu",
+  "fpmath_mode": "any",
+  "input_ports": [
+    0,
+    1,
+    2,
+    5,
+    7
+  ],
+  "output_ports": [
+    9
+  ],
+  "graph": [
+    {
+      "kind": "MatMul",
+      "inputs": [
+        {
+          "id": 0,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            512
+          ]
+        },
+        {
+          "id": 1,
+          "dtype": "bf16",
+          "shape": [
+            512,
+            64
+          ]
+        },
+        {
+          "id": 2,
+          "dtype": "bf16",
+          "shape": [
+            64
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 3,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            64
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ReLU",
+      "inputs": [
+        {
+          "id": 3,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            64
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 4,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            64
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "MatMul",
+      "inputs": [
+        {
+          "id": 4,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            64
+          ]
+        },
+        {
+          "id": 5,
+          "dtype": "bf16",
+          "shape": [
+            64,
+            256
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 6,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            256
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "Add",
+      "inputs": [
+        {
+          "id": 6,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            256
+          ]
+        },
+        {
+          "id": 7,
+          "dtype": "bf16",
+          "shape": [
+            256
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 8,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            256
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ReLU",
+      "inputs": [
+        {
+          "id": 8,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            256
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 9,
+          "dtype": "bf16",
+          "shape": [
+            128,
+            256
+          ]
+        }
+      ]
+    }
+  ]
+}

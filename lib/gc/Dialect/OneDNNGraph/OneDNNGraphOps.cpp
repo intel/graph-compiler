@@ -1,4 +1,4 @@
-//===- OneDNNGraphOps.h - OneDNN input dialect ops --------------*- C++ -*-===//
+//===-- OneDNNGraphOps.cpp - OneDNN input dialect ops -----------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,60 +17,165 @@
 namespace mlir {
 namespace onednn_graph {
 
-// https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md
-template <typename ShapeRange>
-static LogicalResult inferBroadcastShape(
-    ShapeRange operands, SmallVector<int64_t> &outShape,
-    const std::function<ShapeAdaptor(ShapeRange, size_t)> &getShapeIdx) {
-  int64_t outRank = 0;
-  for (size_t i = 0; i < operands.size(); i++) {
-    auto shape = getShapeIdx(operands, i);
-    if (!shape.hasRank()) {
-      return failure();
-    }
-    outRank = std::max(outRank, shape.getRank());
-  }
-  // Start with all 1 dim
-  outShape.clear();
-  outShape.resize(outRank, 1);
-  // Scan each shape for match dims
-  for (size_t i = 0; i < operands.size(); i++) {
-    auto shape = getShapeIdx(operands, i);
-    auto diff = outShape.size() - shape.getRank();
-    for (int64_t j = 0; j < shape.getRank(); j++) {
-      auto dim1 = outShape[diff + j];
-      auto dim2 = shape.getDimSize(j);
-      auto resolvedDim = dim1;
+//===----------------------------------------------------------------------===//
+// Binary ops shape infer
+//===----------------------------------------------------------------------===//
 
-      if (dim1 == 1) {
-        resolvedDim = dim2;
-      } else if (dim2 == 1) {
-        resolvedDim = dim1;
-      } else if (dim1 != dim2) {
-        return failure();
+#define BINARY_OP_SHAPE_INFER(OP)                                              \
+  LogicalResult OP::inferReturnTypeComponents(                                 \
+      MLIRContext *context, ::std::optional<Location> location,                \
+      OP::Adaptor adaptor,                                                     \
+      SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {           \
+    auto inputTy0 = dyn_cast<ShapedType>(adaptor.getInputA().getType());       \
+    auto inputTy1 = dyn_cast<ShapedType>(adaptor.getInputB().getType());       \
+    if (!adaptor.getAutoBroadcast() && (inputTy0 != inputTy1)) {               \
+      return failure();                                                        \
+    }                                                                          \
+    llvm::SmallVector<int64_t> outShape;                                       \
+    auto ret = OpTrait::util::getBroadcastedShape(                             \
+        inputTy0.getShape(), inputTy1.getShape(), outShape);                   \
+    inferredReturnShapes.push_back(                                            \
+        ShapedTypeComponents(outShape, inputTy0.getElementType()));            \
+    return LogicalResult::success(ret);                                        \
+  }
+
+BINARY_OP_SHAPE_INFER(onednn_graph::AddOp)
+BINARY_OP_SHAPE_INFER(onednn_graph::MulOp)
+BINARY_OP_SHAPE_INFER(onednn_graph::SubOp)
+BINARY_OP_SHAPE_INFER(onednn_graph::DivOp)
+
+//===----------------------------------------------------------------------===//
+// Reduce ops shape infer
+//===----------------------------------------------------------------------===//
+
+SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
+                                            int64_t rank) {
+  SmallVector<int64_t> ret(axes.size());
+  for (size_t i = 0; i < axes.size(); i++) {
+    ret[i] = axes[i] < 0 ? axes[i] + rank : axes[i];
+  }
+  llvm::sort(ret);
+  ret.erase(std::unique(ret.begin(), ret.end()), ret.end());
+  return ret;
+}
+
+SmallVector<int64_t> getReducedShape(ShapeAdaptor operandShape,
+                                     ArrayRef<int64_t> axes, bool keep_dims) {
+  SmallVector<int64_t> outputShape;
+  // get reduce axis one by one
+  size_t index = 0;
+  auto getNextReduceAxis = [&]() {
+    return (index >= axes.size()) ? -1 : axes[index++];
+  };
+  // get reduced shape
+  auto rank = operandShape.getRank();
+  auto axis = getNextReduceAxis();
+  for (int64_t idx = 0; idx < rank; idx++) {
+    if (idx == axis) {
+      axis = getNextReduceAxis();
+      if (keep_dims) {
+        outputShape.push_back(1);
       }
-      outShape[diff + j] = resolvedDim;
+    } else {
+      outputShape.push_back(operandShape.getDimSize(idx));
     }
   }
+  return outputShape;
+}
+
+static LogicalResult InferReduceReturnTypes(
+    ShapeAdaptor operandShape, Type elemType, ArrayRef<int64_t> axes,
+    bool keep_dims,
+    SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
+  // no reduce axes
+  if (axes.empty()) {
+    inferredReturnShapes.push_back(ShapedTypeComponents(operandShape));
+    return success();
+  }
+  inferredReturnShapes.push_back(ShapedTypeComponents(
+      getReducedShape(operandShape, axes, keep_dims), elemType));
   return success();
 }
 
-LogicalResult onednn_graph::AddOp::inferReturnTypeComponents(
-    MLIRContext *context, ::std::optional<Location> location,
-    ValueShapeRange operands, DictionaryAttr attributes,
-    OpaqueProperties properties, RegionRange regions,
-    SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {
-  llvm::SmallVector<int64_t> outShape;
-  auto resultTy = dyn_cast<TensorType>(operands.front().getType());
-  auto getShapeIdx = [](ValueShapeRange operands, size_t i) {
-    return operands.getShape(i);
-  };
-  auto ret =
-      inferBroadcastShape<ValueShapeRange>(operands, outShape, getShapeIdx);
-  inferredReturnShapes.push_back(
-      ShapedTypeComponents(outShape, resultTy.getElementType()));
-  return ret;
-}
+template <typename ReduceOp>
+struct CanonicalizeReduceOp : public OpRewritePattern<ReduceOp> {
+  using OpRewritePattern<ReduceOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(ReduceOp op,
+                                PatternRewriter &rewriter) const override {
+    auto rank = dyn_cast<ShapedType>(op.getOperand().getType()).getRank();
+    // consider canonicalized if all axes are non-negative in ascending order
+    // Note: disable tidy here due to dangling reference in OperationState
+    // NOLINTBEGIN
+    bool canonicalized = true;
+    int64_t last = -1;
+    for (const auto axis : op.getAxes()) {
+      if (axis <= last) {
+        canonicalized = false;
+        break;
+      }
+      last = axis;
+    }
+    if (canonicalized) {
+      return failure();
+    }
+    // canonicalize the reduce axes
+    auto new_axes = canonicalizeReduceAxes(op.getAxes(), rank);
+    auto new_op = rewriter.create<ReduceOp>(
+        op.getLoc(), op.getType(), op.getOperand(), new_axes, op.getKeepDims());
+    rewriter.replaceOp(op, new_op);
+    // NOLINTEND
+    return success();
+  }
+};
+
+#define REDUCE_OP_SHAPE_CANONICALIZE(OP)                                       \
+  void OP::getCanonicalizationPatterns(RewritePatternSet &results,             \
+                                       MLIRContext *context) {                 \
+    using CanonicalizeOp = CanonicalizeReduceOp<OP>;                           \
+    results.add<CanonicalizeOp>(context);                                      \
+  }
+
+#define REDUCE_OP_SHAPE_INFER(OP)                                              \
+  LogicalResult OP::inferReturnTypeComponents(                                 \
+      MLIRContext *context, ::std::optional<Location> location,                \
+      OP::Adaptor adaptor,                                                     \
+      SmallVectorImpl<ShapedTypeComponents> &inferredReturnShapes) {           \
+    llvm::SmallVector<int64_t> outShape;                                       \
+    auto operandTy = dyn_cast<ShapedType>(adaptor.getOperand().getType());     \
+    auto rank = operandTy.getRank();                                           \
+    ShapeAdaptor inputShape(operandTy);                                        \
+    return InferReduceReturnTypes(                                             \
+        inputShape, operandTy.getElementType(),                                \
+        canonicalizeReduceAxes(adaptor.getAxes(), rank),                       \
+        adaptor.getKeepDims(), inferredReturnShapes);                          \
+  }
+
+#define REDUCE_OP_VERIFY(OP)                                                   \
+  LogicalResult OP::verify() {                                                 \
+    auto operandTy = dyn_cast<ShapedType>(getOperand().getType());             \
+    if (!operandTy.hasRank()) {                                                \
+      return emitOpError("Invalid operand shape!\n");                          \
+    }                                                                          \
+    int64_t rank = operandTy.getRank();                                        \
+    for (const auto axis : canonicalizeReduceAxes(getAxes(), rank)) {          \
+      if (axis >= rank || axis < 0) {                                          \
+        return emitOpError("Reduce axis not valid!\n");                        \
+      }                                                                        \
+    }                                                                          \
+    return success();                                                          \
+  }
+
+#define REDUCE_OP_DEFINE(OP)                                                   \
+  REDUCE_OP_SHAPE_CANONICALIZE(OP)                                             \
+  REDUCE_OP_SHAPE_INFER(OP)                                                    \
+  REDUCE_OP_VERIFY(OP)
+
+REDUCE_OP_DEFINE(onednn_graph::ReduceSumOp)
+REDUCE_OP_DEFINE(onednn_graph::ReduceMeanOp)
+
+//===----------------------------------------------------------------------===//
+// Matmul ops shape infer
+//===----------------------------------------------------------------------===//
 
 LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
     MLIRContext *context, ::std::optional<Location> location,
@@ -81,6 +186,7 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
                          const ShapeAdaptor &rhsShape, int64_t range,
                          int64_t diff, SmallVector<int64_t> &outDims) {
     for (int64_t i = 0; i < range; i++) {
+      // TODO(longsheng): add OpTrait::util::getBroadcastedShape for batch
       int64_t idx = i - diff;
       if ((idx >= 0) && (lhsShape.getDimSize(i) != rhsShape.getDimSize(idx))) {
         return failure();
@@ -158,22 +264,21 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
     // Not supported
     return failure();
   }
-  auto getShapeIdx = [](ArrayRef<ShapeAdaptor> operands, size_t i) {
-    return operands[i];
-  };
   // final shape
   auto retShape = ShapedTypeComponents(outShape, lhsShape.getElementType());
   inferredReturnShapes.push_back(retShape);
   // check for bias broadcasting
   if (adaptor.getBias()) {
-    ShapeAdaptor biasShape(adaptor.getBias().getType());
-    ShapeAdaptor matShape(retShape);
+    auto biasType = adaptor.getBias().getType();
+    ShapeAdaptor biasShape(biasType);
+
     bool biasRankMatch = biasShape.getRank() == 1 ||
                          biasShape.getRank() == (int64_t)outShape.size();
-    SmallVector<int64_t> bcastShape;
+    SmallVector<int64_t> resultShape;
     if (!biasRankMatch ||
-        failed(inferBroadcastShape<ArrayRef<ShapeAdaptor>>(
-            {matShape, biasShape}, bcastShape, getShapeIdx))) {
+        !OpTrait::util::getBroadcastedShape(
+            retShape.getDims(), dyn_cast<ShapedType>(biasType).getShape(),
+            resultShape)) {
       return failure();
     }
   }

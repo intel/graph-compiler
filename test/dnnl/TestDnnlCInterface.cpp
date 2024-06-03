@@ -1,10 +1,29 @@
-#include "dnnl_graph_compiler.h"
-#include "dnnl_test_utils.hpp"
-#include "gc_version.h"
+/*
+ * Copyright (C) 2024 Intel Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <gtest/gtest.h>
 
-TEST(dnnl_graph_compiler, c_interface) {
-  auto json = read_str_resource("mul_quantize.json");
+#include "DnnlTestUtils.h"
+#include "gc_version.h"
+#include "graph/backend/elyzor/include/dnnl_graph_compiler.h"
+
+TEST(TestDnnlCInterface, basicWorkflow) {
+  auto json = read_str_resource("mpl.json");
 
   const struct dnnl_graph_compiler_context ctx = {.num_threads = 4};
   const struct dnnl_graph_compiler *gc;
@@ -30,7 +49,7 @@ TEST(dnnl_graph_compiler, c_interface) {
   dnnl_graph_compiler_destroy(gc);
 }
 
-TEST(dnnl_graph_compiler, get_version) {
+TEST(TestDnnlCInterface, get_version) {
   auto v = dnnl_graph_compiler_get_version();
 
   ASSERT_NE(v, nullptr);

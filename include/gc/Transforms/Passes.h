@@ -20,9 +20,35 @@ namespace func {
 class FuncOp;
 } // namespace func
 
+
+namespace LLVM {
+class LLVMDialect;
+}
+
+namespace scf {
+class SCFDialect;
+}
+
+namespace openmp {
+class OpenMPDialect;
+}
+
+namespace linalg {
+class LinalgDialect;
+}
+
+namespace MemRef {
+class MemRefDialect;
+}
+
+class PassManager;
+
 namespace gc {
 
 std::unique_ptr<Pass> createMergeAllocPass();
+
+void populateFrontendPasses(mlir::PassManager &);
+void populateCPUPipeline(mlir::PassManager &);
 
 #define GEN_PASS_DECL
 #include "gc/Transforms/Passes.h.inc"
