@@ -316,9 +316,9 @@ struct MergeAllocPass : mlir::gc::impl::MergeAllocBase<MergeAllocPass> {
       std::unordered_map<uintptr_t, std::size_t> outSchedule;
       if (traces.empty())
         continue;
-      auto total = mlir::gc::memoryplan::schedule_memory_allocations(
+      auto total = mlir::gc::memoryplan::scheduleMemoryAllocations(
           traces, 64, !this->optionNoLocality,
-          gc::memoryplan::inplace_info_map(), outSchedule, dummy);
+          gc::memoryplan::InplaceInfoMap(), outSchedule, dummy);
       auto &block = scope->getRegion(0).getBlocks().front();
       OpBuilder builder{&block.front()};
       auto alignment =

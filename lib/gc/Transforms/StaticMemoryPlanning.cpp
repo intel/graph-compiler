@@ -22,47 +22,47 @@ namespace gc {
 
 namespace memoryplan {
 
-static constexpr size_t divide_and_ceil(size_t x, size_t y) {
+static constexpr size_t divideAndCeil(size_t x, size_t y) {
   return (x + y - 1) / y;
 }
 // how the buffer was created
-enum class chunk_type {
+enum class ChunkType {
   ORIGIN, // the chunk is directly allocated from the large buffer
   SPLIT,  // the chunk is got by splitting another memory chunk
   MERGED, // the chunk is got by merging several consecutive memory chunks
 };
 
-struct memory_state;
+struct MemoryState;
 
-struct memory_chunk_t {
-  chunk_type type_;
-  size_t size_;
-  bool free_ = true;
-  size_t last_freed_tick_ = 0;
-  bool is_inplace_split_remainder_ = false;
+struct MemoryChunk {
+  ChunkType type;
+  size_t size;
+  bool isfree = true;
+  size_t lastFreedTick = 0;
+  bool isInplaceSplitRemainder = false;
   // splits the chunk and get the left hand side with size = size, registers
   // both the returned chunk and the rest of the chunk to the state
-  void split(memory_state *state, size_t size, memory_chunk_t *&lhs,
-             memory_chunk_t *&rhs);
+  void split(MemoryState *state, size_t size, MemoryChunk *&lhs,
+             MemoryChunk *&rhs);
   // move the buffer, propagate the message up to the parent chunk. It will
   // not update the siblings.
-  virtual void move(int64_t start_diff) = 0;
+  virtual void move(int64_t startDiff) = 0;
   // extend the buffer, propagate the message up to the parent chunk. It will
   // not update the siblings.
-  virtual void extend(int64_t size_diff) = 0;
+  virtual void extend(int64_t sizeDiff) = 0;
 
-  memory_chunk_t(chunk_type type, size_t size) : type_(type), size_(size) {}
+  MemoryChunk(ChunkType type, size_t size) : type(type), size(size) {}
   // there should be no updates to memory chunks after calling
-  // get_start_offset
-  size_t get_start_offset() {
+  // getStartOffset
+  size_t getStartOffset() {
     if (cached_start_offset == UNINITIALIZED) {
-      cached_start_offset = get_start_offset_impl();
+      cached_start_offset = getStartOffsetImpl();
     }
     return cached_start_offset;
   }
-  virtual ~memory_chunk_t() = default;
+  virtual ~MemoryChunk() = default;
 
-  virtual size_t get_start_offset_impl() = 0;
+  virtual size_t getStartOffsetImpl() = 0;
 
 protected:
   static constexpr size_t UNINITIALIZED = std::numeric_limits<size_t>::max();
@@ -70,111 +70,111 @@ protected:
 };
 
 // the memory chunk that is directly allocated from the large buffer
-struct origin_chunk_t : public memory_chunk_t {
+struct OriginChunk : public MemoryChunk {
   // no parent
-  // memory_chunk_t *parent_;
-  size_t start_;
-  origin_chunk_t(size_t start, size_t size)
-      : memory_chunk_t{chunk_type::ORIGIN, size}, start_(start) {}
-  void move(int64_t start_diff) override { start_ += start_diff; }
-  void extend(int64_t size_diff) override { size_ += size_diff; }
-  size_t get_start_offset_impl() override { return start_; }
+  // MemoryChunk *parent;
+  size_t start;
+  OriginChunk(size_t start, size_t size)
+      : MemoryChunk{ChunkType::ORIGIN, size}, start(start) {}
+  void move(int64_t startDiff) override { start += startDiff; }
+  void extend(int64_t sizeDiff) override { size += sizeDiff; }
+  size_t getStartOffsetImpl() override { return start; }
 };
 
 // the memory chunk that is split from another chunk
-struct split_chunk_t : public memory_chunk_t {
-  memory_chunk_t *parent_;
+struct split_chunk_t : public MemoryChunk {
+  MemoryChunk *parent;
   // if the chunk is the left hand side (smaller starting offset)
   bool is_lhs_;
-  split_chunk_t(size_t size, memory_chunk_t *parent, bool is_lhs)
-      : memory_chunk_t{chunk_type::SPLIT, size}, parent_(parent),
+  split_chunk_t(size_t size, MemoryChunk *parent, bool is_lhs)
+      : MemoryChunk{ChunkType::SPLIT, size}, parent(parent),
         is_lhs_(is_lhs) {}
-  void move(int64_t start_diff) override {
+  void move(int64_t startDiff) override {
     if (is_lhs_) {
-      parent_->move(start_diff);
+      parent->move(startDiff);
     }
     // no need to pass message to parent for rhs, since lhs has done so
   }
-  void extend(int64_t size_diff) override {
-    size_ += size_diff;
-    parent_->extend(size_diff);
+  void extend(int64_t sizeDiff) override {
+    size += sizeDiff;
+    parent->extend(sizeDiff);
     // if is_lhs, we will later call rhs->move(...)
   }
-  size_t get_start_offset_impl() override {
+  size_t getStartOffsetImpl() override {
     if (is_lhs_) {
-      return parent_->get_start_offset();
+      return parent->getStartOffset();
     } else {
-      return parent_->get_start_offset() + parent_->size_ - size_;
+      return parent->getStartOffset() + parent->size - size;
     }
   }
 };
 
-static size_t get_size_of_chunks(const std::vector<memory_chunk_t *> &c) {
+static size_t getSizeOfChunks(const std::vector<MemoryChunk *> &c) {
   size_t v = 0;
   for (auto chk : c) {
-    v += chk->size_;
+    v += chk->size;
   }
   return v;
 }
 // the memory chunk that is merged from another chunks
-struct merged_chunk_t : public memory_chunk_t {
-  std::vector<memory_chunk_t *> parent_;
-  merged_chunk_t(std::vector<memory_chunk_t *> &&parent)
-      : memory_chunk_t{chunk_type::MERGED, get_size_of_chunks(parent)},
-        parent_(std::move(parent)) {}
-  void move(int64_t start_diff) override {
-    for (auto v : parent_) {
-      v->move(start_diff);
+struct MergedChunk : public MemoryChunk {
+  std::vector<MemoryChunk *> parent;
+  MergedChunk(std::vector<MemoryChunk *> &&parent)
+      : MemoryChunk{ChunkType::MERGED, getSizeOfChunks(parent)},
+        parent(std::move(parent)) {}
+  void move(int64_t startDiff) override {
+    for (auto v : parent) {
+      v->move(startDiff);
     }
   }
-  void extend(int64_t size_diff) override {
-    size_ += size_diff;
-    parent_.back()->extend(size_diff);
+  void extend(int64_t sizeDiff) override {
+    size += sizeDiff;
+    parent.back()->extend(sizeDiff);
   }
-  size_t get_start_offset_impl() override {
-    return parent_.front()->get_start_offset();
+  size_t getStartOffsetImpl() override {
+    return parent.front()->getStartOffset();
   }
 };
 
-struct memory_state {
+struct MemoryState {
   // buffer_id -> allocated memory chunk, used to collect the final result
-  std::unordered_map<uintptr_t, memory_chunk_t *> allocations_;
+  std::unordered_map<uintptr_t, MemoryChunk *> allocations;
   // buffer_id -> <current_alive_memory_chunk>, used when inplace
   // optimization, and when a buffer is inplace reused by another buffer. The
-  // reused buffer will have unchanged memory_chunk_t in allocations_, because
-  // allocations_ shows the final result of the buffer. cur_allocations_
-  // tracks the current mapping of buffer_id to memory_chunk_t, which may be
-  // different from allocations_
-  std::unordered_map<uintptr_t, memory_chunk_t *> cur_allocations_;
+  // reused buffer will have unchanged MemoryChunk in allocations, because
+  // allocations shows the final result of the buffer. curAllocations
+  // tracks the current mapping of buffer_id to MemoryChunk, which may be
+  // different from allocations
+  std::unordered_map<uintptr_t, MemoryChunk *> curAllocations;
   // all memory chunks that has been created, takes the ownerships of the
-  // memory_chunk_t objects
-  std::vector<std::unique_ptr<memory_chunk_t>> chunks_;
+  // MemoryChunk objects
+  std::vector<std::unique_ptr<MemoryChunk>> chunks;
   // the current memory chunks, sorted by the starting offset
-  std::vector<memory_chunk_t *> cur_chunks_;
+  std::vector<MemoryChunk *> curChunks;
   // free chunks sorted by size
-  std::multimap<size_t, memory_chunk_t *> free_chunks_by_size_;
+  std::multimap<size_t, MemoryChunk *> freeChunksBySize;
   // free chunks sorted by last freed tick
-  std::multimap<size_t, memory_chunk_t *> free_chunks_by_tick_;
+  std::multimap<size_t, MemoryChunk *> freeChunksByTick;
   // the current size of the large buffer, in number of elements
-  size_t current_alloc_size_ = 0;
+  size_t currentAllocSize = 0;
   // the alignment in number of elements
-  size_t alignment_;
+  size_t alignment;
   // the map from a buffer-id to the buffer-ids that the buffer can inplace
   // reuse
-  const inplace_info_map &inplace_map_;
-  std::unordered_map<uintptr_t, std::vector<uintptr_t>> &out_inplace_selection_;
-  int tick_ = 0;
-  bool hot_first_;
+  const InplaceInfoMap &inplaceMap;
+  std::unordered_map<uintptr_t, std::vector<uintptr_t>> &outInplaceSelection;
+  int tick = 0;
+  bool hotFirst;
 
-  memory_state(size_t alignment, bool hot_first,
-               const inplace_info_map &inplace_map,
+  MemoryState(size_t alignment, bool hotFirst,
+               const InplaceInfoMap &inplaceMap,
                std::unordered_map<uintptr_t, std::vector<uintptr_t>>
-                   &out_inplace_selection)
-      : alignment_(alignment), inplace_map_(inplace_map),
-        out_inplace_selection_(out_inplace_selection), hot_first_(hot_first) {}
+                   &outInplaceSelection)
+      : alignment(alignment), inplaceMap(inplaceMap),
+        outInplaceSelection(outInplaceSelection), hotFirst(hotFirst) {}
 
-  void remove_chunk_from_map(memory_chunk_t *target, size_t t,
-                             std::multimap<size_t, memory_chunk_t *> &m) {
+  void removeChunkFromMap(MemoryChunk *target, size_t t,
+                             std::multimap<size_t, MemoryChunk *> &m) {
     auto mapitr = m.equal_range(t);
     assert(mapitr.first != mapitr.second);
     for (auto map_i = mapitr.first; map_i != mapitr.second; ++map_i) {
@@ -184,85 +184,85 @@ struct memory_state {
       }
     }
   }
-  void remove_chunk_from_free_list(memory_chunk_t *target) {
-    remove_chunk_from_map(target, target->size_, free_chunks_by_size_);
-    remove_chunk_from_map(target, target->last_freed_tick_,
-                          free_chunks_by_tick_);
-    target->free_ = false;
+  void removeChunkFromFreeList(MemoryChunk *target) {
+    removeChunkFromMap(target, target->size, freeChunksBySize);
+    removeChunkFromMap(target, target->lastFreedTick,
+                          freeChunksByTick);
+    target->isfree = false;
   }
 
-  void add_chunk_to_free_list(memory_chunk_t *target) {
-    free_chunks_by_size_.insert(std::make_pair(target->size_, target));
-    free_chunks_by_tick_.insert(
-        std::make_pair(target->last_freed_tick_, target));
-    target->free_ = true;
+  void addChunkToFreeList(MemoryChunk *target) {
+    freeChunksBySize.insert(std::make_pair(target->size, target));
+    freeChunksByTick.insert(
+        std::make_pair(target->lastFreedTick, target));
+    target->isfree = true;
   }
 
-  void extend_alloc(memory_chunk_t *target, size_t aligned) {
+  void extendAlloc(MemoryChunk *target, size_t aligned) {
     // remove the chunk from free list
-    remove_chunk_from_free_list(target);
-    int64_t size_diff = aligned - target->size_;
-    assert(size_diff > 0);
-    current_alloc_size_ += size_diff;
+    removeChunkFromFreeList(target);
+    int64_t sizeDiff = aligned - target->size;
+    assert(sizeDiff > 0);
+    currentAllocSize += sizeDiff;
     // extend the target chunk, also move all buffers at the right of it
-    target->extend(size_diff);
+    target->extend(sizeDiff);
     bool found_target = false;
-    for (auto v : cur_chunks_) {
+    for (auto v : curChunks) {
       if (v == target) {
         found_target = true;
       } else if (found_target) {
         // v is at the right of the target
-        v->move(size_diff);
+        v->move(sizeDiff);
       }
     }
     assert(found_target);
-    target->free_ = false;
+    target->isfree = false;
   }
 
-  memory_chunk_t *split_alloc(memory_chunk_t *target, size_t aligned,
-                              memory_chunk_t *&rhs_ret) {
+  MemoryChunk *splitAlloc(MemoryChunk *target, size_t aligned,
+                              MemoryChunk *&rhs_ret) {
     // found a free chunk that is large enough
-    if (target->size_ == aligned) {
+    if (target->size == aligned) {
       // a perfect match, no need to split
       auto ret = target;
-      remove_chunk_from_free_list(target);
+      removeChunkFromFreeList(target);
       return ret;
     }
     // split the larger chunk
-    assert(target->size_ > aligned);
+    assert(target->size > aligned);
     auto lhs = std::make_unique<split_chunk_t>(aligned, target, true);
     auto rhs =
-        std::make_unique<split_chunk_t>(target->size_ - aligned, target, false);
+        std::make_unique<split_chunk_t>(target->size - aligned, target, false);
     rhs_ret = rhs.get();
     auto ret = lhs.get();
 
     auto old_itr_in_cur_chunks =
-        std::find(cur_chunks_.begin(), cur_chunks_.end(), target);
-    assert(old_itr_in_cur_chunks != cur_chunks_.end());
+        std::find(curChunks.begin(), curChunks.end(), target);
+    assert(old_itr_in_cur_chunks != curChunks.end());
     // replace old chunk with rhs
     *old_itr_in_cur_chunks = rhs.get();
     // insert lhs before rhs
-    cur_chunks_.insert(old_itr_in_cur_chunks, lhs.get());
-    rhs->last_freed_tick_ = target->last_freed_tick_;
+    curChunks.insert(old_itr_in_cur_chunks, lhs.get());
+    rhs->lastFreedTick = target->lastFreedTick;
     // add rhs to free list
-    add_chunk_to_free_list(rhs.get());
+    addChunkToFreeList(rhs.get());
 
     // move ownership
-    chunks_.emplace_back(std::move(lhs));
-    chunks_.emplace_back(std::move(rhs));
+    chunks.emplace_back(std::move(lhs));
+    chunks.emplace_back(std::move(rhs));
 
     // remove old chunk in free list
-    remove_chunk_from_free_list(target);
-    ret->free_ = false;
+    removeChunkFromFreeList(target);
+    ret->isfree = false;
     return ret;
   }
 
-  float calculate_size_score(size_t chk_size, size_t alloc_size) const {
+  float calculateSizeScore(size_t chk_size, size_t alloc_size) const {
     // size_score = abs(chunk_size-alloc_size)/max(chunk_size, alloc_size)
-    int64_t size_diff =
+    int64_t sizeDiff =
         static_cast<int64_t>(chk_size) - static_cast<int64_t>(alloc_size);
     float size_max = static_cast<float>(std::max(alloc_size, chk_size));
-    float size_score = -std::abs(size_diff) / size_max;
+    float size_score = -std::abs(sizeDiff) / size_max;
     // if we don't need to extend the buffer, add a bounus score for it
     if (alloc_size <= chk_size) {
       size_score += 1;
@@ -278,67 +278,67 @@ struct memory_state {
   // the better the chunk is. 2) the heat of the chunk. If the chunk's last
   // free'd tick is closer to the current tick, the chunk is better.
   // The better the chunk is, the greater the score is
-  float calculate_chunk_score(memory_chunk_t *chk, size_t alloc_size,
+  float calculateChunkScore(MemoryChunk *chk, size_t alloc_size,
                               size_t last_tick) const {
     // if the buffer is free'd N ticks ago, it will have score max(0, 1 - N
     // * 0.1)
-    float tick_score = static_cast<float>(tick_ - last_tick) / 10;
+    float tick_score = static_cast<float>(tick - last_tick) / 10;
     tick_score = 1 - std::min(tick_score, 1.0f);
     // size_score and tick_score are normalized in [-1,1]. We set a weight
     // for these two scores: 1:1
-    return 1 * calculate_size_score(chk->size_, alloc_size) + 1 * tick_score;
+    return 1 * calculateSizeScore(chk->size, alloc_size) + 1 * tick_score;
   }
 
-  memory_chunk_t *alloc(uintptr_t bufferid, size_t size) {
-    tick_++;
-    auto ret = do_alloc(bufferid, size);
-    allocations_[bufferid] = ret;
-    cur_allocations_[bufferid] = ret;
+  MemoryChunk *alloc(uintptr_t bufferid, size_t size) {
+    tick++;
+    auto ret = doAlloc(bufferid, size);
+    allocations[bufferid] = ret;
+    curAllocations[bufferid] = ret;
     return ret;
   }
 
   // check if the buffer is split from a base tensor and check the
-  // inplace_info for whether it requires zero offset
-  bool check_buffer_offset_for_inplace(memory_chunk_t *chunk,
-                                       const inplace_info *info) {
+  // InplaceInfo for whether it requires zero offset
+  bool checkBufferOffsetForInplace(MemoryChunk *chunk,
+                                       const InplaceInfo *info) {
     // if the old memory chunk is splitted from the base tensor
-    bool old_is_split = chunk->is_inplace_split_remainder_;
+    bool old_is_split = chunk->isInplaceSplitRemainder;
     // if the old memory chunk is based on a offset of the base tensor
     // and we require that we should use zero offset on that tensor, we
     // cannot reuse it
-    return !(old_is_split && info->second == inplace_kind::ZERO_OFFSET);
+    return !(old_is_split && info->second == InplaceKind::ZERO_OFFSET);
   }
 
-  // find the range of chunks in cur_chunks_ that can be merged for inplace
+  // find the range of chunks in curChunks that can be merged for inplace
   // reuse, returns the memory size of the range and the start/end iterators
-  size_t find_inplace_merge_range(
-      memory_chunk_t *victim, size_t aligned,
-      const std::unordered_map<memory_chunk_t *, const inplace_info *>
+  size_t findInplaceMergeRange(
+      MemoryChunk *victim, size_t aligned,
+      const std::unordered_map<MemoryChunk *, const InplaceInfo *>
           &can_inplace,
-      std::vector<memory_chunk_t *>::iterator &to_merge_start,
-      std::vector<memory_chunk_t *>::iterator &to_merge_end) {
-    // add_chunk_to_free_list(chk);
+      std::vector<MemoryChunk *>::iterator &to_merge_start,
+      std::vector<MemoryChunk *>::iterator &to_merge_end) {
+    // addChunkToFreeList(chk);
     auto itr_in_cur_chunks =
-        std::find(cur_chunks_.begin(), cur_chunks_.end(), victim);
-    assert(itr_in_cur_chunks != cur_chunks_.end());
+        std::find(curChunks.begin(), curChunks.end(), victim);
+    assert(itr_in_cur_chunks != curChunks.end());
     // merge right if they are free or can be inplaced
     to_merge_start = itr_in_cur_chunks;
     to_merge_end = itr_in_cur_chunks + 1;
     // remember the memory size we already collected. If
     // current_collected_size is greater than the memory size to alloc, we
     // can stop searching
-    size_t current_collected_size = victim->size_;
+    size_t current_collected_size = victim->size;
     // look right to see any one we can merge with
     for (auto itr = itr_in_cur_chunks + 1;
-         itr != cur_chunks_.end() && current_collected_size < aligned; ++itr) {
+         itr != curChunks.end() && current_collected_size < aligned; ++itr) {
       // if the memory chunk is in use and is in can_inplace map, we may
       // reuse it now
       auto inplace_info_itr = can_inplace.find(*itr);
-      if ((*itr)->free_ ||
+      if ((*itr)->isfree ||
           (inplace_info_itr != can_inplace.end() &&
-           inplace_info_itr->second->second == inplace_kind::FREE)) {
+           inplace_info_itr->second->second == InplaceKind::FREE)) {
         to_merge_end = itr + 1;
-        current_collected_size += (*itr)->size_;
+        current_collected_size += (*itr)->size;
       } else {
         break;
       }
@@ -347,12 +347,12 @@ struct memory_state {
   }
 
   // inplace alloc memory on a chunk that is in use, but about to be freed.
-  memory_chunk_t *do_inplace_alloc(uintptr_t bufferid, size_t aligned) {
-    if (inplace_map_.empty()) {
+  MemoryChunk *doInplaceAlloc(uintptr_t bufferid, size_t aligned) {
+    if (inplaceMap.empty()) {
       return nullptr;
     }
-    auto itr_inplace = inplace_map_.find(bufferid);
-    if (itr_inplace == inplace_map_.end()) {
+    auto itr_inplace = inplaceMap.find(bufferid);
+    if (itr_inplace == inplaceMap.end()) {
       return nullptr;
     }
     // if the buffer can inplace reuse some other buffers that is
@@ -363,40 +363,40 @@ struct memory_state {
     }
 
     // reversed map, chunk --> buffer id for inplace candidates
-    std::unordered_map<memory_chunk_t *, const inplace_info *> can_inplace;
+    std::unordered_map<MemoryChunk *, const InplaceInfo *> can_inplace;
     for (auto &v : buffer_can_inplace) {
-      auto itr = cur_allocations_.find(v.first);
-      if (itr != cur_allocations_.end()) {
+      auto itr = curAllocations.find(v.first);
+      if (itr != curAllocations.end()) {
         can_inplace[itr->second] = &v;
       }
     }
 
     // stage 1, find a victim based on the memory size that can be freed
     float target_score = -std::numeric_limits<float>::infinity();
-    memory_chunk_t *victim = nullptr;
-    std::vector<memory_chunk_t *>::iterator to_merge_start;
-    std::vector<memory_chunk_t *>::iterator to_merge_end;
+    MemoryChunk *victim = nullptr;
+    std::vector<MemoryChunk *>::iterator to_merge_start;
+    std::vector<MemoryChunk *>::iterator to_merge_end;
     size_t current_collected_size = 0;
     for (auto &bufinfo : buffer_can_inplace) {
       auto buf_id = bufinfo.first;
-      auto old_buf_itr = cur_allocations_.find(buf_id);
+      auto old_buf_itr = curAllocations.find(buf_id);
       // if the buffer has already been reused by other buffers, skip
-      if (old_buf_itr == cur_allocations_.end()) {
+      if (old_buf_itr == curAllocations.end()) {
         continue;
       }
       // the old memory chunk
       auto old_buf = old_buf_itr->second;
 
       auto &old_inplace_info = can_inplace[old_buf];
-      if (!check_buffer_offset_for_inplace(old_buf, old_inplace_info)) {
+      if (!checkBufferOffsetForInplace(old_buf, old_inplace_info)) {
         continue;
       }
 
-      std::vector<memory_chunk_t *>::iterator cur_merge_start;
-      std::vector<memory_chunk_t *>::iterator cur_merge_end;
-      auto cur_size = find_inplace_merge_range(old_buf, aligned, can_inplace,
+      std::vector<MemoryChunk *>::iterator cur_merge_start;
+      std::vector<MemoryChunk *>::iterator cur_merge_end;
+      auto cur_size = findInplaceMergeRange(old_buf, aligned, can_inplace,
                                                cur_merge_start, cur_merge_end);
-      float score = calculate_size_score(cur_size, aligned);
+      float score = calculateSizeScore(cur_size, aligned);
       if (score > target_score) {
         target_score = score;
         victim = old_buf;
@@ -413,17 +413,17 @@ struct memory_state {
     if (!victim) {
       return nullptr;
     }
-    assert(!victim->free_);
+    assert(!victim->isfree);
 
-    victim->last_freed_tick_ = tick_;
+    victim->lastFreedTick = tick;
 
-    std::vector<memory_chunk_t *> merged_buffers(to_merge_start, to_merge_end);
+    std::vector<MemoryChunk *> merged_buffers(to_merge_start, to_merge_end);
     for (auto buf : merged_buffers) {
       auto itr = can_inplace.find(buf);
       if (itr != can_inplace.end()) {
         uintptr_t vic_buffer_id = itr->second->first;
         if (vic_buffer_id) {
-          out_inplace_selection_[bufferid].emplace_back(vic_buffer_id);
+          outInplaceSelection[bufferid].emplace_back(vic_buffer_id);
           DEBUG_WITH_TYPE("memplan", llvm::dbgs() << "Buffer " << bufferid
                                                   << " inplace reuses "
                                                   << vic_buffer_id << "\n");
@@ -434,13 +434,13 @@ struct memory_state {
       // if the collected memory size is still less than the size to
       // alloc, need to extend
       auto target_size =
-          aligned - current_collected_size + merged_buffers.back()->size_;
-      if (!merged_buffers.back()->free_) {
+          aligned - current_collected_size + merged_buffers.back()->size;
+      if (!merged_buffers.back()->isfree) {
         // if it is not free, we are inplacing it. Temporarily move to
         // free list
-        add_chunk_to_free_list(merged_buffers.back());
+        addChunkToFreeList(merged_buffers.back());
       }
-      extend_alloc(merged_buffers.back(), target_size);
+      extendAlloc(merged_buffers.back(), target_size);
       // after extension of the last buffer, the collected size is equal
       // to the size to alloc
       current_collected_size = aligned;
@@ -449,142 +449,142 @@ struct memory_state {
     // remove from freelist and buffer_id->chunk map
     for (auto itr = to_merge_start; itr != to_merge_end; ++itr) {
       auto chunk = *itr;
-      if (chunk->free_) {
-        remove_chunk_from_free_list(chunk);
+      if (chunk->isfree) {
+        removeChunkFromFreeList(chunk);
       }
       auto itr_chunk = can_inplace.find(chunk);
       if (itr_chunk != can_inplace.end()) {
-        cur_allocations_.erase(itr_chunk->second->first);
+        curAllocations.erase(itr_chunk->second->first);
       }
     }
 
-    memory_chunk_t *merged_chunk;
+    MemoryChunk *merged_chunk;
     // if we need to merge multiple chunks
     if (to_merge_end - to_merge_start > 1) {
       // do merge
-      chunks_.emplace_back(std::make_unique<merged_chunk_t>(
-          std::vector<memory_chunk_t *>(merged_buffers)));
-      merged_chunk = chunks_.back().get();
+      chunks.emplace_back(std::make_unique<MergedChunk>(
+          std::vector<MemoryChunk *>(merged_buffers)));
+      merged_chunk = chunks.back().get();
       // remove merged chunks from free list and cur_chunk list
       // add merged chunk to cur_chunks and free_chunks_by_size
       *to_merge_start = merged_chunk;
-      merged_chunk->last_freed_tick_ = tick_;
-      merged_chunk->free_ = false;
-      cur_chunks_.erase(to_merge_start + 1, to_merge_end);
+      merged_chunk->lastFreedTick = tick;
+      merged_chunk->isfree = false;
+      curChunks.erase(to_merge_start + 1, to_merge_end);
     } else {
       merged_chunk = victim;
-      merged_chunk->last_freed_tick_ = tick_;
+      merged_chunk->lastFreedTick = tick;
     }
 
-    // merged_chunk is in cur_chunks_ and is removed from freelist and
-    // cur_allocations_ map
+    // merged_chunk is in curChunks and is removed from freelist and
+    // curAllocations map
     if (current_collected_size == aligned) {
       // if is extended, or perfect match, just return the chunk
-      merged_chunk->free_ = false;
+      merged_chunk->isfree = false;
       return merged_chunk;
     } else {
       // otherwise, there are some unused memory in the chunk to be
       // reused. We need to split it. If the RHS of the chunk is from a
       // inplace reused buffer, need to add a mapping of the buffer id to
       // the RHS remaining chunk
-      if (!merged_chunk->free_) {
-        add_chunk_to_free_list(merged_chunk);
+      if (!merged_chunk->isfree) {
+        addChunkToFreeList(merged_chunk);
       }
-      memory_chunk_t *rhs = nullptr;
-      auto ret = split_alloc(merged_chunk, aligned, rhs);
+      MemoryChunk *rhs = nullptr;
+      auto ret = splitAlloc(merged_chunk, aligned, rhs);
       auto itr_chunk = can_inplace.find(merged_buffers.back());
       if (itr_chunk != can_inplace.end()) {
         // if the last chunk is from inplace map, the RHS chunk is not
         // really freed, need to remove from free list and mark it not
         // freed.
-        remove_chunk_from_free_list(rhs);
-        rhs->is_inplace_split_remainder_ = true;
+        removeChunkFromFreeList(rhs);
+        rhs->isInplaceSplitRemainder = true;
         // update the buffer id -> chunk map, so that when freeing the
         // inplaced buffer, we can find the correct remaining buffer
-        cur_allocations_[itr_chunk->second->first] = rhs;
+        curAllocations[itr_chunk->second->first] = rhs;
       }
       return ret;
     }
   }
 
-  memory_chunk_t *do_alloc(uintptr_t bufferid, size_t size) {
-    auto aligned = divide_and_ceil(size, alignment_) * alignment_;
+  MemoryChunk *doAlloc(uintptr_t bufferid, size_t size) {
+    auto aligned = divideAndCeil(size, alignment) * alignment;
     // try inplace
-    if (auto inp_ret = do_inplace_alloc(bufferid, size)) {
+    if (auto inp_ret = doInplaceAlloc(bufferid, size)) {
       return inp_ret;
     }
-    if (free_chunks_by_size_.empty()) {
-      chunks_.emplace_back(
-          std::make_unique<origin_chunk_t>(current_alloc_size_, aligned));
-      current_alloc_size_ += aligned;
-      auto ret = chunks_.back().get();
-      cur_chunks_.emplace_back(ret);
-      ret->free_ = false;
+    if (freeChunksBySize.empty()) {
+      chunks.emplace_back(
+          std::make_unique<OriginChunk>(currentAllocSize, aligned));
+      currentAllocSize += aligned;
+      auto ret = chunks.back().get();
+      curChunks.emplace_back(ret);
+      ret->isfree = false;
       return ret;
     }
-    if (hot_first_) {
-      memory_chunk_t *target = free_chunks_by_tick_.rbegin()->second;
-      float target_score = calculate_chunk_score(
-          target, aligned, free_chunks_by_tick_.rbegin()->first);
-      for (auto &kv : free_chunks_by_tick_) {
-        float score = calculate_chunk_score(kv.second, aligned, kv.first);
+    if (hotFirst) {
+      MemoryChunk *target = freeChunksByTick.rbegin()->second;
+      float target_score = calculateChunkScore(
+          target, aligned, freeChunksByTick.rbegin()->first);
+      for (auto &kv : freeChunksByTick) {
+        float score = calculateChunkScore(kv.second, aligned, kv.first);
         if (score > target_score) {
           target = kv.second;
           target_score = score;
         }
       }
-      if (target->size_ < aligned) {
-        extend_alloc(target, aligned);
+      if (target->size < aligned) {
+        extendAlloc(target, aligned);
         return target;
       } else {
-        memory_chunk_t *rhs;
-        return split_alloc(target, aligned, rhs);
+        MemoryChunk *rhs;
+        return splitAlloc(target, aligned, rhs);
       }
     } else {
       // find a free chunk that best fits the current size
       // itr will be the smallest chunk whose size >= aligned
-      auto itr = free_chunks_by_size_.lower_bound(aligned);
-      if (itr == free_chunks_by_size_.end()) {
-        memory_chunk_t *target;
+      auto itr = freeChunksBySize.lower_bound(aligned);
+      if (itr == freeChunksBySize.end()) {
+        MemoryChunk *target;
         // itr points to the last element
         --itr;
         // if not found, this means that all free chunk is smaller than
         // aligned size, switch to the largest chunk
         target = itr->second;
-        extend_alloc(target, aligned);
+        extendAlloc(target, aligned);
         return target;
       } else {
-        memory_chunk_t *rhs;
-        return split_alloc(itr->second, aligned, rhs);
+        MemoryChunk *rhs;
+        return splitAlloc(itr->second, aligned, rhs);
       }
     }
   }
 
-  void dealloc(memory_chunk_t *chk) {
-    tick_++;
-    chk->last_freed_tick_ = tick_;
-    add_chunk_to_free_list(chk);
+  void dealloc(MemoryChunk *chk) {
+    tick++;
+    chk->lastFreedTick = tick;
+    addChunkToFreeList(chk);
     auto itr_in_cur_chunks =
-        std::find(cur_chunks_.begin(), cur_chunks_.end(), chk);
-    assert(itr_in_cur_chunks != cur_chunks_.end());
+        std::find(curChunks.begin(), curChunks.end(), chk);
+    assert(itr_in_cur_chunks != curChunks.end());
     // merge left and right if they are free
-    std::vector<memory_chunk_t *>::iterator to_merge_start = itr_in_cur_chunks;
-    std::vector<memory_chunk_t *>::iterator to_merge_end =
+    std::vector<MemoryChunk *>::iterator to_merge_start = itr_in_cur_chunks;
+    std::vector<MemoryChunk *>::iterator to_merge_end =
         itr_in_cur_chunks + 1;
     // look left to see any one we can merge with
     for (auto itr = itr_in_cur_chunks;; --itr) {
-      if ((*itr)->free_) {
+      if ((*itr)->isfree) {
         to_merge_start = itr;
       } else {
         break;
       }
-      if (itr == cur_chunks_.begin()) {
+      if (itr == curChunks.begin()) {
         break;
       }
     }
     // look right to see any one we can merge with
-    for (auto itr = itr_in_cur_chunks + 1; itr != cur_chunks_.end(); ++itr) {
-      if ((*itr)->free_) {
+    for (auto itr = itr_in_cur_chunks + 1; itr != curChunks.end(); ++itr) {
+      if ((*itr)->isfree) {
         to_merge_end = itr + 1;
       } else {
         break;
@@ -592,72 +592,72 @@ struct memory_state {
     }
     if (to_merge_end - to_merge_start > 1) {
       // do merge
-      chunks_.emplace_back(std::make_unique<merged_chunk_t>(
-          std::vector<memory_chunk_t *>(to_merge_start, to_merge_end)));
+      chunks.emplace_back(std::make_unique<MergedChunk>(
+          std::vector<MemoryChunk *>(to_merge_start, to_merge_end)));
 
       // remove merged chunks from free list and cur_chunk list
       for (auto itr = to_merge_start; itr != to_merge_end; ++itr) {
         auto chunk = *itr;
-        remove_chunk_from_free_list(chunk);
+        removeChunkFromFreeList(chunk);
       }
       // add merged chunk to cur_chunks and free_chunks_by_size
-      *to_merge_start = chunks_.back().get();
-      chunks_.back()->last_freed_tick_ = tick_;
-      add_chunk_to_free_list(chunks_.back().get());
-      cur_chunks_.erase(to_merge_start + 1, to_merge_end);
+      *to_merge_start = chunks.back().get();
+      chunks.back()->lastFreedTick = tick;
+      addChunkToFreeList(chunks.back().get());
+      curChunks.erase(to_merge_start + 1, to_merge_end);
     }
     // else, no chunks are merged, do nothing
   }
 
   void dealloc(uintptr_t bufferid) {
-    auto alocitr = allocations_.find(bufferid);
-    assert(alocitr != allocations_.end() &&
+    auto alocitr = allocations.find(bufferid);
+    assert(alocitr != allocations.end() &&
            "Cannot find buffer id in allocations");
-    auto itr = cur_allocations_.find(bufferid);
-    if (itr != cur_allocations_.end()) {
-      itr->second->is_inplace_split_remainder_ = false;
+    auto itr = curAllocations.find(bufferid);
+    if (itr != curAllocations.end()) {
+      itr->second->isInplaceSplitRemainder = false;
       dealloc(itr->second);
-      cur_allocations_.erase(itr);
+      curAllocations.erase(itr);
     }
   }
 
-  std::string to_string() const {
+  std::string toString() const {
     std::stringstream ss;
-    ss << "total size " << current_alloc_size_ << " ";
+    ss << "total size " << currentAllocSize << " ";
     size_t cur_offset = 0;
-    for (auto buf : cur_chunks_) {
-      ss << "| " << cur_offset << ',' << buf->size_ << ',' << buf->free_ << " ";
-      cur_offset += buf->size_;
+    for (auto buf : curChunks) {
+      ss << "| " << cur_offset << ',' << buf->size << ',' << buf->isfree << " ";
+      cur_offset += buf->size;
     }
     return ss.str();
   }
 };
 
-size_t schedule_memory_allocations(
-    const Traces &traces, std::size_t alignment, bool hot_first,
-    const inplace_info_map &inplace_map,
-    std::unordered_map<uintptr_t, std::size_t> &out_schedule,
+size_t scheduleMemoryAllocations(
+    const Traces &traces, std::size_t alignment, bool hotFirst,
+    const InplaceInfoMap &inplaceMap,
+    std::unordered_map<uintptr_t, std::size_t> &outSchedule,
     std::unordered_map<uintptr_t, std::vector<uintptr_t>>
-        &out_inplace_selection) {
-  memory_state planner{alignment, hot_first, inplace_map,
-                       out_inplace_selection};
+        &outInplaceSelection) {
+  MemoryState planner{alignment, hotFirst, inplaceMap,
+                       outInplaceSelection};
   for (auto &trace : traces) {
     if (trace.size > 0) {
       planner.alloc(trace.bufferId, trace.size);
       DEBUG_WITH_TYPE("memplan", llvm::dbgs() << "Alloc " << trace.bufferId
                                               << ", sz=" << trace.size << "\n"
-                                              << planner.to_string() << "\n");
+                                              << planner.toString() << "\n");
     } else {
       planner.dealloc(trace.bufferId);
       DEBUG_WITH_TYPE("memplan", llvm::dbgs()
                                      << "Dealloc " << trace.bufferId << "\n"
-                                     << planner.to_string() << "\n");
+                                     << planner.toString() << "\n");
     }
   }
-  for (auto &kv : planner.allocations_) {
-    out_schedule[kv.first] = kv.second->get_start_offset();
+  for (auto &kv : planner.allocations) {
+    outSchedule[kv.first] = kv.second->getStartOffset();
   }
-  return planner.current_alloc_size_;
+  return planner.currentAllocSize;
 }
 
 } // namespace memoryplan

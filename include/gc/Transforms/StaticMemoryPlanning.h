@@ -22,7 +22,7 @@ class Operation;
 namespace gc {
 
 namespace memoryplan {
-enum class inplace_kind {
+enum class InplaceKind {
   ZERO_OFFSET, // this requires that the tensor share the same base
                // pointer of the replaced tensor
   FREE,        // the tensor can freely choose any offset on this tensor
@@ -40,10 +40,10 @@ struct MemoryTrace {
 using ScopeTraceData =
     llvm::DenseMap<Operation *, llvm::SmallVector<memoryplan::MemoryTrace, 8>>;
 using Traces = llvm::SmallVector<memoryplan::MemoryTrace, 8>;
-using inplace_info = std::pair<uintptr_t, inplace_kind>;
+using InplaceInfo = std::pair<uintptr_t, InplaceKind>;
 
-using inplace_info_map =
-    llvm::DenseMap<uintptr_t, llvm::SmallVector<inplace_info>>;
+using InplaceInfoMap =
+    llvm::DenseMap<uintptr_t, llvm::SmallVector<InplaceInfo>>;
 
 /**
  * Given a list of memory buffer alloc and free traces, try to use a large
@@ -51,20 +51,20 @@ using inplace_info_map =
  * buffer from the large buffer for better memory reuse.
  * @param traces the list of memory alloc and free traces, sorted by event time.
  * @param alignment the alignment in number of elements
- * @param hot_first use the hot buffer first, instead of using best fit in size
- * @param inplace_map the map from the tensor to alloc into the candidate
+ * @param hotFirst use the hot buffer first, instead of using best fit in size
+ * @param inplaceMap the map from the tensor to alloc into the candidate
  * tensors that can be inplace reused for it.
- * @param out_schedule the output schedule for each buffer: the location that
+ * @param outSchedule the output schedule for each buffer: the location that
  * the buffer should be in the large buffer (as an offset in number of elements)
- * @param out_inplace_selection the output buffer id -> inplace buffer it reuses
+ * @param outInplaceSelection the output buffer id -> inplace buffer it reuses
  * @return the size of the large buffer, in number of elements
  * */
-std::size_t schedule_memory_allocations(
-    const Traces &traces, std::size_t alignment, bool hot_first,
-    const inplace_info_map &inplace_map,
-    std::unordered_map<uintptr_t, std::size_t> &out_schedule,
+std::size_t scheduleMemoryAllocations(
+    const Traces &traces, std::size_t alignment, bool hotFirst,
+    const InplaceInfoMap &inplaceMap,
+    std::unordered_map<uintptr_t, std::size_t> &outSchedule,
     std::unordered_map<uintptr_t, std::vector<uintptr_t>>
-        &out_inplace_selection);
+        &outInplaceSelection);
 
 } // namespace memoryplan
 
