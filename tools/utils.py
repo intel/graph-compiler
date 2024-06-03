@@ -98,7 +98,6 @@ def get_mlir_args(module: ir.Module, entry: str, np_args: List[np.ndarray]):
     f = get_kernel_func_from_module(module, entry)
     compiled_func_args = []
     for res in f.type.results:
-        print(str(res.element_type))
         compiled_func_args.append(
             ctypes.pointer(
                 ctypes.pointer(
