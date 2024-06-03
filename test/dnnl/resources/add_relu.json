@@ -17,7 +17,7 @@
       "attrs": {
         "auto_broadcast": {
           "type": "string",
-          "value": "numpy"
+          "value": "none"
         }
       },
       "inputs": [
