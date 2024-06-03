@@ -45,8 +45,8 @@ func.func @llama2_mlp(%2: tensor<1x32x4096xbf16>, %3: tensor<4096x4096xbf16>, %1
 }
 
 func.func @main() {
-  %cst0 = arith.constant 0.000000e+00 : bf16
-  %cst1 = arith.constant 0.000000e+00 : f32
+  %cst0 = arith.constant 1.000000e+00 : bf16
+  %cst1 = arith.constant 1.000000e+00 : f32
 
   %e2  = tensor.empty() : tensor<1x32x4096xbf16>
   %e3  = tensor.empty() : tensor<4096x4096xbf16>
@@ -75,6 +75,11 @@ func.func @main() {
   tensor<11008x4096xbf16>, tensor<11008x4096xbf16>, tensor<4096x11008xbf16>, tensor<1xf32>, tensor<4096xbf16>) 
     -> (tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>)
 
+  %idx = arith.constant 0 : index
+  %ex = tensor.extract %61[%idx, %idx, %idx] : tensor<1x32x4096xbf16>
+  %ext = arith.extf %ex : bf16 to f32
+  cpuruntime.printf "output[0, 0, 0]: %f\n" %ext : f32
+
   return
 }
-// CHECK-NOT: any
+// CHECK: output[0, 0, 0]: 1.0
