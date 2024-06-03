@@ -540,8 +540,8 @@ struct ConvertOneDNNGraphToLinalg
         ReduceMeanOpLowering
         // clang-format on
         >(ctx);
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+    if (failed(applyPartialConversion(getOperation(), target,
+                                      std::move(patterns)))) {
       signalPassFailure();
     }
   }
