@@ -8,12 +8,12 @@ func.func @sigmoid(%arg0: tensor<4x256x64xbf16>, %arg1: tensor<4x256x64xbf16>) -
 }
 
 // CHECK-LABEL: @mm2d_vnni
-func.func @mm2d_vnni(%arg0: tensor<256x64xf32>, %arg1: tensor<16x2x8x32x4xf32>, 
-                      %arg2: tensor<256x512xf32>) -> tensor<256x512xf32> {
+func.func @mm2d_vnni(%arg0: tensor<256x64xi8>, %arg1: tensor<16x2x8x32x4xi8>, 
+                      %arg2: tensor<256x512xi8>) -> tensor<256x512xi8> {
   // CHECK: linalgx.mm2d_vnni
-  %0 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<256x64xf32>, tensor<16x2x8x32x4xf32>) 
-                          outs(%arg2 : tensor<256x512xf32>) -> tensor<256x512xf32>
-  return %0 : tensor<256x512xf32>
+  %0 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<256x64xi8>, tensor<16x2x8x32x4xi8>) 
+                          outs(%arg2 : tensor<256x512xi8>) -> tensor<256x512xi8>
+  return %0 : tensor<256x512xi8>
 }
 
 // CHECK-LABEL: @mm4d_vnni
@@ -26,12 +26,12 @@ func.func @mm4d_vnni(%arg0: tensor<2x8x32x32xbf16>, %arg1: tensor<4x8x16x32x2xbf
 }
 
 // CHECK-LABEL: @batch_reduce_matmul_vnni
-func.func @batch_reduce_matmul_vnni(%arg0: tensor<512x32x64xbf16>, %arg1: tensor<512x16x128x4xbf16>, 
-                      %arg2: tensor<32x128xbf16>) -> tensor<32x128xbf16> {
+func.func @batch_reduce_matmul_vnni(%arg0: tensor<512x32x64xbf16>, %arg1: tensor<512x32x128x2xbf16>, 
+                      %arg2: tensor<32x128xf32>) -> tensor<32x128xf32> {
   // CHECK: linalgx.batch_reduce_matmul_vnni
-  %0 = linalgx.batch_reduce_matmul_vnni ins(%arg0, %arg1 : tensor<512x32x64xbf16>, tensor<512x16x128x4xbf16>) 
-                          outs(%arg2 : tensor<32x128xbf16>) -> tensor<32x128xbf16>
-  return %0 : tensor<32x128xbf16>
+  %0 = linalgx.batch_reduce_matmul_vnni ins(%arg0, %arg1 : tensor<512x32x64xbf16>, tensor<512x32x128x2xbf16>) 
+                          outs(%arg2 : tensor<32x128xf32>) -> tensor<32x128xf32>
+  return %0 : tensor<32x128xf32>
 }
 
 // CHECK-LABEL: @multi_batch_matmul

@@ -212,10 +212,15 @@ LogicalResult Mm2DVnniOp::verify() {
   bool matchK =
       shapeA.getDimSize(1) ==
       (shapeB.getDimSize(1) * shapeB.getDimSize(2) * shapeB.getDimSize(4));
-  bool matchVnni = (shapeB.getDimSize(4) == 2) || (shapeB.getDimSize(4) == 4);
-  bool result = matchM && matchN && matchK && matchVnni;
+  bool result = matchM && matchN && matchK;
   if (!result)
     return emitOpError() << "input/output dims packing not match.";
+  // match vnni dim: bf16 == 2; i8 == 4
+  auto dataSize = DataLayout().getTypeSizeInBits(shapeB.getElementType());
+  bool matchVnni = (shapeB.getDimSize(4) == 2 && dataSize == 16) ||
+                   (shapeB.getDimSize(4) == 4 && dataSize == 8);
+  if (!matchVnni)
+    return emitOpError() << "input b vnni dim not valid.";
   return success();
 }
 
@@ -347,11 +352,15 @@ LogicalResult Mm4DVnniOp::verify() {
   bool matchK0 = shapeA.getDimSize(1) == shapeB.getDimSize(1);
   bool matchK =
       shapeA.getDimSize(3) == (shapeB.getDimSize(2) * shapeB.getDimSize(4));
-  bool matchVnni = (shapeB.getDimSize(4) == 2) || (shapeB.getDimSize(4) == 4);
-  bool result = matchM0 && matchM1 && matchN0 && matchN1 && matchK0 && matchK &&
-                matchVnni;
+  bool result = matchM0 && matchM1 && matchN0 && matchN1 && matchK0 && matchK;
   if (!result)
     return emitOpError() << "input/output dims packing not match.";
+  // match vnni dim: bf16 == 2; i8 == 4
+  auto dataSize = DataLayout().getTypeSizeInBits(shapeB.getElementType());
+  bool matchVnni = (shapeB.getDimSize(4) == 2 && dataSize == 16) ||
+                   (shapeB.getDimSize(4) == 4 && dataSize == 8);
+  if (!matchVnni)
+    return emitOpError() << "input b vnni dim not valid.";
   return success();
 }
 
@@ -482,10 +491,15 @@ LogicalResult BatchReduceMatmulVnniOp::verify() {
   bool matchN = shapeB.getDimSize(2) == shapeC.getDimSize(1);
   bool matchK =
       shapeA.getDimSize(2) == (shapeB.getDimSize(1) * shapeB.getDimSize(3));
-  bool matchVnni = (shapeB.getDimSize(3) == 2) || (shapeB.getDimSize(3) == 4);
-  bool result = matchB && matchM && matchN && matchK && matchVnni;
+  bool result = matchB && matchM && matchN && matchK;
   if (!result)
     return emitOpError() << "input/output dims packing not match.";
+  // match vnni dim: bf16 == 2; i8 == 4
+  auto dataSize = DataLayout().getTypeSizeInBits(shapeB.getElementType());
+  bool matchVnni = (shapeB.getDimSize(3) == 2 && dataSize == 16) ||
+                   (shapeB.getDimSize(3) == 4 && dataSize == 8);
+  if (!matchVnni)
+    return emitOpError() << "input b vnni dim not valid.";
   return success();
 }
 
