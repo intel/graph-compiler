@@ -48,7 +48,7 @@ if __name__ == "__main__":
         
     
         entry = "main_entry"
-        mlir_args = get_mlir_args(get_kernel_func_from_module(module, entry), [arg0, arg1])
+        mlir_args = get_mlir_args(module, entry, [arg0, arg1])
         passes = "any(gc-cpu-pipeline)"
         cost = py_timeit_bench(
             ctx,

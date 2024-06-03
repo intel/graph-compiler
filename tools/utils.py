@@ -18,17 +18,18 @@
 import ctypes
 from typing import List
 
+import ml_dtypes
 import numpy as np
+from enhanced_np_to_memref import (
+    BF16,
+    get_ranked_memref_descriptor,
+    make_nd_memref_descriptor,
+)
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
 
-# from enhanced_np_to_memref import *
-from gc_mlir.runtime import *
-
-# import ml_dtypes
-
-
 mlir_to_numpy_type = {
+    "bf16": ml_dtypes.bfloat16,
     "f32": np.float32,
     "f64": np.float64,
     "i8": np.int8,
@@ -36,18 +37,12 @@ mlir_to_numpy_type = {
     "i64": np.int64,
 }
 
-numpy_to_c_type = {
-    "float32": ctypes.c_float,
-    "float64": ctypes.c_double,
-    "int32": ctypes.c_int,
-    "int8": ctypes.c_byte,
-}
-
 mlir_to_c_type = {
     "f32": ctypes.c_float,
     "f64": ctypes.c_double,
     "i32": ctypes.c_int,
     "i8": ctypes.c_byte,
+    "bf16": BF16,
 }
 
 
@@ -88,8 +83,6 @@ def emit_benchmark_wrapped_main_func(
     return wrapped_func
 
 
-def numpy_to_ctype(np_dtype):
-    return numpy_to_c_type[str(np_dtype)]
 
 
 def np_args_to_mlir_args(np_args: List[np.ndarray]) -> List:
