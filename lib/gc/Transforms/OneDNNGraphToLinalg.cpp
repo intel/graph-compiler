@@ -31,8 +31,8 @@ using namespace mlir::onednn_graph;
 namespace mlir {
 namespace onednn_graph {
 SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t>, int64_t);
-SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t>, int64_t);
-SmallVector<int64_t> inferReducedShape(ShapedType, ArrayRef<int64_t>, bool);
+SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t>, int64_t, bool);
+SmallVector<int64_t> inferReducedShape(ShapedType, ArrayRef<int64_t>, bool, bool);
 } // namespace onednn_graph
 namespace gc {
 #define GEN_PASS_DEF_CONVERTONEDNNGRAPHTOLINALG
@@ -312,9 +312,9 @@ struct ReduceOpLowering : public OpRewritePattern<ReduceOp> {
     }
     // Get params
     auto operandTy = cast<ShapedType>(op.getOperand().getType());
-    auto reducedShape = inferReducedShape(operandTy, op.getAxes(), false);
     auto reduceAxes = canonicalizeReduceAxes(op.getAxes(), operandTy.getRank());
-    auto keepAxes = canonicalizeKeepAxes(op.getAxes(), operandTy.getRank());
+    auto keepAxes = canonicalizeKeepAxes(reduceAxes, operandTy.getRank(), true);
+    auto reducedShape = inferReducedShape(operandTy, reduceAxes, false, true);
     // replace Op with linalg/tensor
     auto newOp = createLoweredReduceOp(rewriter, op, reducedShape, keepAxes,
                                        reduceAxes, op.getKeepDims());

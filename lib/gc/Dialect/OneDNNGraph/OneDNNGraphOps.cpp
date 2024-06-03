@@ -59,9 +59,14 @@ SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
   return ret;
 }
 
-SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes,
-                                          int64_t rank) {
-  auto reduceAxes = canonicalizeReduceAxes(axes, rank);
+SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes, int64_t rank,
+                                          bool canonicalized = false) {
+  // get canonicalize reduce axes
+  SmallVector<int64_t> newCanonicalized =
+      canonicalized ? SmallVector<int64_t>{}
+                    : canonicalizeReduceAxes(axes, rank);
+  auto reduceAxes = canonicalized ? axes : ArrayRef<int64_t>(newCanonicalized);
+  // get kept axes
   SmallVector<int64_t> keepAxes;
   for (int64_t dim = 0, idx = 0; dim < rank; dim++) {
     if (idx < (int64_t)reduceAxes.size() && reduceAxes[idx] == dim) {
@@ -74,9 +79,14 @@ SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes,
 }
 
 SmallVector<int64_t> inferReducedShape(ShapedType operandShape,
-                                       ArrayRef<int64_t> axes, bool keepDims) {
+                                       ArrayRef<int64_t> axes, bool keepDims,
+                                       bool canonicalized = false) {
+  // get canonicalize reduce axes
+  SmallVector<int64_t> newCanonicalized =
+      canonicalized ? SmallVector<int64_t>{}
+                    : canonicalizeReduceAxes(axes, operandShape.getRank());
+  auto reduceAxes = canonicalized ? axes : ArrayRef<int64_t>(newCanonicalized);
   // get reduce axis one by one
-  auto reduceAxes = canonicalizeReduceAxes(axes, operandShape.getRank());
   size_t index = 0;
   auto getNextReduceAxis = [&]() {
     return (index >= reduceAxes.size()) ? -1 : reduceAxes[index++];
