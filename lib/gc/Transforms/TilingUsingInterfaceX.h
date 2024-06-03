@@ -22,8 +22,9 @@ tileAndFuseProducerOfSlice(RewriterBase &rewriter,
 FailureOr<scf::SCFFuseConsumerOfSliceResult>
 tileAndFuseConsumerOfSlice(RewriterBase &rewriter, Operation *candidateSliceOp);
 
-SmallVector<LoopLikeOpInterface>
-getOuterLoopsOfSliceOp(OffsetSizeAndStrideOpInterface sliceOp);
+SmallVector<LoopLikeOpInterface> getOuterLoopsOfSliceOp(
+    OffsetSizeAndStrideOpInterface sliceOp,
+    std::optional<LoopLikeOpInterface> untilLoop = std::nullopt);
 
 /** Get the Result of top-level Loop which yield the target InsertSliceOp
  *
@@ -44,7 +45,8 @@ getOuterLoopsOfSliceOp(OffsetSizeAndStrideOpInterface sliceOp);
  */
 FailureOr<std::pair<Value, SmallVector<OffsetSizeAndStrideOpInterface>>>
 getResultOfTopLevelLoopYieldInsertSliceOp(
-    OffsetSizeAndStrideOpInterface targetSliceOp, int curDepth = 0);
+    OffsetSizeAndStrideOpInterface targetSliceOp, int curDepth = 0,
+    int maxDepth = 5);
 } // namespace scfX
 } // namespace mlir
 
