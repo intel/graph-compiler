@@ -18,6 +18,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
+#include <llvm/Support/Debug.h>
 
 namespace mlir {
 namespace gc {
@@ -27,17 +28,9 @@ using namespace mlir;
 class TensorLayout {
 public:
   TensorLayout(ArrayRef<int64_t> outerAxis, ArrayRef<int64_t> innerAxis,
-               ArrayRef<OpFoldResult> tileSizes) {
+               ArrayRef<OpFoldResult> tileSizes)
+      : OuterAxis(outerAxis), InnerAxis(innerAxis), TileSizes(tileSizes) {
     assert(innerAxis.size() == tileSizes.size());
-    for (auto oa : outerAxis) {
-      OuterAxis.push_back(oa);
-    }
-    for (auto ia : innerAxis) {
-      InnerAxis.push_back(ia);
-    }
-    for (auto ts : tileSizes) {
-      TileSizes.push_back(ts);
-    }
   }
 
   bool isPlainLayout() const {
@@ -55,25 +48,22 @@ public:
                         SmallVector<OpFoldResult>{});
   }
 
-  static DenseMap<int64_t, SmallVector<int64_t>>
-  getPlain2PackedMapping(TensorLayout layout) {
+  DenseMap<int64_t, SmallVector<int64_t>> getPlain2PackedMapping() {
     DenseMap<int64_t, SmallVector<int64_t>> p2b;
-    SmallVector<int64_t> outerAxis = layout.getOuterAxis();
-    SmallVector<int64_t> innerAxis = layout.getInnerAxis();
-    for (size_t i = 0; i < outerAxis.size(); ++i) {
-      p2b[outerAxis[i]].push_back(i);
+    for (size_t i = 0; i < OuterAxis.size(); ++i) {
+      p2b[OuterAxis[i]].push_back(i);
     }
-    for (size_t i = 0; i < innerAxis.size(); ++i) {
-      p2b[innerAxis[i]].push_back(outerAxis.size() + i);
+    for (size_t i = 0; i < InnerAxis.size(); ++i) {
+      p2b[InnerAxis[i]].push_back(InnerAxis.size() + i);
     }
     return p2b;
   }
 
   FailureOr<int64_t> getOriginalAxis(int64_t idx) {
-    size_t totalRank = OuterAxis.size() + InnerAxis.size();
+    int64_t totalRank = OuterAxis.size() + InnerAxis.size();
     if (idx >= totalRank) {
       return failure("Index out of range.");
-    } else if (idx >= OuterAxis.size()) {
+    } else if (idx >= static_cast<int64_t>(OuterAxis.size())) {
       return InnerAxis[idx - OuterAxis.size()];
     } else {
       return OuterAxis[idx];
@@ -88,7 +78,8 @@ public:
 
   SmallVector<OpFoldResult> getTileSizes() const { return TileSizes; }
 
-  friend std::ostream &operator<<(std::ostream &ss, const TensorLayout &layout);
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
+                                       const TensorLayout &layout);
 
   bool operator==(const TensorLayout &layout);
 
@@ -121,8 +112,8 @@ public:
     return supportedOutputLayouts[idx];
   }
 
-  friend std::ostream &operator<<(std::ostream &ss,
-                                  const OperatorLayout &opLayout);
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
+                                       const OperatorLayout &opLayout);
 
 private:
   SmallVector<TensorLayout> supportedInputLayouts;
@@ -134,14 +125,14 @@ public:
   explicit GlobalAnalysis(Operation *root);
 
   FailureOr<OperatorLayout> getOpLayout(Operation *op) {
-    if (layout.find(op) != layout.end())
-      return layout[op];
+    if (layoutCache.find(op) != layoutCache.end())
+      return layoutCache[op];
     else
       return failure("Current op does not have layout information.");
   }
 
 private:
-  DenseMap<Operation *, OperatorLayout> layout;
+  DenseMap<Operation *, OperatorLayout> layoutCache;
 };
 
 } // namespace gc

@@ -1,4 +1,5 @@
-//===- PropagateLayout.cpp - Propagate packing on linalg named ops*- C++-*-===//
+//===- PropagateLayoutOnNamedOps.cpp - Propagate packing on linalg named ops*-
+// C++-*-===//
 //
 // This file is only temporarily used to extend upstream or upcoming utility in
 // TilingInterface, which finally aims for upstream.
@@ -8,7 +9,7 @@
 #include <iostream>
 #include <numeric>
 
-#include "gc/Analysis/GlobalAnalysis.h"
+#include "gc/Transforms/Transforms.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -23,8 +24,10 @@
 #include "gc/Transforms/Passes.h"
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_PROPAGATELAYOUT
+#define GEN_PASS_DEF_PROPAGATELAYOUTONNAMEDOPS
 #include "gc/Transforms/Passes.h.inc"
+
+#define DEBUG_TYPE "named-op-layout-propagation"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -54,9 +57,9 @@ static SmallVector<int64_t> getPackedPermAxes(ArrayRef<int64_t> plainPermAxes,
       outputLayout.getInnerAxis().size() + outputLayout.getOuterAxis().size();
   SmallVector<int64_t> result(packedRank, 0);
   SmallVector<int64_t> inputCount(inputLayout.getOuterAxis().size(), 0);
-  auto inputP2B = TensorLayout::getPlain2PackedMapping(inputLayout);
+  auto inputP2B = inputLayout.getPlain2PackedMapping();
   for (size_t i = 0; i < packedRank; ++i) {
-    // packedOutput[i] --> output[?]
+    // packedOutput[i] --> originalOutputAxis --> originalInputAxis
     size_t originalOutputAxis = *outputLayout.getOriginalAxis(i);
     size_t originalInputAxis = plainPermAxes[originalOutputAxis];
     SmallVector<int64_t> packedInputAxes = inputP2B[originalInputAxis];
@@ -65,15 +68,12 @@ static SmallVector<int64_t> getPackedPermAxes(ArrayRef<int64_t> plainPermAxes,
   return result;
 }
 
-// extends mlir/lib/Dialect/Linalg/Transforms/Transforms.cpp's linalg::pack
-static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
-                                                 linalg::LinalgOp linalgOp,
-                                                 OperatorLayout opLayout) {
-  std::cout << "----------------------------------" << std::endl;
-  std::cout << " Visiting op in packNamedOp ";
-  linalgOp->getName().print(llvm::errs());
-  std::cout << std::endl;
-  std::cout << "----------------------------------" << std::endl;
+// extends linalg::pack(...) for named ops
+FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
+                                          linalg::LinalgOp linalgOp,
+                                          OperatorLayout opLayout) {
+  LLVM_DEBUG(llvm::dbgs() << "Try packing named op "
+                          << linalgOp.getOperation()->getName() << ".\n");
   Location loc = linalgOp->getLoc();
   SmallVector<AffineMap> indexingMaps = linalgOp.getIndexingMapsArray();
   SmallVector<utils::IteratorType> iteratorTypes =
@@ -85,31 +85,27 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
   SmallVector<OpOperand *> initOperands = llvm::to_vector(llvm::map_range(
       linalgOp.getDpsInitsMutable(), [](OpOperand &o) { return &o; }));
   SmallVector<OpOperand *> inputOperands = linalgOp.getDpsInputOperands();
-  std::cout << "Num of input operands: " << inputOperands.size() << std::endl;
-  std::cout << "Num of init operands: " << initOperands.size() << std::endl;
   SmallVector<TensorLayout> inputLayouts = opLayout.getSupportedInputLayouts();
   SmallVector<TensorLayout> initLayouts = opLayout.getSupportedOutputLayouts();
-  std::cout << "Num of input layouts: " << inputLayouts.size() << std::endl;
-  std::cout << "Num of init layouts: " << initLayouts.size() << std::endl;
-
   // check all inputs and inits are tensor, otherwise no need for layout
   // propagation
   bool allTensor =
       llvm::all_of(inputOperands,
                    [](OpOperand *opOperand) {
-                     return opOperand->get().getType().isa<TensorType>();
+                     return mlir::isa<TensorType>(opOperand->get().getType());
                    }) &&
       llvm::all_of(initOperands, [](OpOperand *opOperand) {
-        return opOperand->get().getType().isa<TensorType>();
+        return mlir::isa<TensorType>(opOperand->get().getType());
       });
-  std::cout << "The op's input is all tensor?" << allTensor << std::endl;
   if (!allTensor) {
-    return failure("the op does not need packing.");
+    LLVM_DEBUG(llvm::dbgs() << "At least one input of named op: "
+                            << linalgOp.getOperation()->getName()
+                            << " is not tensor. Skip.\n");
+    return failure("The op does not need packing.");
   }
   for (const auto &operandsList : {inputOperands, initOperands}) {
     for (OpOperand *opOperand : operandsList) {
-      int64_t pos = opOperand->getOperandNumber();
-      std::cout << "pos: " << pos << std::endl;
+      size_t pos = opOperand->getOperandNumber();
       Value operand = opOperand->get();
       TensorLayout targetLayout = pos >= inputLayouts.size()
                                       ? initLayouts[pos - inputLayouts.size()]
@@ -117,16 +113,6 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
       SmallVector<int64_t> outerPerm = targetLayout.getOuterAxis();
       SmallVector<int64_t> innerPos = targetLayout.getInnerAxis();
       SmallVector<OpFoldResult> innerPackSizes = targetLayout.getTileSizes();
-
-      std::cout << "Suggested layout: " << targetLayout << std::endl;
-
-      std::cout << "Operand shape: ";
-      for (auto dim :
-           llvm::cast<RankedTensorType>(operand.getType()).getShape()) {
-        std::cout << dim << ", ";
-      }
-      std::cout << std::endl;
-
       Value dest = tensor::PackOp::createDestinationTensor(
           rewriter, loc, operand, innerPackSizes, innerPos, outerPerm);
       ShapedType operandType = cast<ShapedType>(operand.getType());
@@ -160,8 +146,7 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
       ValueRange{inputsAndInits}.take_front(linalgOp.getNumDpsInputs());
   ValueRange inits =
       ValueRange{inputsAndInits}.take_back(linalgOp.getNumDpsInits());
-  // TODO(yifei): deal with reduce/broadcast/transpose
-  // TODO(yifei): deal with generic
+  // TODO: deal with generic
   linalg::LinalgOp packedLinalgOp;
   if (auto reduceOp = dyn_cast<linalg::ReduceOp>(&linalgOp)) {
     SmallVector<int64_t> packedAxes =
@@ -214,49 +199,63 @@ static FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
       unPackOps};
 }
 
-class PropagateLayout : public impl::PropagateLayoutBase<PropagateLayout> {
+using ControlPackNamedOpsFn =
+    std::function<FailureOr<OperatorLayout>(Operation *)>;
+
+class PropagateLayoutOnNamedOps
+    : public impl::PropagateLayoutOnNamedOpsBase<PropagateLayoutOnNamedOps> {
 public:
-  using impl::PropagateLayoutBase<PropagateLayout>::PropagateLayoutBase;
+  using impl::PropagateLayoutOnNamedOpsBase<
+      PropagateLayoutOnNamedOps>::PropagateLayoutOnNamedOpsBase;
   void runOnOperation() final;
 };
 
-void PropagateLayout::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  mlir::Operation *graph = getOperation();
+LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
+                                       ControlPackNamedOpsFn controlFn) {
   IRRewriter rewriter(ctx);
-  // walk the entire graph
-  auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
-  SmallVector<Operation *> packTODOList;
-  graph->walk([&](Operation *op) {
+  auto walk = graph->walk([&](Operation *op) {
+    FailureOr<OperatorLayout> opLayout = controlFn(op);
     if (isa<linalg::LinalgOp>(op) && !mlir::linalg::isaContractionOpInterface(
                                          dyn_cast<linalg::LinalgOp>(op))) {
-      packTODOList.push_back(op);
-    }
-  });
-  for (auto op : packTODOList) {
-    std::cout << std::endl;
-    std::cout << "----------------------------------" << std::endl;
-    std::cout << "Visiting op ";
-    op->getName().print(llvm::errs());
-    std::cout << std::endl;
-    std::cout << "----------------------------------" << std::endl;
-    FailureOr<OperatorLayout> opLayout = layoutAnalysisResult.getOpLayout(op);
-    if (failed(opLayout)) {
-      std::cout << "infer failed" << std::endl;
-    } else {
-      // pack op into ideal layout
-      std::cout << "-------- supported layouts -------" << std::endl;
-      std::cout << *opLayout << std::endl;
-      // insert pack
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPoint(op);
-      if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-        FailureOr<linalg::PackResult> packedOp =
-            packNamedOp(rewriter, linalgOp, *opLayout);
+      if (failed(opLayout)) {
+        LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName()
+                                << "does not have layout information.\n");
+        return WalkResult::skip();
+      } else {
+        // pack op into ideal layout
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Op " << op->getName() << "'s inferred layout:\n"
+                   << *opLayout << "\n");
+        // insert pack
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPoint(op);
+        if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+          FailureOr<linalg::PackResult> packedOp =
+              packNamedOp(rewriter, linalgOp, *opLayout);
+          if (failed(packedOp)) {
+            return WalkResult::skip();
+          }
+        }
       }
+    } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
     }
-  }
-  graph->dump();
+    return WalkResult::advance();
+  });
+  if (walk.wasSkipped())
+    return failure();
+  return success();
+}
+
+void PropagateLayoutOnNamedOps::runOnOperation() {
+  MLIRContext *ctx = &getContext();
+  mlir::Operation *graph = getOperation();
+  ControlPackNamedOpsFn controlFn =
+      [&](Operation *op) -> FailureOr<OperatorLayout> {
+    auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
+    return layoutAnalysisResult.getOpLayout(op);
+  };
+  if (failed(namedOpLayoutPropagation(ctx, graph, controlFn)))
+    return signalPassFailure();
 }
 
 } // namespace gc

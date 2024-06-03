@@ -12,10 +12,13 @@
 namespace mlir {
 namespace gc {
 
-std::ostream &operator<<(std::ostream &ss, const TensorLayout &layout) {
-  SmallVector<int64_t> outerAxis = layout.getOuterAxis();
-  SmallVector<int64_t> innerAxis = layout.getInnerAxis();
-  SmallVector<OpFoldResult> tileSizes = layout.getTileSizes();
+#define DEBUG_TYPE "global-analysis"
+
+llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
+                              const TensorLayout &layoutCache) {
+  SmallVector<int64_t> outerAxis = layoutCache.getOuterAxis();
+  SmallVector<int64_t> innerAxis = layoutCache.getInnerAxis();
+  SmallVector<OpFoldResult> tileSizes = layoutCache.getTileSizes();
   ss << "[";
   for (size_t i = 0; i < outerAxis.size(); ++i) {
     if (i != 0) {
@@ -43,21 +46,21 @@ std::ostream &operator<<(std::ostream &ss, const TensorLayout &layout) {
   return ss;
 }
 
-bool TensorLayout::operator==(const TensorLayout &layout) {
-  return (this->OuterAxis == layout.getOuterAxis()) &&
-         (this->InnerAxis == layout.getInnerAxis()) &&
-         (this->TileSizes == layout.getTileSizes());
+bool TensorLayout::operator==(const TensorLayout &layoutCache) {
+  return (this->OuterAxis == layoutCache.getOuterAxis()) &&
+         (this->InnerAxis == layoutCache.getInnerAxis()) &&
+         (this->TileSizes == layoutCache.getTileSizes());
 }
 
-std::ostream &operator<<(std::ostream &ss, const OperatorLayout &opLayout) {
-  ss << "operator has " << opLayout.getSupportedInputLayouts().size()
-     << " inputs; " << opLayout.getSupportedOutputLayouts().size()
-     << " outputs." << std::endl;
-  for (const auto &layout : opLayout.getSupportedInputLayouts()) {
-    ss << "input layout: " << layout << std::endl;
+llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
+                              const OperatorLayout &opLayout) {
+  for (auto &&[idx, layoutCache] :
+       llvm::enumerate(opLayout.getSupportedInputLayouts())) {
+    ss << "input " << idx << "'s layoutCache: " << layoutCache << "\n";
   }
-  for (const auto &layout : opLayout.getSupportedOutputLayouts()) {
-    ss << "output layout: " << layout << std::endl;
+  for (auto &&[idx, layoutCache] :
+       llvm::enumerate(opLayout.getSupportedOutputLayouts())) {
+    ss << "output " << idx << "'s layoutCache: " << layoutCache << "\n";
   }
   return ss;
 }
@@ -119,7 +122,6 @@ getReversedIndexMap(const DenseMap<int64_t, int64_t> &indexMap,
 static FailureOr<TensorLayout>
 inferTargetLayout(TensorLayout layoutBase,
                   const DenseMap<int64_t, int64_t> &indexMap) {
-  int64_t dimDifference = indexMap.size() - layoutBase.getTensorRank();
   SmallVector<int64_t> baseOuterAxis = layoutBase.getOuterAxis();
   SmallVector<int64_t> baseInnerAxis = layoutBase.getInnerAxis();
   SmallVector<OpFoldResult> baseTileSizes = layoutBase.getTileSizes();
@@ -153,38 +155,24 @@ inferTargetLayout(TensorLayout layoutBase,
 
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   root->walk([&](Operation *op) {
+    // get input layouts
+    LLVM_DEBUG(llvm::dbgs()
+               << "Inferring layoutCache of op: " << op->getName() << "\n");
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-      // get input layouts
-      std::cout << std::endl;
-      std::cout << "----------------------------------" << std::endl;
-      linalgOp.getOperation()->getName().print(llvm::errs());
-      std::cout << std::endl;
-      std::cout << "----------------------------------" << std::endl;
-      std::cout << std::endl;
-      SmallVector<AffineMap> indexing_maps = linalgOp.getIndexingMapsArray();
       auto curInputs = linalgOp.getDpsInputOperands();
       auto curResults = linalgOp.getOperation()->getResults();
-
       // ---------------- Get Current Input Layouts -------------------
-      // get current input layouts
-      std::cout << "----- printing ground-truth input layouts -----"
-                << std::endl;
       SmallVector<TensorLayout> curInputLayouts;
       for (auto input : curInputs) {
         auto parent = input->get().getDefiningOp();
-        if (layout.find(parent) != layout.end()) {
+        if (layoutCache.find(parent) != layoutCache.end()) {
           // TODO(yifei): it is not always 0 here
-          curInputLayouts.push_back(layout[parent].getOutputLayout(0));
+          curInputLayouts.push_back(layoutCache[parent].getOutputLayout(0));
         } else {
           curInputLayouts.push_back(TensorLayout::createPlainLayout(
               linalgOp.getMatchingIndexingMap(input).getNumResults()));
         }
       }
-      // debug info
-      for (auto layout : curInputLayouts) {
-        std::cout << "layout: " << layout << std::endl;
-      }
-
       // ------ Get Current Op's Suggested Layout & Do Propagation ------
       IRRewriter rewriter(linalgOp);
       if (mlir::linalg::isaContractionOpInterface(linalgOp)) {
@@ -193,38 +181,33 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         // curInputLayouts);
 
         // hardcode one for now
-        // A side layout, [0, 1, 0, 1]; {32, 32}
+        // A side layoutCache, [0, 1, 0, 1]; {32, 32}
         TensorLayout A_layout(
             {0, 1}, {0, 1},
             SmallVector<OpFoldResult>{rewriter.getIndexAttr(32),
                                       rewriter.getIndexAttr(32)});
-        // B side layout, [1, 0, 0, 1]; {32, 32}
+        // B side layoutCache, [1, 0, 0, 1]; {32, 32}
         TensorLayout B_layout(
             {1, 0}, {0, 1},
             SmallVector<OpFoldResult>{rewriter.getIndexAttr(32),
                                       rewriter.getIndexAttr(32)});
-        // C side layout, [0, 1, 0, 1]; {32, 32}
+        // C side layoutCache, [0, 1, 0, 1]; {32, 32}
         TensorLayout C_layout(
             {0, 1}, {0, 1},
             SmallVector<OpFoldResult>{rewriter.getIndexAttr(32),
                                       rewriter.getIndexAttr(32)});
         OperatorLayout suggestedLayout({A_layout, B_layout}, {C_layout});
-        layout[linalgOp] = suggestedLayout;
+        layoutCache[linalgOp] = suggestedLayout;
       } else {
         SmallVector<TensorLayout> inputLayouts, outputLayouts;
         inputLayouts.push_back(curInputLayouts[0]);
         // TODO(yifei): wisely choose the input format basis
         // Let's only refer to input[0] for now
         for (size_t i = 1; i < curInputs.size(); ++i) {
-          std::cout << "inferring indexing map relation" << std::endl;
           // getMatchingIndexingMap
           auto res = inferIndexingMapRelation(
               linalgOp.getMatchingIndexingMap(curInputs[0]),
               linalgOp.getMatchingIndexingMap(curInputs[i]));
-          for (auto tp : *res) {
-            std::cout << "target index: " << tp.first
-                      << " maps to base index: " << tp.second << std::endl;
-          }
           TensorLayout inputLayout =
               *inferTargetLayout(curInputLayouts[0], *res);
           inputLayouts.push_back(inputLayout);
@@ -235,14 +218,66 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         TensorLayout outputLayout =
             *inferTargetLayout(curInputLayouts[0], *res_out);
         outputLayouts.push_back(outputLayout);
-        for (auto tp : *res_out) {
-          std::cout << "target index: " << tp.first
-                    << " maps to base index: " << tp.second << std::endl;
-        }
         OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
-        layout[linalgOp] = suggestedLayout;
+        layoutCache[linalgOp] = suggestedLayout;
       }
-    } else if (isa<tensor::PadOp>(op) || isa<tensor::ExpandShapeOp>(op)) {
+    } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
+      auto inputOperand = padOp.getSource();
+      auto inputRank =
+          cast<ShapedType>(inputOperand.getType()).getShape().size();
+      auto parent = inputOperand.getDefiningOp();
+      TensorLayout curInputLayout =
+          layoutCache.find(parent) != layoutCache.end()
+              ? layoutCache[parent].getOutputLayout(0)
+              : TensorLayout::createPlainLayout(inputRank);
+      SmallVector<TensorLayout> inputLayouts{curInputLayout},
+          outputLayouts{curInputLayout};
+      OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+      layoutCache[padOp] = suggestedLayout;
+    } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
+      auto reassociation = expandShapeOp.getReassociation();
+      auto staticOutputShape = expandShapeOp.getStaticOutputShape();
+      auto parent = expandShapeOp.getSrc().getDefiningOp();
+      auto inputShape = expandShapeOp.getSrcType().getShape();
+      TensorLayout curInputLayout =
+          layoutCache.find(parent) != layoutCache.end()
+              ? layoutCache[parent].getOutputLayout(0)
+              : TensorLayout::createPlainLayout(inputShape.size());
+      DenseMap<int64_t, int64_t> outputInputIdxMapping, inputOutputIndexMapping;
+      int64_t accumulationOffset = 0;
+      for (int64_t i = 0; i < static_cast<int64_t>(reassociation.size()); ++i) {
+        auto subReassociation = llvm::cast<ArrayAttr>(reassociation[i]);
+        for (int64_t j = 0; j < static_cast<int64_t>(subReassociation.size());
+             ++j) {
+          if (staticOutputShape[accumulationOffset + j] == inputShape[i]) {
+            outputInputIdxMapping[accumulationOffset + j] = i;
+            inputOutputIndexMapping[i] = accumulationOffset + j;
+          }
+        }
+        accumulationOffset += subReassociation.size();
+      }
+      auto inputOuterAxis = curInputLayout.getOuterAxis();
+      auto inputInnerAxis = curInputLayout.getInnerAxis();
+      int64_t startIdx = 0;
+      SmallVector<int64_t> outputOuterAxis, outputInnerAxis;
+      for (int64_t i = 0; i < static_cast<int64_t>(staticOutputShape.size());
+           ++i) {
+        if (outputInputIdxMapping.find(i) != outputInputIdxMapping.end()) {
+          outputOuterAxis.push_back(inputOuterAxis[outputInputIdxMapping[i]]);
+        } else {
+          outputOuterAxis.push_back(startIdx++);
+        }
+      }
+      for (int64_t i = 0; i < static_cast<int64_t>(inputInnerAxis.size());
+           ++i) {
+        outputInnerAxis.push_back(inputOutputIndexMapping[inputInnerAxis[i]]);
+      }
+      TensorLayout outputLayout(outputOuterAxis, outputInnerAxis,
+                                curInputLayout.getTileSizes());
+      SmallVector<TensorLayout> inputLayouts{curInputLayout},
+          outputLayouts{outputLayout};
+      OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+      layoutCache[expandShapeOp] = suggestedLayout;
     }
   });
 }
