@@ -170,23 +170,35 @@ public:
       bool shouldHoist = false;
       int64_t numThreads = 0;
       Value inductVar;
-      Operation *parentOp = state.placementBlock->getParentOp();
+      Block *curBlock = state.placementBlock;
+      Operation *parentOp = curBlock->getParentOp();
       if (isParallelLoop(parentOp)) {
         // Only hoist the allocators that are between nested parallel loops and
         // used inside the inner parallel loop.
         OpBuilder builder(parentOp);
-        for (auto *use : allocValue.getUsers()) {
-          Operation *parentOpOfUse = use->getBlock()->getParentOp();
-          if (parentOpOfUse && isParallelLoop(parentOpOfUse) &&
-              parentOpOfUse->getBlock() == state.placementBlock) {
-            shouldHoist = true;
+        // check if curBlock contains any forall ops
+        SmallVector<Operation *, 4> parallelOpsInCurBlock;
+        for (auto &op : curBlock->getOperations()) {
+          if (isParallelLoop(&op)) {
+            parallelOpsInCurBlock.push_back(&op);
+          }
+        }
+        MemRefType memrefType = dyn_cast<MemRefType>(allocValue.getType());
+        bool isStaticShape = memrefType && memrefType.hasStaticShape();
+        if (parallelOpsInCurBlock.size() > 0 && isStaticShape) {
+          for (auto *use : allocValue.getUsers()) {
+            for (auto *operation : parallelOpsInCurBlock) {
+              if (operation->isAncestor(use)) {
+                shouldHoist = true;
 
-            // only support scf.forall for now
-            if (auto parallelOp = dyn_cast<scf::ForallOp>(parentOp)) {
-              numThreads =
-                  getConstantIntValue(parallelOp.getUpperBound(builder)[0])
-                      .value();
-              inductVar = parallelOp.getInductionVar(0);
+                // only support scf.forall for now
+                if (auto parallelOp = dyn_cast<scf::ForallOp>(parentOp)) {
+                  numThreads =
+                      getConstantIntValue(parallelOp.getUpperBound(builder)[0])
+                          .value();
+                  inductVar = parallelOp.getInductionVar(0);
+                }
+              }
             }
           }
         }
