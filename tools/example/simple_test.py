@@ -27,6 +27,7 @@ if project_dir not in sys.path:
     sys.path.insert(0, project_dir)
 
 import ml_dtypes
+import torch
 from bench import py_timeit_bench
 from enhanced_np_to_memref import ranked_memref_to_numpy
 from utils import get_mlir_args
@@ -36,20 +37,25 @@ if __name__ == "__main__":
         module = ir.Module.parse(
             """
             module {
-                func.func @main_entry(%arg0:tensor<10x10xbf16>, %arg1:tensor<10x10xbf16>, %arg2:tensor<10xbf16>) -> tensor<10x10xbf16> attributes {llvm.emit_c_interface} {
-                    %0 = onednn_graph.matmul %arg0, %arg1, %arg2 : (tensor<10x10xbf16>, tensor<10x10xbf16>, tensor<10xbf16>) -> tensor<10x10xbf16>
+                func.func @main_entry(%arg0:tensor<10x10xbf16>, %arg1:tensor<10x10xbf16>) -> tensor<10x10xbf16> attributes {llvm.emit_c_interface} {
+                    %0 = onednn_graph.matmul %arg0, %arg1: (tensor<10x10xbf16>, tensor<10x10xbf16>) -> tensor<10x10xbf16>
                     return %0:tensor<10x10xbf16>
                     }
                 }      
             """
         )
-        arg0 = np.ones((10, 10), dtype=ml_dtypes.bfloat16)
-        arg1 = np.ones((10, 10), dtype=ml_dtypes.bfloat16)
-        arg2 = np.zeros((10), dtype=ml_dtypes.bfloat16)
+        torch_arg0 = torch.full((10, 10), 1.0, dtype=torch.bfloat16)
+        torch_arg1 = torch.full((10, 10), 1.0, dtype=torch.bfloat16)
+        # torch_arg0 = torch.randn((10, 10), dtype=torch.bfloat16)
+        # torch_arg1 = torch.randn((10, 10), dtype=torch.bfloat16)
+        ref_res = torch.matmul(torch_arg0, torch_arg1)
         
-    
+        # https://github.com/llvm/torch-mlir/blob/50f7103098ee41799a1180210f0e94400fac47cb/python/torch_mlir/extras/fx_importer.py#L1795-L1800
+        np_arg0 = np.array(torch_arg0.tolist(), dtype=ml_dtypes.bfloat16)
+        np_arg1 = np.array(torch_arg1.tolist(), dtype=ml_dtypes.bfloat16)
+
         entry = "main_entry"
-        mlir_args = get_mlir_args(module, entry, [arg0, arg1, arg2])
+        mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1])
         passes = "any(gc-cpu-pipeline)"
         cost = py_timeit_bench(
             module,
@@ -58,9 +64,13 @@ if __name__ == "__main__":
             mlir_args,
             [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]],
         )
-
-        # get result
         print("cost=", cost)
+
         gc_res = ranked_memref_to_numpy(mlir_args[0][0])
         print(gc_res)
-        assert_allclose(gc_res, 10.0, rtol=1e-5, atol=0)
+        assert_allclose(
+            gc_res.astype(np.float32),
+            ref_res.to(torch.float32).numpy(),
+            rtol=1e-5,
+            atol=0,
+        )
