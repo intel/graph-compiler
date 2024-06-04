@@ -77,13 +77,13 @@ func.func @nested_forall_with_dynamic_shape(%arg0: index) {
 //  CHECK-NEXT: scf.forall
 
 
-func.func @nested_forall_with_dynamic_range(%arg0: index, %arg1: index) {
+func.func @nested_forall_with_dynamic_range(%arg0: index) {
     %c4 = arith.constant 4 : index
     %c16 = arith.constant 16 : index
     scf.forall (%i) in (%arg0) {
-      %alloc = memref.alloc(%arg1) : memref<?xf32>
+      %alloc = memref.alloc() : memref<4xf32>
       scf.forall (%j) in (%c4) {
-        "test.source"(%alloc) : (memref<?xf32>) -> ()
+        "test.source"(%alloc) : (memref<4xf32>) -> ()
       }
     }
     return

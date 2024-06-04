@@ -188,14 +188,18 @@ public:
           for (auto *use : allocValue.getUsers()) {
             for (auto *operation : parallelOpsInCurBlock) {
               if (operation->isAncestor(use)) {
-                shouldHoist = true;
 
                 // only support scf.forall for now
-                if (auto parallelOp = dyn_cast<scf::ForallOp>(parentOp)) {
-                  numThreads =
-                      getConstantIntValue(parallelOp.getUpperBound(builder)[0])
-                          .value();
-                  inductVar = parallelOp.getInductionVar(0);
+                if (auto forallOp = dyn_cast<scf::ForallOp>(parentOp)) {
+                  SmallVector<Value> ubs = getValueOrCreateConstantIndexOp(
+                      builder, forallOp.getLoc(),
+                      forallOp.getMixedUpperBound());
+                  if (std::optional<int64_t> ubs0_int =
+                          getConstantIntValue(ubs[0])) {
+                    numThreads = ubs0_int.value();
+                    shouldHoist = true;
+                  }
+                  inductVar = forallOp.getInductionVar(0);
                 }
               }
             }
