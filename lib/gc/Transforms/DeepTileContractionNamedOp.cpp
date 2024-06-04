@@ -8,6 +8,7 @@
 
 #include "./Tiling.hpp"
 #include "gc/Dialect/Arith/Utils/EasyBuild.h"
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/IR/EasyBuild.h"
 #include "gc/IR/EasyBuildSCF.h"
 #include "mlir/AsmParser/AsmParser.h"
@@ -68,24 +69,23 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
         SmallVector<DimType>{DimType::M, DimType::K},
         SmallVector<DimType>{DimType::K, DimType::N},
         SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (isa<linalg::GenericOp>(linalgOp)) {
-    auto iteratorTypes = linalgOp.getIteratorTypesArray();
-    if (iteratorTypes.size() == 7UL) {
-      // 4Dx5D, brgemm vnni
-      return SmallVector<SmallVector<DimType>>{
-          SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
-          SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
-                               DimType::K},
-          SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-    } else if (iteratorTypes.size() == 6UL) {
-      // 4Dx4D
-      return SmallVector<SmallVector<DimType>>{
-          SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
-          SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N},
-          SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-    }
-  } else {
-    return failure();
+  } else if (llvm::isa<linalgx::Mm2DVnniOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
+                             DimType::K},
+        SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
+  } else if (llvm::isa<linalgx::Mm4DVnniOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
+                             DimType::K},
+        SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
+  } else if (llvm::isa<linalg::BatchMatmulOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
+        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
   }
   return failure();
 }
@@ -136,7 +136,7 @@ MatmulConfig getDefaultMatmulConfig(linalg::LinalgOp &linalgOp) {
   cfg.KBlock = 64;
   cfg.MThreads = 2;
   cfg.NThreads = 2;
-  cfg.KThreads = 1;
+  cfg.KThreads = 2;
   return cfg;
 }
 
@@ -784,8 +784,9 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
           ValueRange{dataOprand, weightOprand}, resultOprand);
     } else {
       IRMapping mapping;
-      matmul = dyn_cast<linalg::LinalgOp>(
-          *rewriter.clone(*(currentOp.getOperation())));
+      matmul = rewriter.create<linalgx::BatchReduceMatmulVnniOp>(
+          resultOprand.getLoc(), resultOprand.getType(),
+          ValueRange{dataOprand, weightOprand}, resultOprand);
     }
     Value result = matmul.getOperation()->getResult(0);
 
@@ -830,18 +831,32 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     return success();
   }
 
+  bool checkLinalgMatmulType(linalg::LinalgOp linalgOp) const {
+    return llvm::isa<linalg::MatmulOp>(linalgOp) ||
+           llvm::isa<linalgx::Mm2DVnniOp>(linalgOp) ||
+           llvm::isa<linalgx::Mm4DVnniOp>(linalgOp) ||
+           llvm::isa<linalgx::MultiBatchMatmulOp>(linalgOp) ||
+           llvm::isa<linalg::BatchMatmulOp>(linalgOp);
+  }
+
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
                                 PatternRewriter &rewriter) const override {
+    if (!checkLinalgMatmulType(linalgOp))
+      return failure();
     if (linalgOp.hasPureBufferSemantics())
       return failure();
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPoint(linalgOp);
+
     if (linalgOp.getOperation()->getParentOfType<scf::ForallOp>() ||
         !linalgOp || linalgOp.getNumDpsInputs() != 2)
       return failure();
-    Operation *fillOp = findParentFillOp(linalgOp.getDpsInits()[0]);
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(linalgOp);
     linalg::LinalgOp originOp =
         dyn_cast<linalg::LinalgOp>(*rewriter.clone(*(linalgOp.getOperation())));
+    linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
+    Operation *fillOp = findParentFillOp(linalgOp.getDpsInits()[0]);
+
     // Step 1. generate the outer loop
     MatmulConfig cfg = getDefaultMatmulConfig(linalgOp);
     auto outerLoopResult = outerLoopGeneration(rewriter, linalgOp, cfg,
