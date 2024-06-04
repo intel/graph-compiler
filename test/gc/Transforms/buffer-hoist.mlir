@@ -91,5 +91,5 @@ func.func @nested_forall_with_dynamic_range(%arg0: index) {
 // CHECK-LABEL: func @nested_forall_with_dynamic_
 //   CHECK-NOT: memref.alloc
 //       CHECK: scf.forall
-//  CHECK-NEXT: %[[ALLOC0:.*]] = memref.alloc(%arg1) : memref<?xf32>
+//  CHECK-NEXT: %[[ALLOC0:.*]] = memref.alloc() : memref<4xf32>
 //  CHECK-NEXT: scf.forall
