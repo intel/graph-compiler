@@ -24,12 +24,52 @@ func.func @matmul_bias(%arg0: tensor<128x512xbf16>, %arg1: tensor<512x256xbf16>,
   return %0 : tensor<128x256xbf16>
 }
 
+// CHECK-LABEL: @matmul_batch_flatten
+func.func @matmul_batch_flatten(%arg0: tensor<6x128x512xbf16>, %arg1: tensor<512x256xbf16>) -> tensor<6x128x256xbf16> {
+  // CHECK: tensor.collapse_shape
+  // CHECK-SAME: tensor<6x128x512xbf16> into tensor<768x512xbf16>
+  // CHECK: arith.constant 0
+  // CHECK: tensor.empty()
+  // CHECK: linalg.fill
+  // CHECK: linalg.matmul
+  // CHECK-SAME: tensor<768x512xbf16>, tensor<512x256xbf16>
+  // CHECK-SAME: tensor<768x256xbf16>
+  // CHECK: tensor.expand_shape
+  // CHECK-SAME: tensor<768x256xbf16> into tensor<6x128x256xbf16>
+  %0 = onednn_graph.matmul %arg0, %arg1 : (tensor<6x128x512xbf16>, tensor<512x256xbf16>) -> tensor<6x128x256xbf16>
+  return %0 : tensor<6x128x256xbf16>
+}
+
 // CHECK-LABEL: @add
 func.func @add(%arg0: tensor<128x256xf32>, %arg1: tensor<128x256xf32>) -> tensor<128x256xf32> {
   // CHECK: tensor.empty()
   // CHECK: linalg.add
   %0 = onednn_graph.add %arg0, %arg1 : (tensor<128x256xf32>, tensor<128x256xf32>) -> tensor<128x256xf32>
   return %0 : tensor<128x256xf32>
+}
+
+// CHECK-LABEL: @mul
+func.func @mul(%arg0: tensor<512x64xbf16>, %arg1: tensor<64xbf16>) -> tensor<512x64xbf16> {
+  // CHECK: tensor.empty()
+  // CHECK: linalg.mul
+  %0 = onednn_graph.mul %arg0, %arg1 : (tensor<512x64xbf16>, tensor<64xbf16>) -> tensor<512x64xbf16>
+  return %0 : tensor<512x64xbf16>
+}
+
+// CHECK-LABEL: @sub
+func.func @sub(%arg0: tensor<512x64xbf16>, %arg1: tensor<512x64xbf16>) -> tensor<512x64xbf16> {
+  // CHECK: tensor.empty()
+  // CHECK: linalg.sub
+  %0 = onednn_graph.sub %arg0, %arg1 : (tensor<512x64xbf16>, tensor<512x64xbf16>) -> tensor<512x64xbf16>
+  return %0 : tensor<512x64xbf16>
+}
+
+// CHECK-LABEL: @div
+func.func @div(%arg0: tensor<512x64xbf16>, %arg1: tensor<64xbf16>) -> tensor<512x64xbf16> {
+  // CHECK: tensor.empty()
+  // CHECK: linalg.div
+  %0 = onednn_graph.div %arg0, %arg1 : (tensor<512x64xbf16>, tensor<64xbf16>) -> tensor<512x64xbf16>
+  return %0 : tensor<512x64xbf16>
 }
 
 // CHECK-LABEL: @add_bcast
@@ -42,6 +82,18 @@ func.func @add_bcast(%arg0: tensor<128x256xf32>, %arg1: tensor<256xf32>) -> tens
   return %0 : tensor<128x256xf32>
 }
 
+// CHECK-LABEL: @mul_bacst
+func.func @mul_bacst(%arg0: tensor<512x64xbf16>, %arg1: tensor<1x64xbf16>) -> tensor<512x64xbf16> {
+  // CHECK: tensor.collapse_shape
+  // CHECK-SAME: tensor<1x64xbf16> into tensor<64xbf16>
+  // CHECK: tensor.empty()
+  // CHECK: linalg.broadcast
+  // CHECK: tensor.empty()
+  // CHECK: linalg.mul
+  %0 = onednn_graph.mul %arg0, %arg1 : (tensor<512x64xbf16>, tensor<1x64xbf16>) -> tensor<512x64xbf16>
+  return %0 : tensor<512x64xbf16>
+}
+
 // CHECK-LABEL: @relu
 func.func @relu(%arg0: tensor<128x256xbf16>) -> tensor<128x256xbf16> {
   // CHECK: arith.constant dense<0.0{{.*}}>
@@ -49,6 +101,65 @@ func.func @relu(%arg0: tensor<128x256xbf16>) -> tensor<128x256xbf16> {
   // CHECK: linalg.max
   %0 = onednn_graph.relu %arg0 : (tensor<128x256xbf16>) -> tensor<128x256xbf16>
   return %0 : tensor<128x256xbf16>
+}
+
+// CHECK-LABEL: @sigmoid
+func.func @sigmoid(%arg0: tensor<128x512xbf16>) -> tensor<128x512xbf16> {
+  // CHECK: tensor.empty()
+  // CHECK: linalgx.sigmoid 
+  %0 = onednn_graph.sigmoid %arg0 : (tensor<128x512xbf16>) -> tensor<128x512xbf16>
+  return %0 : tensor<128x512xbf16>
+}
+
+// CHECK-LABEL: @type_cast
+func.func @type_cast(%arg0: tensor<128x512xbf16>) -> tensor<128x512xf32> {
+  // CHECK: tensor.empty()
+  // CHECK: linalg.copy 
+  %0 = onednn_graph.type_cast %arg0 : (tensor<128x512xbf16>) -> tensor<128x512xf32>
+  return %0 : tensor<128x512xf32>
+}
+
+// CHECK-LABEL: @pow
+func.func @pow(%arg0: tensor<128x512xbf16>) -> tensor<128x512xbf16> {
+  // CHECK: arith.constant dense<2.0{{.*}}>
+  // CHECK: tensor.empty()
+  // CHECK: linalg.powf 
+  %0 = onednn_graph.pow %arg0 {beta = 2.0 : f32}  : (tensor<128x512xbf16>) -> tensor<128x512xbf16>
+  return %0 : tensor<128x512xbf16>
+}
+
+
+// CHECK-LABEL: @reduce_sum_keep_dims
+func.func @reduce_sum_keep_dims(%arg0: tensor<64x128x512xbf16>) -> tensor<64x1x512xbf16> {
+  // CHECK: arith.constant 0
+  // CHECK: tensor.empty()
+  // CHECK: linalg.fill
+  // CHECK: linalg.reduce
+  // CHECK: arith.addf
+  // CHECK: tensor.expand_shape
+  %0 = onednn_graph.reduce_sum %arg0 {axes = array<i64: 1>, keep_dims = true} : (tensor<64x128x512xbf16>) -> tensor<64x1x512xbf16>
+  return %0 : tensor<64x1x512xbf16>
+}
+    
+// CHECK-LABEL: @reduce_sum_no_axis
+func.func @reduce_sum_no_axis(%arg0: tensor<64x128x512xbf16>) -> tensor<64x128x512xbf16> {
+  // CHECK: return %arg0 
+  %0 = onednn_graph.reduce_sum %arg0 : (tensor<64x128x512xbf16>) -> tensor<64x128x512xbf16>
+  return %0 : tensor<64x128x512xbf16>
+}
+
+// CHECK-LABEL: @reduce_mean_no_keep_dims
+func.func @reduce_mean_no_keep_dims(%arg0: tensor<64x128x512xbf16>) -> tensor<128xbf16> {
+  // CHECK: arith.constant 0
+  // CHECK: tensor.empty()
+  // CHECK: linalg.fill
+  // CHECK: linalg.reduce
+  // CHECK: arith.addf
+  // CHECK: arith.constant dense
+  // CHECK: tensor.empty()
+  // CHECK: linalg.div
+  %0 = onednn_graph.reduce_mean %arg0 {axes = array<i64: -1, 0>} : (tensor<64x128x512xbf16>) -> tensor<128xbf16>
+  return %0 : tensor<128xbf16>
 }
 
 // CHECK-LABEL: @mlp_transpose_a

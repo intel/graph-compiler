@@ -11,6 +11,15 @@ func.func @matmul(%arg0: tensor<128x512xbf16>, %arg1: tensor<512x64xbf16>,
   return %0 : tensor<128x64xbf16>
 }
 
+// CHECK-LABEL: @matmul_broadcast_batch
+func.func @matmul_broadcast_batch(%arg0: tensor<6x128x512xbf16>, %arg1: tensor<4x1x512x64xbf16>, 
+                  %arg2: tensor<64xbf16>) -> tensor<4x6x128x64xbf16> {
+  // CHECK: onednn_graph.matmul 
+  %0 = onednn_graph.matmul %arg0, %arg1, %arg2 
+       : (tensor<6x128x512xbf16>, tensor<4x1x512x64xbf16>, tensor<64xbf16>) -> tensor<4x6x128x64xbf16>
+  return %0 : tensor<4x6x128x64xbf16>
+}
+
 //// Unary
 
 // CHECK-LABEL: @relu

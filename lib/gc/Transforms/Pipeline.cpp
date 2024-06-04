@@ -22,6 +22,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 
@@ -29,7 +30,7 @@ namespace mlir::gc {
 
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::PassManager &pm) {
-  // pm.addPass(onednn_graph::createConvertOneDNNGraphToLinalg());
+  pm.addPass(createConvertOneDNNGraphToLinalg());
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
@@ -92,12 +93,12 @@ void populateCPURuntimePasses(mlir::PassManager &pm) {
 }
 
 void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
+  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
-  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
@@ -143,6 +144,7 @@ public:
     auto op = getOperation();
     PassManager pm{op->getContext()};
     populateCPUPipeline(pm);
+    // pm.enableIRPrinting();
     if (failed(pm.run(op)))
       signalPassFailure();
   }
