@@ -52,7 +52,6 @@ if __name__ == "__main__":
         mlir_args = get_mlir_args(module, entry, [arg0, arg1, arg2])
         passes = "any(gc-cpu-pipeline)"
         cost = py_timeit_bench(
-            ctx,
             module,
             "main_entry",
             passes,

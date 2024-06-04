@@ -57,7 +57,6 @@ def do_bench(args):
         print("===========bench func name: ", driver.main_entry, "===========")
         bench_alg = py_timeit_bench if args.bench_alg == "py" else mlir_wrapper_bench
         cost = bench_alg(
-            ctx,
             driver.ir_module,
             driver.main_entry,
             driver.get_passes(),

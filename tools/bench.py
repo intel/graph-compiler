@@ -33,7 +33,6 @@ from utils import (
 
 
 def py_timeit_bench(
-    ctx: ir.Context,
     ir_module: ir.Module,
     entry_name: str,
     passes: str,
@@ -61,7 +60,6 @@ def py_timeit_bench(
 
 
 def mlir_wrapper_bench(
-    ctx: ir.Context,
     ir_module: ir.Module,
     entry_name: str,
     passes: str,
