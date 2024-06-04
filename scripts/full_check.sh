@@ -54,9 +54,9 @@ cd "$PROJECT_ROOT"
 MERGE_BASE=$(git merge-base $PR_REF HEAD)
 CHANGED_FILES=$(git diff --name-only $MERGE_BASE HEAD)
 
-# if you do not have clang/clang++/clang-tidy/clang-format
+# if you do not have clang/clang++/clang-tidy/clang-format/openmp
 # please install it
-# conda install -c conda-forge clangxx cxx-compiler clang-tools
+# conda install -c conda-forge clangxx cxx-compiler clang-tools llvm-openmp
 
 if [ -n "$CHECK_TIDY" ]; then
   echo "start tidy check..."
