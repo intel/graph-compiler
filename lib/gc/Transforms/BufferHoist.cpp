@@ -1,5 +1,4 @@
-//===- BufferHoist.cpp - Buffer hoist in nested parallel loop --------*- C++
-//-*-===//
+//===- BufferHoist.cpp - Buffer hoist in nested parallel loop ---*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -185,7 +184,7 @@ public:
         }
         MemRefType memrefType = dyn_cast<MemRefType>(allocValue.getType());
         bool isStaticShape = memrefType && memrefType.hasStaticShape();
-        if (parallelOpsInCurBlock.size() > 0 && isStaticShape) {
+        if (!parallelOpsInCurBlock.empty() && isStaticShape) {
           for (auto *use : allocValue.getUsers()) {
             for (auto *operation : parallelOpsInCurBlock) {
               if (operation->isAncestor(use)) {
