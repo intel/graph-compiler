@@ -88,8 +88,16 @@ verifyTilableOpTileSizesOnAffineMap(RewriterBase &rewriter, Operation *op,
     unsigned iterPosition =
         cast<AffineDimExpr>(resultExpr.value()).getPosition();
     if (iterTypes[iterPosition] == utils::IteratorType::reduction) {
-      if (iterDomain[iterPosition].size != tileSizes[resultExpr.index()])
+      std::optional<int64_t> cstIterDomain =
+          getConstantIntValue(iterDomain[iterPosition].size);
+      FailureOr<int64_t> cstTileSizes =
+          ValueBoundsConstraintSet::computeConstantBound(
+              presburger::BoundType::UB, tileSizes[resultExpr.index()], nullptr,
+              true);
+      if (!cstIterDomain || failed(cstTileSizes) ||
+          cstIterDomain != cstTileSizes) {
         return failure();
+      }
     }
   }
   return success();
@@ -436,7 +444,6 @@ static SmallVector<Operation *> postOpFuseConsumerOfOpResult(
   if (failed(consAnchorList))
     return tiledConsumerList;
 
-  // TODO: sorted by userList and position in parentBlock
   for (auto &consAnchor : *consAnchorList) {
     if (alreadyTiledOps.count(consAnchor.getFusableOp()))
       continue;
@@ -450,7 +457,7 @@ static SmallVector<Operation *> postOpFuseConsumerOfOpResult(
         scfX::tileAndFuseConsumerOfSlice(rewriter, *candidateSliceOp);
     if (fusedResult) {
       tiledConsumerList.push_back(fusedResult.value().tiledOps[0]);
-      rewriter.eraseOp(consAnchor.getFusableOp());
+      rewriter.eraseOp(fusedResult.value().origConsumerOperand->getOwner());
     }
   }
 
