@@ -48,7 +48,7 @@ done
 # set PR_REF if your pr target is not main
 : ${PR_REF:=main}
 
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)/../"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 MERGE_BASE=$(git merge-base $PR_REF HEAD)
@@ -76,19 +76,16 @@ if [ -n "$CHECK_TIDY" ]; then
 
   cmake ../../ \
     -DCMAKE_BUILD_TYPE=Release \
-    -DMLIR_DIR=${MLIR_DIR} \
+    -DMLIR_DIR="${MLIR_DIR}" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=True \
     -DCMAKE_C_COMPILER=$(which clang) \
     -DCMAKE_CXX_COMPILER=$(which clang++) \
     -DLLVM_EXTERNAL_LIT=$(which lit)
 
   for f in $(find ./include -name Makefile); do
-    targets=$(make -f $f help |grep IncGen); 
-    if [[ $? -eq 0 ]]; then 
-      for target in $targets; do
-        cd ${f%Makefile} && make ${target#...} && cd -; 
-      done
-    fi ;
+    for target in $(make -f $f help |grep IncGen); do
+      cd ${f%Makefile} && make ${target#...} && cd -; 
+    done
   done
 
   [ -f run-clang-tidy.py ] || wget https://raw.githubusercontent.com/llvm/llvm-project/main/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -O run-clang-tidy.py
@@ -100,12 +97,12 @@ fi
 if [ -n "$CHECK_FORMAT" ]; then
   echo "start format check..."
   check_tool "clang-format"
-  cd $PROJECT_ROOT
+  cd "$PROJECT_ROOT"
   echo "$CHANGED_FILES" | egrep "*\\.(h|hpp|c|cpp)$" | xargs clang-format --dry-run --Werror -style=file
 fi
 
 if [ -n "$CHECK_LICENSE" ]; then
   echo "start license check..."
-  cd $PROJECT_ROOT
+  cd "$PROJECT_ROOT"
   python3 scripts/license.py --files $(echo $CHANGED_FILES | tr ' ' ',')
 fi
