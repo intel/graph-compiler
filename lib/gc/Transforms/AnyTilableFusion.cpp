@@ -1,7 +1,4 @@
-//===----------------------------------------------------------------------===//
-//===- AnyTilableFusion.cpp - the Fusion for any tilable MLIR operation --*- C++
-//-*-=//
-//-*-===//
+//===-- AnyTilableFusion.cpp - Fusion For Any Tilable Op --------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -198,7 +195,7 @@ class ProducerFusionAnchor : public FusionAnchorBase<tensor::ExtractSliceOp> {
 public:
   ProducerFusionAnchor(
       RewriterBase &rewriter, Operation *producerOp, OpResult producerValue,
-      SmallVector<tensor::ExtractSliceOp> candidateExtractSliceOpList)
+      ArrayRef<tensor::ExtractSliceOp> candidateExtractSliceOpList)
       : FusionAnchorBase<tensor::ExtractSliceOp>(producerOp) {
     auto candidateList = llvm::map_to_vector(
         candidateExtractSliceOpList,
@@ -222,7 +219,7 @@ class ConsumerFusionAnchor
 public:
   ConsumerFusionAnchor(
       RewriterBase &rewriter, Operation *consumerOp, OpOperand &consumerValue,
-      SmallVector<OffsetSizeAndStrideOpInterface> candidateInsertSliceOpList)
+      ArrayRef<OffsetSizeAndStrideOpInterface> candidateInsertSliceOpList)
       : FusionAnchorBase<OffsetSizeAndStrideOpInterface>(consumerOp) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(consumerOp)) {
       appendCandidateWithVerifyTileSizes(
@@ -439,7 +436,7 @@ static SmallVector<Operation *> postOpFuseConsumerOfOpResult(
   if (failed(consAnchorList))
     return tiledConsumerList;
 
-  // sorted by userList and position in parentBlock
+  // TODO: sorted by userList and position in parentBlock
   for (auto &consAnchor : *consAnchorList) {
     if (alreadyTiledOps.count(consAnchor.getFusableOp()))
       continue;

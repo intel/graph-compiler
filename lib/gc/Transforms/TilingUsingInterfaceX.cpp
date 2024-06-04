@@ -1,7 +1,8 @@
-//===- Implementation of tiling using TilingInterface -------===//
+//===-- TilingUsingInterfaceX.cpp -  upstream eXtension ---------*- C++ -*-===//
 //
-// This file is only temporarily used to extend upstream or upcoming utility in
-// TilingInterface, which finally aims for upstream.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
