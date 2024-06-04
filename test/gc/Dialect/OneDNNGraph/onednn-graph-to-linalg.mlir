@@ -40,6 +40,22 @@ func.func @matmul_batch_flatten(%arg0: tensor<6x128x512xbf16>, %arg1: tensor<512
   return %0 : tensor<6x128x256xbf16>
 }
 
+// CHECK-LABEL: @matmul_multi_batch_flatten
+func.func @matmul_multi_batch_flatten(%arg0: tensor<1x2x3x128x512xbf16>, %arg1: tensor<512x256xbf16>) -> tensor<1x2x3x128x256xbf16> {
+  // CHECK: tensor.collapse_shape
+  // CHECK-SAME: tensor<1x2x3x128x512xbf16> into tensor<768x512xbf16>
+  // CHECK: arith.constant 0
+  // CHECK: tensor.empty()
+  // CHECK: linalg.fill
+  // CHECK: linalg.matmul
+  // CHECK-SAME: tensor<768x512xbf16>, tensor<512x256xbf16>
+  // CHECK-SAME: tensor<768x256xbf16>
+  // CHECK: tensor.expand_shape
+  // CHECK-SAME: tensor<768x256xbf16> into tensor<1x2x3x128x256xbf16>
+  %0 = onednn_graph.matmul %arg0, %arg1 : (tensor<1x2x3x128x512xbf16>, tensor<512x256xbf16>) -> tensor<1x2x3x128x256xbf16>
+  return %0 : tensor<1x2x3x128x256xbf16>
+}
+
 // CHECK-LABEL: @add
 func.func @add(%arg0: tensor<128x256xf32>, %arg1: tensor<128x256xf32>) -> tensor<128x256xf32> {
   // CHECK: tensor.empty()
