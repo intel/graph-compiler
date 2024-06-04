@@ -78,10 +78,9 @@ def mlir_wrapper_bench(
         shared_libs,
         passes,
     )
-    print(wrapper_module)
     engine = complier.compile_and_jit(wrapper_module, ir_printing=ir_printing)
     np_timers_ns = np.array([0], dtype=np.int64)
-    arg2_memref_ptr = ctypes.pointer(
+    time_arg = ctypes.pointer(
         ctypes.pointer(runtime.get_ranked_memref_descriptor(np_timers_ns))
     )
     total_time = 0
@@ -91,7 +90,7 @@ def mlir_wrapper_bench(
         engine_invoke(bench_func_name, *mlir_args)
 
     for i in range(repeat_time + warm_up):
-        run(engine.invoke, "wrapped_main", *mlir_args, arg2_memref_ptr)
+        run(engine.invoke, "wrapped_main", *mlir_args, time_arg)
         if i >= warm_up:
             total_time += int(np_timers_ns[0]) * ns_to_ms_scale
     return total_time / repeat_time
