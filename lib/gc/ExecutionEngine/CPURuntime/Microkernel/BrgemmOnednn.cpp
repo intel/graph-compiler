@@ -52,7 +52,6 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t LDB, int64_t LDC, int64_t stride_a,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
-  std::cout << ">>> Brgemm dispatch: " << std::endl;
   brgemm_desc_list.emplace_back(brgemm_desc_t());
   brgemm_kernel_list.emplace_back(nullptr);
 
@@ -79,7 +78,6 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
   assert(kernel_idx >= 0 && kernel_idx < (int64_t)brgemm_desc_list.size() &&
          "Invalid kernel handler");
-  std::cout << ">>> Brgemm tileconfig: " << kernel_idx << std::endl;
 
   brgemm_desc_t &desc = brgemm_desc_list[kernel_idx];
   if (!desc.is_tmm) {
@@ -98,7 +96,6 @@ void dnnl_brgemm_tilerelease() {
   if (!mayiuse(avx512_core_amx)) {
     return;
   }
-  std::cout << ">>> Brgemm tilerelease" << std::endl;
 
   amx_tile_release();
 }
@@ -109,16 +106,15 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
   assert(kernel_idx >= 0 && kernel_idx < (int64_t)brgemm_desc_list.size() &&
          "Invalid kernel handler");
 
-  std::cout << ">>> Brgemm Execute: " << kernel_idx << std::endl;
   brgemm_desc_t &desc = brgemm_desc_list[kernel_idx];
   brgemm_kernel_t *kernel = brgemm_kernel_list[kernel_idx];
 
   size_t A_offset_in_bytes =
       dnnl::impl::types::data_type_size(desc.dt_a) * A_offset;
   size_t B_offset_in_bytes =
-      dnnl::impl::types::data_type_size(desc.dt_b) * A_offset;
+      dnnl::impl::types::data_type_size(desc.dt_b) * B_offset;
   size_t C_offset_in_bytes =
-      dnnl::impl::types::data_type_size(desc.dt_c) * A_offset;
+      dnnl::impl::types::data_type_size(desc.dt_c) * C_offset;
 
 #ifdef _WIN32
   // fix-me: (win32) impl
@@ -128,9 +124,12 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
 #endif
   // TODO(haixin): use thread local buffer for scratch
   char *scratch = new char[scratch_size];
-  brgemm_kernel_execute(kernel, num, A + A_offset_in_bytes,
-                        B + B_offset_in_bytes, nullptr, C + C_offset_in_bytes,
-                        (void *)scratch);
+  char *A_arith = (char *)A;
+  char *B_arith = (char *)B;
+  char *C_arith = (char *)C;
+  brgemm_kernel_execute(kernel, num, (void *)(A_arith + A_offset_in_bytes),
+                        (void *)(B_arith + B_offset_in_bytes), nullptr,
+                        (void *)(C_arith + C_offset_in_bytes), (void *)scratch);
   delete scratch;
 }
 }
