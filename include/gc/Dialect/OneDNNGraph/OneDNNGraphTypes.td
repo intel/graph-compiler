@@ -9,6 +9,7 @@
 #ifndef ONEDNNGRAPH_TYPES
 #define ONEDNNGRAPH_TYPES
 
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/AttrTypeBase.td"
 include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.td"
@@ -38,5 +39,24 @@ def OneDNNGraph_DataType : AnyTypeOf<[
 
 def OneDNNGraph_LogicalTensor : TensorOf<[OneDNNGraph_DataType]>;
 def OneDNNGraph_FloatTensor : TensorOf<[OneDNNGraph_Float]>;
+
+//===----------------------------------------------------------------------===//
+// Enum types.
+//===----------------------------------------------------------------------===//
+
+def PropertyType 
+  : I32EnumAttr<"PropertyType", "OneDNN Graph Logical Tensor Property Type", 
+  [
+    I32EnumAttrCase<"undef", 0>,
+    I32EnumAttrCase<"variable", 1>,
+    I32EnumAttrCase<"constant", 2>
+  ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::onednn_graph";
+}
+
+def PropertyTypeEnum : EnumAttr<OneDNNGraphDialect, PropertyType, "property_type"> {
+  let assemblyFormat = "`<` $value `>`";
+}
 
 #endif // ONEDNNGRAPH_TYPES

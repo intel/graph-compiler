@@ -22,6 +22,12 @@ def OneDNNGraphDialect : Dialect {
         This dialect follows oneDNN Graph Specification.
     }];
     let cppNamespace = "::mlir::onednn_graph";
+    let useDefaultAttributePrinterParser = 1;
+    let extraClassDeclaration = [{
+      /// Attribute name used to memoize indexing maps for named ops.
+      constexpr const static ::llvm::StringLiteral
+          PropertyTypesAttrName = "onednn_graph.property_types";
+    }];
 }
 
 #endif // ONEDNNGRAPH_DIALECT
