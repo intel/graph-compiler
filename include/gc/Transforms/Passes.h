@@ -13,15 +13,33 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
-namespace vector {
-#define GEN_PASS_DECL
-#include "gc/Transforms/Passes.h.inc"
-/// Creates an instance of the `vector.multi_reduction` lowering pass.
-std::unique_ptr<Pass> createLowerVectorMultiReductionPass(
-    VectorMultiReductionLowering option =
-        VectorMultiReductionLowering::InnerParallel);
-} // namespace vector
+
+namespace LLVM {
+class LLVMDialect;
+}
+
+namespace scf {
+class SCFDialect;
+}
+
+namespace openmp {
+class OpenMPDialect;
+}
+
+namespace linalg {
+class LinalgDialect;
+}
+
+namespace MemRef {
+class MemRefDialect;
+}
+
+class PassManager;
+
 namespace gc {
+
+void populateFrontendPasses(mlir::PassManager &);
+void populateCPUPipeline(mlir::PassManager &);
 
 #define GEN_PASS_DECL
 #include "gc/Transforms/Passes.h.inc"

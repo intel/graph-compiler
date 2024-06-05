@@ -16,11 +16,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "dnnl_graph_compiler.h"
-#include "gc_version.h"
 #include <memory>
 #include <new>
 #include <string_view>
+
+#include "JsonParser.h"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#include "gc/Transforms/Passes.h"
+#include "gc_version.h"
+
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/InitAllPasses.h"
+#include "mlir/Pass/PassManager.h"
+
+#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Threading.h"
+
+#include "graph/backend/elyzor/include/dnnl_graph_compiler.h"
 
 #if defined _WIN32 || defined __CYGWIN__
 #define GC_DLL_EXPORT __declspec(dllexport)
@@ -29,7 +42,6 @@
 #endif
 
 // dnnl_graph_compiler.h interface implementation.
-// TODO: Implement.
 
 struct dnnl_graph_compiler_executable {
   // TODO: Implement
@@ -39,14 +51,46 @@ struct dnnl_graph_compiler_executable {
 };
 
 struct dnnl_graph_compiler {
-  const dnnl_graph_compiler_context ctx;
-
-  explicit dnnl_graph_compiler(const dnnl_graph_compiler_context *context)
-      // TODO: Initialize ctx with context or defaults if context is nullptr
-      : ctx() {}
+  explicit dnnl_graph_compiler(llvm::ThreadPoolStrategy &tps)
+      : context(RegistryHolder::get(), mlir::MLIRContext::Threading::DISABLED),
+        threadPool(tps) {
+    context.setThreadPool(threadPool);
+    context.loadAllAvailableDialects();
+  }
 
   [[nodiscard]] std::unique_ptr<const dnnl_graph_compiler_executable>
-  compile(const std::string_view &graph_json) const;
+  compile(const std::string_view &json) const {
+    std::vector<size_t> inputIds;
+    std::vector<size_t> outputIds;
+    // mlir::ModuleOp module =
+    JsonParser::parse(context, json, inputIds, outputIds);
+
+    // TODO: Compile the module
+
+    return std::unique_ptr<const dnnl_graph_compiler_executable>(
+        new dnnl_graph_compiler_executable());
+  }
+
+private:
+  mutable mlir::MLIRContext context;
+  llvm::DefaultThreadPool threadPool;
+
+  class RegistryHolder {
+    mlir::DialectRegistry registry;
+    RegistryHolder() : registry() {
+      mlir::gc::registerGraphCompilerPasses();
+      registry.insert<mlir::BuiltinDialect>();
+      registry.insert<mlir::func::FuncDialect>();
+      registry.insert<mlir::arith::ArithDialect>();
+      registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
+    }
+
+  public:
+    static const mlir::DialectRegistry &get() {
+      static RegistryHolder holder;
+      return holder.registry;
+    }
+  };
 };
 
 GC_DLL_EXPORT const dnnl_graph_compiler_version *
@@ -65,7 +109,9 @@ GC_DLL_EXPORT dnnl_status_t
 dnnl_graph_compiler_create(const struct dnnl_graph_compiler_context *ctx,
                            const struct dnnl_graph_compiler **gc) {
   try {
-    *gc = new dnnl_graph_compiler(ctx);
+    llvm::ThreadPoolStrategy tps;
+    tps.ThreadsRequested = (ctx == nullptr) ? 0 : ctx->num_threads;
+    *gc = new dnnl_graph_compiler(tps);
     return dnnl_success;
   } catch (const std::bad_alloc &e) {
     return dnnl_out_of_memory;
@@ -87,6 +133,10 @@ GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
     auto ptr = gc->compile(std::string_view(graph_json));
     *exe = ptr.release();
     return dnnl_success;
+  } catch (const std::invalid_argument &e) {
+    return dnnl_invalid_graph;
+  } catch (const std::logic_error &e) {
+    return dnnl_unimplemented;
   } catch (const std::bad_alloc &e) {
     return dnnl_out_of_memory;
   } catch (...) {
@@ -114,13 +164,6 @@ GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_execute(
     // TODO: Add error handling
     return dnnl_runtime_error;
   }
-}
-
-std::unique_ptr<const dnnl_graph_compiler_executable>
-dnnl_graph_compiler::compile(const std::string_view &graph_json) const {
-  // TODO: Implement
-  return std::unique_ptr<const dnnl_graph_compiler_executable>(
-      new dnnl_graph_compiler_executable());
 }
 
 void dnnl_graph_compiler_executable::execute(

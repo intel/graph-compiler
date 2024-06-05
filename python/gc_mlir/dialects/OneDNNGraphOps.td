@@ -1,4 +1,4 @@
-//===-- OneDNNGraphOps.td - DESC ---------------------------*- tablegen -*-===//
+//===-- OneDNNGraphOps.td - Entry point for bindings -------*- tablegen -*-===//
 // 
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,4 +11,4 @@
 
 include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.td"
 
-#endif
+#endif // PYTHON_BINDINGS_ONEDNNGRAPH_OPS
