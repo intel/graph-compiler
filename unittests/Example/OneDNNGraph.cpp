@@ -40,8 +40,8 @@ TEST(onednn_graph, LogicalTensorInfo) {
       parseSourceString<ModuleOp>(moduleStr, &context);
   ASSERT_TRUE(!!module);
   auto funcOp = cast<func::FuncOp>(module->getBody()->getOperations().front());
-  mlir::onednn_graph::LogicalTensorInfo info(funcOp);
 
+  mlir::onednn_graph::LogicalTensorInfo info(funcOp);
   ASSERT_EQ(info.queryPropertyType(Value()),
             mlir::onednn_graph::PropertyType::undef);
   ASSERT_EQ(info.queryPropertyType(funcOp.getArguments()[0]),
