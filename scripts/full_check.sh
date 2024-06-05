@@ -35,6 +35,11 @@ for arg in "$@"; do
     -l|--license)
       CHECK_LICENSE=1
       ;;
+    -a|--all)
+      CHECK_FORMAT=1
+      CHECK_TIDY=1
+      CHECK_LICENSE=1
+      ;;
     -c|--clean)
       CLEANUP=1
       ;;
