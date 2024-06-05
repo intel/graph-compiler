@@ -28,7 +28,7 @@ from enhanced_np_to_memref import (
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
 
-mlir_to_numpy_type = {
+MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,
     "f32": np.float32,
     "f64": np.float64,
@@ -37,7 +37,7 @@ mlir_to_numpy_type = {
     "i64": np.int64,
 }
 
-mlir_to_c_type = {
+MLIR_TYPE_TO_C_TYPE = {
     "f32": ctypes.c_float,
     "f64": ctypes.c_double,
     "i32": ctypes.c_int,
@@ -102,7 +102,7 @@ def get_mlir_args(module: ir.Module, entry: str, np_args: List[np.ndarray]):
             ctypes.pointer(
                 ctypes.pointer(
                     make_nd_memref_descriptor(
-                        len(res.shape), mlir_to_c_type[str(res.element_type)]
+                        len(res.shape), MLIR_TYPE_TO_C_TYPE[str(res.element_type)]
                     )()
                 )
             )
@@ -127,7 +127,7 @@ def mlir_type(s, ctx):
 
 def make_tensor(tensor_type):
     return np.zeros(
-        tensor_type.shape, mlir_to_numpy_type[str(tensor_type.element_type)]
+        tensor_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
     )
 
 

@@ -35,7 +35,7 @@ from utils import (
 def py_timeit_bench(
     ir_module: ir.Module,
     entry_name: str,
-    passes: str,
+    pipeline: str,
     mlir_args: list,
     shared_libs: Sequence,
     ir_printing=False,
@@ -43,9 +43,10 @@ def py_timeit_bench(
     warm_up=20,
 ) -> float:
     engine = GraphCompiler(
+        pipeline,
         shared_libs,
-        passes,
     ).compile_and_jit(ir_module, ir_printing=ir_printing)
+
     func = engine.lookup(entry_name)
     packed_args = (ctypes.c_void_p * len(mlir_args))()
     for argNum in range(len(mlir_args)):
@@ -62,7 +63,7 @@ def py_timeit_bench(
 def mlir_wrapper_bench(
     ir_module: ir.Module,
     entry_name: str,
-    passes: str,
+    pipeline: str,
     mlir_args: list,
     shared_libs: Sequence,
     ir_printing=False,
@@ -75,8 +76,8 @@ def mlir_wrapper_bench(
     with ir.InsertionPoint(wrapper_module.body):
         emit_benchmark_wrapped_main_func(kernel_func, emit_nano_time())
     complier = GraphCompiler(
+        pipeline,
         shared_libs,
-        passes,
     )
     engine = complier.compile_and_jit(wrapper_module, ir_printing=ir_printing)
     np_timers_ns = np.array([0], dtype=np.int64)

@@ -17,7 +17,12 @@ __all__ = [
 
 
 class GraphCompiler:
-    def __init__(self, shared_libs: Sequence[str], pipeline: str, opt_level: int = 3):
+    def __init__(
+        self,
+        pipeline: str = "any(gc-cpu-pipeline)",
+        shared_libs: Sequence[str] = [],
+        opt_level: int = 3,
+    ):
         self.shared_libs = shared_libs
         self.pipeline = pipeline
         self.opt_level = opt_level

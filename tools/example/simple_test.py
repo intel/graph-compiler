@@ -20,6 +20,7 @@ import sys
 
 import numpy as np
 from gc_mlir import ir
+from gc_mlir.graph_compiler import GraphCompiler
 from numpy.testing import assert_allclose
 
 project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,15 +58,22 @@ if __name__ == "__main__":
         entry = "main_entry"
         mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1])
         passes = "any(gc-cpu-pipeline)"
-        cost = py_timeit_bench(
-            module,
-            "main_entry",
-            passes,
-            mlir_args,
-            [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]],
-        )
-        print("cost=", cost)
-
+        shared_libs = [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]]
+        # bench
+        # cost = py_timeit_bench(
+        #     module,
+        #     "main_entry",
+        #     passes,
+        #     mlir_args,
+        #     shared_libs,
+        # )
+        # print("cost=", cost)
+        
+        # just run
+        compiler = GraphCompiler(passes, shared_libs)
+        engine = compiler.compile_and_jit(module)
+        engine.invoke(entry, *mlir_args)
+            
         gc_res = ranked_memref_to_numpy(mlir_args[0][0])
         print(gc_res)
         assert_allclose(
