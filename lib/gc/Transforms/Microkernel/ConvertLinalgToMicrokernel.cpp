@@ -6,6 +6,12 @@
 //
 //===---------------------------------------------------------------------===//
 
+#include "mlir/IR/AffineExprVisitor.h"
+#include "mlir/IR/AffineMap.h"
+#include "llvm/ADT/SetOperations.h"
+#include "llvm/ADT/SmallBitVector.h"
+#include "llvm/ADT/SmallVector.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
@@ -14,6 +20,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Utils/StructuredOpMatcher.h"
 #include "gc/Utils/ValueUtils.h"
@@ -42,12 +49,68 @@ struct BrgemmInfo {
   BrgemmMode mode;
 };
 
+FailureOr<linalg::ContractionDimensions>
+customInferContractionDims(linalg::LinalgOp linalgOp) {
+  auto dims = linalg::inferContractionDims(linalgOp);
+  if (failed(dims))
+    return dims;
+  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp)) {
+    // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
+    // linalg utils because they form complex affine in operand A; Manually add
+    // them here
+    dims->k.push_back(3);
+    dims->k.push_back(4);
+  }
+  return dims;
+}
+
+static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
+                                   ArrayRef<unsigned> dimPos) {
+  if (dimPos.size() > 2) {
+    return false;
+  }
+  auto firstDim = getAffineDimExpr(dimPos[0], linalgOp.getContext());
+  if (dimPos.size() == 1) {
+    if (firstDim == expr)
+      return true;
+    else
+      return false;
+  }
+  // If not regular dim affine, check for VNNI format K affine
+  auto secondKPosDim = getAffineDimExpr(dimPos[1], linalgOp.getContext());
+  // An K affine result for VNNI should be this format:
+  // d{kPos[0]} * s{kPos[1]} + d{kPos[1]} (k0 * K_vnni + k1)
+  if (auto add = dyn_cast<AffineBinaryOpExpr>(expr)) {
+    if (add.getKind() == AffineExprKind::Add) {
+      auto lhs = add.getLHS();
+      auto rhs = add.getRHS();
+      if (rhs == secondKPosDim) {
+        auto mul = dyn_cast<AffineBinaryOpExpr>(lhs);
+        if (mul && mul.getKind() == AffineExprKind::Mul &&
+            mul.getLHS() == firstDim) {
+          if (auto cst_affine = dyn_cast<AffineConstantExpr>(mul.getRHS())) {
+            if (cst_affine.getValue() == 2 || cst_affine.getValue() == 4) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
 // Return the position of `dim` in the codomain of `operand`.
-static std::optional<unsigned>
-getPosInCodomain(unsigned dim, OpOperand *operand, linalg::LinalgOp linalgOp) {
+static std::optional<unsigned> getPosInCodomain(ArrayRef<unsigned> dimPos,
+                                                OpOperand *operand,
+                                                linalg::LinalgOp linalgOp) {
   assert(operand->getOwner() == linalgOp);
-  return linalgOp.getMatchingIndexingMap(operand).getResultPosition(
-      getAffineDimExpr(dim, linalgOp.getContext()));
+  auto map = linalgOp.getMatchingIndexingMap(operand);
+  for (unsigned i = 0, numResults = map.getNumResults(); i < numResults; i++) {
+    if (isMatchingAffineResult(linalgOp, map.getResult(i), dimPos))
+      return i;
+  }
+  return std::nullopt;
 }
 
 static FailureOr<BrgemmInfo>
@@ -55,32 +118,51 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
                 const linalg::ContractionDimensions &dims) {
   unsigned mPos = dims.m[0];
   unsigned nPos = dims.n[0];
-  unsigned kPos = dims.k.back();
-  std::optional<unsigned> batchPos;
-  if (dims.k.size() == 2)
-    batchPos = dims.k.front();
+  // dims.k could be of 2 cases:
+  //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
+  //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
+  unsigned batchPos = dims.k.front();
+  SmallVector<unsigned, 2> kPos;
+  if (dims.k.size() == 2) {
+    kPos = {dims.k[1]};
+  } else if (dims.k.size() == 3) {
+    kPos = {dims.k[1], dims.k[2]};
+  } else {
+    return failure();
+  }
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Candidate dims: "
                           << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] m: " << mPos << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] n: " << nPos << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] k: " << kPos << "\n");
-  if (batchPos)
-    LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] batch: " << batchPos << "\n");
-  else
-    LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] no batch dim\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] m pos in affine: " << mPos
+                          << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] n pos in affine: " << nPos
+                          << "\n");
+  for (auto kp : kPos) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "[inferBrgemmInfo] k pos in affine: " << kp << "\n");
+  }
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] batch pos in affine: "
+                          << batchPos << "\n");
 
-  auto checkStridesAndGetLda = [&](unsigned minorDim, unsigned majorDim,
-                                   OpOperand *operand) -> FailureOr<int64_t> {
+  auto checkStridesAndGetLda =
+      [&](ArrayRef<unsigned> minorDim, ArrayRef<unsigned> majorDim,
+          OpOperand *operand, bool allowVnni) -> FailureOr<int64_t> {
     auto minorDimPosInCodomain = getPosInCodomain(minorDim, operand, linalgOp);
     auto majorDimPosInCodomain = getPosInCodomain(majorDim, operand, linalgOp);
     if (!minorDimPosInCodomain || !majorDimPosInCodomain)
       return failure();
     auto stridesOnOperand = gcext::utils::getStaticStrides(operand->get());
-    if (failed(stridesOnOperand) ||
-        (*stridesOnOperand)[*minorDimPosInCodomain] != 1)
+    if (failed(stridesOnOperand))
       return failure();
-    return (*stridesOnOperand)[*majorDimPosInCodomain];
+    auto minorDimLd = (*stridesOnOperand)[*minorDimPosInCodomain];
+    auto majorDimLd = (*stridesOnOperand)[*majorDimPosInCodomain];
+    if (minorDimLd != 1) {
+      // VNNI format exists, special treatment to align LD with non-VNNI format
+      if (!allowVnni || (minorDimLd != 2 && minorDimLd != 4))
+        return failure();
+      return majorDimLd / minorDimLd;
+    }
+    return majorDimLd;
   };
 
   OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
@@ -88,53 +170,56 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
   OpOperand *operandC = &linalgOp.getDpsInitsMutable()[0];
 
   // A(m, k)
-  auto lda = checkStridesAndGetLda(kPos, mPos, operandA);
+  auto lda = checkStridesAndGetLda(kPos, {mPos}, operandA, false);
   if (failed(lda))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on A: OK\n");
 
   // B(k, n)
-  auto ldb = checkStridesAndGetLda(nPos, kPos, operandB);
+  // note: B does not use VNNI format K affine
+  auto ldb = checkStridesAndGetLda({nPos}, {kPos[0]}, operandB, true);
   if (failed(ldb))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on B: OK\n");
 
   // C(m, n)
-  auto ldc = checkStridesAndGetLda(nPos, mPos, operandC);
+  auto ldc = checkStridesAndGetLda({nPos}, {mPos}, operandC, false);
   if (failed(ldc))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on C: OK\n");
 
   int64_t strideA = 1;
   int64_t strideB = 1;
-  if (batchPos) {
-    auto batchPosCodomainA =
-        getPosInCodomain(batchPos.value(), operandA, linalgOp);
-    auto stridesOnA = gcext::utils::getStaticStrides(operandA->get());
-    strideA = (*stridesOnA)[*batchPosCodomainA];
+  auto batchPosCodomainA = getPosInCodomain(batchPos, operandA, linalgOp);
+  auto stridesOnA = gcext::utils::getStaticStrides(operandA->get());
+  strideA = (*stridesOnA)[*batchPosCodomainA];
 
-    auto batchPosCodomainB =
-        getPosInCodomain(batchPos.value(), operandB, linalgOp);
-    auto stridesOnB = gcext::utils::getStaticStrides(operandB->get());
-    strideB = (*stridesOnB)[*batchPosCodomainB];
-  }
+  auto batchPosCodomainB = getPosInCodomain(batchPos, operandB, linalgOp);
+  auto stridesOnB = gcext::utils::getStaticStrides(operandB->get());
+  strideB = (*stridesOnB)[*batchPosCodomainB];
 
   auto loops = linalgOp.computeStaticLoopSizes();
-  int64_t batchVal = (batchPos) ? loops[batchPos.value()] : 0;
+  auto kSize =
+      kPos.size() == 1 ? loops[kPos[0]] : (loops[kPos[0]] * loops[kPos[1]]);
 
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] final BrgemmInfo: m("
+                          << loops[mPos] << "), n(" << loops[nPos] << "), k("
+                          << kSize << "), batch(" << loops[batchPos]
+                          << "), lda(" << *lda << "), ldb(" << *ldb << "), ldc("
+                          << *ldc << "), strideA(" << strideA << "), strideB("
+                          << strideB << ")\n");
   BrgemmInfo info{loops[mPos],
                   loops[nPos],
-                  loops[kPos],
-                  batchVal,
+                  kSize,
+                  loops[batchPos],
                   0 /* addrLen useless under stride mode */,
                   *lda,
                   *ldb,
                   *ldc,
                   strideA,
-                  strideB};
-  info.isInitOutput = false;
-  info.mode = BrgemmInfo::STRIDE_MODE;
-
+                  strideB,
+                  false,
+                  BrgemmInfo::STRIDE_MODE};
   return info;
 }
 
@@ -150,15 +235,21 @@ static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
   if (!validBrgemmMatcher.match(linalgOp))
     return failure();
 
-  auto contractionDims = linalg::inferContractionDims(linalgOp);
+  auto contractionDims = customInferContractionDims(linalgOp);
   if (failed(contractionDims)) {
     LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Not a valid contraction\n");
     return failure();
   }
   if (contractionDims->m.size() != 1 || contractionDims->n.size() != 1 ||
-      (contractionDims->k.size() != 2 && contractionDims->k.size() != 1) ||
+      // batch-reduce dim for BRGEMM should be identified as one of k dim
+      // including VNNI & non-VNNI cases
+      (contractionDims->k.size() != 2 && contractionDims->k.size() != 3) ||
       contractionDims->batch.size() != 0) {
     LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "[checkStructure] " << contractionDims->m.size() << " "
+               << contractionDims->n.size() << " " << contractionDims->k.size()
+               << " " << contractionDims->batch.size() << "\n");
     return failure();
   }
   unsigned classifiedLoops =
@@ -231,11 +322,12 @@ static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
                                                              dispatched);
 }
 
-class ConvertBatchReduceMatmulToBrgemmRewriter
-    : public OpRewritePattern<linalg::BatchReduceMatmulOp> {
+template <typename ContractionOp>
+class ConvertContractionOpToBrgemmRewriter
+    : public OpRewritePattern<ContractionOp> {
 public:
-  using OpRewritePattern<linalg::BatchReduceMatmulOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(linalg::BatchReduceMatmulOp op,
+  using OpRewritePattern<ContractionOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
     auto brgemmInfo = getBrgemmInfo(op);
     if (failed(brgemmInfo))
@@ -252,7 +344,12 @@ public:
       ConvertLinalgToMicrokernel>::ConvertLinalgToMicrokernelBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<ConvertBatchReduceMatmulToBrgemmRewriter>(&getContext());
+    patterns
+        .add<ConvertContractionOpToBrgemmRewriter<linalg::BatchReduceMatmulOp>>(
+            &getContext());
+    patterns.add<
+        ConvertContractionOpToBrgemmRewriter<linalgx::BatchReduceMatmulVnniOp>>(
+        &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();
