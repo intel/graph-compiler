@@ -922,13 +922,14 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
         auto *it = llvm::find(dest, initOperand);
         assert(it != dest.end() && "dest operand not found in dest");
         unsigned destNum = std::distance(dest.begin(), it);
-        SmallVector<OpFoldResult> strides(numThreads.size(), b.getIndexAttr(1));
-        SmallVector<OpFoldResult> outOffsets(numThreads.size(),
+        auto dest = destBbArgs[destNum];
+        auto destShape = cast<RankedTensorType>(dest.getType()).getShape();
+        SmallVector<OpFoldResult> strides(destShape.size(), b.getIndexAttr(1));
+        SmallVector<OpFoldResult> outOffsets(destShape.size(),
                                              b.getIndexAttr(0));
-        SmallVector<OpFoldResult> sizes = tiledSizes;
+        SmallVector<OpFoldResult> sizes(destShape.size(), b.getIndexAttr(0));
         for (const auto &iteratorType : llvm::enumerate(
-                 cast<RankedTensorType>(destBbArgs[destNum].getType())
-                     .getShape())) {
+                 cast<RankedTensorType>(dest.getType()).getShape())) {
           sizes[iteratorType.index()] =
               getAsIndexOpFoldResult(b.getContext(), iteratorType.value());
           if (llvm::find(constantNewParallelDims, iteratorType.index()) !=
@@ -950,8 +951,8 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
         }
         // TODO: use SubsetExtractOpInterface once it is available.
         tiledDpsInitOperands.push_back(b.create<tensor::ExtractSliceOp>(
-            loc, cast<RankedTensorType>(initOperand.getType()),
-            destBbArgs[destNum], outOffsets, sizes, strides));
+            loc, cast<RankedTensorType>(initOperand.getType()), dest,
+            outOffsets, sizes, strides));
       } else {
         auto *it = llvm::find(dest, initOperand);
         assert(it != dest.end() && "dest operand not found in dest");
@@ -1016,7 +1017,7 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
             b, index, tiledOffsets, tiledSizes, resultOffsets, resultSizes)))
       return op->emitOpError("output offsets couldn't be calculated");
     SmallVector<OpFoldResult> resultOffsetsRank, resultSizesRank;
-    int64_t offIdx = 0;
+    uint64_t offIdx = 0;
     int64_t nonZeroDimIdx = 0;
     SmallVector<Value> reductionInductionVars;
     for (auto i = 0UL; i < numThreads.size(); ++i) {
@@ -1026,7 +1027,7 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
           resultOffsetsRank.push_back(b.getIndexAttr(1));
           resultSizesRank.push_back(b.getIndexAttr(1));
         }
-      } else {
+      } else if (offIdx < resultOffsets.size()) {
         resultOffsetsRank.push_back(resultOffsets[offIdx]);
         resultSizesRank.push_back(resultSizes[offIdx++]);
       }
@@ -1058,9 +1059,8 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
   Operation *mergeOp = nullptr;
   b.setInsertionPointAfter(forallOp);
   if (hasReductionThreads) {
-    Operation *mergeOp =
-        linalgX::LinalgOpPartialReductionInterface::mergeReductions(
-            op, b, loc, forallOp->getResults(), constantNewParallelDims);
+    mergeOp = linalgX::LinalgOpPartialReductionInterface::mergeReductions(
+        op, b, loc, forallOp->getResults(), constantNewParallelDims);
     b.replaceOp(op, mergeOp->getResults());
   } else {
     b.replaceOp(op, forallOp->getResults());
