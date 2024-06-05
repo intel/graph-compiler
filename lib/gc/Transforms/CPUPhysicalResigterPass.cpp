@@ -183,6 +183,63 @@ Type getScalarType(Operation *op) {
   return VectorType::get({1}, vectorizedType.getElementType());
 }
 
+Operation *createTensorEmptyBefore(Operation *op) {
+  auto rtType = op->getResultTypes()[0].dyn_cast<ShapedType>();
+  IRRewriter reWriter(op);
+
+  SmallVector<int64_t> shapes;
+  SmallVector<Value> dynDims;
+  for (unsigned i = 0; i < rtType.getRank(); i++) {
+    shapes.push_back(rtType.getDimSize(i));
+    if (rtType.isDynamicDim(i))
+      dynDims.push_back(reWriter.create<tensor::DimOp>(reWriter.getUnknownLoc(),
+                                                       op->getResult(0), i));
+  }
+  return reWriter.create<tensor::EmptyOp>(op->getLoc(), rtType.getShape(),
+                                          rtType.getElementType(), dynDims);
+}
+
+Operation *
+createTransferReadOpBefore(Operation *op, const Value &operand,
+                           vector::TransferReadOp *srcReadOp = nullptr) {
+  auto operandType = operand.getType().dyn_cast<ShapedType>();
+
+  IRRewriter rewriter(op);
+  auto zero =
+      rewriter.create<arith::ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
+  auto padValue = rewriter.create<arith::ConstantOp>(
+      rewriter.getUnknownLoc(),
+      rewriter.getZeroAttr(operandType.getElementType()));
+
+  if (srcReadOp) {
+    auto resultType = srcReadOp->getType().dyn_cast<ShapedType>();
+    SmallVector<bool> inBoundsVal(resultType.getRank(), true);
+    auto srcReadOpAffineMap = srcReadOp->getPermutationMap();
+    // result of read operation should be same as operand
+    auto t = rewriter.create<vector::TransferReadOp>(
+        op->getLoc(),
+        /*vectorType=*/
+        VectorType::get(resultType.getShape(), resultType.getElementType()),
+        /*source=*/operand,
+        /*indices=*/SmallVector<Value>(operandType.getRank(), zero),
+        /**affinemap*/ srcReadOpAffineMap,
+        /*inBounds=*/inBoundsVal);
+
+    return t;
+  } else {
+    SmallVector<bool> inBoundsVal(operandType.getRank(), true);
+    auto t = rewriter.create<vector::TransferReadOp>(
+        op->getLoc(),
+        /*vectorType=*/
+        VectorType::get(operandType.getShape(), operandType.getElementType()),
+        /*source=*/operand,
+        /*indices=*/SmallVector<Value>(operandType.getRank(), zero),
+        /**affinemap*/ padValue,
+        /*inBounds=*/inBoundsVal);
+    return t;
+  }
+}
+
 // __________________________________
 // Speical operations canonicalization
 // __________________________________
@@ -290,17 +347,17 @@ scf::ForOp reductionAxisGenerateForLoop(
               lastDimReduction, MultiReduceOpAxisKind::Reduction);
 
           // reduction or elementwise reduce
-          if (lastDimReduction) {
-            Operation *reductionOp = rewriter.create<vector::ReductionOp>(
-                loc, multiReductionOp.getKind(), newReadOp->getResult(0),
-                loopState.back());
-            maybeYieldValue(b, loc, reductionOp->getResults());
-          } else {
-            auto reductionResult =
-                makeArithReduction(b, loc, multiReductionOp.getKind(),
-                                   newReadOp->getResult(0), loopState.back());
-            maybeYieldValue(b, loc, reductionResult);
-          }
+          // if (lastDimReduction) {
+          //   Operation *reductionOp = rewriter.create<vector::ReductionOp>(
+          //       loc, multiReductionOp.getKind(), newReadOp->getResult(0),
+          //       loopState.back());
+          //   maybeYieldValue(b, loc, reductionOp->getResults());
+          // } else {
+          auto reductionResult =
+              makeArithReduction(b, loc, multiReductionOp.getKind(),
+                                 newReadOp->getResult(0), loopState.back());
+          maybeYieldValue(b, loc, reductionResult);
+          // }
         } else {
           // outter loop
           auto nxtFor = reductionAxisGenerateForLoop(
@@ -348,9 +405,21 @@ scf::ForOp parallelAxisGenerateForLoop(
           auto newAccReadOp = makeNewTransferReadOp(
               multiReductionAcc, b, accReadMap, parallelAxis, inductionVars,
               lastDimReduction, MultiReduceOpAxisKind::Parallel);
+          auto resultElementType = vectorType.getElementType();
           // constructe next for loop
+          // auto accVal = b.create<arith::ConstantOp>(
+          //     loc, opBuilder.getZeroAttr(vectorType.getElementType()));
+          Attribute initValueAttr;
+          if (isa<FloatType>(resultElementType)) {
+            initValueAttr = FloatAttr::get(resultElementType, 0.0);
+
+          } else {
+            initValueAttr = IntegerAttr::get(resultElementType, 0);
+          }
           auto accVal = b.create<arith::ConstantOp>(
-              loc, opBuilder.getZeroAttr(vectorType.getElementType()));
+              loc, DenseElementsAttr::get(getVectorzedType(multiReductionOp),
+                                          {initValueAttr}));
+
           ValueRange newIterArgs(accVal);
           auto nxtFor = reductionAxisGenerateForLoop(
               b, multiReductionOp, reductionAxis, reductionIdx, vectorType,
@@ -358,8 +427,11 @@ scf::ForOp parallelAxisGenerateForLoop(
 
           // insert accumulate value to original vector
           auto accRes = nxtFor->getResults()[0];
+
+          Operation *reductionOp = b.create<vector::ReductionOp>(
+              loc, multiReductionOp.getKind(), accRes);
           auto insertOp = b.create<vector::InsertOp>(
-              loc, accRes, newAccReadOp->getResult(0), 0);
+              loc, reductionOp->getResult(0), newAccReadOp->getResults()[0], 0);
 
           // write vector back to tensor
           vector::TransferWriteOp accWriteOp = nullptr;
@@ -1064,13 +1136,134 @@ bool isCompatibleVectorType(Operation *op1, Operation *op2) {
   auto sp1 = type1.value();
   auto sp2 = type2.value();
   auto min_rank = std::min(sp1.getRank(), sp2.getRank()) - 1;
-  for (auto i = min_rank; i >= 0; i--) {
+  bool isCompatible = true;
+  // from front to back
+  for (long i = 0; i < min_rank; i++) {
     if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
-      return false;
+      isCompatible = false;
+      break;
     }
   }
 
-  return true;
+  return isCompatible;
+}
+
+///  which axis do the shape cast in source shape a
+void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
+                         llvm::SmallVector<int64_t> &res) {
+  unsigned rankA = a.size();
+  unsigned rankB = b.size();
+  assert(rankA < rankB && "May be invalid shape cast operation.");
+
+  auto isOne = [](int64_t v) { return v == 1; };
+
+  // Special-case for n-D to 0-d shape cast. 'b' must be all ones to be shape
+  // casted to a 0-d vector.
+  if (rankA == 0 && llvm::all_of(b, isOne)) {
+    for (size_t i = 0; i < a.size(); i++) {
+      res.emplace_back(i);
+    }
+    return;
+  }
+
+  unsigned i = 0;
+  unsigned j = 0;
+  while (i < rankA && j < rankB) {
+    int64_t dimA = a[i];
+    int64_t dimB = 1;
+    int64_t bAxisBegin = j;
+    while (dimB < dimA && j < rankB)
+      dimB *= b[j++];
+    if (dimA != dimB) {
+      assert(false && " Invalid shape cast operation.");
+      break;
+    }
+    if (bAxisBegin != j) {
+      res.emplace_back(i);
+    }
+    ++i;
+
+    // Handle the case when trailing dimensions are of size 1.
+    // Include them into the contiguous sequence.
+    if (i < rankA && llvm::all_of(a.slice(i), isOne))
+      i = rankA;
+    if (j < rankB && llvm::all_of(b.slice(j), isOne))
+      j = rankB;
+  }
+
+  assert(i == rankA && j == rankB && "Invalid shapecast operation.");
+}
+
+void getOperationDataAxis(Operation *op, llvm::SmallVector<int64_t> &dataAxis) {
+  return TypeSwitch<Operation *>(op)
+      .Case<vector::MultiDimReductionOp>(
+          [&](vector::MultiDimReductionOp multiReductionOp) {
+            auto rdDimsRange = multiReductionOp.getReductionDims()
+                                   .getAsValueRange<IntegerAttr>();
+            auto reductionDims = llvm::to_vector<4>(llvm::map_range(
+                rdDimsRange, [](const APInt &a) { return a.getZExtValue(); }));
+            dataAxis.assign(reductionDims.begin(), reductionDims.end());
+          })
+      .Case<vector::ShapeCastOp>([&](vector::ShapeCastOp shapeCastOp) {
+        auto srcType = shapeCastOp.getSourceVectorType();
+        auto dstType = shapeCastOp.getResultVectorType();
+        auto srcShape = srcType.getShape();
+        auto dstShape = dstType.getShape();
+        shapeCastSourceAxis(srcShape, dstShape, dataAxis);
+      })
+      .Default([&](Operation *op) {
+        // default is last axis
+        dataAxis.emplace_back(
+            op->getResultTypes().front().cast<ShapedType>().getRank() - 1);
+      });
+}
+
+bool hasDataDependency(Operation *op1, Operation *op2) {
+  // op1 must be special operation
+  if (!isSpecialOp(op1)) {
+    return hasDataDependency(op2, op1);
+  }
+  auto hasSameAxis = [](const llvm::SmallVector<int64_t> &dims1,
+                        const llvm::SmallVector<int64_t> &dims2) {
+    llvm::DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
+    for (auto x : dims1) {
+      if (checkSet.contains(x)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  auto res =
+      TypeSwitch<Operation *, bool>(op1)
+          .Case<vector::ShapeCastOp>([&](vector::ShapeCastOp shapeCastOp) {
+            llvm::SmallVector<int64_t> dims1, dims2;
+            getOperationDataAxis(op1, dims1);
+            getOperationDataAxis(op2, dims2);
+            return hasSameAxis(dims1, dims2);
+          })
+          .Case<>([&](vector::MultiDimReductionOp multiReductionOp) {
+            // op1 is special operation, op2 is normal operation
+            // op1 and op2 is both speicial operation
+            auto rdDimsRange = multiReductionOp.getReductionDims()
+                                   .getAsValueRange<IntegerAttr>();
+            auto reductionDims = llvm::to_vector(
+                llvm::map_range(rdDimsRange, [](const APInt &a) {
+                  return (int64_t)a.getZExtValue();
+                }));
+            llvm::SmallVector<int64_t> dims2;
+            getOperationDataAxis(op2, dims2);
+            llvm::DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
+
+            for (auto x : dims2) {
+              if (!checkSet.contains(x)) {
+                return true;
+              }
+            }
+            return false;
+          })
+          .Default([&](Operation *op) { return false; });
+
+  return res;
 }
 
 bool isNeedNewGroup(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
@@ -1084,6 +1277,10 @@ bool isNeedNewGroup(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
     }
     // previous operation is a special operation
     if (isSpecialOp(prevOp)) {
+      // special operation need to check data dependency axis
+      if (hasDataDependency(prevOp, op)) {
+        return true;
+      }
       return true;
     }
     // previous operation vector type is not compatible with current operation
@@ -1173,63 +1370,6 @@ void setOperationOperandResult(
     }
   }
 };
-
-Operation *createTensorEmptyBefore(Operation *op) {
-  auto rtType = op->getResultTypes()[0].dyn_cast<ShapedType>();
-  IRRewriter reWriter(op);
-
-  SmallVector<int64_t> shapes;
-  SmallVector<Value> dynDims;
-  for (unsigned i = 0; i < rtType.getRank(); i++) {
-    shapes.push_back(rtType.getDimSize(i));
-    if (rtType.isDynamicDim(i))
-      dynDims.push_back(reWriter.create<tensor::DimOp>(reWriter.getUnknownLoc(),
-                                                       op->getResult(0), i));
-  }
-  return reWriter.create<tensor::EmptyOp>(op->getLoc(), rtType.getShape(),
-                                          rtType.getElementType(), dynDims);
-}
-
-Operation *
-createTransferReadOpBefore(Operation *op, const Value &operand,
-                           vector::TransferReadOp *srcReadOp = nullptr) {
-  auto operandType = operand.getType().dyn_cast<ShapedType>();
-
-  IRRewriter rewriter(op);
-  auto zero =
-      rewriter.create<arith::ConstantIndexOp>(rewriter.getUnknownLoc(), 0);
-  auto padValue = rewriter.create<arith::ConstantOp>(
-      rewriter.getUnknownLoc(),
-      rewriter.getZeroAttr(operandType.getElementType()));
-
-  if (srcReadOp) {
-    auto resultType = srcReadOp->getType().dyn_cast<ShapedType>();
-    SmallVector<bool> inBoundsVal(resultType.getRank(), true);
-    auto srcReadOpAffineMap = srcReadOp->getPermutationMap();
-    // result of read operation should be same as operand
-    auto t = rewriter.create<vector::TransferReadOp>(
-        op->getLoc(),
-        /*vectorType=*/
-        VectorType::get(resultType.getShape(), resultType.getElementType()),
-        /*source=*/operand,
-        /*indices=*/SmallVector<Value>(operandType.getRank(), zero),
-        /**affinemap*/ srcReadOpAffineMap,
-        /*inBounds=*/inBoundsVal);
-
-    return t;
-  } else {
-    SmallVector<bool> inBoundsVal(operandType.getRank(), true);
-    auto t = rewriter.create<vector::TransferReadOp>(
-        op->getLoc(),
-        /*vectorType=*/
-        VectorType::get(operandType.getShape(), operandType.getElementType()),
-        /*source=*/operand,
-        /*indices=*/SmallVector<Value>(operandType.getRank(), zero),
-        /**affinemap*/ padValue,
-        /*inBounds=*/inBoundsVal);
-    return t;
-  }
-}
 
 Operation *createTransferWriteOpAfter(Operation *op, const Value &dest) {
   auto rtType = op->getResultTypes()[0].dyn_cast<ShapedType>();
