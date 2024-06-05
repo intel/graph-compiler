@@ -272,12 +272,37 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
 void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   mlir::Operation *graph = getOperation();
-  ControlPackNamedOpsFn controlFn =
+  // stage1:
+  RewritePatternSet patterns(&getContext());
+  mlir::linalg::ControlBlockPackMatmulFn packMatmulControlFn =
+      [&](linalg::LinalgOp op) -> mlir::linalg::BlockPackMatmulOptions {
+    mlir::linalg::BlockPackMatmulOptions options;
+    auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
+    auto matmulLayout = *(layoutAnalysisResult.getOpLayout(op));
+    TensorLayout LHSLayout = matmulLayout.getSupportedInputLayouts()[0];
+    TensorLayout RHSLayout = matmulLayout.getSupportedInputLayouts()[1];
+    // hardcode to mmt4d format
+    options.rhsTransposeOuterBlocks = true;
+    options.rhsTransposeInnerBlocks = true;
+    options.blockFactors.push_back(
+        *getConstantIntValue(LHSLayout.getTileSizes()[0]));
+    options.blockFactors.push_back(
+        *getConstantIntValue(LHSLayout.getTileSizes()[1]));
+    options.blockFactors.push_back(
+        *getConstantIntValue(RHSLayout.getTileSizes()[1]));
+    return options;
+  };
+  linalg::populateBlockPackMatmulPatterns(patterns, packMatmulControlFn);
+  if (failed(applyPatternsAndFoldGreedily(graph, std::move(patterns))))
+    return signalPassFailure();
+
+  // stage3: propagate layout on other namsed ops
+  ControlPackNamedOpsFn layoutControlFn =
       [&](Operation *op) -> FailureOr<OperatorLayout> {
     auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
     return layoutAnalysisResult.getOpLayout(op);
   };
-  if (failed(namedOpLayoutPropagation(ctx, graph, controlFn)))
+  if (failed(namedOpLayoutPropagation(ctx, graph, layoutControlFn)))
     return signalPassFailure();
 }
 
