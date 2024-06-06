@@ -2,6 +2,7 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
 add_mlir_dialect_library(MLIROneDNNGraph
     OneDNNGraphDialect.cpp
     OneDNNGraphOps.cpp
+    OneDNNGraphUtils.cpp
     
     ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include/gc/Dialect/OneDNNGraph
