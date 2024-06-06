@@ -89,6 +89,11 @@ Value createBroadcastOperand(Location loc, PatternRewriter &rewriter,
     // If dimensions with size 1 need to be broadcasted, need to collapse
     Value newVal = op;
     if (collapseShape.size() < opShape.size()) {
+      // consider kept dims [a, b,..., c] as anchor so
+      // reassociation = [[...a...], [...b...], ..., [...c...]]
+      // e.g. for rank = 5, kept dims = [0, 2, 4]
+      // [16, 1, 32, 1, 64] --collapse-> [16, 32, 64]
+      // reassociation = [[0], [1, 2], [3, 4]]
       assert(collapseShape.size() + bcastDims.size() == bcastShape.size());
       auto reassociation =
           computeReassociationByAnchor(keepDims, opTy.getRank());
@@ -292,6 +297,11 @@ static Operation *createLoweredReduceOp(
   }
   // If keep dims, create tensor::ExpandShapeOp
   if (keepDims) {
+    // consider kept dims [a, b,..., c] as anchor so
+    // reassociation = [[...a...], [...b...], ..., [...c...]]
+    // e.g. for rank = 5, kept dims = [0, 2, 4]
+    // [16, 32, 64] --expand-> [16, 1, 32, 1, 64]
+    // reassociation = [[0], [1, 2], [3, 4]]
     assert(keepAxes.size() == reducedShape.size());
     auto reassociation =
         computeReassociationByAnchor(keepAxes, resultTy.getRank());
@@ -516,7 +526,6 @@ struct ConvertOneDNNGraphToLinalg
     target.addLegalDialect<
         // clang-format off
         BuiltinDialect, 
-        scf::SCFDialect,
         math::MathDialect,
         func::FuncDialect, 
         arith::ArithDialect, 
