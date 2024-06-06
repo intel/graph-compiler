@@ -75,6 +75,35 @@ static bool allowHoisting(Operation *op) {
          static_cast<uint8_t>(allocOp.getHoistingKind() & HoistingKind::Loop);
 }
 
+struct ForallLoopDepth {
+  llvm::DenseMap<Operation *, int32_t> mapping;
+
+  ForallLoopDepth(Operation *op) {
+    int32_t loopDepth = 0;
+    op->walk<WalkOrder::PreOrder>([&](Operation *op) {
+      if (auto forallOp = dyn_cast<scf::ForallOp>(op)) {
+        if (mapping.find(forallOp) == mapping.end()) {
+          if (forallOp->getParentOp() &&
+              isa<scf::ForallOp>(forallOp->getParentOp()) &&
+              mapping.find(forallOp->getParentOp()) != mapping.end()) {
+            mapping[forallOp] = mapping[forallOp->getParentOp()] + 1;
+          } else {
+            mapping[forallOp] = loopDepth++;
+          }
+        }
+      }
+    });
+  }
+
+  /// Returns the loop depth/level of the given forall op.
+  int32_t getLoopDepth(Operation *op) {
+    auto it = mapping.find(op);
+    if (it != mapping.end())
+      return it->second;
+    return std::numeric_limits<int32_t>::min();
+  }
+};
+
 /// A state implementation compatible with the `BufferAllocationHoisting` class
 /// that hoists allocations out of loops.
 struct BufferHoistingState {
@@ -129,10 +158,10 @@ template <typename StateT>
 class BufferHoisting : public BufferPlacementTransformationBase {
 public:
   BufferHoisting(Operation *op)
-      : BufferPlacementTransformationBase(op), dominators(op), scopeOp(op) {}
+      : BufferPlacementTransformationBase(op), dominators(op), scopeOp(op),
+        forallLoopDepth(op) {}
 
   LogicalResult hoist() {
-
     SmallVector<Value> allocsAndAllocas;
     for (BufferPlacementAllocs::AllocEntry &entry : allocs)
       allocsAndAllocas.push_back(std::get<0>(entry));
@@ -166,15 +195,14 @@ public:
           dependencyBlock = depBlock;
       }
 
-      bool shouldHoist = false;
-      int64_t numThreads = 0;
+      int32_t hoistLevel = 0;
+      int64_t numThreads = 1;
       Value inductVar;
       Block *curBlock = state.placementBlock;
       Operation *parentOp = curBlock->getParentOp();
       if (isParallelLoop(parentOp)) {
         // Only hoist the allocators that are between nested parallel loops and
         // used inside the inner parallel loop.
-        OpBuilder builder(parentOp);
         // check if curBlock contains any forall ops
         SmallVector<Operation *, 4> parallelOpsInCurBlock;
         for (auto &op : curBlock->getOperations()) {
@@ -182,24 +210,52 @@ public:
             parallelOpsInCurBlock.push_back(&op);
           }
         }
+
         MemRefType memrefType = dyn_cast<MemRefType>(allocValue.getType());
         bool isStaticShape = memrefType && memrefType.hasStaticShape();
+        OpBuilder builder(definingOp);
         if (!parallelOpsInCurBlock.empty() && isStaticShape) {
           for (auto *use : allocValue.getUsers()) {
             for (auto *operation : parallelOpsInCurBlock) {
               if (operation->isAncestor(use)) {
+                if (isa<scf::ForallOp>(parentOp)) {
+                  hoistLevel = forallLoopDepth.getLoopDepth(parentOp) + 1;
+                  // calculate numThreads upwards the upper-most parallel loop
+                  int64_t innerLoopUpperBound = 1;
+                  bool isUpperLoop = false;
+                  Operation *op = parentOp;
+                  while (op && forallLoopDepth.getLoopDepth(op) >= 0) {
+                    if (auto forallOp = dyn_cast<scf::ForallOp>(op)) {
+                      SmallVector<Value> ubs = getValueOrCreateConstantIndexOp(
+                          builder, forallOp.getLoc(),
+                          forallOp.getMixedUpperBound());
+                      if (std::optional<int64_t> ubs0_int =
+                              getConstantIntValue(ubs[0])) {
+                        if (!isUpperLoop) {
+                          inductVar = forallOp.getInductionVar(0);
+                          isUpperLoop = true;
+                        } else {
+                          Value innerLoopBoundVal =
+                              builder.create<arith::ConstantIndexOp>(
+                                  builder.getUnknownLoc(), innerLoopUpperBound);
+                          Value intermediateVal = builder.create<arith::MulIOp>(
+                              builder.getUnknownLoc(),
+                              forallOp.getInductionVar(0), innerLoopBoundVal);
+                          inductVar = builder.create<arith::AddIOp>(
+                              builder.getUnknownLoc(), inductVar,
+                              intermediateVal);
+                        }
 
-                // only support scf.forall for now
-                if (auto forallOp = dyn_cast<scf::ForallOp>(parentOp)) {
-                  SmallVector<Value> ubs = getValueOrCreateConstantIndexOp(
-                      builder, forallOp.getLoc(),
-                      forallOp.getMixedUpperBound());
-                  if (std::optional<int64_t> ubs0_int =
-                          getConstantIntValue(ubs[0])) {
-                    numThreads = ubs0_int.value();
-                    shouldHoist = true;
+                        innerLoopUpperBound = ubs0_int.value();
+                        numThreads *= innerLoopUpperBound;
+                      } else {
+                        numThreads = 1;
+                        hoistLevel = 0;
+                        break;
+                      }
+                    }
+                    op = op->getParentOp();
                   }
-                  inductVar = forallOp.getInductionVar(0);
                 }
               }
             }
@@ -212,24 +268,25 @@ public:
       // cannot be moved any further upwards than the given upper bound.
       Block *placementBlock = findPlacementBlock(
           state, state.computeUpperBound(dominatorBlock, dependencyBlock),
-          shouldHoist);
+          hoistLevel);
       Operation *startOperation = BufferPlacementAllocs::getStartOperation(
           allocValue, placementBlock, liveness);
 
       // Move the alloc in front of the start operation.
       Operation *allocOperation = allocValue.getDefiningOp();
-      if (shouldHoist) {
+      if (hoistLevel > 0) {
         OpBuilder builder(allocOperation);
         // 1) allocate larger buffer...
-        //   1.1) query the forall op to get the inductor var and the upperBound
+        //   1.1) query the forall op to get the inductor var and the
+        //        upperBound upwards to the outer-most forall.
         //   1.2) create new memref type with larger size based on upperBound
         //   1.3) create new allocOp with the new memref type
-        //   1.4) move the new allocOp in the correct insertpoint.
+        //   1.4) move the new allocOp in the correct insert point.
         // 2) replace with new memref::subViewOp
         //   2.1) create a new memref::subViewOp op based on the new allocOp
         //   2.2) replace the original allocOp and its use with the new
         //   memref::subViewOp
-        //   2.2) remove the original allocOp
+        //   2.3) remove the original allocOp
         MemRefType memrefType = dyn_cast<MemRefType>(allocValue.getType());
         if (memrefType && memrefType.hasStaticShape()) {
           Type elementType = memrefType.getElementType();
@@ -285,7 +342,7 @@ private:
   /// either cannot continue our walk due to constraints (given by the StateT
   /// implementation) or we have reached the upper-most dominator block.
   Block *findPlacementBlock(StateT &state, Block *upperBound,
-                            bool shouldHoist = false) {
+                            int32_t hoistLevel = 0) {
     Block *currentBlock = state.placementBlock;
     // ppropriate placement block that satisfies the constraint of the
     // current StateT implementation. Walk until we reach the upperBound
@@ -320,9 +377,10 @@ private:
         // allocations out of unknown region-based control-flow operations.
         if ((!isKnownControlFlowInterface(parentOp) ||
              !state.isLegalPlacement(parentOp)) &&
-            !shouldHoist)
+            (hoistLevel == 0))
           break;
-        shouldHoist = false;
+        if (isa<scf::ForallOp>(parentOp) && hoistLevel > 0)
+          hoistLevel--;
 
         // Move to our parent block by notifying the current StateT
         // implementation.
@@ -338,12 +396,12 @@ private:
   /// allocs.
   DominanceInfo dominators;
 
-  /// The map storing the final placement blocks of a given alloc value.
-  llvm::DenseMap<Value, Block *> placementBlocks;
-
   /// The operation that this transformation is working on. It is used to also
   /// gather allocas.
   Operation *scopeOp;
+
+  /// The mapping of forallOp and its loop depth, starting from 0.
+  ForallLoopDepth forallLoopDepth;
 };
 
 static LogicalResult hoistBuffersFromNestedParallelLoop(Operation *op) {
