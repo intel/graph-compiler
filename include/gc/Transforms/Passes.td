@@ -49,8 +49,11 @@ def PropagateLayoutOnNamedOps : Pass<"propagate-layout-on-named-ops"> {
   let description = [{
     Insert and propagte tensor.pack
   }];
-  let dependentDialects = ["mlir::tensor::TensorDialect",
-      "mlir::linalg::LinalgDialect"];
+  let dependentDialects = [
+      "mlir::tensor::TensorDialect",
+      "mlir::linalg::LinalgDialect",
+      "mlir::linalgx::LinalgxDialect"
+      ];
 }
 
 #endif // GC_DIALECT_GC_PASSES

@@ -21,6 +21,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
 namespace mlir {
 namespace gc {
@@ -211,8 +213,10 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
   IRRewriter rewriter(ctx);
   auto walk = graph->walk([&](Operation *op) {
     FailureOr<OperatorLayout> opLayout = controlFn(op);
-    if ((isa<linalg::LinalgOp>(op) && !mlir::linalg::isaContractionOpInterface(
-                                          dyn_cast<linalg::LinalgOp>(op))) ||
+    if ((isa<linalg::LinalgOp>(op) &&
+         !mlir::linalg::isaContractionOpInterface(
+             dyn_cast<linalg::LinalgOp>(op)) &&
+         !isa<linalgx::Mm4DVnniOp>(op)) ||
         isa<tensor::ExpandShapeOp>(op) || isa<tensor::PadOp>(op)) {
       if (failed(opLayout)) {
         LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName()
@@ -269,6 +273,50 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
   return success();
 }
 
+static FailureOr<mlir::linalgx::Mm4DVnniOp>
+packVNNIMatmul(RewriterBase &rewriter, linalg::Mmt4DOp mmt4dOp) {
+  auto elementType = getElementTypeOrSelf(mmt4dOp.getInputs()[0].getType());
+  if (!elementType.isBF16())
+    return rewriter.notifyMatchFailure(mmt4dOp, "require bf16 type");
+  Location loc = mmt4dOp.getLoc();
+  // NKnk --> NKkn2k
+  SmallVector<int64_t> innerPos{3};
+  SmallVector<OpFoldResult> tileSize{rewriter.getIndexAttr(2)};
+  SmallVector<int64_t> outerPerm{0, 1, 3, 2};
+  OpOperand *RHSOperand = mmt4dOp.getDpsInputOperand(1);
+  Value dest = tensor::PackOp::createDestinationTensor(
+      rewriter, loc, RHSOperand->get(), tileSize, innerPos, outerPerm);
+  Value VNNIPack =
+      rewriter.create<tensor::PackOp>(loc, RHSOperand->get(), dest, innerPos,
+                                      tileSize, std::nullopt, outerPerm);
+  SmallVector<Value> inputsValues;
+  SmallVector<OpOperand *> initOperands = llvm::to_vector(llvm::map_range(
+      mmt4dOp.getDpsInitsMutable(), [](OpOperand &o) { return &o; }));
+  SmallVector<OpOperand *> inputOperands = mmt4dOp.getDpsInputOperands();
+  for (OpOperand *opOperand : inputOperands) {
+    inputsValues.push_back(opOperand->get());
+  }
+  inputsValues[1] = VNNIPack;
+  auto vnniOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
+      loc, mmt4dOp.getDpsInits().getTypes(), inputsValues,
+      mmt4dOp.getDpsInits());
+  rewriter.replaceOp(mmt4dOp, vnniOp);
+  return vnniOp;
+}
+
+struct VNNIOnMatmul : public OpRewritePattern<linalg::Mmt4DOp> {
+  VNNIOnMatmul(MLIRContext *context, PatternBenefit benefit = 1)
+      : OpRewritePattern<linalg::Mmt4DOp>(context, benefit) {}
+  LogicalResult matchAndRewrite(linalg::Mmt4DOp matmulOp,
+                                PatternRewriter &rewriter) const override {
+    FailureOr<mlir::linalgx::Mm4DVnniOp> packedMatmul =
+        packVNNIMatmul(rewriter, matmulOp);
+    if (failed(packedMatmul))
+      return failure();
+    return success();
+  }
+};
+
 void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   mlir::Operation *graph = getOperation();
@@ -296,7 +344,13 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   if (failed(applyPatternsAndFoldGreedily(graph, std::move(patterns))))
     return signalPassFailure();
 
-  // stage3: propagate layout on other namsed ops
+  // stage2: pack VNNI
+  RewritePatternSet VNNIPatterns(&getContext());
+  VNNIPatterns.add<VNNIOnMatmul>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(graph, std::move(VNNIPatterns))))
+    return signalPassFailure();
+
+  // stage3: propagate layout on other named ops
   ControlPackNamedOpsFn layoutControlFn =
       [&](Operation *op) -> FailureOr<OperatorLayout> {
     auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
