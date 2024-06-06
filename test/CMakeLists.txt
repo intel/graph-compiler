@@ -51,3 +51,4 @@ set_target_properties(gc-check PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(GC_OPT ${CMAKE_CURRENT_SOURCE_DIR} DEPENDS ${GC_OPT_TEST_DEPENDS})
 
+add_subdirectory(gc/Unit)
