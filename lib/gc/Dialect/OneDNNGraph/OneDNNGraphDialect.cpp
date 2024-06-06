@@ -25,6 +25,7 @@ using namespace mlir::onednn_graph;
 //===----------------------------------------------------------------------===//
 
 void OneDNNGraphDialect::initialize() {
+  // NOLINTBEGIN
   addOperations<
 #define GET_OP_LIST
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.cpp.inc"
@@ -33,4 +34,5 @@ void OneDNNGraphDialect::initialize() {
 #define GET_ATTRDEF_LIST
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsAttributes.cpp.inc"
       >();
+  // NOLINTEND
 }
