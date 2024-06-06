@@ -4,7 +4,12 @@
 
 func.func @llama2_mlp(%2: tensor<1x32x4096xbf16>, %3: tensor<4096x4096xbf16>, %1 : tensor<1x32x4096xbf16>, %00: tensor<1xf32>, 
                       %26: tensor<4096xbf16>, %28: tensor<11008x4096xbf16>, %33: tensor<11008x4096xbf16>, %37: tensor<4096x11008xbf16>, 
-                      %0: tensor<1xf32>, %60: tensor<4096xbf16>) -> (tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>) {
+                      %0: tensor<1xf32>, %60: tensor<4096xbf16>) -> (tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>)
+     attributes {onednn_graph.property_types = [#onednn_graph.property_type<variable>, #onednn_graph.property_type<variable>, 
+                                                #onednn_graph.property_type<variable>, #onednn_graph.property_type<variable>, 
+                                                #onednn_graph.property_type<variable>, #onednn_graph.property_type<variable>, 
+                                                #onednn_graph.property_type<variable>, #onednn_graph.property_type<variable>, 
+                                                #onednn_graph.property_type<variable>, #onednn_graph.property_type<variable>]} {
   %5 = onednn_graph.matmul %2, %3 {transpose_b = true} 
        : (tensor<1x32x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<1x32x4096xbf16>
   %7 = onednn_graph.add %1, %5 : (tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>) -> tensor<1x32x4096xbf16>

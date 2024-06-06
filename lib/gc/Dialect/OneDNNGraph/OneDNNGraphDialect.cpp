@@ -9,19 +9,30 @@
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphTypes.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::onednn_graph;
 
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsDialect.cpp.inc"
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsEnums.cpp.inc"
+#define GET_ATTRDEF_CLASSES
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsAttributes.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // OneDNNGraph dialect.
 //===----------------------------------------------------------------------===//
 
 void OneDNNGraphDialect::initialize() {
+  // NOLINTBEGIN
   addOperations<
 #define GET_OP_LIST
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.cpp.inc"
       >();
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "gc/Dialect/OneDNNGraph/OneDNNGraphOpsAttributes.cpp.inc"
+      >();
+  // NOLINTEND
 }
