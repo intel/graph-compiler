@@ -23,11 +23,12 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
     Lowers the `onednn_graph` ops to `linalg` ops.
   }];
   let dependentDialects = [
-    "func::FuncDialect",
-    "math::MathDialect",
-    "arith::ArithDialect",
-    "tensor::TensorDialect",
-    "linalg::LinalgDialect"
+      "func::FuncDialect",
+      "math::MathDialect",
+      "arith::ArithDialect",
+      "tensor::TensorDialect",
+      "linalg::LinalgDialect",
+      "linalgx::LinalgxDialect"
   ];
 }
 
@@ -37,6 +38,7 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "tensor::TensorDialect",
       "memref::MemRefDialect",
       "linalg::LinalgDialect",
+      "linalgx::LinalgxDialect",
       "LLVM::LLVMDialect",
       "scf::SCFDialect",
       "bufferization::BufferizationDialect",
