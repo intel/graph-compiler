@@ -40,6 +40,10 @@ if(GC_ENABLE_BINDINGS_PYTHON)
         list(APPEND GC_OPT_TEST_DEPENDS GcPythonModules)
 endif()
 
+if(GC_BENCH_ENABLE)
+        add_subdirectory(benchgc)
+endif()
+
 add_lit_testsuite(gc-check "Running the regression tests"
         ${CMAKE_CURRENT_BINARY_DIR}
         DEPENDS ${GC_OPT_TEST_DEPENDS}
