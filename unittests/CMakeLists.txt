@@ -17,5 +17,6 @@ function(add_mlir_unittest test_dirname)
   add_unittest(GCUnitTests ${test_dirname} ${ARGN})
 endfunction()
 
+add_subdirectory(Dialect)
 add_subdirectory(Example)
 
