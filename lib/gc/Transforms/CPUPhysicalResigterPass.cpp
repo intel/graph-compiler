@@ -111,7 +111,7 @@ mlir::FailureOr<VectorType> getOperationVectorType(Operation *op) {
           [&](arith::ConstantOp constantOp) { return failure(); })
       .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
         if (!op->getResults().empty()) {
-          auto t = op->getResultTypes().front().dyn_cast<VectorType>();
+          auto t = mlir::dyn_cast<VectorType>(op->getResultTypes().front());
           if (t) {
             return t;
           }
