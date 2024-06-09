@@ -1,3 +1,11 @@
+//===-- TestJsonParser.cpp - JsonParser test --------------------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include <gtest/gtest.h>
 
 #include "DnnlTestUtils.h"
@@ -5,8 +13,10 @@
 
 #include "gc/Transforms/Passes.h"
 
-static mlir::ModuleOp parse(const char *fileName, std::vector<size_t> &inputIds,
-                            std::vector<size_t> &outputIds) {
+static mlir::ModuleOp parse(const char *fileName,
+                            llvm::SmallVector<size_t> &inputIds,
+                            llvm::SmallVector<size_t> &outputIds,
+                            std::unordered_map<std::size_t, Strides> &strides) {
   static auto registry = []() {
     mlir::DialectRegistry registry;
     mlir::gc::registerGraphCompilerPasses();
@@ -27,7 +37,8 @@ static mlir::ModuleOp parse(const char *fileName, std::vector<size_t> &inputIds,
   }();
 
   auto json = read_str_resource(fileName);
-  mlir::ModuleOp module = JsonParser::parse(context, json, inputIds, outputIds);
+  mlir::ModuleOp module =
+      JsonParser::parse(context, json, inputIds, outputIds, strides);
 
   if (printModule) {
     auto &out = llvm::outs();
@@ -48,15 +59,18 @@ static mlir::ModuleOp parse(const char *fileName, std::vector<size_t> &inputIds,
 }
 
 TEST(TestJsonParser, AddRelu) {
-  std::vector<size_t> inputIds;
-  std::vector<size_t> outputIds;
-  mlir::ModuleOp module = parse("add_relu.json", inputIds, outputIds);
+  llvm::SmallVector<size_t> inputIds;
+  llvm::SmallVector<size_t> outputIds;
+  std::unordered_map<std::size_t, Strides> strides;
+  mlir::ModuleOp module = parse("add_relu.json", inputIds, outputIds, strides);
 
   ASSERT_EQ(inputIds.size(), 2);
   ASSERT_EQ(outputIds.size(), 1);
+  ASSERT_EQ(strides.size(), 1);
   ASSERT_EQ(inputIds[0], 0);
   ASSERT_EQ(inputIds[1], 1);
   ASSERT_EQ(outputIds[0], 3);
+  ASSERT_EQ(strides[1], Strides({1, 2, 3, 4}));
 
   auto functions = module.getOps<mlir::func::FuncOp>();
   ASSERT_EQ(std::distance(functions.begin(), functions.end()), 1);
@@ -112,12 +126,14 @@ TEST(TestJsonParser, AddRelu) {
 }
 
 TEST(TestJsonParser, Mpl) {
-  std::vector<size_t> inputIds;
-  std::vector<size_t> outputIds;
-  mlir::ModuleOp module = parse("mpl.json", inputIds, outputIds);
+  llvm::SmallVector<size_t> inputIds;
+  llvm::SmallVector<size_t> outputIds;
+  std::unordered_map<std::size_t, Strides> strides;
+  mlir::ModuleOp module = parse("mpl.json", inputIds, outputIds, strides);
 
   ASSERT_EQ(inputIds.size(), 5);
   ASSERT_EQ(outputIds.size(), 1);
+  ASSERT_EQ(strides.size(), 0);
   ASSERT_EQ(inputIds[0], 0);
   ASSERT_EQ(inputIds[1], 1);
   ASSERT_EQ(inputIds[2], 2);
@@ -132,7 +148,7 @@ TEST(TestJsonParser, Mpl) {
   ASSERT_EQ(funcType.getNumInputs(), 5);
   ASSERT_EQ(funcType.getNumResults(), 1);
 
-  auto checkTensorType = [](mlir::Type type, std::vector<uint16_t> dims) {
+  auto checkTensorType = [](mlir::Type type, llvm::SmallVector<uint16_t> dims) {
     ASSERT_EQ(type.getTypeID(), mlir::RankedTensorType::getTypeID());
     auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type);
     ASSERT_TRUE(tensorType.getElementType().isBF16());

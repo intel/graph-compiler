@@ -46,9 +46,9 @@
             28
           ],
           "stride": [
-            -9223372036854775808
+            1, 2, 3, 4
           ],
-          "layout_type": "undef",
+          "layout_type": "strided",
           "property_type": "undef"
         }
       ],
