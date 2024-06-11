@@ -59,17 +59,14 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
  
   auto dnnl_dtypeA = static_cast<dnnl_data_type_t>(dtypeA); 
   auto dnnl_dtypeB = static_cast<dnnl_data_type_t>(dtypeB);
-  int64_t dtypeA_size =
-      dnnl::impl::types::data_type_size(dnnl_dtypeA);
-  int64_t dtypeB_size =
-      dnnl::impl::types::data_type_size(dnnl_dtypeB);
+  int64_t dtypeA_size = dnnl::impl::types::data_type_size(dnnl_dtypeA);
+  int64_t dtypeB_size = dnnl::impl::types::data_type_size(dnnl_dtypeB);
   brgemm_strides_t stride_info{stride_a * dtypeA_size, stride_b * dtypeB_size};
 
   dnnl::impl::status_t status = brgemm_desc_init(
       &desc, cpu_isa_t::isa_undef, brgemm_batch_kind_t::brgemm_strd,
-      dnnl_dtypeA, dnnl_dtypeB, false, false,
-      brgemm_layout_t::brgemm_row_major, 1.0f, beta, LDA, LDB, LDC, M, N, K,
-      &stride_info);
+      dnnl_dtypeA, dnnl_dtypeB, false, false, brgemm_layout_t::brgemm_row_major,
+      1.0f, beta, LDA, LDB, LDC, M, N, K, &stride_info);
   assert(status == dnnl::impl::status::success &&
          "Failed to initialize BRGEMM descriptor");
 
