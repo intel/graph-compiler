@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include <assert.h>
-#include <iostream>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -57,12 +56,18 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 
   brgemm_desc_t &desc = brgemm_desc_list.back();
   auto &kernel = brgemm_kernel_list.back();
-  brgemm_strides_t stride_info{stride_a, stride_b};
+ 
+  auto dnnl_dtypeA = static_cast<dnnl_data_type_t>(dtypeA); 
+  auto dnnl_dtypeB = static_cast<dnnl_data_type_t>(dtypeB);
+  int64_t dtypeA_size =
+      dnnl::impl::types::data_type_size(dnnl_dtypeA);
+  int64_t dtypeB_size =
+      dnnl::impl::types::data_type_size(dnnl_dtypeB);
+  brgemm_strides_t stride_info{stride_a * dtypeA_size, stride_b * dtypeB_size};
 
   dnnl::impl::status_t status = brgemm_desc_init(
       &desc, cpu_isa_t::isa_undef, brgemm_batch_kind_t::brgemm_strd,
-      static_cast<dnnl_data_type_t>(dtypeA),
-      static_cast<dnnl_data_type_t>(dtypeB), false, false,
+      dnnl_dtypeA, dnnl_dtypeB, false, false,
       brgemm_layout_t::brgemm_row_major, 1.0f, beta, LDA, LDB, LDC, M, N, K,
       &stride_info);
   assert(status == dnnl::impl::status::success &&
@@ -71,6 +76,9 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   status = brgemm_kernel_create(&kernel, desc);
   assert(status == dnnl::impl::status::success &&
          "Failed to JIT BRGEMM kernel");
+
+  brgemm_attr_t dnnl_attrs;
+  brgemm_desc_set_attr(&desc, dnnl_attrs);
 
   return brgemm_desc_list.size() - 1;
 }
@@ -84,6 +92,7 @@ void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
     return;
   }
 
+  // TODO(haixin): move to dispatch time
   char palette_buffer[PALETTE_SIZE];
   dnnl::impl::status_t status = brgemm_init_tiles(desc, palette_buffer);
   assert(status == dnnl::impl::status::success &&
