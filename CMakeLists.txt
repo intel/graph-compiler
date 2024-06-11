@@ -30,6 +30,7 @@ option(GC_LEGACY_ENABLE ON)
 option(GC_TEST_ENABLE "Build the tests" ON)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
+option(GC_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend, mainly for debug purpose." OFF)
 
 if(GC_LEGACY_ENABLE)
     add_subdirectory(legacy/core)
