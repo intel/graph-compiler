@@ -51,8 +51,9 @@ if __name__ == "__main__":
         # torch_arg1 = torch.randn((10, 10), dtype=torch.bfloat16)
         ref_res = torch.matmul(torch_arg0, torch_arg1)
         
-        np_arg0 = np.array(torch_arg0.tolist(), dtype=ml_dtypes.bfloat16)
-        np_arg1 = np.array(torch_arg1.tolist(), dtype=ml_dtypes.bfloat16)
+        # todo: using torch tensor directly
+        np_arg0 = torch_arg0.float().numpy().astype(ml_dtypes.bfloat16)
+        np_arg1 = torch_arg1.float().numpy().astype(ml_dtypes.bfloat16)
 
         entry = "main_entry"
         mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1])
