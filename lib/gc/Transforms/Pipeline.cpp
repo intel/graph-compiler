@@ -146,18 +146,8 @@ public:
     auto op = getOperation();
     PassManager pm{op->getContext()};
     populateCPUPipeline(pm);
-<<<<<<< Updated upstream
     // TODO(longsheng): add a option to
     // disable threading and enable pm.enableIRPrinting();
-=======
-    // pm.enableIRPrinting();
-
-    // std::string lhsStr;
-    // llvm::raw_string_ostream lhsStream(lhsStr);
-    // pm.printAsTextualPipeline(lhsStream);
-    // std::cout << "pipeline= " << lhsStr << std::endl;
-
->>>>>>> Stashed changes
     if (failed(pm.run(op)))
       signalPassFailure();
   }
