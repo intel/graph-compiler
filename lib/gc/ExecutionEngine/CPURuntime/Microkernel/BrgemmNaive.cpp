@@ -90,6 +90,7 @@ static int naive_brgemm_execute_fp32(brgemm_params_t params, void *A,
     Abuf += params.stride_a;
     Bbuf += params.stride_b;
   }
+  
   return 0;
 }
 
@@ -175,8 +176,6 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   // simply store the given parameters for naive BRGEMM
   brgemm_list.emplace_back(brgemm_params_t(M, N, K, LDA, LDB, LDC, stride_a,
                                            stride_b, beta, dtypeA, dtypeB));
-  // std::cout << ">>>>> dnnl_brgemm_dispatch: " << brgemm_list.size() - 1 <<
-  // std::endl;
   return brgemm_list.size() - 1;
 }
 
@@ -192,32 +191,26 @@ void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
   brgemm_params_t &params = brgemm_list[kernel];
   if (params.dtypeA == static_cast<int64_t>(dnnl_f32) &&
       params.dtypeB == static_cast<int64_t>(dnnl_f32)) {
-    // std::cout << ">>>>> dnnl_brgemm_execute_f32: " << kernel << std::endl;
     naive_brgemm_execute_fp32(params, A, A_offset, B, B_offset, C, C_offset,
                               num);
   } else if (params.dtypeA == static_cast<int64_t>(dnnl_bf16) &&
              params.dtypeB == static_cast<int64_t>(dnnl_bf16)) {
-    // std::cout << ">>>>> dnnl_brgemm_execute_bf16: " << kernel << std::endl;
     naive_brgemm_execute_bf16(params, A, A_offset, B, B_offset, C, C_offset,
                               num);
   } else if (params.dtypeA == static_cast<int64_t>(dnnl_s8) &&
              params.dtypeB == static_cast<int64_t>(dnnl_s8)) {
-    // std::cout << ">>>>> dnnl_brgemm_execute_s8s8: " << kernel << std::endl;
     naive_brgemm_execute_int8<int8_t, int8_t>(params, A, A_offset, B, B_offset,
                                               C, C_offset, num);
   } else if (params.dtypeA == static_cast<int64_t>(dnnl_s8) &&
              params.dtypeB == static_cast<int64_t>(dnnl_u8)) {
-    // std::cout << ">>>>> dnnl_brgemm_execute_s8u8: " << kernel << std::endl;
     naive_brgemm_execute_int8<int8_t, uint8_t>(params, A, A_offset, B, B_offset,
                                                C, C_offset, num);
   } else if (params.dtypeA == static_cast<int64_t>(dnnl_u8) &&
              params.dtypeB == static_cast<int64_t>(dnnl_u8)) {
-    // std::cout << ">>>>> dnnl_brgemm_execute_u8u8: " << kernel << std::endl;
     naive_brgemm_execute_int8<uint8_t, uint8_t>(params, A, A_offset, B,
                                                 B_offset, C, C_offset, num);
   } else if (params.dtypeA == static_cast<int64_t>(dnnl_u8) &&
              params.dtypeB == static_cast<int64_t>(dnnl_s8)) {
-    // std::cout << ">>>>> dnnl_brgemm_execute_u8s8: " << kernel << std::endl;
     naive_brgemm_execute_int8<uint8_t, int8_t>(params, A, A_offset, B, B_offset,
                                                C, C_offset, num);
   } else {
