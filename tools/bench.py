@@ -17,8 +17,8 @@
 
 import ctypes
 import random
+import timeit
 from time import sleep
-from timeit import repeat, timeit
 from typing import Sequence
 
 import numpy as np
@@ -43,14 +43,14 @@ def py_timeit_bench(
     warm_up=20,
 ) -> float:
     
-    engine = GraphCompiler(
+    compiler = GraphCompiler(
         pipeline,
         shared_libs,
     )
+    compile_begin = timeit.default_timer()
+    engine = compiler.compile_and_jit(ir_module, ir_printing=ir_printing)
+    compile_cost = (timeit.default_timer() - compile_begin) * 1000
 
-    compiler_time = timeit.timeit(stmt="engine.compile_and_jit(ir_module, ir_printing=ir_printing)", number=1)
-    
-    
     func = engine.lookup(entry_name)
     packed_args = (ctypes.c_void_p * len(mlir_args))()
     for argNum in range(len(mlir_args)):
@@ -59,9 +59,10 @@ def py_timeit_bench(
     def run_bench(func, arg):
         func(arg)
 
-    timeit(lambda: run_bench(func, packed_args), number=warm_up)
-    total_time = timeit(lambda: run_bench(func, packed_args), number=repeat_time)
-    return total_time * 1000 / repeat_time
+    timeit.timeit(lambda: run_bench(func, packed_args), number=warm_up)
+    total_time = timeit.timeit(lambda: run_bench(func, packed_args), number=repeat_time)
+    execute_cost = total_time * 1000 / repeat_time
+    return (execute_cost, compile_cost)
 
 
 def mlir_wrapper_bench(
@@ -79,11 +80,15 @@ def mlir_wrapper_bench(
     wrapper_module = ir_module
     with ir.InsertionPoint(wrapper_module.body):
         emit_benchmark_wrapped_main_func(kernel_func, emit_nano_time())
-    complier = GraphCompiler(
+    compiler = GraphCompiler(
         pipeline,
         shared_libs,
     )
-    engine = complier.compile_and_jit(wrapper_module, ir_printing=ir_printing)
+
+    compile_begin = timeit.default_timer()
+    engine = compiler.compile_and_jit(wrapper_module, ir_printing=ir_printing)
+    compile_cost = (timeit.default_timer() - compile_begin) * 1000
+
     np_timers_ns = np.array([0], dtype=np.int64)
     time_arg = ctypes.pointer(
         ctypes.pointer(runtime.get_ranked_memref_descriptor(np_timers_ns))
@@ -98,7 +103,8 @@ def mlir_wrapper_bench(
         run(engine.invoke, "wrapped_main", *mlir_args, time_arg)
         if i >= warm_up:
             total_time += int(np_timers_ns[0]) * ns_to_ms_scale
-    return total_time / repeat_time
+    execute_cost = total_time / repeat_time
+    return (execute_cost, compile_cost)
 
 
 # for test

@@ -26,7 +26,6 @@
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 
-#include <iostream>
 namespace mlir::gc {
 
 // linalg + linalgX + tensor

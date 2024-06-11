@@ -59,7 +59,7 @@ if __name__ == "__main__":
         passes = "any(gc-cpu-pipeline)"
         shared_libs = [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]]
         # bench
-        # cost = py_timeit_bench(
+        # _, cost = py_timeit_bench(
         #     module,
         #     "main_entry",
         #     passes,

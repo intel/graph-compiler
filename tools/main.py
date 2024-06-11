@@ -56,7 +56,7 @@ def do_bench(args):
 
         print("===========bench func name: ", driver.main_entry, "===========")
         bench_alg = py_timeit_bench if args.bench_alg == "py" else mlir_wrapper_bench
-        cost = bench_alg(
+        execute_cost, compile_cost = bench_alg(
             driver.ir_module,
             driver.main_entry,
             driver.get_passes(),
@@ -67,7 +67,14 @@ def do_bench(args):
             args.warm_up,
         )
         print("===========bench result===========")
-        json_res = json.dumps({"args": vars(args), "cost": cost}, indent=4)
+        json_res = json.dumps(
+            {
+                "args": vars(args),
+                "compile_cost": compile_cost,
+                "execute_cost": execute_cost,
+            },
+            indent=4,
+        )
         print(json_res)
 
         # get result
