@@ -14,10 +14,10 @@ def run(f):
     return f
 
 
-# CHECK-LABEL: TEST: testCreatetOp
+# CHECK-LABEL: TEST: testCreateOp
 # CHECK onednn_graph.add
 @run
-def testCreatetOp():
+def testCreateOp():
     with Context() as ctx, Location.unknown():
         module = Module.create()
         f32 = F32Type.get(ctx)

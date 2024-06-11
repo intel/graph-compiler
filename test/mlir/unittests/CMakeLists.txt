@@ -1,8 +1,3 @@
-if (NOT GC_TEST_ENABLE)
-    message(STATUS "The unittests are not enabled.")
-    return()
-endif ()
-
 if(GC_MLIR_CXX_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
 endif()

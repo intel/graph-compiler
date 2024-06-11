@@ -1,3 +1,5 @@
+[<img src="https://scan.coverity.com/projects/30281/badge.svg">](https://scan.coverity.com/projects/intel-graph-compiler)
+
 # Graph Compiler
 Graph Compiler is an end-to-end, MLIR-based compiler designed to enhance the performance of deep learning workloads. It accepts computation graphs from the frontend, applies domain-specific optimizations and transformations, generates code, and manages runtime execution.
 
