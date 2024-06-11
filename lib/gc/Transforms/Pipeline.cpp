@@ -26,6 +26,7 @@
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 
+#include <iostream>
 namespace mlir::gc {
 
 // linalg + linalgX + tensor
@@ -68,7 +69,6 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   // bufferization::BufferResultsToOutParamsOpts opt{};
   // opt.hoistStaticAllocs = true;
   // pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
-  
   // todo: buffer schedule pass
   // todo: Need to improve this pass to support nested parallel.
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
@@ -146,8 +146,18 @@ public:
     auto op = getOperation();
     PassManager pm{op->getContext()};
     populateCPUPipeline(pm);
+<<<<<<< Updated upstream
     // TODO(longsheng): add a option to
     // disable threading and enable pm.enableIRPrinting();
+=======
+    // pm.enableIRPrinting();
+
+    // std::string lhsStr;
+    // llvm::raw_string_ostream lhsStream(lhsStr);
+    // pm.printAsTextualPipeline(lhsStream);
+    // std::cout << "pipeline= " << lhsStr << std::endl;
+
+>>>>>>> Stashed changes
     if (failed(pm.run(op)))
       signalPassFailure();
   }

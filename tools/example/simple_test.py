@@ -51,7 +51,6 @@ if __name__ == "__main__":
         # torch_arg1 = torch.randn((10, 10), dtype=torch.bfloat16)
         ref_res = torch.matmul(torch_arg0, torch_arg1)
         
-        # https://github.com/llvm/torch-mlir/blob/50f7103098ee41799a1180210f0e94400fac47cb/python/torch_mlir/extras/fx_importer.py#L1795-L1800
         np_arg0 = np.array(torch_arg0.tolist(), dtype=ml_dtypes.bfloat16)
         np_arg1 = np.array(torch_arg1.tolist(), dtype=ml_dtypes.bfloat16)
 

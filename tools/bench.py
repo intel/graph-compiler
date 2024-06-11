@@ -42,11 +42,15 @@ def py_timeit_bench(
     repeat_time=100,
     warm_up=20,
 ) -> float:
+    
     engine = GraphCompiler(
         pipeline,
         shared_libs,
-    ).compile_and_jit(ir_module, ir_printing=ir_printing)
+    )
 
+    compiler_time = timeit.timeit(stmt="engine.compile_and_jit(ir_module, ir_printing=ir_printing)", number=1)
+    
+    
     func = engine.lookup(entry_name)
     packed_args = (ctypes.c_void_p * len(mlir_args))()
     for argNum in range(len(mlir_args)):
