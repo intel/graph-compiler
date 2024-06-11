@@ -219,10 +219,7 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
                                   SmallVector<int64_t> &outDims) {
     SmallVector<int64_t> lhsShape(lhsType.getShape());
     SmallVector<int64_t> rhsShape(rhsType.getShape());
-<<<<<<< HEAD
-=======
     assert(lhsShape.size() >= 2 && rhsShape.size() >= 2);
->>>>>>> main
     // assuming last 2 input dims are row and col
     // 0xFF is just a random number > 1, replacing the row and col dims
     // so that getBroadcastedShape can match, will be removed after
