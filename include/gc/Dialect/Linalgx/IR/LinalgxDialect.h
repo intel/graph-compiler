@@ -19,6 +19,6 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
-#include "gc/Dialect/Linalgx/LinalgxOpsDialect.h.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxOpsDialect.h.inc"
 
 #endif // GC_DIALECTS_LINALGXDIALECT_H
