@@ -144,7 +144,8 @@ public:
     auto op = getOperation();
     PassManager pm{op->getContext()};
     populateCPUPipeline(pm);
-    // pm.enableIRPrinting();
+    // TODO(longsheng): add a option to
+    // disable threading and enable pm.enableIRPrinting();
     if (failed(pm.run(op)))
       signalPassFailure();
   }

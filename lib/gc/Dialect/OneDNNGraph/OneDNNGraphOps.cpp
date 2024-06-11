@@ -48,6 +48,8 @@ BINARY_OP_SHAPE_INFER(onednn_graph::DivOp)
 // Reduce ops shape infer
 //===----------------------------------------------------------------------===//
 
+// canonicalize reduced axes
+// make all axis inside reduced axes array non-negative in acceding order
 SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
                                             int64_t rank) {
   SmallVector<int64_t> ret(axes.size());
@@ -59,6 +61,8 @@ SmallVector<int64_t> canonicalizeReduceAxes(ArrayRef<int64_t> axes,
   return ret;
 }
 
+// canonicalize kept axes
+// make all axis inside kept axes array non-negative in acceding order
 SmallVector<int64_t> canonicalizeKeepAxes(ArrayRef<int64_t> axes, int64_t rank,
                                           bool canonicalized = false) {
   // get canonicalized reduce axes
@@ -215,6 +219,10 @@ LogicalResult onednn_graph::MatMulOp::inferReturnTypeComponents(
                                   SmallVector<int64_t> &outDims) {
     SmallVector<int64_t> lhsShape(lhsType.getShape());
     SmallVector<int64_t> rhsShape(rhsType.getShape());
+<<<<<<< HEAD
+=======
+    assert(lhsShape.size() >= 2 && rhsShape.size() >= 2);
+>>>>>>> main
     // assuming last 2 input dims are row and col
     // 0xFF is just a random number > 1, replacing the row and col dims
     // so that getBroadcastedShape can match, will be removed after
