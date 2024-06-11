@@ -13,4 +13,5 @@ function(add_mlir_unittest test_dirname)
 endfunction()
 
 add_subdirectory(Example)
+add_subdirectory(ExecutionEngine)
 
