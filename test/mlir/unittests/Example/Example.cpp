@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
 #include "gtest/gtest.h"
 
 TEST(example, HelloWorld) {

@@ -9,8 +9,8 @@
 #include <numeric>
 #include <vector>
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h"
 #include "gc/Transforms/Passes.h"

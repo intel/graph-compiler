@@ -23,7 +23,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 

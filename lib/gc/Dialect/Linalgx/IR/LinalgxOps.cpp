@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
 #include "mlir/IR/OpImplementation.h"
 
 //===----------------------------------------------------------------------===//
@@ -616,7 +616,7 @@ void MultiBatchMatmulOp::getEffects(
 /////// Operations corresponding to library calls defined with Tablegen ////////
 
 #define GET_OP_CLASSES
-#include "gc/Dialect/Linalgx/LinalgxOps.cpp.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.cpp.inc"
 
 #define GET_OP_CLASSES
-#include "gc/Dialect/Linalgx/LinalgxStructuredOps.cpp.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxStructuredOps.cpp.inc"
