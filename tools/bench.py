@@ -85,6 +85,7 @@ def mlir_wrapper_bench(
         shared_libs,
     )
 
+    print(wrapper_module)
     compile_begin = timeit.default_timer()
     engine = compiler.compile_and_jit(wrapper_module, ir_printing=ir_printing)
     compile_cost = (timeit.default_timer() - compile_begin) * 1000
@@ -95,12 +96,11 @@ def mlir_wrapper_bench(
     )
     total_time = 0
     ns_to_ms_scale = 1e-6
-
     def run(engine_invoke, bench_func_name, *mlir_args):
         engine_invoke(bench_func_name, *mlir_args)
 
     for i in range(repeat_time + warm_up):
-        run(engine.invoke, "wrapped_main", *mlir_args, time_arg)
+        run(engine.invoke, "wrapped_main", time_arg, *mlir_args)
         if i >= warm_up:
             total_time += int(np_timers_ns[0]) * ns_to_ms_scale
     execute_cost = total_time / repeat_time

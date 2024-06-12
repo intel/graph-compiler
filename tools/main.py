@@ -79,10 +79,6 @@ def do_bench(args):
         )
         print(json_res)
 
-        # get result
-        # c = rt.ranked_memref_to_numpy(mlir_args[0][0])
-        # print(c)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

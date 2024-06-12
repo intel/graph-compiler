@@ -65,16 +65,16 @@ def emit_benchmark_wrapped_main_func(
     ), "wrapped function name should be different from kernel function name"
     wrapped_func = func.FuncOp(
         wrapped_func_name,
-        (kernel_func.arguments.types + [memref_of_i64_type], kernel_func.type.results),
+        ([memref_of_i64_type] + kernel_func.arguments.types, kernel_func.type.results),
         visibility="public",
     )
     wrapped_func.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
     with ir.InsertionPoint(wrapped_func.add_entry_block()):
-        timer_buffer = wrapped_func.arguments[-1]
+        timer_buffer = wrapped_func.arguments[0]
         start = func.CallOp(timer_func, [])
         call_op = func.CallOp(
             kernel_func,
-            list(wrapped_func.arguments[:-1]),
+            list(wrapped_func.arguments[1:]),
         )
         end = func.CallOp(timer_func, [])
         time_taken = arith.SubIOp(end, start)
