@@ -107,8 +107,8 @@ JsonParser::parse(llvm::SmallVector<size_t> &outputIds,
   auto ret = _builder.create<mlir::func::ReturnOp>(_loc, outputs);
 
   // Copying the strides for the inputs and outputs.
-  for (auto &ids : {_inputIds, outputIds}) {
-    for (auto id : ids) {
+  for (auto &ids : {&_inputIds, &outputIds}) {
+    for (auto id : *ids) {
       auto entry = _strides.find(id);
       if (entry != _strides.end()) {
         strides[id] = entry->second;

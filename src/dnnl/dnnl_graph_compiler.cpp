@@ -74,20 +74,28 @@ struct dnnl_graph_compiler_executable {
                        std::make_pair(&outputIds, outputs)}) {
       auto ids = pair.first;
       auto tensors = pair.second;
-      for (auto id : *ids) {
-        bool found = false;
-        for (size_t i = 0; i < ids->size(); i++) {
-          if (tensors[i].id == id) {
-            auto s = strides.find(id);
-            memRefs.emplace_back(&tensors[i],
-                                 s == strides.end() ? nullptr : &s->second);
-            found = true;
-            break;
+      for (size_t i = 0, n = ids->size(); i < n; i++) {
+        auto id = (*ids)[i];
+        dnnl_graph_compiler_tensor *tensor;
+
+        if (tensors[i].id == id) {
+          tensor = &tensors[i];
+        } else {
+          // The order of inputs/outputs may not match the function args order.
+          tensor = nullptr;
+          for (size_t j = 0; j < n; j++) {
+            if (tensors[j].id == id) {
+              tensor = &tensors[i];
+              break;
+            }
+          }
+          if (!tensor) {
+            throw std::invalid_argument("Tensor not found");
           }
         }
-        if (!found) {
-          throw std::invalid_argument("Tensor not found");
-        }
+
+        auto s = strides.find((*ids)[i]);
+        memRefs.emplace_back(tensor, s == strides.end() ? nullptr : &s->second);
       }
     }
 
