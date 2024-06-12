@@ -96,7 +96,6 @@ class LoadMLIR(Driver):
 class MLP(Driver):
     @staticmethod
     def add_args(parser: argparse.ArgumentParser):
-        print("mlp add args")
         parser.add_argument("--batch_size", type=int, default=1)
         parser.add_argument("--hidden_size_list", type=str, default="")
         parser.add_argument("--has_bias", type=str, default="")
@@ -139,11 +138,11 @@ class MLP(Driver):
 
     def init_module(self, ctx: ir.Context) -> ir.Module:
         with ctx, ir.Location.unknown():
-            layers = len(self.params.hidden_size_list) - 1
+            layers = len(self.hidden_size_list) - 1
             module = ir.Module.create()
-            dtype = mlir_type(self.params.dtype, ctx)
+            dtype = mlir_type(self.dtype, ctx)
             src = ir.RankedTensorType.get(
-                [self.params.batch_size, self.params.hidden_size_list[0]], dtype
+                [self.batch_size, self.hidden_size_list[0]], dtype
             )
             weights = []
             bias = []
@@ -151,38 +150,37 @@ class MLP(Driver):
                 weights.append(
                     ir.RankedTensorType.get(
                         [
-                            self.params.hidden_size_list[i],
-                            self.params.hidden_size_list[i + 1],
+                            self.hidden_size_list[i],
+                            self.hidden_size_list[i + 1],
                         ],
                         dtype,
                     )
                 )
-                if self.params.has_bias[i]:
+                if self.has_bias[i]:
                     bias.append(
-                        ir.RankedTensorType.get(
-                            [self.params.hidden_size_list[i + 1]], dtype
-                        )
+                        ir.RankedTensorType.get([self.hidden_size_list[i + 1]], dtype)
                     )
             result = ir.RankedTensorType.get(
                 [
-                    self.params.batch_size,
-                    self.params.hidden_size_list[-1],
+                    self.batch_size,
+                    self.hidden_size_list[-1],
                 ],
                 dtype,
             )
             with ir.InsertionPoint(module.body):
                 f = func.FuncOp(
-                    name="mlp",
+                    name=self.main_entry,
                     type=ir.FunctionType.get(
                         inputs=[src] + weights + bias, results=[result]
                     ),
                 )
+                f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
                 with ir.InsertionPoint(f.add_entry_block()):
                     data = f.entry_block.arguments[0]
                     bias_idx = len(weights) + 1
                     for i in range(layers):
                         weight = f.entry_block.arguments[i + 1]
-                        if self.params.has_bias[i]:
+                        if self.has_bias[i]:
                             bias = f.entry_block.arguments[bias_idx]
                             bias_idx += 1
                         else:

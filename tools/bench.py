@@ -84,8 +84,6 @@ def mlir_wrapper_bench(
         pipeline,
         shared_libs,
     )
-
-    print(wrapper_module)
     compile_begin = timeit.default_timer()
     engine = compiler.compile_and_jit(wrapper_module, ir_printing=ir_printing)
     compile_cost = (timeit.default_timer() - compile_begin) * 1000
