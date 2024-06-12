@@ -65,9 +65,9 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
 
-  // bufferization::BufferResultsToOutParamsOpts opt{};
-  // opt.hoistStaticAllocs = true;
-  // pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
+  bufferization::BufferResultsToOutParamsOpts opt{};
+  opt.hoistStaticAllocs = true;
+  pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   // todo: buffer schedule pass
   // todo: Need to improve this pass to support nested parallel.
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());

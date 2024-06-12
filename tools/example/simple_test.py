@@ -54,11 +54,16 @@ if __name__ == "__main__":
         # todo: using torch tensor directly
         np_arg0 = torch_arg0.float().numpy().astype(ml_dtypes.bfloat16)
         np_arg1 = torch_arg1.float().numpy().astype(ml_dtypes.bfloat16)
+        gc_res = np.zeros((10, 10), dtype=ml_dtypes.bfloat16)
 
         entry = "main_entry"
-        mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1])
+        mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1, gc_res])
         passes = "any(gc-cpu-pipeline)"
-        shared_libs = [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]]
+        shared_libs = [
+            os.environ["MLIR_C_RUNNER_UTILS"],
+            os.environ["MLIR_RUNNER_UTILS"],
+        ]
+
         # bench
         # _, cost = py_timeit_bench(
         #     module,
@@ -74,7 +79,6 @@ if __name__ == "__main__":
         engine = compiler.compile_and_jit(module)
         engine.invoke(entry, *mlir_args)
             
-        gc_res = ranked_memref_to_numpy(mlir_args[0][0])
         print(gc_res)
         assert_allclose(
             gc_res.astype(np.float32),

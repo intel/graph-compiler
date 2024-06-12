@@ -45,14 +45,16 @@ def do_bench(args):
         driver = driver_clz(ctx, args)
         if args.print_ir:
             ctx.enable_multithreading(False)
-        np_args = driver.prepare_np_args()
+        np_args = driver.prepare_np_args(args.disable_results_to_params)
 
         # TODO need data filling
         # for test, fill all data with 1
         for i in range(len(np_args)):
             np.ndarray.fill(np_args[i], 1)
 
-        mlir_args = get_mlir_args(driver.ir_module, driver.main_entry, np_args)
+        mlir_args = get_mlir_args(
+            driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
+        )
 
         print("===========bench func name: ", driver.main_entry, "===========")
         bench_alg = py_timeit_bench if args.bench_alg == "py" else mlir_wrapper_bench
@@ -87,6 +89,9 @@ if __name__ == "__main__":
     parser.add_argument("--type", type=str, choices=["bench", "tune"], default="bench")
     parser.add_argument(
         "--driver", type=str, choices=["load_mlir", "mlp"], required=True
+    )
+    parser.add_argument(
+        "--disable_results_to_params", action="store_true", default=False
     )
     add_driver_args(parser)
     if parser.parse_known_args()[0].type == "bench":

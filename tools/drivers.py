@@ -54,7 +54,7 @@ class Driver(ABC):
         pass
 
     @abstractmethod
-    def prepare_np_args(self) -> List[np.ndarray]:
+    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
         pass
 
     def get_passes(self) -> str:
@@ -80,11 +80,17 @@ class LoadMLIR(Driver):
         module = ir.Module.parse(self._get_mlir(), ctx)
         return module
 
-    def prepare_np_args(self) -> List[np.ndarray]:
+    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_args = []
         for arg in bench_func.arguments:
             np_args.append(make_tensor(arg.type))
+        if not disable_results_to_params:
+            for res in bench_func.type.results:
+                np_args.append(make_tensor(res))
+        # todo : data filling
+        for i in range(len(np_args)):
+            np.ndarray.fill(np_args[i], 1)
         return np_args
 
 class MLP(Driver):
@@ -191,9 +197,15 @@ class MLP(Driver):
                     func.ReturnOp([data])
         return module
 
-    def prepare_np_args(self) -> List[np.ndarray]:
+    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_args = []
         for arg in bench_func.arguments:
             np_args.append(make_tensor(arg.type))
+        if not disable_results_to_params:
+            for res in bench_func.type.results:
+                np_args.append(make_tensor(res))
+        # todo : data filling
+        for i in range(len(np_args)):
+            np.ndarray.fill(np_args[i], 1)
         return np_args
