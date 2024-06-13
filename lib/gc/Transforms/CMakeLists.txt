@@ -11,6 +11,7 @@ add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   DeepTileContractionNamedOp.cpp
+  FlashAttentionConversion.cpp
   Tiling.cpp
   AnyTilableFusion.cpp
   TilingUsingInterfaceX.cpp
