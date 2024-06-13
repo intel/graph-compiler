@@ -1,22 +1,4 @@
-################################################################################
-# Copyright (C) 2024 Intel Corporation
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-# SPDX-License-Identifier: Apache-2.0
-################################################################################
-
 import ctypes
-import dis
 from typing import List
 
 import ml_dtypes
@@ -28,6 +10,7 @@ from enhanced_np_to_memref import (
 )
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
+from op_config import *
 
 MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,
@@ -177,3 +160,68 @@ def load_mlir_from_path(path: str) -> str:
     with open(path, "r") as file:
         content = file.read()
     return content
+
+
+def walk_operations(op: ir.Operation, callback=None):
+    for region in op.regions:
+        for block in region:
+            for child_op in block:
+                if callback:
+                    callback(child_op)
+                walk_operations(child_op, callback)
+
+
+def get_all_tunable_ops(op: ir.Operation):
+    tunable_ops = []
+    for region in op.regions:
+        for block in region:
+            for child_op in block:
+                if child_op.name == "onednn_graph.matmul":
+                    tunable_ops.append(child_op)
+                tunable_ops = tunable_ops + get_all_tunable_ops(child_op)
+    return tunable_ops
+
+
+def walk_and_print_operations(op, indent=""):
+    for i, region in enumerate(op.regions):
+        print(f"{indent}REGION {i}:")
+        for j, block in enumerate(region):
+            print(f"{indent}  BLOCK {j}:")
+            for k, child_op in enumerate(block):
+                print(f"{indent}    OP {k}: {child_op}")
+                walk_and_print_operations(indent + "      ", child_op)
+
+
+def extract_configs_from_ir(ir_module: ir.Module):
+    tunable_ops = get_all_tunable_ops(ir_module.operation)
+    configs = []
+    for op in tunable_ops:
+        if op.name == "onednn_graph.matmul":
+            cfg = MatMulConfig()
+            if "MBlock" in op.attributes:
+                cfg.M_block = op.attributes["MBlock"].value
+            if "NBlock" in op.attributes:
+                cfg.N_block = op.attributes["NBlock"].value
+            if "KBlock" in op.attributes:
+                cfg.K_block = op.attributes["KBlock"].value
+            configs.append(cfg)
+    return configs
+
+
+def attach_configs_to_ir(ir_module: ir.Module, configs: list[Config]):
+    # ctx.allow_unregistered_dialects=True
+    tunable_ops = get_all_tunable_ops(ir_module.operation)
+    assert len(tunable_ops) == len(
+        configs
+    ), "tunable ops and configs should have the same length"
+    for i, op in enumerate(tunable_ops):
+        if op.name == "onednn_graph.matmul":
+            op.attributes["MBlock"] = ir.IntegerAttr.get(
+                ir.IntegerType.get_signless(32), configs[i].M_block
+            )
+            op.attributes["KBlock"] = ir.IntegerAttr.get(
+                ir.IntegerType.get_signless(32), configs[i].K_block
+            )
+            op.attributes["NBlock"] = ir.IntegerAttr.get(
+                ir.IntegerType.get_signless(32), configs[i].N_block
+            )

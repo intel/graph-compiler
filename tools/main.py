@@ -27,6 +27,7 @@ from gc_mlir import ir
 from gc_mlir import runtime as rt
 from gc_mlir.passmanager import *
 from utils import get_mlir_args
+from tuner import *
 
 
 def get_driver_clz(diver_str: str):
@@ -80,6 +81,33 @@ def do_bench(args):
         )
         print(json_res)
 
+def do_tune(args):
+    with ir.Context() as ctx, ir.Location.unknown():
+        ctx.allow_unregistered_dialects = True
+        driver_clz = get_driver_clz(args.driver)
+        driver = driver_clz(ctx, args)      
+        # todo (data filling)
+        np_args = driver.prepare_np_args(args.disable_results_to_params)
+
+        space = TuningSpace(driver.ir_module)
+        if args.search_alg == "grid":
+            tuner = GridTuner(
+                fake_bench,
+                space,
+                args.tuning_batch,
+                args.early_stop,
+                args.checkpoint_path,
+            )
+        else:
+            tuner = GATuner(
+                fake_bench,
+                space,
+                args.tuning_batch,
+                args.early_stop,
+                args.checkpoint_path,
+            )
+        tuner.run(args.tuning_times, None, -1)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -101,5 +129,13 @@ if __name__ == "__main__":
         args = parser.parse_args()
         do_bench(args)
     else:
-        # TODO
-        print("tuning is not support yet")
+        parser.add_argument(
+            "--search_alg", type=str, choices=["grid", "ga"], default="ga"
+        )
+        parser.add_argument("--tuning_batch", type=int, default=50)
+        parser.add_argument("--early_stop", type=int, default=-1)
+        parser.add_argument("--tuning_times", type=int, default=100)
+        parser.add_argument("--space_percent", type=float, default=1.0)
+        parser.add_argument("--checkpoint_path", type=str, default="")
+        args = parser.parse_args()
+        do_tune(args)
