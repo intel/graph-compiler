@@ -9,6 +9,7 @@
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "mlir/IR/OpImplementation.h"
+#include <utility>
 
 //===----------------------------------------------------------------------===//
 // Builder helper from mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
@@ -606,6 +607,58 @@ void MultiBatchMatmulOp::getEffects(
   if (hasPureTensorSemantics())
     return;
   getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+}
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ScaledDotProductAttentionOp::verify() { return success(); }
+
+/// Given an N-dimensional tensor x, this method converts
+/// softmax(x) to the following sequence of operations:
+///
+/// 1. transpose ins[1]
+/// 2. matmul ins[0] @ 1
+///
+FailureOr<SmallVector<Value>>
+ScaledDotProductAttentionOp::decomposeOperation(OpBuilder &b) {
+  OpBuilder::InsertionGuard guard(b);
+  b.setInsertionPoint(*this);
+  Location loc = getLoc();
+  Value query = getInputs()[0], key = getInputs()[1], value = getInputs()[2],
+        mask = getInputs()[3];
+  auto dtype = cast<RankedTensorType>(query.getType()).getElementType();
+  auto shape = cast<RankedTensorType>(query.getType()).getShape();
+
+  SmallVector<int64_t> permutation{0, 1, 3, 2};
+  SmallVector<int64_t> transposeShape{shape[0], shape[1], shape[3], shape[2]};
+  auto transposeOut = b.create<tensor::EmptyOp>(loc, transposeShape, dtype);
+  auto transpose = b.create<linalg::TransposeOp>(
+      /*location=*/loc,
+      /*inputs=*/key,
+      /*outputs=*/transposeOut,
+      /*permutation=*/permutation);
+
+  SmallVector<int64_t> matmulQKShape{shape[0], shape[1], shape[2], shape[2]};
+  auto matmulQKOut = b.create<tensor::EmptyOp>(loc, matmulQKShape, dtype);
+  auto matmulQK = b.create<linalgx::MultiBatchMatmulOp>(
+      /*location=*/loc, matmulQKOut.getResult().getType(),
+      /*inputs=*/ValueRange{query, transpose->getResult(0)},
+      /*outputs=*/ValueRange{matmulQKOut.getResult()});
+
+  auto addOut = b.create<tensor::EmptyOp>(loc, matmulQKShape, dtype);
+  auto add = b.create<linalg::AddOp>(
+      /*location=*/loc, addOut.getResult().getType(),
+      /*inputs=*/ValueRange{matmulQK->getResult(0), mask},
+      /*outputs=*/ValueRange{addOut.getResult()});
+
+  auto matmulVOut = b.create<tensor::EmptyOp>(loc, shape, dtype);
+  auto matmulV = b.create<linalgx::MultiBatchMatmulOp>(
+      /*location=*/loc, matmulVOut.getResult().getType(),
+      /*inputs=*/ValueRange{add->getResult(0), value},
+      /*outputs=*/ValueRange{matmulVOut.getResult()});
+  return SmallVector<Value>{matmulV.getResults()[0]};
 }
 
 /////// Operations corresponding to library calls defined with Tablegen ////////

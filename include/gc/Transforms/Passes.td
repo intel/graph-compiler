@@ -34,7 +34,18 @@ def DeepTileContractionNamedOp
   ];
 }
 
-def GCCPUPipeline : Pass<"gc-cpu-pipeline"> {
+def FlashAttentionConversion
+    : Pass<"flash-attention-conversion", "func::FuncOp"> {
+  let summary = "Flash Attention Conversion";
+  let description =
+      [{The pass converts MHA to flash attention implementation.}];
+  let dependentDialects = [
+    "func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
+    "tensor::TensorDialect"
+  ];
+}
+
+def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
   let summary = "All-in-one pipeline for GC for CPU";
   let dependentDialects = [
     "onednn_graph::OneDNNGraphDialect", "tensor::TensorDialect",
