@@ -322,6 +322,22 @@ static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
                                                              dispatched);
 }
 
+bool isZeroArithConstant(arith::ConstantOp op) {
+  if (!op)
+    return false;
+
+  if (auto intAttr = llvm::dyn_cast<IntegerAttr>(op.getValue())) {
+    if (intAttr.getInt() != 0)
+      return false;
+  } else if (auto floatAttr = llvm::dyn_cast<FloatAttr>(op.getValue())) {
+    if (!floatAttr.getValue().isZero())
+      return false;
+  } else
+    return false;
+
+  return true;
+}
+
 template <typename ContractionOp>
 class ConvertContractionOpToBrgemmRewriter
     : public OpRewritePattern<ContractionOp> {
@@ -332,6 +348,23 @@ public:
     auto brgemmInfo = getBrgemmInfo(op);
     if (failed(brgemmInfo))
       return failure();
+    // Check for immediately preceding linalg::FillOp
+    auto block = op.getBlock();
+    auto opIter = Block::iterator(op);
+    if (block->begin() != opIter) {
+      auto prevOp = &(*(--opIter));
+      if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
+        auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
+            fillOp.getInputs()[0].getDefiningOp());
+        auto fillOperand = fillOp.getOutputs()[0];
+        auto contractionOperand = op.getOutputs()[0];
+        if (isZeroArithConstant(inputCst) &&
+            contractionOperand == fillOperand) {
+          brgemmInfo->isInitOutput = true;
+          rewriter.eraseOp(prevOp);
+        }
+      }
+    }
     replaceOpWithMicrokernelOpSet(rewriter, op, *brgemmInfo);
     return success();
   }
