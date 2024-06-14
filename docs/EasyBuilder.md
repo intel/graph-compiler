@@ -13,7 +13,12 @@ verbose and hard to read. The easy-builder utilities are introduced to
 make it easier to develop C++ code building complex IR. Easy-builder is not
 designed to replace the `OpBuilder`. Instead, it is built upon that, and serves
 as supplementary IR builder for complex cases, like heavily using `arith` and
-`scf` operations.
+`scf` operations. Moreover, easy builder is designed to extendable for general
+dialects, not just for `arith` and `scf`. 
+
+## Examples using easy-build
+
+This sections shows examples of using easy-builder to build complex IR in C++.
 
 An example code to build IR `(x+y-10)/(x-y+1)`, where `x` and `y` are unsigned
 16-bit integers:
@@ -49,6 +54,49 @@ auto x_m_y = builder.create<arith::SubIOp>(loc, x, y);
 auto v1 = builder.create<arith::ConstantIntOp>(loc, 1, /*width*/16);
 auto x_m_y_p1 = builder.create<arith::AddIOp>(loc, x_m_y, v1);
 Value result = builder.create<arith::DivUIOp>(loc, x_p_y_m10, x_m_y_p1);
+```
+
+Another example to generate SCF operations of nested control flow of `scf.if`
+and `scf.for`:
+
+```c++
+auto init_val = b.wrap<EBUnsigned>(func.getArgument(0));
+auto loop = builder.create<scf::ForOp>(loc, /*lo*/ b.toIndex(0),
+                                       /*upper*/ b.toIndex(10),
+                                       /*step*/ b.toIndex(1),
+                                       /*ind_var*/ ValueRange{init_val});
+EB_for(auto &&[idx, redu] : forRangeIn<EBUnsigned, EBUnsigned>(b, loop)) {
+   EB_scf_if(idx == b.toIndex(0), {builder.getIndexType()}) {
+      b.yield(idx);
+   } EB_else {
+      b.yield(idx + redu);
+   }
+   auto ifResult = b.wrap<EBUnsigned>(b.getLastOperaion()->getResult(0));
+   b.yield(ifResult);
+}
+b.yield<func::ReturnOp>(loop.getResult(0));
+```
+
+The code will generate the function body of below MLIR:
+
+```mlir
+func.func @funcname(%init_val: index) -> index {
+  %c1 = arith.constant 1 : index
+  %c10 = arith.constant 10 : index
+  %c0 = arith.constant 0 : index
+  %0 = scf.for %idx = %c0 to %c10 step %c1 iter_args(%redu = %init_val) -> (index) {
+    %c0_0 = arith.constant 0 : index
+    %1 = arith.cmpi eq, %idx, %c0_0 : index
+    %ifResult = scf.if %1 -> (index) {
+      scf.yield %idx : index
+    } else {
+      %3 = arith.addi %idx, %redu : index
+      scf.yield %3 : index
+    }
+    scf.yield %ifResult : index
+  }
+  return %0 : index
+}
 ```
 
 [TOC]
@@ -292,7 +340,109 @@ arith operations that is sensitive to the signess, like `divsi` or `divui`.
 
 ## Easy-build for general structured-control-flow
 
-TBD
+Easy-build supports generating `for-like` and `if-like` operations from any
+dialects.
+
+### Generating for-loops
+
+Easy-build provides macro `EB_for` and function `forRangeIn` to generate loop
+body IR inside of a loop op, which is `for-like` operaions. `for-like` is
+defined as `LoopLikeOpInterface` operations, which has single block as body, and
+whose loop iterator and loop-carried variables are the arguments of the single
+block. `scf.for`, `scf.parallel` and `scf.forall` are both `for-like`.
+
+To use easy-build on a for-loop, the developer should first create a loop using
+`OpBuilder::create<T>`, and use `forRangeIn` with `EB_for` to build the IR of
+the loop-body, as if writing C++ range-based for-loops:
+
+```C++
+auto loop = builder.create<somedialect::ForOp>(...);
+EB_for(auto &&[idx, redu] : forRangeIn<EBUnsigned, EBUnsigned>(b, loop)) {
+   // code to generate loop body
+}
+```
+
+The function `forRangeIn` takes variadic template type parameters, as the
+expected wrapped `EBValue` types for the loop body block arguments. The above
+code expects the `loop` to have one loop iterator and one loop-carried variable,
+and both to be wrapped in `EBUnsigned`.
+
+The macro `EB_for` expands to normal C++ `for` keyword, to mark that the
+for-loop is a easy-build loop for building IR. Developers can use `auto &&[...]`
+to unpack the loop body block arguments extracted in `forRangeIn`. The above
+code `idx, redu` binds to the 2 arguments of the `loop`'s body. They will have
+C++ types of `EBUnsigned`. Developers can further use the variables in IR
+generation.
+
+The code which generates IR with easy-build in a `EB_for` will insert IR to the
+corresponding loop body block. The feature is implemented in `forRangeIn`, which
+creates a RAII object to set the insertion point of the `OpBuilder` to the loop
+body at constructor and resets the insertion point after the loop operation at
+its destructor. The C++ code ourside of a `EB_for` will correctly insert IR
+after the loop.
+
+### Generating if-else
+
+Similar to for-loops, easy-build supports to build `if-like` operations in
+similar way of writing `if-else` in C++. `if-like` is defined as operations
+having two scopes and one block for each scope. The first scope is the `then`
+block and the second is optional and is the `else` block. `scf.if` is `if-like`.
+
+Easy-build provides macros `EB_if`, `EB_else` and a function `makeIfRange` for
+build `if-else`. General code to build `if-else` is:
+
+```C++
+auto ifelse = builder.create<somedialect::IfOp>(...);
+EB_if(makeIfRange(b, ifelse)) {
+   // generate then-block   
+} EB_else {
+   // generate else-block
+}
+```
+
+Developers can put the C++ code inside the `then-block` or `else-block` above to
+insert IR to the `then` or `else` blocks inside of the operation `ifelse` above.
+The else block `EB_else { ... }` is optional if `else` block is not defined in
+the `ifelse` operation. Outside and after `EB_if`, the insertion point of the
+underlying `OpBuilder` will be set after the `ifelse` operation.
+
+Easy-build further provides an easier-to-use macro for `scf.if`. Developers can
+build `scf.if` and start a `EB_if` scope in a single macro `EB_scf_if`, to make
+the code look closer to C++ `if-else`.
+
+To generate `scf.if` with `else` and without result values:
+
+```C++
+EB_scf_if(pred) {
+   ...
+} EB_else {
+   ...
+}
+```
+
+`pred` above should be a value of `EBValue` or its subclasses. It can even be a
+C++ expression of `EBValue`, like `idx == b.toIndex(10)`.
+
+To generate `scf.if` without `else` and without result values:
+
+```C++
+EB_scf_if(pred, false) {
+   ...
+}
+```
+
+To generate `scf.if` with result values:
+
+```C++
+EB_scf_if(pred, {yielded_type,...}) {
+   ...
+   b.yield(...);
+} EB_else {
+   ...
+   b.yield(...);
+}
+auto ifResult = b.getLastOperaion()->getResult(0);
+```
 
 ## Extending easy-build for dialects
 
