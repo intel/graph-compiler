@@ -149,19 +149,20 @@ inline int IfIterator::operator*() const {
 
 } // namespace impl
 
-impl::IfSimulator makeIfRange(const EasyBuilder &s, Operation *op) {
+inline impl::IfSimulator makeIfRange(const EasyBuilder &s, Operation *op) {
   return impl::IfSimulator{s.builder, op};
 }
 
 template <typename T = scf::IfOp>
-impl::IfSimulator makeScfIfLikeRange(EBValue cond, TypeRange resultTypes) {
+inline impl::IfSimulator makeScfIfLikeRange(EBValue cond,
+                                            TypeRange resultTypes) {
   auto &s = cond.builder;
   auto op = s->builder.create<T>(s->loc, resultTypes, cond, true);
   return impl::IfSimulator{s, op};
 }
 
 template <typename T = scf::IfOp>
-impl::IfSimulator makeScfIfLikeRange(EBValue cond, bool hasElse = true) {
+inline impl::IfSimulator makeScfIfLikeRange(EBValue cond, bool hasElse = true) {
   auto &s = cond.builder;
   auto op = s->builder.create<T>(s->loc, TypeRange{}, cond, hasElse);
   return impl::IfSimulator{s, op};
