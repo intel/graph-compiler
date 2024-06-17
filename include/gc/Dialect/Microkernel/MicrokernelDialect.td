@@ -15,15 +15,20 @@ include "mlir/IR/OpBase.td"
 // Microkernel dialect definition.
 //===----------------------------------------------------------------------===//
 
-def MicrokernelDialect : Dialect {
+def Microkernel_Dialect : Dialect {
     let name = "microkernel";
     let summary = "A dialect for microkernel abstraction.";
     let description = [{
-        The dialect wraps the BRGEMM API to set up the HW context etc.
+        This dialect contains wrappers for microkernel primitives like BRGEMM.
     }];
     let cppNamespace = "::mlir::microkernel";
-
-    let useDefaultTypePrinterParser = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// Base microkernel operation definition.
+//===----------------------------------------------------------------------===//
+
+class Microkernel_Op<string mnemonic, list<Trait> traits = []> :
+        Op<Microkernel_Dialect, mnemonic, traits>;
 
 #endif // MICROKERNEL_DIALECT

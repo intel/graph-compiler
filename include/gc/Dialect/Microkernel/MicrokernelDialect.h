@@ -9,7 +9,9 @@
 #ifndef GC_DIALECTS_MICROKERNELDIALECT_H
 #define GC_DIALECTS_MICROKERNELDIALECT_H
 
+#include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 #include "gc/Dialect/Microkernel/MicrokernelOpsDialect.h.inc"
 
