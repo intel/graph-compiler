@@ -44,6 +44,7 @@ __attribute__((weak)) void print_verbose_header() {}
 static constexpr int PALETTE_SIZE = 64;
 static std::vector<brgemm_desc_t> brgemm_desc_list;
 static std::vector<brgemm_kernel_t *> brgemm_kernel_list;
+static std::vector<char *> brgemm_palette;
 
 extern "C" {
 
@@ -77,6 +78,17 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   brgemm_attr_t dnnl_attrs;
   brgemm_desc_set_attr(&desc, dnnl_attrs);
 
+  // TODO(haixin): Reuse identical palettes across kernels
+  if (desc.is_tmm) {
+    brgemm_palette.push_back(new char[PALETTE_SIZE]);
+    dnnl::impl::status_t status =
+        brgemm_init_tiles(desc, brgemm_palette.back());
+    assert(status == dnnl::impl::status::success &&
+           "Failed to initialize palette for BRGEMM");
+  } else {
+    brgemm_palette.push_back(nullptr);
+  }
+
   return brgemm_desc_list.size() - 1;
 }
 
@@ -89,13 +101,9 @@ void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
     return;
   }
 
-  // TODO(haixin): move to dispatch time
-  char palette_buffer[PALETTE_SIZE];
-  dnnl::impl::status_t status = brgemm_init_tiles(desc, palette_buffer);
-  assert(status == dnnl::impl::status::success &&
-         "Failed to initialize palette for BRGEMM");
-
-  amx_tile_configure(palette_buffer);
+  assert(brgemm_palette[kernel_idx] != nullptr &&
+         "Invalid palette for BRGEMM kernel");
+  amx_tile_configure(brgemm_palette[kernel_idx]);
 }
 
 void dnnl_brgemm_tilerelease() {
