@@ -9,7 +9,7 @@ from enhanced_np_to_memref import (
     make_nd_memref_descriptor,
 )
 from gc_mlir import ir
-from gc_mlir.dialects import arith, func, memref
+from gc_mlir.dialects import arith, func, memref, onednn_graph
 from op_config import *
 
 MLIR_TYPE_TO_NUMPY_TYPE = {
@@ -182,33 +182,16 @@ def get_all_tunable_ops(op: ir.Operation):
     return tunable_ops
 
 
-def walk_and_print_operations(op, indent=""):
-    for i, region in enumerate(op.regions):
-        print(f"{indent}REGION {i}:")
-        for j, block in enumerate(region):
-            print(f"{indent}  BLOCK {j}:")
-            for k, child_op in enumerate(block):
-                print(f"{indent}    OP {k}: {child_op}")
-                walk_and_print_operations(indent + "      ", child_op)
-
-
-def extract_configs_from_ir(ir_module: ir.Module):
+def gen_configs_from_ir(ir_module: ir.Module):
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     configs = []
     for op in tunable_ops:
         if op.name == "onednn_graph.matmul":
-            cfg = MatMulConfig()
-            if "MBlock" in op.attributes:
-                cfg.M_block = op.attributes["MBlock"].value
-            if "NBlock" in op.attributes:
-                cfg.N_block = op.attributes["NBlock"].value
-            if "KBlock" in op.attributes:
-                cfg.K_block = op.attributes["KBlock"].value
-            configs.append(cfg)
+            configs.append(MatMulConfig(op))
     return configs
 
 
-def attach_configs_to_ir(ir_module: ir.Module, configs: list[Config]):
+def attach_configs_to_ir(ir_module: ir.Module, configs: List[Config]):
     # ctx.allow_unregistered_dialects=True
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     assert len(tunable_ops) == len(
@@ -216,12 +199,4 @@ def attach_configs_to_ir(ir_module: ir.Module, configs: list[Config]):
     ), "tunable ops and configs should have the same length"
     for i, op in enumerate(tunable_ops):
         if op.name == "onednn_graph.matmul":
-            op.attributes["MBlock"] = ir.IntegerAttr.get(
-                ir.IntegerType.get_signless(32), configs[i].M_block
-            )
-            op.attributes["KBlock"] = ir.IntegerAttr.get(
-                ir.IntegerType.get_signless(32), configs[i].K_block
-            )
-            op.attributes["NBlock"] = ir.IntegerAttr.get(
-                ir.IntegerType.get_signless(32), configs[i].N_block
-            )
+            configs[i].attach_to_ir(op)

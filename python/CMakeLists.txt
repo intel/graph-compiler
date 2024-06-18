@@ -84,6 +84,7 @@ add_mlir_python_common_capi_library(GcPythonCAPI
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources.Core
+    MLIRPythonSources.Dialects.linalg
     MLIRPythonSources.ExecutionEngine
 )
 

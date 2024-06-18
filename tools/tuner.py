@@ -18,7 +18,7 @@ need_print = False
 class TuningSpace:
     def __init__(self, ir_module: ir.Module):
         self.initial_ir = ir_module
-        self.graph_config = utils.extract_configs_from_ir(ir_module)
+        self.graph_config = utils.gen_configs_from_ir(ir_module)
         self.space_size = 1
         self.flatten_candidates = []
         self.flatten_field_name = []
