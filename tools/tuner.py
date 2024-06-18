@@ -24,8 +24,8 @@ class TuningSpace:
         self.flatten_field_name = []
         self.flatten_constraints = []
         self.ind_candidate_to_config = {}
+        candidate_ind = 0
         for config_ind, config in enumerate(self.graph_config):
-            candidate_ind = 0
             for field_name, candidates in config.field_candidates.items():
                 self.space_size = self.space_size * len(candidates)
                 self.flatten_candidates.append(candidates)
