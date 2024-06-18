@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRMicrokernelTransforms
         ConvertMicrokernelToDnnlFunc.cpp
         EarlyDispatchMicrokernel.cpp
         MicrokernelInvariantCodeMotion.cpp
+        MergeBranchMicrokernelContext.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/
