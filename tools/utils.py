@@ -176,6 +176,11 @@ def get_all_tunable_ops(op: ir.Operation):
     for region in op.regions:
         for block in region:
             for child_op in block:
+                if (
+                    "skipTuner" in child_op.attributes
+                    and child_op.attributes["skipTuner"]
+                ):
+                    continue
                 if child_op.name == "onednn_graph.matmul":
                     tunable_ops.append(child_op)
                 tunable_ops = tunable_ops + get_all_tunable_ops(child_op)
@@ -192,7 +197,6 @@ def gen_configs_from_ir(ir_module: ir.Module):
 
 
 def attach_configs_to_ir(ir_module: ir.Module, configs: List[Config]):
-    # ctx.allow_unregistered_dialects=True
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     assert len(tunable_ops) == len(
         configs

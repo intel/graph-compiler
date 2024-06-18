@@ -382,7 +382,9 @@ class GATuner(Tuner):
                 print(self.tunning_space.make_config_from_indexes(to_tune[i]))
 
         if len(to_tune) < self.pop_size:
-            print("GA Cannot generate enough unmet genes in this batch")
+            print(
+                f"GA Cannot generate enough unmet genes in this batch (batch_size={self.pop_size})"
+            )
         return to_tune
 
     def get_next_config(self, prob_range, to_tune):
