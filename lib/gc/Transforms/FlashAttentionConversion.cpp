@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #include "./Tiling.hpp"
 #include "gc/Dialect/Arith/Utils/EasyBuild.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
@@ -45,11 +44,44 @@ namespace gc {
 #include "gc/Transforms/Passes.h.inc"
 
 namespace {
+
+struct MHAToFlashAttention
+    : public OpInterfaceRewritePattern<linalg::LinalgOp> {
+  using OpInterfaceRewritePattern<linalg::LinalgOp>::OpInterfaceRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
+                                PatternRewriter &rewriter) const override {
+    if (!llvm::isa<linalgx::ScaledDotProductAttentionOp>(linalgOp))
+      return failure();
+    if (linalgOp.hasPureBufferSemantics())
+      return failure();
+  }
+};
+
 struct FlashAttentionConversion
     : public impl::FlashAttentionConversionBase<FlashAttentionConversion> {
 public:
   void runOnOperation() final {
-    return;
+    auto &ctx = getContext();
+    IRRewriter rewriter(&ctx);
+    RewritePatternSet patterns(&ctx);
+
+    patterns.add<MHAToFlashAttention>(patterns.getContext());
+    // linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
+    // linalg::ControlDropUnitDims options;
+    // options.rankReductionStrategy =
+    //     linalg::ControlDropUnitDims::RankReductionStrategy::ExtractInsertSlice;
+    // linalg::populateFoldUnitExtentDimsPatterns(patterns, options);
+    // tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
+
+    // for (auto *dialect : ctx.getLoadedDialects())
+    //   dialect->getCanonicalizationPatterns(patterns);
+    // for (RegisteredOperationName op : ctx.getRegisteredOperations())
+    //   op.getCanonicalizationPatterns(patterns, &ctx);
+    if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                            std::move(patterns)))) {
+      return signalPassFailure();
+    }
   }
 };
 

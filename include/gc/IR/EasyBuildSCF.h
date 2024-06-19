@@ -150,7 +150,7 @@ inline int IfIterator::operator*() const {
 
 } // namespace impl
 
-impl::IfSimulator makeIfRange(const EasyBuilder &s, Operation *op) {
+inline impl::IfSimulator makeIfRange(const EasyBuilder &s, Operation *op) {
   return impl::IfSimulator{s.builder, op};
 }
 
