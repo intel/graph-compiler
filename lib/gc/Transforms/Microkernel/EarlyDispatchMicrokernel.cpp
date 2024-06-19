@@ -106,8 +106,15 @@ getOrCreateGlobalKernelHandle(RewriterBase &rewriter, ModuleOp module,
     // initialize the gloabl with global_ctors, as the initializer of global
     // does not allow side effect
     rewriter.setInsertionPointToStart(module.getBody());
-    LLVM::GlobalCtorsOp global_ctors =
-        module.lookupSymbol<LLVM::GlobalCtorsOp>(getGlobalCtorsVarName());
+    LLVM::GlobalCtorsOp global_ctors = nullptr;
+    for (auto &op : module->getRegion(0).front()) {
+      auto ctorOp = dyn_cast<LLVM::GlobalCtorsOp>(op);
+      if (ctorOp) {
+        global_ctors = ctorOp;
+        break;
+      }
+    }
+
     SmallVector<Attribute> ctorRefs;
     SmallVector<Attribute> priorities;
     if (global_ctors) {
@@ -117,16 +124,20 @@ getOrCreateGlobalKernelHandle(RewriterBase &rewriter, ModuleOp module,
         ctorRefs.push_back(ctor);
         priorities.push_back(prior);
       }
+      LLVM_DEBUG(llvm::dbgs()
+                 << "After append ctors: " << ctorRefs.size() << "\n");
     }
     ctorRefs.push_back(ctorName);
     // Set new ctor's priority to lowest
     priorities.push_back(IntegerAttr::get(rewriter.getI32Type(), INT_MAX));
     if (global_ctors) {
+      LLVM_DEBUG(llvm::dbgs() << "Replace existing ctors\n");
       // If there's existing ctors
       rewriter.replaceOpWithNewOp<LLVM::GlobalCtorsOp>(
           global_ctors, rewriter.getArrayAttr(ctorRefs),
           rewriter.getArrayAttr(priorities));
     } else {
+      LLVM_DEBUG(llvm::dbgs() << "Create new ctor\n");
       rewriter.create<LLVM::GlobalCtorsOp>(module.getLoc(),
                                            rewriter.getArrayAttr(ctorRefs),
                                            rewriter.getArrayAttr(priorities));
