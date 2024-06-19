@@ -120,7 +120,7 @@ class Tuner(ABC):
         pass
 
     def tuner_finish(self, tuning_time):
-        print("Tuning ends in", tuning_time, "ms")
+        print("Tuning ends in", tuning_time, "s")
         best_config = self.tunning_space.make_config_from_indexes(self.best)
         print("Best cost:", self.best_cost, "ms")
         print("Best config:", best_config)
@@ -130,7 +130,7 @@ class Tuner(ABC):
             self.tunning_space.initial_ir,
         )
 
-    def run(self, max_iter: int, callbacks, timeout: int = -1):
+    def run(self, max_iter: int, timeout: int = -1):
         if self.early_stop > 0 and self.iter - self.last_update_iter > self.early_stop:
             # in case of resuming from a saved state and it has already
             # early-stopped
@@ -159,9 +159,14 @@ class Tuner(ABC):
                 real_config = self.tunning_space.make_config_from_indexes(
                     config_indexes
                 )
-                ir = self.tunning_space.initial_ir
-                utils.attach_configs_to_ir(ir, real_config)
-                perf_result.append(self.executor())
+                # todo : ir.Module can not support deepcopy
+                new_ir = ir.Module.parse(
+                    str(self.tunning_space.initial_ir),
+                    self.tunning_space.initial_ir.context,
+                )
+                utils.attach_configs_to_ir(new_ir, real_config)
+                _, cost = self.executor(new_ir)
+                perf_result.append(cost)
 
             print(
                 "[",
