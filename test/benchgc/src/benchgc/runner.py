@@ -14,59 +14,44 @@
 # limitations under the License.
 ################################################################################
 
-from . import util, graph, gapi
+import gc_mlir.ir
 import torch
-from typing import Dict, List
+from typing import Dict
 
+def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
+    print(op)
+    dialect_call: str = str(op.name)
+    if dialect_call.startswith("onednn_graph"):
+        from benchgc.onednn_graph import ref_op
+    elif dialect_call.startswith("linalg"):
+        from benchgc.linalg import ref_op
+    else:
+        for region in op.regions:
+            dfs_region(region, tensors)
+        return
 
-class RefRunner:
-    # tensor id -> torch tensor
-    tensors: Dict[int, torch.Tensor] = {}
+    dialect_op: str = dialect_call.split(".")[1]
+    if dialect_op not in ref_op:
+        raise Exception("unknown op call %s" % dialect_call)
+    ref_func = ref_op[dialect_op]
+    ref_func(op, tensors)
 
-    def __init__(self, graph: graph.Graph):
-        self.graph = graph
-        for tensor_id in graph.tensors:
-            self.tensors[tensor_id] = graph.tensors[tensor_id].clone()
+def dfs_region(region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
+    for block in region.blocks:
+        dfs_block(block, tensors)
 
-    def execute_ref_op(
-        self, op: gapi.Op, ins: List[torch.Tensor], outs: List[torch.Tensor]
-    ):
-        exec_op = self.graph.exec_ops[op.id]
-        exec_op.ref(ins, outs)
+def dfs_block(block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
+    for op in block.operations:
+        dfs_op(op, tensors)
 
-        # check output shape with the definition in json
-        for i in range(len(op.outputs)):
-            if list(outs[i].shape) != op.outputs[i].shape:
-                raise Exception(
-                    "tensor %d shape mismatch! json: %s / runtime: %s"
-                    % (
-                        op.outputs[i].id,
-                        str(op.outputs[i].shape),
-                        str(list(outs[i].shape)),
-                    )
-                )
-            # for u8/s8 result, clamp the tensor
-            if op.outputs[i].dtype == "u8":
-                outs[i] = torch.clamp(outs[i], 0, 255)
-            elif op.outputs[i].dtype == "s8":
-                outs[i] = torch.clamp(outs[i], -128, 127)
+def ref_run(module: gc_mlir.ir.Module, tensors: Dict[str, torch.Tensor], entry: str = '"entry"'):
+    entry_op: gc_mlir.ir.OpView | None = None
+    for op in module.operation.opview.regions[0].blocks[0].operations:
+        if str(op.name) == entry:
+            entry_op = op
+            break
+    if entry_op is None:
+        raise Exception("entry function %s is not found at the top level" % entry)
+    else:
+        dfs_op(entry_op, tensors)
 
-            # cast if the data type mismatch
-            dt = util.get_dtype(op.outputs[i].dtype)
-            if dt != outs[i].dtype:
-                outs[i] = outs[i].to(dt)
-
-    def execute(self):
-        for op in self.graph.topo_ops:
-            ins: List[torch.Tensor] = []
-            outs: List[torch.Tensor] = []
-
-            # prepare the input tensor for this op
-            for i in op.inputs:
-                ins.append(self.tensors[i.id])
-
-            self.execute_ref_op(op, ins, outs)
-
-            # save the result tensor into self.tensors
-            for idx in range(len(op.outputs)):
-                self.tensors[op.outputs[idx].id] = outs[idx]

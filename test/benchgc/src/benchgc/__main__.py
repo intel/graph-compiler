@@ -17,21 +17,19 @@
 
 import sys
 import argparse
-import gc_mlir.ir
-import gc_mlir.dialects.onednn_graph
-from . import graph, runner, gapi, util
+import torch
+
+from .arg import Arg
+from typing import Dict
+import runner
+from . import util
 
 try:
     parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
-    parser.add_argument("--mlir", default=None, required=False, help="a mlir case file", type=str)
-    parser.add_argument("--entry", default=None, required=False, help="main entry function", type=str)
-    parser.add_argument(
-        "--json",
-        required=False,
-        default=None,
-        help="a json file case file",
-        type=str,
-    )
+    parser.add_argument("--driver", required=False, help="specify the test driver", choices=["onednn_graph", "linalg", "tensor", "mlir", "pattern"], type=str)
+    parser.add_argument("--case", required=False, help="test which operation in the specified driver", type=str)
+    parser.add_argument("--arg", required=False, default=None, action="append", help="define the arg name, data type, shape and filling type, eg. src:bf16:2x3x4:add:src", type=str)
+    parser.add_argument("--auto_broadcast", required=False, choices=["numpy", "none"], default="numpy", type=str)
     parser.add_argument(
         "--seed",
         required=False,
@@ -53,26 +51,38 @@ try:
         ],
     )
 
-    args = parser.parse_args()
-    util.set_seed(args.seed)
+    flags = parser.parse_args()
+    util.set_seed(flags.seed)
 except argparse.ArgumentError:
     sys.stderr.write("Argument parse failed\n")
     sys.exit(1)
 
-if args.mlir is not None:
-    with open(args.mlir, "r") as mlir_file:
-        with gc_mlir.ir.Context() as ctx:
-            gc_mlir.dialects.onednn_graph.register_dialect()
-            module = gc_mlir.ir.Module.parse(mlir_file.read())
-            mlir_graph = gapi.MLIRGraph(module)
-            graph_object = mlir_graph.convert_to_json('"' + args.entry + '"')
-            json_graph = gapi.Graph(graph_object)
-            ref_graph = graph.Graph(json_graph)
-            ref_graph.prepare_input(args.verbose)
-            ref_runner = runner.RefRunner(ref_graph)
-            ref_runner.execute()
-elif args.json is not None:
-    # TODO 
-    pass
+args: Dict[str, Arg] = {}
+
+
+for argument in flags.arg:
+    a = Arg(argument)
+    args[a.name] = a
+
+if flags.driver == "onednn_graph":
+    from .onednn_graph import mlir_op
+elif flags.driver == "linalg":
+    from .linalg import mlir_op
 else:
-    raise Exception("No mlir or json case provided")
+    raise Exception("unsupported driver %s" % flags.driver)
+
+mlir_func = mlir_op[flags.case]
+module = mlir_func(flags, args)
+print(module)
+
+tensors: Dict[str, torch.Tensor] = {}
+for k, v in args.items():
+    t: torch.Tensor | None = v.get_filled_tensor(flags.verbose)
+    if t is not None:
+        tensors[k] = t
+
+runner.ref_run(module, tensors)
+
+for k, v in tensors.items():
+    print(k)
+    print(v)

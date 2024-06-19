@@ -82,6 +82,7 @@ add_mlir_python_common_capi_library(GcPythonCAPI
   DECLARED_SOURCES
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
+    MLIRPythonSources
     MLIRPythonSources.Core
 )
 
