@@ -38,6 +38,8 @@ public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BrgemmDispatchAnalysis)
   explicit BrgemmDispatchAnalysis(Operation *);
   void setKernelDispatch(Operation *tilecfg, Operation *dispatch) {
+    LLVM_DEBUG(llvm::dbgs() << "* setKernelDispatch: " << tilecfg << "; "
+                            << dispatch << "\n");
     brgemmDispatches[tilecfg] = dispatch;
   };
   Operation *getKernelDispatch(Operation *tilecfg) const {
@@ -50,6 +52,8 @@ public:
 };
 
 BrgemmDispatchAnalysis::BrgemmDispatchAnalysis(Operation *root) {
+  LLVM_DEBUG(llvm::dbgs() << "* construct BrgemmDispatchAnalysis: " << *root
+                          << "\n");
   ModuleOp module = dyn_cast_or_null<ModuleOp>(root);
   if (!module)
     return;
@@ -108,6 +112,8 @@ BrgemmDispatchAnalysis::traceDispatchInGlobalCtor(ModuleOp module,
   for (auto &opRef : body.getOps()) {
     auto *op = &opRef;
     auto tryCallOp = dyn_cast_or_null<func::CallOp>(op);
+    if (!tryCallOp)
+      continue;
     auto callee = tryCallOp.getCalleeAttr().getAttr();
     if (callee == StringAttr::get(op->getContext(), DNNL_BRGEMM_DISPATCH_NAME))
       return op;
@@ -122,8 +128,11 @@ extractTileOpsFromRegion(Region &region) {
   std::pair<Operation *, Operation *> ret{nullptr, nullptr};
 
   for (auto &opRef : region.getOps()) {
+    LLVM_DEBUG(llvm::dbgs() << ">>> " << opRef << "\n");
     auto *op = &opRef;
     auto tryCallOp = dyn_cast_or_null<func::CallOp>(op);
+    if (!tryCallOp)
+      continue;
     auto callee = tryCallOp.getCalleeAttr().getAttr();
     if (callee == StringAttr::get(op->getContext(), DNNL_BRGEMM_TILECFG_NAME))
       ret.first = op;
