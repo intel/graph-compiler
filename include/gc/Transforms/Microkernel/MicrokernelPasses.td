@@ -86,7 +86,7 @@ def EarlyDispatchMicrokernel: Pass<"early-dispatch-microkernel", "::mlir::Module
                            "microkernel::MicrokernelDialect"];
 }
 
-def MergeBranchMicrokernelContext: Pass<"merge-branch-microkernel-context", "::mlir::func::FuncOp"> {
+def MergeBranchMicrokernelContext: Pass<"merge-branch-microkernel-context", "::mlir::ModuleOp"> {
   let summary = "Find and merge identical microkernel context operations in branches into one";
   let description = [{
     Find and merge identical microkernel context operations in branches into one.
