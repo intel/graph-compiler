@@ -328,9 +328,14 @@ def Linalgx_ScaledDotProductAttentionOp
       Variadic<TensorOrMemref>:$inputs,
       Variadic<TensorOrMemref>:$outputs);
   let results = (outs Variadic<TensorOrMemref>:$results);
-  let regions = (region AnyRegion:$region);
 
   let hasVerifier = 1;
+  let assemblyFormat = [{
+    attr-dict
+    `ins` `(` $inputs `:` type($inputs) `)`
+    `outs` `(` $outputs `:` type($outputs) `)`
+    (`->` type($results)^)?
+  }];
 }
 
 #endif // LINALGX_STRUCTURED_OPS
