@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "./Tiling.hpp"
+#include "gc/Analysis/MatmulConfigAnalysis.h"
 #include "gc/Dialect/Arith/Utils/EasyBuild.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/IR/EasyBuild.h"
@@ -44,101 +45,6 @@ namespace gc {
 #include "gc/Transforms/Passes.h.inc"
 
 namespace {
-
-struct SystemDesc {
-  // get runtime OMP_NUM_THREADS
-  uint32_t getNumThreads();
-  // get cache size by cacheLevel
-  size_t getCacheSize(uint8_t cacheLevel);
-};
-
-struct MatmulConfig {
-  int MBlock, NBlock, KBlock;
-  int MThreads, NThreads, KThreads;
-  int innerMostMBlock, innerMostNBlock, innerMostKBlock;
-};
-
-template <typename T> inline T divAndCeil(T a, T b) { return (a - 1) / b + 1; }
-
-enum DimType { Batch, M, N, K };
-
-static FailureOr<SmallVector<SmallVector<DimType>>>
-getOprandDimType(linalg::LinalgOp &linalgOp) {
-  if (isa<linalg::MatmulOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (llvm::isa<linalgx::Mm2DVnniOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
-                             DimType::K},
-        SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalgx::Mm4DVnniOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
-                             DimType::K},
-        SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
-  }
-  return failure();
-}
-
-[[maybe_unused]] static SmallVector<unsigned>
-extractDimTypeIdx(ArrayRef<DimType> tyList, DimType ty) {
-  SmallVector<unsigned> idxList;
-  for (auto [idx, type] : llvm::enumerate(tyList)) {
-    if (type == ty) {
-      idxList.push_back(idx);
-    }
-  }
-  return idxList;
-}
-
-MatmulConfig getDefaultMatmulConfig(linalg::LinalgOp &linalgOp) {
-  // TODO: build a more complex heuristic to determine the best tiling
-  auto M = linalgOp.getShape(linalgOp.getDpsInputOperand(0))[0];
-  auto N = linalgOp.getShape(linalgOp.getDpsInputOperand(1))[1];
-  auto K = linalgOp.getShape(linalgOp.getDpsInputOperand(1))[0];
-  MatmulConfig cfg;
-
-  // innermost Block
-  auto defaultBlock = 32;
-  cfg.innerMostMBlock = M % defaultBlock == 0 ? defaultBlock : M;
-  cfg.innerMostNBlock = N % defaultBlock == 0 ? defaultBlock : N;
-  cfg.innerMostKBlock = K % defaultBlock == 0 ? defaultBlock : K;
-
-  // Number of block
-  auto MNumBlock = M / cfg.innerMostMBlock;
-  auto NNumBlock = N / cfg.innerMostNBlock;
-  auto KNumBlock = K / cfg.innerMostKBlock;
-
-  // Threads
-  cfg.MThreads = 32;
-  cfg.NThreads = 1;
-  cfg.KThreads = 1;
-
-  // Block
-  cfg.MBlock = divAndCeil((int)MNumBlock, cfg.MThreads) * cfg.innerMostMBlock;
-  cfg.NBlock = divAndCeil((int)NNumBlock, cfg.NThreads) * cfg.innerMostNBlock;
-  cfg.KBlock = divAndCeil((int)KNumBlock, cfg.KThreads) * cfg.innerMostKBlock;
-  cfg.innerMostMBlock = 32;
-  cfg.innerMostNBlock = 32;
-  cfg.innerMostKBlock = 32;
-  cfg.MBlock = 64;
-  cfg.NBlock = 64;
-  cfg.KBlock = 64;
-  cfg.MThreads = 2;
-  cfg.NThreads = 2;
-  cfg.KThreads = 1;
-  return cfg;
-}
 
 static Value
 tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
@@ -478,9 +384,9 @@ using FinalReduceCallBackFn = std::function<FailureOr<linalg::LinalgOp>(
 
 struct OuterLoopGenerationOption {
   enum LoopType { ForOp, ForallOp };
-  SmallVector<SmallVector<int>> nestedTileSizes;
+  SmallVector<SmallVector<size_t>> nestedTileSizes;
   SmallVector<LoopType> loopType;
-  SmallVector<SmallVector<int>> loopDim;
+  SmallVector<SmallVector<size_t>> loopDim;
   SmallVector<InnermostFullResultCallBackFn> innermostFullResultCallBacks;
   SmallVector<FinalReduceCallBackFn> finalReduceCallBacks;
   bool isPartialResult = false;
@@ -657,7 +563,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
   FailureOr<OuterLoopGenerationResult>
   outerLoopGeneration(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
-                      MatmulConfig cfg, bool hasFillOp) const {
+                      gc::MatmulConfig cfg, bool hasFillOp) const {
     SmallVector<unsigned> KDimPos, MDimPos, NDimPos;
     linalgOp.getReductionDims(KDimPos);
     getMatmulParallelDims(linalgOp, 0, MDimPos);
@@ -665,23 +571,26 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     OuterLoopGenerationOption option;
     auto iteratorTypes = linalgOp.getIteratorTypesArray();
-    auto KFirstDim = (int)getOprandDim(linalgOp, KDimPos[0], 1);
-    auto MFirstDim = (int)getOprandDim(linalgOp, MDimPos[0], 0);
-    auto NFirstDim = (int)getOprandDim(linalgOp, NDimPos[0], 1);
+    auto KFirstDim = getOprandDim(linalgOp, KDimPos[0], 1);
+    auto MFirstDim = getOprandDim(linalgOp, MDimPos[0], 0);
+    auto NFirstDim = getOprandDim(linalgOp, NDimPos[0], 1);
     auto KParallelBlockSize =
         KDimPos.size() > 1
-            ? divAndCeil(KFirstDim, cfg.KThreads)
-            : divAndCeil(divAndCeil(KFirstDim, cfg.KBlock), cfg.KThreads) *
+            ? llvm::divideCeil(KFirstDim, cfg.KThreads)
+            : llvm::divideCeil(llvm::divideCeil(KFirstDim, cfg.KBlock),
+                               cfg.KThreads) *
                   cfg.KBlock;
     auto MParallelBlockSize =
         MDimPos.size() > 1
-            ? divAndCeil(MFirstDim, cfg.MThreads)
-            : divAndCeil(divAndCeil(MFirstDim, cfg.MBlock), cfg.MThreads) *
+            ? llvm::divideCeil(MFirstDim, cfg.MThreads)
+            : llvm::divideCeil(llvm::divideCeil(MFirstDim, cfg.MBlock),
+                               cfg.MThreads) *
                   cfg.MBlock;
     auto NParallelBlockSize =
         NDimPos.size() > 1
-            ? divAndCeil(NFirstDim, cfg.NThreads)
-            : divAndCeil(divAndCeil(NFirstDim, cfg.NBlock), cfg.NThreads) *
+            ? llvm::divideCeil(NFirstDim, cfg.NThreads)
+            : llvm::divideCeil(llvm::divideCeil(NFirstDim, cfg.NBlock),
+                               cfg.NThreads) *
                   cfg.NBlock;
     auto KOuterBlockSize = KDimPos.size() > 1
                                ? (cfg.KBlock - 1) / cfg.innerMostKBlock + 1
@@ -693,46 +602,45 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
                                : cfg.NBlock;
     // Outer
-    option.nestedTileSizes.emplace_back(SmallVector<int>{
+    option.nestedTileSizes.emplace_back(SmallVector<size_t>{
         MParallelBlockSize, NParallelBlockSize, KParallelBlockSize});
     option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForallOp);
     option.loopDim.emplace_back(
-        SmallVector<int>{(int)MDimPos[0], (int)NDimPos[0], (int)KDimPos[0]});
+        SmallVector<size_t>{MDimPos[0], NDimPos[0], KDimPos[0]});
     // Middle
     for (auto [tile, dim] :
-         llvm::zip(SmallVector<int>{MOuterBlockSize, NOuterBlockSize,
-                                    KOuterBlockSize},
-                   SmallVector<int>{(int)MDimPos[0], (int)NDimPos[0],
-                                    (int)KDimPos[0]})) {
-      option.nestedTileSizes.emplace_back(SmallVector<int>{tile});
+         llvm::zip(SmallVector<size_t>{MOuterBlockSize, NOuterBlockSize,
+                                       KOuterBlockSize},
+                   SmallVector<size_t>{MDimPos[0], NDimPos[0], KDimPos[0]})) {
+      option.nestedTileSizes.emplace_back(SmallVector<size_t>{tile});
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
-      option.loopDim.emplace_back(SmallVector<int>{dim});
+      option.loopDim.emplace_back(SmallVector<size_t>{dim});
     }
     // Inner
     if (KDimPos.size() == 1) {
-      option.nestedTileSizes.emplace_back(SmallVector<int>{cfg.KBlock});
+      option.nestedTileSizes.emplace_back(SmallVector<size_t>{cfg.KBlock});
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
-      option.loopDim.emplace_back(SmallVector<int>{(int)KDimPos.back()});
+      option.loopDim.emplace_back(SmallVector<size_t>{KDimPos.back()});
     }
     if (MDimPos.size() == 1) {
       option.nestedTileSizes.emplace_back(
-          SmallVector<int>{cfg.innerMostMBlock});
+          SmallVector<size_t>{cfg.innerMostMBlock});
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
-      option.loopDim.emplace_back(SmallVector<int>{(int)MDimPos.back()});
+      option.loopDim.emplace_back(SmallVector<size_t>{MDimPos.back()});
     }
     if (NDimPos.size() == 1) {
       option.nestedTileSizes.emplace_back(
-          SmallVector<int>{cfg.innerMostNBlock});
+          SmallVector<size_t>{cfg.innerMostNBlock});
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
-      option.loopDim.emplace_back(SmallVector<int>{(int)NDimPos.back()});
+      option.loopDim.emplace_back(SmallVector<size_t>{NDimPos.back()});
     }
     for (auto dim = 0UL; dim < linalgOp.getNumLoops(); dim++) {
       if (dim != MDimPos.back() && dim != NDimPos.back() &&
           iteratorTypes[dim] != mlir::utils::IteratorType::reduction) {
-        option.nestedTileSizes.emplace_back(SmallVector<int>{1});
+        option.nestedTileSizes.emplace_back(SmallVector<size_t>{1});
         option.loopType.emplace_back(
             OuterLoopGenerationOption::LoopType::ForOp);
-        option.loopDim.emplace_back(SmallVector<int>{(int)dim});
+        option.loopDim.emplace_back(SmallVector<size_t>{dim});
       }
     }
 
@@ -784,7 +692,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     mlir::easybuild::EasyBuilder eb{rewriter, originOp.getLoc()};
     auto operandDimTypes = getOprandDimType(originOp);
-    MatmulConfig cfg = getDefaultMatmulConfig(originOp);
+    auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
     auto AShape = originOp.getShape(originOp.getDpsInputOperand(0));
     auto BShape = originOp.getShape(originOp.getDpsInputOperand(1));
     auto CShape = originOp.getShape(originOp.getDpsInitOperand(0));
@@ -946,7 +854,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
         auto upBound =
             eb.wrap<mlir::easybuild::EBUnsigned>(*loop.getSingleUpperBound());
         auto step = eb.wrap<mlir::easybuild::EBUnsigned>(*loop.getSingleStep());
-        auto currentCond = (induceVar + step) > upBound;
+        auto currentCond = (induceVar + step) >= upBound;
         cond = cond & currentCond;
       }
       EB_scf_if(cond, {currentOp.getDpsInits().back().getType()}) {
@@ -1027,12 +935,12 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     rewriter.setInsertionPoint(linalgOp);
     linalg::LinalgOp originOp =
         dyn_cast<linalg::LinalgOp>(*rewriter.clone(*(linalgOp.getOperation())));
-    linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
     Operation *fillOp = findParentFillOp(linalgOp.getDpsInits()[0]);
 
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
-    MatmulConfig cfg = getDefaultMatmulConfig(linalgOp);
+    auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
+    linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
     bool needLowPrecisionCast = needToLegalizeDtype(linalgOp);
     if (cfg.KThreads > 1) {
       auto result = matmulDtypeLegalize(rewriter, linalgOp.getOperation());

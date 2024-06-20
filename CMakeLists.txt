@@ -96,6 +96,7 @@ endif()
 
 set(GC_LIB_LINKED_LIBS
         GCPasses
+        GCAnalysis
         MLIROneDNNGraph
 )
 add_library(graph_compiler SHARED ${GC_LIB_SOURCES})
