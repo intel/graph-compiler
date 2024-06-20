@@ -46,4 +46,16 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "vector::VectorDialect"];
 }
 
+def SplitComputeIntensivePatterns : Pass<"split-compute-intensive-patterns"> {
+  let summary = "Split matmul patterns";
+  let description = [{
+    Split matmul patterns' weights into several parts, number of which aligns
+    with the number of target machine's numa node.
+  }];
+  let dependentDialects = [
+    "mlir::linalg::LinalgDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::arith::ArithDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
