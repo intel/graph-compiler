@@ -14,3 +14,56 @@
 # limitations under the License.
 ################################################################################
 
+import torch
+import benchgc.util
+from typing import List, Dict, Tuple
+
+# params format: [src0 | wei, src dt, wei dt, dst dt, T/F transpose]
+# use other filling type for bias
+
+
+def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
+    name, src_dt, wei_dt, dst_dt, k = params
+
+    arg_rng: List[Dict[torch.dtype, Tuple[int, int]]] = [
+        {
+            torch.float32: (-64, 64),
+            torch.bfloat16: (-4, 4),
+            torch.float16: (-4, 4),
+        },  # src
+        {
+            torch.float32: (-128, 128),
+            torch.bfloat16: (-8, 8),
+            torch.float16: (-2, 2),
+        },  # wei
+    ]
+
+    src_dt = benchgc.util.get_dtype(src_dt)
+    wei_dt = benchgc.util.get_dtype(wei_dt)
+
+    src_min, src_max = arg_rng[0][src_dt]
+    wei_min, wei_max = arg_rng[1][wei_dt]
+    max_value = max(abs(src_min), abs(src_max)) * max(abs(wei_min), abs(wei_max))
+    safe_digits: int = min(
+        benchgc.util.get_digits("f32"), benchgc.util.get_digits(dst_dt)
+    )
+
+    safe_n_acc = (1 << safe_digits) // max_value
+
+    if name == "src":
+        arg_min, arg_max = arg_rng[0][src_dt]
+        density = 1.0
+    elif name == "wei":
+        arg_min, arg_max = arg_rng[0][wei_dt]
+        density = min(safe_n_acc / int(k), 1.0)
+    else:
+        raise Exception("unknown arg name %s", name)
+
+    benchgc.util.torch_seed(1, 0 if name == "src" else 1)
+    value = torch.bernoulli(torch.full(shape, density)) * torch.randint(
+        arg_min, arg_max, shape
+    )
+    while value.flatten()[0] <= 0:
+        value.flatten()[0] = torch.randint(arg_min, arg_max + 1, size=[1])[0].item()
+
+    return value.to(dtype)

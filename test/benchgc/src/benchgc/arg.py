@@ -14,19 +14,17 @@
 # limitations under the License.
 ################################################################################
 
-from . import util
-import torch
 import gc_mlir.ir
-import importlib
 from gc_mlir.dialects import tensor
 from typing import List
+
 
 class Arg:
     name: str
     dtype: str | None
     shape: List[int] | None
     fill_type: str | None
-    fill_param: List[str] | None
+    fill_param: List[str]
 
     def __init__(self, cfg: str):
         cfgs = cfg.split(":")
@@ -41,8 +39,8 @@ class Arg:
                 self.shape.append(int(dim))
 
         self.fill_type = None if cfgs[3] == "" else cfgs[3]
-        self.fill_param = None if cfgs[4] == "" else cfgs[4:]
-    
+        self.fill_param = cfgs[4:]
+
     def get_mlir_dtype(self, ctx: gc_mlir.ir.Context) -> gc_mlir.ir.Type:
         if self.dtype == "f32":
             return gc_mlir.ir.F32Type.get(ctx)
@@ -67,70 +65,14 @@ class Arg:
         else:
             raise Exception("data type not support: %s" % self.dtype)
 
-    def get_ranked_tensor_type(self, ctx: gc_mlir.ir.Context) -> gc_mlir.ir.RankedTensorType:
+    def get_ranked_tensor_type(
+        self, ctx: gc_mlir.ir.Context
+    ) -> gc_mlir.ir.RankedTensorType:
         if self.shape is None:
             raise Exception("shape is unknown")
         return gc_mlir.ir.RankedTensorType.get(self.shape, self.get_mlir_dtype(ctx))
-    
+
     def get_empty_op(self, ctx: gc_mlir.ir.Context) -> tensor.EmptyOp:
         if self.shape is None:
             raise Exception("shape is unknown")
         return tensor.EmptyOp(self.shape, self.get_mlir_dtype(ctx))
-
-    def get_filled_tensor(self, verbose: int) -> torch.Tensor | None:
-        if self.shape is None or self.dtype is None or self.fill_type is None or self.fill_param is None:
-            if verbose >= util.INPUT_VERBOSE:
-                print("skip arg %s filling: shape/dtype/fill_type/fill_param is not set" % self.name)
-            return None
-
-        if self.fill_type == "N" and len(self.fill_param) == 2:
-            # Normal distribution
-            mean = float(self.fill_param[0])
-            std = float(self.fill_param[1])
-            tensor = torch.normal(mean = mean, std = std, size = self.shape)
-
-        elif self.fill_type == "P" and len(self.fill_param) == 1:
-            # Poisson distribution
-            _lambda = float(self.fill_param[0])
-            lambda_tensor = torch.full(self.shape, _lambda)
-            tensor = torch.poisson(lambda_tensor)
-        elif self.fill_type == "B" and len(self.fill_param) == 2:
-            # Binomial distribution
-            n = int(self.fill_param[0])
-            p = float(self.fill_param[1])
-            bdist = torch.distributions.binomial.Binomial(total_count=n, probs=p)
-            tensor = bdist.sample(torch.Size(self.shape))
-        elif self.fill_type == "U" and len(self.fill_param) == 2:
-            # Uniform distribution
-            a = float(self.fill_param[0])
-            b = float(self.fill_param[1])
-            tensor = torch.distributions.uniform.Uniform(a, b).sample(torch.Size(self.shape))
-        elif self.fill_type == "F" and len(self.fill_param) == 1:
-            # read from pytorch tensor dump file
-            filename = self.fill_param[0]
-            tensor = torch.load(f = filename)
-            if not isinstance(tensor, torch.Tensor):
-                raise Exception("torch object from file %s is not a tensor object" % filename)
-            if tensor.shape != torch.Size(self.shape):
-                raise Exception("tensor object from file %s does not match shape" % filename)
-            if tensor.dtype != util.get_dtype(self.dtype):
-                raise Exception("tensor object from file %s does not match dtype" % filename)
-        elif self.fill_type == "D" and len(self.fill_param) == 2:
-            # Driver fill
-            driver: str = self.fill_param[0]
-            arg: str = self.fill_param[1]
-
-            driver_module = importlib.import_module("fill.%s" % driver)
-            tensor = driver_module.fill(self.shape, util.get_dtype(self.dtype), arg)
-        else:
-            raise Exception("invalid fill type or fill parameter")
-
-        tensor = tensor.to(util.get_dtype(self.dtype))
-        if verbose >= util.INPUT_VERBOSE:
-            print("fill arg: " + self.name)
-            print(tensor)
-        return tensor
-        
-
-
-

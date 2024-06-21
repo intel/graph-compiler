@@ -18,44 +18,18 @@ import argparse
 import gc_mlir.ir
 
 from gc_mlir.dialects import func
-from gc_mlir.dialects.linalg.opdsl.lang.dsl import DefinedOpCallable
 
 from benchgc.arg import Arg
-from typing import Dict
+from typing import Dict, Callable, Any
 
 
 def escape_var(var: str) -> str:
     return var.removeprefix("%").removeprefix("$")
 
 
-# %arg0 -> %1
-def init_i1o1_module(
-    flags: argparse.Namespace, args: Dict[str, Arg], op_func: DefinedOpCallable
-) -> gc_mlir.ir.Module:
-    with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
-        module = gc_mlir.ir.Module.create()
-        with gc_mlir.ir.InsertionPoint(module.body):
-            f = func.FuncOp(
-                name="entry",
-                type=gc_mlir.ir.FunctionType.get(
-                    inputs=[args["arg0"].get_ranked_tensor_type(ctx)],
-                    results=[args["1"].get_ranked_tensor_type(ctx)],
-                ),
-            )
-
-            with gc_mlir.ir.InsertionPoint(f.add_entry_block()):
-                # input: %arg0 output: %1
-                arg0 = f.entry_block.arguments[0]
-                _1: gc_mlir.ir.OpResult = op_func(
-                    arg0, outs=[args["1"].get_empty_op(ctx)]
-                )
-                func.ReturnOp([_1])
-        return module
-
-
-# %arg0, %arg1 -> %1
+# %arg0, %arg1 -> %0
 def init_i2o1_module(
-    flags: argparse.Namespace, args: Dict[str, Arg], op_func: DefinedOpCallable
+    flags: argparse.Namespace, args: Dict[str, Arg], op_func: Callable[[Any, Any], Any]
 ) -> gc_mlir.ir.Module:
     with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
         module = gc_mlir.ir.Module.create()
@@ -67,15 +41,12 @@ def init_i2o1_module(
                         args["arg0"].get_ranked_tensor_type(ctx),
                         args["arg1"].get_ranked_tensor_type(ctx),
                     ],
-                    results=[args["1"].get_ranked_tensor_type(ctx)],
+                    results=[args["0"].get_ranked_tensor_type(ctx)],
                 ),
             )
 
             with gc_mlir.ir.InsertionPoint(f.add_entry_block()):
-                # input: %arg0, %arg1 output: %1
                 arg0, arg1 = f.entry_block.arguments
-                _1: gc_mlir.ir.OpResult = op_func(
-                    arg0, arg1, outs=[args["1"].get_empty_op(ctx)]
-                )
-                func.ReturnOp([_1])
+                _0: gc_mlir.ir.OpResult = op_func(arg0, arg1)
+                func.ReturnOp([_0])
         return module

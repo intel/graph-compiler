@@ -15,22 +15,27 @@
 ################################################################################
 
 import torch
-import util
-from typing import List
+import benchgc.util
+from typing import List, Dict
 
-def fill(shape: List[int], dtype: torch.dtype, arg_name: str) -> torch.Tensor:
+# params format: [src0 | src1, src0 dt, src1 dt, dst dt]
 
-    if arg_name == "src0":
-        arg = 1
-    elif arg_name == "src1":
-        arg = 2
+
+def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
+    name, _, _, _ = params
+
+    accept_name: Dict[str, int] = {"src0": 1, "src1": 2}
+    if name in accept_name:
+        arg: int = accept_name[name]
     else:
-        raise Exception("unknown arg name %s", arg_name)
+        raise Exception("unknown arg name %s", name)
 
     range_: int = 16
     f_min = 0 if dtype == torch.uint8 else -range_ // 2
 
-    idx: torch.Tensor = torch.arange(util.nelem(shape) , dtype=torch.int).reshape(shape)
+    idx: torch.Tensor = torch.arange(
+        benchgc.util.nelem(shape), dtype=torch.int
+    ).reshape(shape)
     values: torch.Tensor = (f_min + (12 * idx + 5 * arg + 16) % (range_ + 1)) * 1.25
     if arg == 1:
         values = torch.where(values == 0.0, 1, values)

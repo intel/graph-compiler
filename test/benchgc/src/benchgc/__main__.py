@@ -22,14 +22,39 @@ import torch
 from .arg import Arg
 from typing import Dict
 import runner
-from . import util
+import benchgc.fill
+import benchgc.util
 
 try:
     parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
-    parser.add_argument("--driver", required=False, help="specify the test driver", choices=["onednn_graph", "linalg", "tensor", "mlir", "pattern"], type=str)
-    parser.add_argument("--case", required=False, help="test which operation in the specified driver", type=str)
-    parser.add_argument("--arg", required=False, default=None, action="append", help="define the arg name, data type, shape and filling type, eg. src:bf16:2x3x4:add:src", type=str)
-    parser.add_argument("--auto_broadcast", required=False, choices=["numpy", "none"], default="numpy", type=str)
+    parser.add_argument(
+        "--driver",
+        required=False,
+        help="specify the test driver",
+        choices=["onednn_graph", "linalg", "tensor", "mlir", "pattern"],
+        type=str,
+    )
+    parser.add_argument(
+        "--case",
+        required=False,
+        help="test which operation in the specified driver",
+        type=str,
+    )
+    parser.add_argument(
+        "--arg",
+        required=False,
+        default=None,
+        action="append",
+        help="define the arg name, data type, shape and filling type, eg. src:bf16:2x3x4:add:src",
+        type=str,
+    )
+    parser.add_argument(
+        "--auto_broadcast",
+        required=False,
+        choices=["numpy", "none"],
+        default="numpy",
+        type=str,
+    )
     parser.add_argument(
         "--seed",
         required=False,
@@ -40,19 +65,19 @@ try:
     parser.add_argument(
         "--verbose",
         type=int,
-        default=util.NO_VERBOSE,
+        default=benchgc.util.NO_VERBOSE,
         help="verbose level",
         choices=[
-            util.NO_VERBOSE,
-            util.COMPARE_VERBOSE,
-            util.ERROR_OUTPUT_VERBOSE,
-            util.OUTPUT_VERBOSE,
-            util.INPUT_VERBOSE,
+            benchgc.util.NO_VERBOSE,
+            benchgc.util.COMPARE_VERBOSE,
+            benchgc.util.ERROR_OUTPUT_VERBOSE,
+            benchgc.util.OUTPUT_VERBOSE,
+            benchgc.util.INPUT_VERBOSE,
         ],
     )
 
     flags = parser.parse_args()
-    util.set_seed(flags.seed)
+    benchgc.util.set_seed(flags.seed)
 except argparse.ArgumentError:
     sys.stderr.write("Argument parse failed\n")
     sys.exit(1)
@@ -63,6 +88,10 @@ args: Dict[str, Arg] = {}
 for argument in flags.arg:
     a = Arg(argument)
     args[a.name] = a
+
+for _, arg in args.items():
+    if arg.fill_type == "D" and len(arg.fill_param) == 0:
+        benchgc.fill.set_default_fill_param(flags, args, arg)
 
 if flags.driver == "onednn_graph":
     from .onednn_graph import mlir_op
@@ -77,7 +106,7 @@ print(module)
 
 tensors: Dict[str, torch.Tensor] = {}
 for k, v in args.items():
-    t: torch.Tensor | None = v.get_filled_tensor(flags.verbose)
+    t: torch.Tensor | None = benchgc.fill.fill_tensor(flags, args, v)
     if t is not None:
         tensors[k] = t
 

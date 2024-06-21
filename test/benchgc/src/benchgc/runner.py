@@ -18,8 +18,8 @@ import gc_mlir.ir
 import torch
 from typing import Dict
 
+
 def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
-    print(op)
     dialect_call: str = str(op.name)
     if dialect_call.startswith("onednn_graph"):
         from benchgc.onednn_graph import ref_op
@@ -36,15 +36,20 @@ def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
     ref_func = ref_op[dialect_op]
     ref_func(op, tensors)
 
+
 def dfs_region(region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
     for block in region.blocks:
         dfs_block(block, tensors)
+
 
 def dfs_block(block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
     for op in block.operations:
         dfs_op(op, tensors)
 
-def ref_run(module: gc_mlir.ir.Module, tensors: Dict[str, torch.Tensor], entry: str = '"entry"'):
+
+def ref_run(
+    module: gc_mlir.ir.Module, tensors: Dict[str, torch.Tensor], entry: str = '"entry"'
+):
     entry_op: gc_mlir.ir.OpView | None = None
     for op in module.operation.opview.regions[0].blocks[0].operations:
         if str(op.name) == entry:
@@ -54,4 +59,3 @@ def ref_run(module: gc_mlir.ir.Module, tensors: Dict[str, torch.Tensor], entry: 
         raise Exception("entry function %s is not found at the top level" % entry)
     else:
         dfs_op(entry_op, tensors)
-

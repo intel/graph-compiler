@@ -25,18 +25,62 @@ python -m pip install test/benchgc/dist/benchgc-*.whl
 
 ## Synopsis
 ```
-python -m benchgc [OPTIONS] [--mlir [FILE] --entry [FUNCTION] | --json [FILE]]
+python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 ```
 ## Flags
+###  --driver [str]
+* onednn_graph: test the single op in onednn_graph dialect
+* linalg: test the single op in linalg dialect
+* tensor: test the single op in tensor dialect
+* mlir: upload a mlir file and run
+* pattern: predefined pattern test such as mlp
+
+### --case [str]
+* if driver=mlir, please provide a mlir file here to test
+* if driver=pattern, please provide the pre-defined pattern name, such as mlp here
+* if driver is a dialect name, please provide the detail op name to start a single op test
+
+### --seed [int]
+* set the seed to generate the test data and reprodce the test
+
+### --verbose [int]
+* set the verbose level
+
+### --arg name:dtype:shape:fill_type[:fill_parameter]*
+* set or rewrite the variable {shape, dtype} in mlir or single op test
+* set the data filling strategy
+* single op name setting
+
+    | dialect.op | arg name |
+    |------------|----------|
+    | onednn_graph.add | src0, src1, dst |
+    | linalg.add | |
+    | linalg.batch_matmul | src, wei, dst |
+    | linalg.batch_matmul_transpose_a | |
+    | linalg.batch_matmul_transpose_b | |
+    | linalg.batch_matvec | |
+    | linalg.batch_mmt4d | |
+* use the variable name defined in your mlir case if driver = mlir
+
+* fill_type & fill_parameter setting
+    | description | fill_type | fill_parameter |
+    |-------------|-----------|-----------|
+    | Normal | N | mean, std |
+    | Poisson | P | lambda |
+    | Binomial | B | n, p |
+    | Uniform | U | a, b |
+    | Pytorch tensor dump | F | dump filename |
+    | Benchdnn driver | D | no parameter; only available for single op test; generate the parameter automatically |
+    | Benchdnn driver | D | driver_name[:driver filling parameter] |
+
+* Benchdnn drvier filling parameter
+    | driver_name | drvier filling parameter |
+    |-------------|--------------------------|
+    | binary | src0 dtype, src1 dtype, dst dtype |
+    | matmul | src dtype, wei dtype, dst dtype, K |
+
+
+## Example
 ```
---mlir [FILE]
-    Required if --json is not provided. A mlir file describing the case
---entry [FUNCTION]
-    Required if --mlir is provided. A function name in the mlir file describing the entry
---json [FILE]
-    Required if --mlir is not provided. A json file describing the case.
---seed [INT]
-    Optional and default is 0. A random seed value to generate data filling. It is also used in reproducing the issue.
---verbose [INT]
-    Optional, default is 0 with no verbose. An integer value describes the verbose level.
+python3 -m benchgc --verbose 4 --driver onednn_graph --case add --auto_broadcast numpy --arg src0:f32:4x5x6:N:0:1 --arg src1:f32:4x5x6:N:5:2 --arg dst:f32:4x5x6::
 ```

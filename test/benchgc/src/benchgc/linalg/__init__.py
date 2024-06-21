@@ -21,8 +21,10 @@ import gc_mlir.ir
 from benchgc.arg import Arg
 from typing import Dict, Callable
 
-ref_op:  Dict[str, Callable[[gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
-mlir_op: Dict[str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]] = {}
+ref_op: Dict[str, Callable[[gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
+mlir_op: Dict[
+    str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
+] = {}
 
 for dri in ["binary", "matmul"]:
     mod = importlib.import_module("benchgc.linalg.%s" % dri)

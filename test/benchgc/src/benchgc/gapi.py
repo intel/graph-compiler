@@ -19,7 +19,14 @@
 
 from typing import List, Dict, Any
 import gc_mlir.ir
-from gc_mlir._mlir_libs._mlir.ir import BoolAttr, FloatAttr, IntegerAttr, DenseI64ArrayAttr, DenseF32ArrayAttr, StringAttr
+from gc_mlir._mlir_libs._mlir.ir import (
+    BoolAttr,
+    FloatAttr,
+    IntegerAttr,
+    DenseI64ArrayAttr,
+    DenseF32ArrayAttr,
+    StringAttr,
+)
 from functools import reduce
 import operator
 
@@ -231,7 +238,7 @@ class MLIRGraph:
                     graph_op["attrs"][attribute.name] = {
                         "type": "f32[]",
                         "value": f32_array,
-                    }               
+                    }
                 elif isinstance(attribute.attr, StringAttr):
                     graph_op["attrs"][attribute.name] = {
                         "type": "string",

@@ -140,6 +140,7 @@ def get_dtype(dtype: str) -> torch.dtype:
     else:
         raise Exception("data type not support: %s" % dtype)
 
+
 def get_eps(dtype: torch.dtype) -> float:
     return torch.finfo(dtype).eps if dtype.is_floating_point else 0.0
 
@@ -319,6 +320,6 @@ class Checker:
                     )
             return (False, None)
 
-        
+
 def nelem(shape: List[int]) -> int:
     return reduce(operator.mul, shape)
