@@ -467,13 +467,13 @@ This is `layout 1`.
 
 
 ```
-0 |      2: load_ifm0 load_w0         
-1 *      execution_t0 (ofm0_p)  2: load_ifm1 load_w1 
-2                               execution_t1 (ofm1_p)  2: load_ifm2 load_w2 
+0 |      1: load_ifm0 load_w0         
+1 *      execution_t0 (ofm0_p)  1: load_ifm1 load_w1 
+2                               execution_t1 (ofm1_p)  1: load_ifm2 load_w2 
 3                               sum(ofm1_p, ofm0_p)               
-4                               store_ofm0             execution_t2 (ofm0_p)  2: load_ifm3 load_w3
+4                               store_ofm0             execution_t2 (ofm0_p)  1: load_ifm3 load_w3
 5                                                      sum(ofm0, ofm0_p)                              
-6                                                      store_ofm1_p           execution_t3 (ofm0)     2: load_ifm3 load_w3
+6                                                      store_ofm1_p           execution_t3 (ofm0)     1: load_ifm3 load_w3
 7                                                                             sum(ofm1_p, ofm0)     
 8                                                                             store_ofm0_p            execution_t4 (ofm1_p)
 9                                                                                                     sum(ofm0_p, ofm1_p)
@@ -504,15 +504,15 @@ This is `layout 2`.
 ```
 from this equation: `x = 97`, which requires: `6` tiles along reduction. 
 ```
-0 |      2: load_ifm0 load_w0         
+0 |      1: load_ifm0 load_w0         
 1 *      execution_t0 (ofm0_p)  
-2                               2: load_ifm0 load_w0   
+2                               1: load_ifm0 load_w0   
 3                               execution_t1 (ofm1_p)               
-4                               sum(ofm1_p, ofm0_p)    2: load_ifm0 load_w0 
+4                               sum(ofm1_p, ofm0_p)    1: load_ifm0 load_w0 
 5                               store_ofm0             execution_t2 (ofm0_p)  
-6                                                      sum(ofm0, ofm0_p)      2: load_ifm0 load_w0                        
+6                                                      sum(ofm0, ofm0_p)      1: load_ifm0 load_w0                        
 7                                                      store_ofm1_p           execution_t3 (ofm0)     
-8                                                                             sum(ofm1_p, ofm0)       2: load_ifm0 load_w0
+8                                                                             sum(ofm1_p, ofm0)       1: load_ifm0 load_w0
 9                                                                             store_ofm0_p            execution_t4 (ofm1_p)
 10                                                                                                    sum(ofm0_p, ofm1_p)
 11                                                                                                    store_ofm0
@@ -547,15 +547,15 @@ We can use same layout here:
  +------+-------------+--------+--------+------+
 ```
 ```
-0 |      2: load_ifm1 load_w4         
+0 |      1: load_ifm1 load_w4         
 1 *      execution_t0 (ofm0_p)  
-2                               2: load_ifm2 load_w6   
+2                               1: load_ifm2 load_w6   
 3                               execution_t1 (ofm1_p)               
-4                               sum(ofm1_p, ofm0_p)    2: load_ifm3 load_w8 
+4                               sum(ofm1_p, ofm0_p)    1: load_ifm3 load_w8 
 5                               store_ofm0             execution_t2 (ofm0_p)  
-6                                                      sum(ofm0, ofm0_p)      2: load_ifm1 load_w5                        
+6                                                      sum(ofm0, ofm0_p)      1: load_ifm1 load_w5                        
 7                                                      store_ofm1_p           execution_t3 (ofm0)     
-8                                                                             sum(ofm1_p, ofm0)       2: load_ifm2 load_w7
+8                                                                             sum(ofm1_p, ofm0)       1: load_ifm2 load_w7
 9                                                                             store_ofm0_p            execution_t4 (ofm1_p)
 10                                                                                                    sum(ofm0_p, ofm1_p)
 11                                                                                                    store_ofm0
@@ -563,6 +563,32 @@ We can use same layout here:
 ```
 In this case we can have similar amount of ticks as we have similar amount of tiles and same layout `n_ticks = (num_tiles - 1) * 2 + 2 + 2`, so `n_ticks = 14`.
 If we change amount of tiles along weight axises (instead of 2 tiles along weight w and 3 tiles along weight h, we have 3 along h and 2 along 2), we will still have similar layout in buffer. 
+
+So let's assume that best we can achieve here is `n_ticks = 14`.
+
+So resulting tiling will have:
+```
+0        3: load_ifm1 load_w3         
+1           2: load_ifm1_2 load_w6_2         
+2-15        execution_t02             2: load_ifm2_2 
+16-29       store_ofm16_2             execution_t12    2: load_ifm3_2
+30-43                                 store_ofm26_2    execution_t22    2: load_ifm4_2       
+44-57                                                  store_ofm36_2    execution_t32   2: load_ifm5_2
+58-71                                                                   store_ofm46_2   execution_t42 
+72                                                                                      store_ofm56_2 
+73       store_ofm13           3: load_ifm2 
+74-80                          execution_t1 
+81                             store_ofm23   3: load_ifm1 load_w4
+82-88                                        execution_t2          
+89                                           store_ofm14           3: load_ifm2
+90-96                                                              execution_t3
+97                                                                 store_ofm24
+```
+
+So total tiled layer took about `98 ticks`. 
+
+#### Tiling that uses smallest buffer
+
 
 
 ## Threads/Cores
