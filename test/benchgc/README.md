@@ -29,7 +29,6 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 ```
 ## Flags
 ###  --driver [str]
-* onednn_graph: test the single op in onednn_graph dialect
 * linalg: test the single op in linalg dialect
 * tensor: test the single op in tensor dialect
 * mlir: upload a mlir file and run
@@ -46,20 +45,22 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 ### --verbose [int]
 * set the verbose level
 
-### --arg name:dtype:shape:fill_type[:fill_parameter]*
+### -i name:dtype:shape:fill_type[:fill_parameter]*
 * set or rewrite the variable {shape, dtype} in mlir or single op test
 * set the data filling strategy
 * single op name setting
 
     | dialect.op | arg name |
     |------------|----------|
-    | onednn_graph.add | src0, src1, dst |
-    | linalg.add | |
-    | linalg.batch_matmul | src, wei, dst |
+    | linalg.abs | src |
+    | linalg.add | src0, src1 |
+    | linalg.batch_matmul | src, wei |
     | linalg.batch_matmul_transpose_a | |
     | linalg.batch_matmul_transpose_b | |
     | linalg.batch_matvec | |
     | linalg.batch_mmt4d | |
+    | linalg.batch_reduce_matmul | |
+    | linalg.batch_vecmat | |
 * use the variable name defined in your mlir case if driver = mlir
 
 * fill_type & fill_parameter setting
@@ -79,8 +80,24 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
     | binary | src0 dtype, src1 dtype, dst dtype |
     | matmul | src dtype, wei dtype, dst dtype, K |
 
+### -o name:dtype:shape:check_type[:check_parameter]*
+* set or rewrite the variable {shape, dtype} in mlir or single op test
+* set the data compare & check strategy
+* single op name setting
+
+    | dialect.op | arg name |
+    |------------|----------|
+    | linalg.abs | dst |
+    | linalg.add | |
+    | linalg.batch_matmul | |
+    | linalg.batch_matmul_transpose_a | |
+    | linalg.batch_matmul_transpose_b | |
+    | linalg.batch_matvec | |
+    | linalg.batch_mmt4d | |
+    | linalg.batch_reduce_matmul | |
+    | linalg.batch_vecmat | |
 
 ## Example
 ```
-python3 -m benchgc --verbose 4 --driver onednn_graph --case add --auto_broadcast numpy --arg src0:f32:4x5x6:N:0:1 --arg src1:f32:4x5x6:N:5:2 --arg dst:f32:4x5x6::
+python3 -m benchgc --verbose 4 --driver linalg --case add --arg src0:f32:4x5x6:N:0:1 --arg src1:f32:4x5x6:N:5:2 --arg dst:f32:4x5x6::
 ```

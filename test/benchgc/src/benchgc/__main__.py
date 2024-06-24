@@ -31,7 +31,7 @@ try:
         "--driver",
         required=False,
         help="specify the test driver",
-        choices=["onednn_graph", "linalg", "tensor", "mlir", "pattern"],
+        choices=["linalg", "tensor", "mlir", "pattern"],
         type=str,
     )
     parser.add_argument(
@@ -41,18 +41,19 @@ try:
         type=str,
     )
     parser.add_argument(
-        "--arg",
+        "-i",
         required=False,
         default=None,
         action="append",
-        help="define the arg name, data type, shape and filling type, eg. src:bf16:2x3x4:add:src",
+        help="define the input arg name, data type, shape and filling type, eg. src:bf16:2x3x4:add:src",
         type=str,
     )
     parser.add_argument(
-        "--auto_broadcast",
+        "-o",
         required=False,
-        choices=["numpy", "none"],
-        default="numpy",
+        default=None,
+        action="append",
+        help="define the output arg name, data type, shape and check type, eg. dst:bf16:2x3x4:add:dst",
         type=str,
     )
     parser.add_argument(
@@ -76,39 +77,57 @@ try:
         ],
     )
 
+    parser.add_argument(
+        "--dimensions",
+        required=False,
+        default=None,
+        action="append",
+        help="define the dimensions attribute in linalg op",
+        type=int,
+    )
+
     flags = parser.parse_args()
     benchgc.util.set_seed(flags.seed)
 except argparse.ArgumentError:
     sys.stderr.write("Argument parse failed\n")
     sys.exit(1)
 
-args: Dict[str, Arg] = {}
+ins: Dict[str, Arg] = {}
+outs: Dict[str, Arg] = {}
 
+for i in flags.i:
+    a = Arg(i)
+    ins[a.name] = a
 
-for argument in flags.arg:
-    a = Arg(argument)
-    args[a.name] = a
+for o in flags.o:
+    a = Arg(o)
+    outs[a.name] = a
 
-for _, arg in args.items():
-    if arg.fill_type == "D" and len(arg.fill_param) == 0:
+args = ins | outs
+
+for _, arg in ins.items():
+    if arg.type == "D" and len(arg.param) == 0:
         benchgc.fill.set_default_fill_param(flags, args, arg)
 
-if flags.driver == "onednn_graph":
-    from .onednn_graph import mlir_op
-elif flags.driver == "linalg":
+if flags.driver == "linalg":
     from .linalg import mlir_op
 else:
     raise Exception("unsupported driver %s" % flags.driver)
+
 
 mlir_func = mlir_op[flags.case]
 module = mlir_func(flags, args)
 print(module)
 
 tensors: Dict[str, torch.Tensor] = {}
-for k, v in args.items():
-    t: torch.Tensor | None = benchgc.fill.fill_tensor(flags, args, v)
-    if t is not None:
-        tensors[k] = t
+for k, v in ins.items():
+    tensors[k] = benchgc.fill.fill_tensor(flags, v)
+
+# map tensors arg to mlir arg
+for name, arg in args.items():
+    if name != arg.name and arg.name in tensors:
+        tensors[name] = tensors[arg.name]
+        del tensors[arg.name]
 
 runner.ref_run(module, tensors)
 

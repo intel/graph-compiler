@@ -21,25 +21,27 @@ from typing import List
 
 class Arg:
     name: str
-    dtype: str | None
-    shape: List[int] | None
-    fill_type: str | None
-    fill_param: List[str]
+    dtype: str
+    shape: List[int]
+
+    # filling type if arg is an input arg
+    # compare type if arg is an output arg
+    type: str
+
+    param: List[str]
 
     def __init__(self, cfg: str):
         cfgs = cfg.split(":")
         self.name = cfgs[0]
-        self.dtype = None if cfgs[1] == "" else cfgs[1]
+        self.dtype = cfgs[1]
 
-        if cfgs[2] == "":
-            self.shape = None
-        else:
-            self.shape = []
+        self.shape = []
+        if cfgs[2] != "":
             for dim in cfgs[2].split("x"):
                 self.shape.append(int(dim))
 
-        self.fill_type = None if cfgs[3] == "" else cfgs[3]
-        self.fill_param = cfgs[4:]
+        self.type = cfgs[3]
+        self.param = cfgs[4:]
 
     def get_mlir_dtype(self, ctx: gc_mlir.ir.Context) -> gc_mlir.ir.Type:
         if self.dtype == "f32":
@@ -68,11 +70,11 @@ class Arg:
     def get_ranked_tensor_type(
         self, ctx: gc_mlir.ir.Context
     ) -> gc_mlir.ir.RankedTensorType:
-        if self.shape is None:
+        if self.shape == []:
             raise Exception("shape is unknown")
         return gc_mlir.ir.RankedTensorType.get(self.shape, self.get_mlir_dtype(ctx))
 
     def get_empty_op(self, ctx: gc_mlir.ir.Context) -> tensor.EmptyOp:
-        if self.shape is None:
+        if self.shape == []:
             raise Exception("shape is unknown")
         return tensor.EmptyOp(self.shape, self.get_mlir_dtype(ctx))

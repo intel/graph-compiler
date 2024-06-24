@@ -35,5 +35,4 @@ add_custom_target(benchgc
 add_subdirectory("src/benchgc")
 add_subdirectory("src/benchgc/ops")
 add_subdirectory("src/benchgc/fill")
-add_subdirectory("src/benchgc/onednn_graph")
 add_subdirectory("src/benchgc/linalg")

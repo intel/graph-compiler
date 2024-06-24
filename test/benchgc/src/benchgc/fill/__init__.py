@@ -24,21 +24,15 @@ import importlib
 
 def set_default_fill_param(flags: argparse.Namespace, args: Dict[str, Arg], arg: Arg):
 
-    if arg.shape is None or arg.dtype is None or arg.fill_type is None:
-        return
-    if arg.fill_type == "D" and len(arg.fill_param) == 0:
+    if arg.shape == [] or arg.dtype == "" or arg.type == "":
+        raise Exception("arg %s filling: shape/dtype/fill_type is not set" % arg.name)
+    if arg.type == "D" and len(arg.param) == 0:
         # need to generate a default param for driver filling here
-        if flags.driver not in ["onednn_graph", "linalg", "tensor"]:
+        if flags.driver not in ["linalg"]:
             raise Exception("unsupported driver %s for default filling" % flags.driver)
 
         if flags.case in ["add"]:
-            if (
-                args["src0"].dtype is None
-                or args["src1"].dtype is None
-                or args["dst"].dtype is None
-            ):
-                raise Exception("unknown dtype for default filling")
-            arg.fill_param = [
+            arg.param = [
                 "binary",
                 arg.name,
                 args["src0"].dtype,
@@ -51,14 +45,10 @@ def set_default_fill_param(flags: argparse.Namespace, args: Dict[str, Arg], arg:
             "batch_matmul_transpose_b",
             "batch_matvec",
             "batch_mmt4d",
+            "batch_reduce_matmul",
+            "batch_vecmat",
         ]:
-            if (
-                args["src"].dtype is None
-                or args["wei"].dtype is None
-                or args["dst"].dtype is None
-            ):
-                raise Exception("unknown dtype for default filling")
-            arg.fill_param = [
+            arg.param = [
                 "matmul",
                 arg.name,
                 args["src"].dtype,
@@ -74,47 +64,51 @@ def set_default_fill_param(flags: argparse.Namespace, args: Dict[str, Arg], arg:
                 or flags.case == "batch_matmul"
                 and arg.name == "src"
                 or flags.case == "batch_matvec"
+                or flags.case == "batch_vecmat" and arg.name == "src"
             ):
-                arg.fill_param.append(str(arg.shape[-1]))
+                arg.param.append(str(arg.shape[-1]))
+
+            elif flags.case == "batch_reduce_matmul" and arg.name == "src":
+                arg.param.append(str(arg.shape[0] * arg.shape[-1]))
+            elif flags.case == "batch_reduce_matmul" and arg.name == "wei":
+                arg.param.append(str(arg.shape[0] * arg.shape[-2]))
             elif flags.case == "batch_mmt4d":
-                arg.fill_param.append(str(arg.shape[-1] * arg.shape[-3]))
+                arg.param.append(str(arg.shape[-1] * arg.shape[-3]))
             else:
-                arg.fill_param.append(str(arg.shape[-2]))
+                arg.param.append(str(arg.shape[-2]))
+        elif flags.case in ["abs"]:
+            arg.param = ["eltwise", flags.case, "", ""]
 
 
-def fill_tensor(
-    flags: argparse.Namespace, args: Dict[str, Arg], arg: Arg
-) -> torch.Tensor | None:
-    if arg.shape is None or arg.dtype is None or arg.fill_type is None:
-        if flags.verbose >= benchgc.util.INPUT_VERBOSE:
-            print("skip arg %s filling: shape/dtype/fill_type is not set" % arg.name)
-        return None
+def fill_tensor(flags: argparse.Namespace, arg: Arg) -> torch.Tensor:
+    if arg.shape == [] or arg.dtype == "" or arg.type == "":
+        raise Exception("arg %s filling: shape/dtype/fill_type is not set" % arg.name)
 
-    if arg.fill_type == "N" and len(arg.fill_param) == 2:
+    if arg.type == "N" and len(arg.param) == 2:
         # Normal distribution
-        mean = float(arg.fill_param[0])
-        std = float(arg.fill_param[1])
+        mean = float(arg.param[0])
+        std = float(arg.param[1])
         tensor = torch.normal(mean=mean, std=std, size=arg.shape)
 
-    elif arg.fill_type == "P" and len(arg.fill_param) == 1:
+    elif arg.type == "P" and len(arg.param) == 1:
         # Poisson distribution
-        _lambda = float(arg.fill_param[0])
+        _lambda = float(arg.param[0])
         lambda_tensor = torch.full(arg.shape, _lambda)
         tensor = torch.poisson(lambda_tensor)
-    elif arg.fill_type == "B" and len(arg.fill_param) == 2:
+    elif arg.type == "B" and len(arg.param) == 2:
         # Binomial distribution
-        n = int(arg.fill_param[0])
-        p = float(arg.fill_param[1])
+        n = int(arg.param[0])
+        p = float(arg.param[1])
         bdist = torch.distributions.binomial.Binomial(total_count=n, probs=p)
         tensor = bdist.sample(torch.Size(arg.shape))
-    elif arg.fill_type == "U" and len(arg.fill_param) == 2:
+    elif arg.type == "U" and len(arg.param) == 2:
         # Uniform distribution
-        a = float(arg.fill_param[0])
-        b = float(arg.fill_param[1])
+        a = float(arg.param[0])
+        b = float(arg.param[1])
         tensor = torch.distributions.uniform.Uniform(a, b).sample(torch.Size(arg.shape))
-    elif arg.fill_type == "F" and len(arg.fill_param) == 1:
+    elif arg.type == "F" and len(arg.param) == 1:
         # read from pytorch tensor dump file
-        filename = arg.fill_param[0]
+        filename = arg.param[0]
         tensor = torch.load(f=filename)
         if not isinstance(tensor, torch.Tensor):
             raise Exception(
@@ -128,12 +122,12 @@ def fill_tensor(
             raise Exception(
                 "tensor object from file %s does not match dtype" % filename
             )
-    elif arg.fill_type == "D" and len(arg.fill_param) > 0:
+    elif arg.type == "D" and len(arg.param) > 0:
         # Driver fill
-        driver: str = arg.fill_param[0]
+        driver: str = arg.param[0]
         driver_module = importlib.import_module("benchgc.fill.%s" % driver)
         tensor = driver_module.fill(
-            arg.shape, benchgc.util.get_dtype(arg.dtype), arg.fill_param[1:]
+            arg.shape, benchgc.util.get_dtype(arg.dtype), arg.param[1:]
         )
     else:
         raise Exception("invalid fill type or fill parameter")
