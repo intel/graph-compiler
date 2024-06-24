@@ -121,7 +121,7 @@ if [ "$DYN_LINK" = 'true' ]; then
 fi
 
 cmake -S . -G Ninja -B build \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_BUILD_TYPE=Debug \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \

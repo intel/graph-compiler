@@ -4,12 +4,11 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRBufferizationToMemRef
   MLIRBufferizationPipelines)
 
-add_mlir_library(GCPasses
-  OneDNNGraphToLinalg.cpp
-  TileNamed.cpp
+add_mlir_library(GCAnalysis
+  TileLayoutAnalysis.cpp
 
   ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/include/
 
   DEPENDS
     GraphCompilerPassIncGen
@@ -20,7 +19,6 @@ add_mlir_library(GCPasses
     MLIROneDNNGraph
     MLIRTensorDialect
     MLIRSCFDialect
-    GCAnalysis
   )
 
-set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)
+  set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCAnalysis)

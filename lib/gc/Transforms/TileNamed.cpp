@@ -6,11 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "gc/Analysis/TileLayoutAnalysis.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
@@ -160,6 +162,32 @@ static OpFoldResult getBoundedTileSize(OpBuilder &b, Location loc,
       b, loc, minMap, SmallVector<OpFoldResult>{iv, tileSize, size});
 }
 
+/// Returns the bounded tile size given the current `iv`, `loopRange` and
+/// `tileSize`, i.e., `min(tileSize, range.end() - iv)`.
+static OpFoldResult calcBoundedTileSize(OpBuilder &b, Location loc,
+                                        Range loopRange,
+                                        OpFoldResult tileSize) {
+  std::optional<int64_t> ts = getConstantIntValue(tileSize);
+  if (ts && ts.value() == 1)
+    return tileSize;
+
+  if (tileDividesIterationDomain(
+          Range{loopRange.offset, loopRange.size, tileSize}))
+    return tileSize;
+
+  llvm::errs() << " looks like required iv\n";
+  // The tile size to use (to avoid out of bounds access) is  minimum of
+  // `tileSize` and `ub - iv`, where `iv` is the induction variable of the tiled
+  // loop.
+  AffineExpr s0, s1, d0;
+  bindDims(b.getContext(), d0);
+  bindSymbols(b.getContext(), s0, s1);
+  AffineMap minMap = AffineMap::get(1, 2, {s0, s1 - d0}, b.getContext());
+  Value size = getValueOrCreateConstantIndexOp(b, loc, loopRange.size);
+  return affine::makeComposedFoldedAffineMin(
+      b, loc, minMap, SmallVector<OpFoldResult>{tileSize, size});
+}
+
 /// Helper method to adjust the interchange vector to match the iteration
 /// domain.
 static SmallVector<int64_t>
@@ -243,11 +271,27 @@ static LogicalResult generateLoopNestUsingForOp(
                                     [](OpBuilder &bodyBuilder, Location bodyLoc,
                                        Value iv, ValueRange /*iterArgs*/) {});
     loops.push_back(loop);
+    llvm::errs() << "lower bound variable: " << lb.getType() << " " << lb
+                 << "\n";
+    llvm::errs() << "upper bound variable: " << ub.getType() << " " << ub
+                 << "\n";
+    llvm::errs() << "step variable: " << step.getType() << " " << step << "\n";
+    llvm::errs() << "induction variable: " << loop.getInductionVar().getType()
+                 << " " << loop.getInductionVar() << "\n";
     ivs.push_back(loop.getInductionVar());
     rewriter.setInsertionPointToEnd(loop.getBody());
     destinationTensors = loop.getRegionIterArgs();
+    for (mlir::Value destT : destinationTensors) {
+      llvm::errs() << "   destinationT : ";
+      mlir::OpPrintingFlags printFlags;
+      destT.printAsOperand(llvm::errs(), printFlags);
+      llvm::errs() << " ";
+      llvm::errs() << destT.getType();
+      llvm::errs() << "\n";
+    }
   }
 
+  llvm::errs() << "[generateLoopNestUsingForOp] here\n";
   SmallVector<Value> tiledResults;
   SmallVector<SmallVector<OpFoldResult>> resultOffsets, resultSizes;
   if (failed(yieldTiledValuesFn(rewriter, loc, ivs, destinationTensors,
@@ -257,6 +301,35 @@ static LogicalResult generateLoopNestUsingForOp(
   }
   if (loops.empty())
     return success();
+
+  for (mlir::Value tiledVals : tiledResults) {
+    llvm::errs() << "   tiledVals : ";
+    mlir::OpPrintingFlags printFlags;
+    tiledVals.printAsOperand(llvm::errs(), printFlags);
+    llvm::errs() << " ";
+    llvm::errs() << tiledVals.getType();
+    llvm::errs() << "\n";
+  }
+
+  for (auto off : resultOffsets) {
+    llvm::errs() << "   off : \n";
+    llvm::errs() << "   ";
+    for (auto o : off) {
+      llvm::errs() << " " << o;
+    }
+    llvm::errs() << "\n";
+  }
+  llvm::errs() << "\n";
+
+  for (auto sz : resultSizes) {
+    llvm::errs() << "   sz : \n";
+    llvm::errs() << "   ";
+    for (auto s : sz) {
+      llvm::errs() << " " << s;
+    }
+    llvm::errs() << "\n";
+  }
+  llvm::errs() << "\n";
 
   // 6. Yield all the results of the tiled operation.
   SmallVector<Value> yieldedValues;
@@ -377,6 +450,56 @@ static LogicalResult generateLoopNest(RewriterBase &rewriter, Location loc,
   return rewriter.notifyMatchFailure(loc, "unhandled loop type");
 }
 
+// Instantiate the tiled implementation of the operation.
+FailureOr<TilingResult> calcTiledImplementation(Operation *op, OpBuilder &b,
+                                                ArrayRef<OpFoldResult> offsets,
+                                                ArrayRef<OpFoldResult> sizes) {
+
+  // Leave the `sizeBounds` value empty. That is only needed when the `sizes`
+  // specified could lead to out of bounds accesses.
+  Location loc = op->getLoc();
+  mlir::linalg::LinalgOp linalgOp = cast<mlir::linalg::LinalgOp>(op);
+  SmallVector<Value> valuesToTile = linalgOp->getOperands();
+  SmallVector<Value, 4> tiledOperands =
+      makeTiledShapes(b, loc, linalgOp, valuesToTile, offsets, sizes, {}, true);
+  /*
+  SmallVector<Type> resultTensorTypes =
+      getTensorOutputTypes(linalgOp, tiledOperands);
+
+  Operation *tiledOp = clone(b, linalgOp, resultTensorTypes, tiledOperands);
+  offsetIndices(b, cast<LinalgOp>(tiledOp), offsets);
+
+  return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
+  */
+
+  // Let's avoid materialization, just keep values with
+  // slice options to propagate them to previous op
+  SmallVector<std::optional<mlir::linalg::SliceParameters>> allSliceParameter =
+      computeAllSliceParameters(b, loc, linalgOp, valuesToTile, offsets, sizes,
+                                {}, true);
+  SmallVector<Value> tiledShapes;
+  for (auto item : llvm::zip(valuesToTile, allSliceParameter)) {
+    Value valueToTile = std::get<0>(item);
+    std::optional<mlir::linalg::SliceParameters> sliceParams =
+        std::get<1>(item);
+    llvm::errs() << "value to tile -  " << valueToTile.getType() << " : {\n";
+    llvm::errs() << "   off [ ";
+    llvm::interleaveComma(sliceParams->offsets, llvm::errs());
+    llvm::errs() << " ]\n";
+    llvm::errs() << "   szs [ ";
+    llvm::interleaveComma(sliceParams->sizes, llvm::errs());
+    llvm::errs() << " ]\n";
+    llvm::errs() << "   str [ ";
+    llvm::interleaveComma(sliceParams->strides, llvm::errs());
+    llvm::errs() << " ]\n";
+    llvm::errs() << "}\n";
+    // tiledShapes.push_back(
+    //     sliceParams.has_value()
+    //         ? materializeTiledShape(builder, loc, valueToTile, *sliceParams)
+    //         : valueToTile);
+  }
+}
+
 /// Implementation of tiling transformation of `op` that implements the
 /// `TilingInterface` using `scf.for` to iterate over the tiles.
 FailureOr<scf::SCFTilingResult>
@@ -426,6 +549,9 @@ myTileUsingSCF(RewriterBase &rewriter, TilingInterface op,
   FailureOr<TilingResult> tilingResult;
   // 4. Define the lambda function used later to generate the body of the
   // innermost tiled loop.
+
+  // Let's remove inductor var in this form
+  // region iter args also should be somehow replaced
   YieldTiledValuesFn innerYieldTiledValuesFn =
       [&](RewriterBase &rewriter, Location loc, ValueRange ivs,
           ValueRange regionIterArgs, SmallVector<Value> &tiledResults,
@@ -443,6 +569,7 @@ myTileUsingSCF(RewriterBase &rewriter, TilingInterface op,
           sizes.push_back(loopRange.size);
           continue;
         }
+        llvm::errs() << "Tile size: " << tileSize << "\n";
         Value iv = ivs[materializedLoopNum++];
 
         llvm::errs() << "iv dump: \n";
@@ -455,8 +582,10 @@ myTileUsingSCF(RewriterBase &rewriter, TilingInterface op,
         llvm::errs() << "} \n";
 
         offsets.push_back(iv);
-        sizes.push_back(
-            getBoundedTileSize(rewriter, loc, loopRange, iv, tileSize));
+        auto bounded =
+            getBoundedTileSize(rewriter, loc, loopRange, iv, tileSize);
+        llvm::errs() << "bounded: " << bounded << "\n";
+        sizes.push_back(bounded);
       }
     }
     llvm::errs() << "sizes: {\n";
@@ -492,8 +621,62 @@ myTileUsingSCF(RewriterBase &rewriter, TilingInterface op,
       return success();
     }
 
+    llvm::errs() << "=====================================================\n";
+    llvm::errs() << "        Before tiled        \n";
     // 5c. Tile the cloned operation.
+    // calcTiledImplementation(clonedOp.getOperation(), rewriter, offsets,
+    // sizes);
+
+    // Location loc = op->getLoc();
+    mlir::linalg::LinalgOp linalgOp =
+        cast<mlir::linalg::LinalgOp>(clonedOp.getOperation());
+    SmallVector<Value> valuesToTile = linalgOp->getOperands();
+    SmallVector<Value, 4> tiledOperands = makeTiledShapes(
+        rewriter, loc, linalgOp, valuesToTile, offsets, sizes, {}, true);
+    /*
+    SmallVector<Type> resultTensorTypes =
+        getTensorOutputTypes(linalgOp, tiledOperands);
+
+    Operation *tiledOp = clone(b, linalgOp, resultTensorTypes, tiledOperands);
+    offsetIndices(b, cast<LinalgOp>(tiledOp), offsets);
+
+    return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
+    */
+
+    // Let's avoid materialization, just keep values with
+    // slice options to propagate them to previous op
+    SmallVector<std::optional<mlir::linalg::SliceParameters>>
+        allSliceParameter = computeAllSliceParameters(
+            rewriter, loc, linalgOp, valuesToTile, offsets, sizes, {}, true);
+    SmallVector<Value> tiledShapes;
+    for (auto item : llvm::zip(valuesToTile, allSliceParameter)) {
+      Value valueToTile = std::get<0>(item);
+      std::optional<mlir::linalg::SliceParameters> sliceParams =
+          std::get<1>(item);
+      llvm::errs() << "value to tile -  " << valueToTile.getType() << " : {\n";
+      llvm::errs() << "   off [ ";
+      llvm::interleaveComma(sliceParams->offsets, llvm::errs());
+      llvm::errs() << " ]\n";
+      llvm::errs() << "   szs [ ";
+      llvm::interleaveComma(sliceParams->sizes, llvm::errs());
+      llvm::errs() << " ]\n";
+      llvm::errs() << "   str [ ";
+      llvm::interleaveComma(sliceParams->strides, llvm::errs());
+      llvm::errs() << " ]\n";
+      llvm::errs() << "}\n";
+      // tiledShapes.push_back(
+      //     sliceParams.has_value()
+      //         ? materializeTiledShape(builder, loc, valueToTile,
+      //         *sliceParams) : valueToTile);
+    }
+
+    tiledResults.append(clonedOp->result_begin(), clonedOp->result_end());
+    tilingResult =
+        TilingResult{/*tiledOps=*/{clonedOp}, clonedOp->getResults()};
+    return success();
+
     tilingResult = clonedOp.getTiledImplementation(rewriter, offsets, sizes);
+
     if (failed(tilingResult)) {
       rewriter.eraseOp(clonedOp);
       return op.emitOpError("faild to tile operation");
@@ -502,6 +685,27 @@ myTileUsingSCF(RewriterBase &rewriter, TilingInterface op,
     for (auto tiledOp : tilingResult->tiledOps) {
       llvm::errs() << "   tile op:\n";
       tiledOp->dump();
+      llvm::errs() << "      this ops have sliced operands: \n";
+      // llvm::errs() << "        bbops \n";
+      // for (auto operand : linalgTiledOp.getOpOperandsMatchingBBargs()) {
+      //   auto val = operand->get();
+      //   llvm::errs() << "      ";
+      //   mlir::OpPrintingFlags printFlags;
+      //   val.printAsOperand(llvm::errs(), printFlags);
+      //   llvm::errs() << " ";
+      //   llvm::errs() << val.getType();
+      //   llvm::errs() << "\n";
+      // }
+      llvm::errs() << "        OpOperands \n";
+      for (mlir::Value val : tiledOp->getOperands()) {
+        llvm::errs() << "      ";
+        mlir::OpPrintingFlags printFlags;
+        val.printAsOperand(llvm::errs(), printFlags);
+        llvm::errs() << " ";
+        llvm::errs() << val.getType();
+        llvm::errs() << "\n      \t";
+        val.dump();
+      }
     }
 
     llvm::errs() << "}\n";
@@ -560,6 +764,62 @@ myTileUsingSCF(RewriterBase &rewriter, TilingInterface op,
                                        "unable to create destination tensors");
   }
 
+  llvm::errs() << "==================================\n\n";
+  mlir::linalg::LinalgOp linalgOp =
+      cast<mlir::linalg::LinalgOp>(op.getOperation());
+  SmallVector<Value> valuesToTile = linalgOp->getOperands();
+
+  SmallVector<OpFoldResult> offsets, sizes;
+  for (auto [tileSize, loopRange] :
+       llvm::zip_equal(tileSizes, iterationDomain)) {
+    if (isConstantIntValue(tileSize, 0)) {
+      offsets.push_back(loopRange.offset);
+      sizes.push_back(loopRange.size);
+      continue;
+    }
+    offsets.push_back(loopRange.offset);
+    llvm::errs() << "non const tileSize: " << tileSize << "\n";
+    auto bounded =
+        calcBoundedTileSize(rewriter, op.getLoc(), loopRange, tileSize);
+
+    llvm::errs() << "bounded: " << bounded << "\n";
+    sizes.push_back(bounded);
+  }
+  llvm::errs() << "offsets [ ";
+  llvm::interleaveComma(offsets, llvm::errs());
+  llvm::errs() << " ]\n";
+  llvm::errs() << "  sizes [ ";
+  llvm::interleaveComma(sizes, llvm::errs());
+  llvm::errs() << " ]\n";
+
+  SmallVector<std::optional<mlir::linalg::SliceParameters>> allSliceParameter =
+      computeAllSliceParameters(rewriter, op.getLoc(), linalgOp, valuesToTile,
+                                offsets, sizes, {}, true);
+
+  // DictionaryAttr
+  DenseMap<Value, mlir::linalg::SliceParameters> tiledShapes;
+  for (auto item : llvm::zip(valuesToTile, allSliceParameter)) {
+    Value valueToTile = std::get<0>(item);
+    std::optional<mlir::linalg::SliceParameters> sliceParams =
+        std::get<1>(item);
+    llvm::errs() << "value to tile -  " << valueToTile.getType() << " : {\n";
+    llvm::errs() << "   off [ ";
+    llvm::interleaveComma(sliceParams->offsets, llvm::errs());
+    llvm::errs() << " ]\n";
+    llvm::errs() << "   szs [ ";
+    llvm::interleaveComma(sliceParams->sizes, llvm::errs());
+    llvm::errs() << " ]\n";
+    llvm::errs() << "   str [ ";
+    llvm::interleaveComma(sliceParams->strides, llvm::errs());
+    llvm::errs() << " ]\n";
+    llvm::errs() << "}\n";
+    tiledShapes.insert({valueToTile, *sliceParams});
+  }
+  // mlir::Attribute
+
+  // DictionaryAttr<mlir::linalg::SliceParameters>
+  // op.getOperation()->setAttrs();
+
   // 7. Generate the tiled loops nest using the callback defined above.
   SmallVector<LoopLikeOpInterface> loops;
   if (failed(generateLoopNest(rewriter, op.getLoc(), options, iterationDomain,
@@ -615,6 +875,14 @@ FailureOr<scf::SCFTileAndFuseResult> myTileConsumerAndFuseProducersUsingSCF(
     return scf::SCFTileAndFuseResult{fusedProducers, tiledAndFusedOps, loops,
                                      replacements};
   }
+
+  DenseMap<Value, Value> replacements;
+  for (auto [origVal, replacement] :
+       llvm::zip_equal(consumer->getResults(), tilingResult->replacements)) {
+    replacements[origVal] = origVal;
+  }
+  return scf::SCFTileAndFuseResult{fusedProducers, tiledAndFusedOps, loops,
+                                   replacements};
 
   // To keep track of replacements for now just record the map from the original
   // untiled value to the result number of the for loop. Since the loop gets
@@ -686,10 +954,10 @@ FailureOr<scf::SCFTileAndFuseResult> myTileConsumerAndFuseProducersUsingSCF(
     }
   }
 
-  DenseMap<Value, Value> replacements;
-  for (auto [origVal, resultNumber] : origValToResultNumber) {
-    replacements[origVal] = loops.front()->getResult(resultNumber);
-  }
+  // DenseMap<Value, Value> replacements;
+  // for (auto [origVal, resultNumber] : origValToResultNumber) {
+  //   replacements[origVal] = loops.front()->getResult(resultNumber);
+  // }
 
   return scf::SCFTileAndFuseResult{fusedProducers, tiledAndFusedOps, loops,
                                    replacements};
@@ -796,7 +1064,9 @@ static FailureOr<scf::SCFTileAndFuseResult> fuseWithEltwise(
         consumer, "failed to tile and fuse with op as root");
   }
   if (!tileAndFuseResult->loops.empty()) {
+    llvm::errs() << "tile and Fuse Result dump: {\n\n";
     tileAndFuseResult->loops[0].dump();
+    llvm::errs() << "\n}\n";
     // tileAndFuseResult->loops[0]->setAttr(
     //     linalgx::utils::kLoopParallel,
     //     rewriter.getStringAttr(linalgx::utils::kLoopRoot));
@@ -832,6 +1102,7 @@ getInitialTileSizesForMatmulOp(linalg::LinalgOp linalgOp) {
   // expecting to treat it as d0
   // so expected result is in0 and out
   linalgOp.mapIterationSpaceDimToAllOperandDims(0, operandDimPairs);
+  llvm::errs() << "\nLinalgOps: \n";
   linalgOp.dump();
   llvm::errs() << "\n";
   for (auto &p : operandDimPairs) {
@@ -855,7 +1126,8 @@ class TileLinalg : public mlir::gc::impl::TileLinalgNamedBase<TileLinalg> {
   void runOnOperation() override {
     // Step1. Tile and fuse pack consumer and producer.
     auto *ctx = &getContext();
-    auto ops = getOperation().getOps<func::FuncOp>();
+
+    // auto ops = getOperation().getOps<func::FuncOp>();
     IRRewriter rewriter(ctx);
 
     SmallVector<linalg::LinalgOp> linalgOperations;
@@ -866,6 +1138,11 @@ class TileLinalg : public mlir::gc::impl::TileLinalgNamedBase<TileLinalg> {
         linalgOperations.push_back(linalgOp);
       }
     });
+
+    for (auto linalgOp : linalgOperations) {
+      mlir::gc::TileLayoutAnalysis analysis(linalgOp);
+    }
+    return;
 
     llvm::DenseMap<Operation *, SmallVector<OpFoldResult>> initialTiles;
     for (auto linalgOp : linalgOperations) {
