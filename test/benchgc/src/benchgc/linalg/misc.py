@@ -17,13 +17,14 @@
 import torch
 import argparse
 import gc_mlir.ir
+import copy
 
 from benchgc.linalg.mlir import init_i1o1_module, escape_var
-
+from gc_mlir._mlir_libs._mlir.ir import DenseI64ArrayAttr
 from gc_mlir.dialects import linalg
 
 from benchgc.arg import Arg
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 def __ref_init(
     op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
@@ -33,19 +34,33 @@ def __ref_init(
     dst_var: str = escape_var(op.results[0].get_name())
     return (src, dst_var)
 
-def map_eltwise_args(args: Dict[str, Arg]):
+def map_misc_args(args: Dict[str, Arg]):
     for k, v in {"arg0": "src", "1": "dst"}.items():
         args[k] = args[v]
         del args[v]
 
-def ref_abs(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+
+# 1. use to reshape to match ndim
+# 2. perform broadcast
+def ref_broadcast(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     src, dst_var = __ref_init(op, var)
-    var[dst_var] = torch.abs(src)
 
+    dst_shape: List[int] = op.results[0].type.shape
+    tmp_shape = copy.copy(dst_shape)
+    dimensions: DenseI64ArrayAttr = op.attributes["dimensions"]
+    for d in dimensions:
+        tmp_shape[d] = 1
 
-def mlir_abs(
+    var[dst_var] = src.reshape(tmp_shape).broadcast_to(dst_shape)
+
+def mlir_broadcast(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
-    map_eltwise_args(args)
-    return init_i1o1_module(args["arg0"], args["1"], lambda ctx, arg0: linalg.abs(arg0, outs=[args["1"].get_empty_op(ctx)]))
+
+    for k, v in {"arg0": "src", "broadcasted": "dst"}.items():
+        args[k] = args[v]
+        del args[v]
+
+    return init_i1o1_module(args["arg0"], args["broadcasted"], lambda ctx, arg0: linalg.broadcast(arg0, outs=[args["broadcasted"].get_empty_op(ctx)], dimensions= flags.dimensions))
+
 

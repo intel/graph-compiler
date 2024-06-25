@@ -51,7 +51,7 @@ def mlir_batch_matmul(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_matmul(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_matmul(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
 
 def ref_batch_matmul_transpose_a(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
@@ -63,7 +63,7 @@ def mlir_batch_matmul_transpose_a(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_matmul_transpose_a(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_matmul_transpose_a(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
 
 def ref_batch_matmul_transpose_b(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
@@ -75,7 +75,7 @@ def mlir_batch_matmul_transpose_b(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_matmul_transpose_b(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_matmul_transpose_b(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
 
 def ref_batch_matvec(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
@@ -87,7 +87,7 @@ def mlir_batch_matvec(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_matvec(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_matvec(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
 
 def ref_batch_mmt4d(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
@@ -121,7 +121,7 @@ def mlir_batch_mmt4d(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_mmt4d(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_mmt4d(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
 def ref_batch_reduce_matmul(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     src, wei, dst_var = __ref_init(op, var)
@@ -132,7 +132,7 @@ def mlir_batch_reduce_matmul(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_reduce_matmul(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_reduce_matmul(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
 def ref_batch_vecmat(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     src, wei, dst_var = __ref_init(op, var)
@@ -143,5 +143,5 @@ def mlir_batch_vecmat(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
     map_matmul_args(args)
-    return init_i2o1_module(args, lambda ctx, arg0, arg1: linalg.batch_vecmat(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
+    return init_i2o1_module(args["arg0"], args["arg1"], args["1"], lambda ctx, arg0, arg1: linalg.batch_vecmat(arg0, arg1, outs = [args["1"].get_empty_op(ctx)]))
 
