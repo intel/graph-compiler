@@ -9,19 +9,27 @@
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
+#include <iostream>
 
 namespace mlir {
 namespace gc {
@@ -48,48 +56,83 @@ bool is_innermost_ir(Operation *op) {
 
 /// Need to check if the reassociation are static/constant.
 LogicalResult lowerExpandOpPrecondition(tensor::ExpandShapeOp expandOp) {
-
-  // if (llvm::any_of(expandOp.getReassociation(), [](ArrayAttr res) {
-  //       if (llvm::any_of(res, [](Attribute x) {
-  //             return !getConstantIntValue(x).has_value();
-  //           })) {
-  //         return false;
-  //       }
-  //       return true;
-  //     })) {
-  //   LDBG("Reassociation must be constant: " << expandOp << "\n");
-  //   return failure();
-  // }
+  //
+  auto outputShape = expandOp.getStaticOutputShape();
+  if (llvm::any_of(outputShape,
+                   [](int64_t x) { return x == ShapedType::kDynamic; })) {
+    LDBG("Output shape must be static: " << expandOp << "\n");
+    return failure();
+  }
 
   return success();
 }
 
-LogicalResult lowerTargetOpPrecondition(Operation *op,
-                                        ArrayRef<int64_t> inputVectorSizes,
-                                        ArrayRef<bool> inputScalableVecDims,
-                                        bool vectorizeNDExtract,
-                                        bool flatten1DDepthwiseConv) {
+LogicalResult lowerBitcastOpPrecondition(tensor::BitcastOp bitCastOp) {
+  if (bitCastOp.getSource().getType().getNumDynamicDims()) {
+    LDBG("Type must be static: " << bitCastOp << "\n");
+    return failure();
+  }
+  return success();
+}
+
+/// Need to check if the reassociation are static/constant.
+LogicalResult
+lowerCollapseShapeOpPrecondition(tensor::CollapseShapeOp expandOp) {
+
+  if (llvm::any_of(expandOp.getReassociation(), [](Attribute x) {
+        return !getConstantIntValue(x).has_value();
+      })) {
+    LDBG("Reassociation must be constant: " << expandOp << "\n");
+    return failure();
+  }
+  return success();
+}
+
+LogicalResult lowerConcatOpPrecondition(tensor::ConcatOp concatOp) {
+  for (auto x : concatOp->getOperands()) {
+    auto tensorType = mlir::dyn_cast<TensorType>(x.getType());
+    if (!tensorType) {
+      LDBG("Operation type error: " << concatOp << "\n");
+      return failure();
+    }
+    if (tensorType.getNumDynamicDims()) {
+      LDBG("Type must be static: " << concatOp << "\n");
+      return failure();
+    }
+  }
+
+  return success();
+}
+
+LogicalResult lowerTargetOpPrecondition(Operation *op) {
 
   return TypeSwitch<Operation *, LogicalResult>(op)
       .Case<tensor::ExpandShapeOp>([&](auto expandShapeOp) {
         return lowerExpandOpPrecondition(expandShapeOp);
       })
-      .Case<tensor::CollapseShapeOp>(
-          [&](auto collapseShapeOp) { return success(); })
-      .Case<tensor::BitcastOp>([&](auto collapseShapeOp) { return success(); })
-      .Case<tensor::ConcatOp>([&](auto concatOp) { return success(); })
+      .Case<tensor::CollapseShapeOp>([&](auto collapseShapeOp) {
+        return lowerCollapseShapeOpPrecondition(collapseShapeOp);
+      })
+      .Case<tensor::BitcastOp>(
+          [&](auto bitCastOp) { return lowerBitcastOpPrecondition(bitCastOp); })
+      .Case<tensor::ConcatOp>(
+          [&](auto concatOp) { return lowerConcatOpPrecondition(concatOp); })
       .Default([](auto) { return failure(); });
 }
 
 /// Create a TransferReadOp from `source` with static shape `readShape`.
 Value createTransferRead(OpBuilder &builder, Location loc, Value source,
-                         ArrayRef<int64_t> readShape, Value padValue) {
+                         ArrayRef<int64_t> readShape) {
   assert(llvm::none_of(readShape,
                        [](int64_t s) { return s == ShapedType::kDynamic; }));
   assert(source && " source null.");
-  auto sourceShape = dyn_cast<ShapedType>(source.getType()).getShape();
+  auto shapedType = mlir::dyn_cast<ShapedType>(source.getType());
+  auto sourceShape = shapedType.getShape();
+  auto vectorType = VectorType::get(readShape, shapedType.getElementType());
+
+  auto padValue = builder.create<arith::ConstantOp>(
+      loc, builder.getZeroAttr(shapedType.getElementType()));
   assert(sourceShape.size() == readShape.size());
-  auto vectorType = VectorType::get(readShape, padValue.getType());
   int64_t readRank = readShape.size();
   auto zero = builder.create<arith::ConstantIndexOp>(loc, 0);
   SmallVector<bool> inBoundsVal(readRank, true);
@@ -108,7 +151,6 @@ Value createTransferRead(OpBuilder &builder, Location loc, Value source,
   }
 }
 
-/// Given an input, the mixed destSizes, and the vector sizes for vectorization,
 /// create an empty destination tensor and create a TransferWriteOp from the
 /// input to the empty tensor.
 Operation *createTransferWrite(OpBuilder &builder, Location loc, Value input,
@@ -129,7 +171,7 @@ Operation *createTransferWrite(OpBuilder &builder, Location loc, Value input,
   assert(llvm::none_of(
              destShape.drop_front(inputVectorSizes.size()),
              [](int64_t size) { return size == ShapedType::kDynamic; }) &&
-         "Only dims aligned with inputVectorSizes may be dynamic");
+         "InputVectorSizes may be dynamic");
   return write;
 }
 
@@ -140,20 +182,16 @@ Operation *createTransferWrite(OpBuilder &builder, Location loc, Value input,
 ///   tensor
 template <class T>
 LogicalResult lowerTensorExpandShapeOp(RewriterBase &rewriter, T expandShapeOp,
-                                       ArrayRef<int64_t> inputVectorSizes,
                                        SmallVectorImpl<Value> &newResults) {
   OpBuilder::InsertionGuard g(rewriter);
   rewriter.setInsertionPoint(expandShapeOp);
 
   RankedTensorType expandShapeTensorType = expandShapeOp.getSrcType();
 
-  SmallVector<int64_t> readMaskShape(inputVectorSizes.begin(),
-                                     inputVectorSizes.end());
+  SmallVector<int64_t> readMaskShape;
   ArrayRef<int64_t> sourceShape = expandShapeTensorType.getShape();
   ArrayRef<int64_t> resultShape = expandShapeOp.getResultType().getShape();
-
-  readMaskShape.append(sourceShape.begin() + inputVectorSizes.size(),
-                       sourceShape.end());
+  readMaskShape.append(sourceShape.begin(), sourceShape.end());
 
   ReifiedRankedShapedTypeDims reifiedRetShapes;
   LogicalResult status =
@@ -165,14 +203,11 @@ LogicalResult lowerTensorExpandShapeOp(RewriterBase &rewriter, T expandShapeOp,
   }
   Location loc = expandShapeOp->getLoc();
 
-  auto padValue = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getZeroAttr(expandShapeTensorType.getElementType()));
-
   // Read result, mask if necessary. If transferReadOp shape is not equal
   // to shape of source, then a mask is necessary.
   Value readResult = createTransferRead(
       rewriter, loc, expandShapeOp.getSrc(),
-      ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()), padValue);
+      ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()));
 
   auto resultVectorType =
       VectorType::get(resultShape, expandShapeTensorType.getElementType());
@@ -180,9 +215,7 @@ LogicalResult lowerTensorExpandShapeOp(RewriterBase &rewriter, T expandShapeOp,
       rewriter.create<vector::ShapeCastOp>(loc, resultVectorType, readResult);
 
   SmallVector<int64_t> writeMaskShape(
-      expandShapeOp.getResultType().hasStaticShape()
-          ? inputVectorSizes
-          : shapeCastOp.getResultVectorType().getShape());
+      shapeCastOp.getResultVectorType().getShape());
   Operation *write = createTransferWrite(rewriter, loc, shapeCastOp.getResult(),
                                          reifiedRetShapes[0], writeMaskShape);
   newResults.push_back(write->getResult(0));
@@ -196,7 +229,6 @@ LogicalResult lowerTensorExpandShapeOp(RewriterBase &rewriter, T expandShapeOp,
 ///   tensor
 LogicalResult lowerTensorBitcastOp(RewriterBase &rewriter,
                                    tensor::BitcastOp bitCastOp,
-                                   ArrayRef<int64_t> inputVectorSizes,
                                    SmallVectorImpl<Value> &newResults) {
   OpBuilder::InsertionGuard g(rewriter);
   rewriter.setInsertionPoint(bitCastOp);
@@ -206,35 +238,29 @@ LogicalResult lowerTensorBitcastOp(RewriterBase &rewriter,
   auto resultType = bitCastOp.getResult().getType();
   auto resultShape = resultType.getShape();
 
-  SmallVector<int64_t> readMaskShape(inputVectorSizes.begin(),
-                                     inputVectorSizes.end());
-
-  readMaskShape.append(sourceShape.begin() + inputVectorSizes.size(),
-                       sourceShape.end());
-
+  SmallVector<int64_t> readMaskShape;
+  readMaskShape.append(sourceShape.begin(), sourceShape.end());
   Location loc = bitCastOp->getLoc();
-
-  auto padValue = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getZeroAttr(sourceType.getElementType()));
 
   // Read result, mask if necessary. If transferReadOp shape is not equal
   // to shape of source, then a mask is necessary.
   Value readResult = createTransferRead(
       rewriter, loc, bitCastOp->getOperand(0),
-      ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()), padValue);
+      ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()));
 
   auto resultVectorType =
       VectorType::get(resultShape, resultType.getElementType());
   vector::BitCastOp vectorbitCastOp =
       rewriter.create<vector::BitCastOp>(loc, resultVectorType, readResult);
 
-  Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-  SmallVector<Value> indices(resultType.getRank(), zero);
-  Value dest = rewriter.create<tensor::EmptyOp>(loc, resultShape,
-                                                resultType.getElementType());
-  Operation *write = rewriter.create<vector::TransferWriteOp>(
-      loc, vectorbitCastOp, dest, indices,
-      rewriter.getMultiDimIdentityMap(resultType.getRank()));
+  SmallVector<int64_t> writeMaskShape(
+      vectorbitCastOp.getResultVectorType().getShape());
+  llvm::SmallVector<OpFoldResult> destSizes;
+  for (auto size : resultShape)
+    destSizes.emplace_back(rewriter.getIndexAttr(size));
+  auto write =
+      createTransferWrite(rewriter, loc, vectorbitCastOp->getResults()[0],
+                          destSizes, writeMaskShape);
   newResults.push_back(write->getResults()[0]);
   return success();
 }
@@ -247,7 +273,6 @@ LogicalResult lowerTensorBitcastOp(RewriterBase &rewriter,
 ///   tensor.
 LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
                                   tensor::ConcatOp concatOp,
-                                  ArrayRef<int64_t> inputVectorSizes,
                                   SmallVectorImpl<Value> &newResults) {
   OpBuilder::InsertionGuard g(rewriter);
   rewriter.setInsertionPoint(concatOp);
@@ -263,14 +288,11 @@ LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
     return failure();
 
   // Compute the partial sums for the slice offsets.
-
   int64_t dim = concatOp.getDim();
   Value dimValue =
       rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(dim));
 
   int64_t rank = concatOp.getResultType().getRank();
-  SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
-  SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
 
   // Construct the chain of insert_slice ops into the destination.
   Value result = *dest;
@@ -279,19 +301,14 @@ LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
 
     SmallVector<OpFoldResult> sizes =
         tensor::getMixedSizes(rewriter, loc, input);
-    SmallVector<int64_t> readMaskShape(inputVectorSizes.begin(),
-                                       inputVectorSizes.end());
+    SmallVector<int64_t> readMaskShape;
     auto inputType = llvm::cast<RankedTensorType>(input.getType());
     auto sourceShape = inputType.getShape();
 
-    readMaskShape.append(sourceShape.begin() + inputVectorSizes.size(),
-                         sourceShape.end());
-    auto padValue = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(inputType.getElementType()));
+    readMaskShape.append(sourceShape.begin(), sourceShape.end());
     Value readResult = createTransferRead(
         rewriter, loc, input,
-        ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()),
-        padValue);
+        ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()));
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     SmallVector<Value> indices(rank, zero);
     indices[dim] = previous_offset;
@@ -309,28 +326,11 @@ LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
   return success();
 }
 
-/// Emit a suitable vector form for an operation. If provided,
-/// `inputVectorSizes` are used to vectorize this operation.
-/// `inputVectorSizes` must match the rank of the iteration space of the
-/// operation and the input vector sizes must be greater than or equal to
-/// their counterpart iteration space sizes, if static. `inputVectorShapes`
-/// also allows the vectorization of operations with dynamic shapes.
-LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op,
-                                      ArrayRef<int64_t> inputVectorSizes,
-                                      ArrayRef<bool> inputScalableVecDims,
-                                      bool vectorizeNDExtract,
-                                      bool flatten1DDepthwiseConv) {
+LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op) {
   LDBG("Attempting to vectorize:\n" << *op << "\n");
-  LDBG("Input vector sizes: ");
-  LLVM_DEBUG(llvm::interleaveComma(inputVectorSizes, llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "\n");
-  LDBG("Input scalable vector dims: ");
-  LLVM_DEBUG(llvm::interleaveComma(inputScalableVecDims, llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "\n");
 
-  if (failed(lowerTargetOpPrecondition(op, inputVectorSizes,
-                                       inputScalableVecDims, vectorizeNDExtract,
-                                       flatten1DDepthwiseConv))) {
+  if (failed(lowerTargetOpPrecondition(op))) {
+    std::cout << "FAILED TO LOWER TARGET OP\n" << std::endl;
     LDBG("Vectorization pre-conditions failed\n");
     return failure();
   }
@@ -339,20 +339,18 @@ LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op,
   auto lowerResult =
       TypeSwitch<Operation *, LogicalResult>(op)
           .Case<tensor::ExpandShapeOp>([&](auto expandShapeOp) {
-            return lowerTensorExpandShapeOp(rewriter, expandShapeOp,
-                                            inputVectorSizes, results);
+            return lowerTensorExpandShapeOp<tensor::ExpandShapeOp>(
+                rewriter, expandShapeOp, results);
           })
           .Case<tensor::CollapseShapeOp>([&](auto collapseShapeOp) {
-            return lowerTensorExpandShapeOp(rewriter, collapseShapeOp,
-                                            inputVectorSizes, results);
+            return lowerTensorExpandShapeOp<tensor::CollapseShapeOp>(
+                rewriter, collapseShapeOp, results);
           })
           .Case<tensor::BitcastOp>([&](auto bitCastOp) {
-            return lowerTensorBitcastOp(rewriter, bitCastOp, inputVectorSizes,
-                                        results);
+            return lowerTensorBitcastOp(rewriter, bitCastOp, results);
           })
           .Case<tensor::ConcatOp>([&](auto concatOp) {
-            return lowerTensorConcatOp(rewriter, concatOp, inputVectorSizes,
-                                       results);
+            return lowerTensorConcatOp(rewriter, concatOp, results);
           })
           .Default([](auto) { return failure(); });
 
@@ -376,47 +374,35 @@ bool is_required_tensorOp(Operation *operation) {
          llvm::isa<tensor::ConcatOp>(operation);
 }
 
-struct LinalgConvertTileVectorPass : public RewritePattern {
+template <class T = linalg::LinalgOp>
+struct OperationConvertTileVectorPass : public RewritePattern {
 
-  explicit LinalgConvertTileVectorPass(MLIRContext *context,
-                                       bool vectorizeExtract = false,
-                                       bool flatten1DDepthwiseConv = false)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, context) {}
+  explicit OperationConvertTileVectorPass(MLIRContext *context,
+                                          bool vectorizeNDExtract = false,
+                                          bool flatten1DDepthwiseConv = false)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, context),
+        vectorizeNDExtract(vectorizeNDExtract),
+        flatten1DDepthwiseConv(flatten1DDepthwiseConv) {}
+
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
 
-    auto linalgOp = llvm::dyn_cast<linalg::LinalgOp>(op);
-    if (!linalgOp || !is_innermost_ir(op))
+    auto targetOp = llvm::dyn_cast<T>(op);
+    if (!targetOp || !is_innermost_ir(op))
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
 
     return linalg::vectorize(rewriter, op, /*inputVectorSizes=*/{},
-                             /*scalableVecDims=*/{}, true, false);
+                             /*scalableVecDims=*/{}, vectorizeNDExtract,
+                             flatten1DDepthwiseConv);
   }
-};
 
-struct TensorPackConvertVectorPass : public RewritePattern {
-
-  explicit TensorPackConvertVectorPass(MLIRContext *context,
-                                       bool vectorizeExtract = false,
-                                       bool flatten1DDepthwiseConv = false)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, context) {}
-  LogicalResult matchAndRewrite(Operation *op,
-                                PatternRewriter &rewriter) const override {
-
-    tensor::PackOp tensorPackOp = dyn_cast<tensor::PackOp>(op);
-    if (!tensorPackOp || !is_innermost_ir(op))
-      return rewriter.notifyMatchFailure(op, "Not expected operations.");
-
-    return linalg::vectorize(rewriter, op, /*inputVectorSizes=*/{},
-                             /*scalableVecDims=*/{}, true, false);
-  }
+private:
+  bool vectorizeNDExtract, flatten1DDepthwiseConv;
 };
 
 struct TensorUnpackConvertVectorPass : public RewritePattern {
 
-  explicit TensorUnpackConvertVectorPass(MLIRContext *context,
-                                         bool vectorizeExtract = false,
-                                         bool flatten1DDepthwiseConv = false)
+  explicit TensorUnpackConvertVectorPass(MLIRContext *context)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, context) {}
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
@@ -433,10 +419,10 @@ struct TensorUnpackConvertVectorPass : public RewritePattern {
 
     llvm::ArrayRef<int64_t> inputShape = resultTy.getShape();
     std::vector<int64_t> targetVectorSizes = inputShape.vec();
-    llvm::SmallVector<bool, 8> targetVecDims(inputShape.size(), false);
+    llvm::SmallVector<bool, 5> targetVecDims(inputShape.size(), false);
     return linalg::vectorize(rewriter, op,
                              /*inputVectorSizes=*/targetVectorSizes,
-                             /*scalableVecDims=*/targetVecDims, true, false);
+                             /*scalableVecDims=*/targetVecDims, false, false);
   }
 };
 
@@ -453,16 +439,16 @@ struct TensorOpConvertVectorPass : public RewritePattern {
     if (!is_target || !is_innermost_ir(op))
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
 
-    return convert2TargetOperation(rewriter, op, /*inputVectorSizes=*/{},
-                                   /*scalableVecDims=*/{}, true, false);
+    return convert2TargetOperation(rewriter, op);
   }
 };
 
 /// Pass that lower to tile vector.
 void populateLowerToTileVectorPatterns(RewritePatternSet &patterns) {
-  patterns.add<LinalgConvertTileVectorPass>(patterns.getContext());
+  patterns.add<OperationConvertTileVectorPass<linalg::LinalgOp>,
+               OperationConvertTileVectorPass<tensor::PackOp>>(
+      patterns.getContext());
   patterns.add<TensorUnpackConvertVectorPass>(patterns.getContext());
-  patterns.add<TensorPackConvertVectorPass>(patterns.getContext());
   patterns.add<TensorOpConvertVectorPass>(patterns.getContext());
 }
 
@@ -472,23 +458,29 @@ struct LowerTileVectorPass
     //
     auto *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    tensor::populateRewriteAsConstantPatterns(patterns);
+
+    tensor::ControlFoldFn defaultControlFn = [](OpOperand *fusedOperand) {
+      Operation *producer = fusedOperand->get().getDefiningOp();
+      return producer && producer->hasOneUse();
+    };
+    tensor::populateRewriteAsConstantPatterns(patterns, defaultControlFn);
     tensor::populateReassociativeReshapeFoldingPatterns(patterns);
-    populateLowerToTileVectorPatterns(patterns);
-    linalg::populatePadOpVectorizationPatterns(patterns);
     tensor::populateFoldTensorSubsetOpPatterns(patterns);
     tensor::populateFoldTensorEmptyPatterns(patterns, true);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
-    // vector::VectorTransformsOptions vectorTransformOptions;
-    // vector::populateVectorMultiReductionLoweringPatterns(
-    //     patterns, vectorTransformOptions.vectorMultiReductionLowering);
-    // vector::populateVectorShapeCastLoweringPatterns(patterns);
-    // vector::VectorTransformsOptions options;
-    // options.vectorTransposeLowering =
-    //     vector::VectorTransposeLowering::Shuffle16x16;
-    // vector::populateVectorTransposeLoweringPatterns(patterns, options);
+    populateLowerToTileVectorPatterns(patterns);
+    linalg::populatePadOpVectorizationPatterns(patterns);
+
+    // vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
+    vector::populateSinkVectorBroadcastPatterns(patterns);
+    vector::TransferReadOp::getCanonicalizationPatterns(patterns, ctx);
+    vector::TransferWriteOp::getCanonicalizationPatterns(patterns, ctx);
 
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    auto curOp = getOperation();
+    IRRewriter reWriter(curOp);
+    DominanceInfo domInfo(curOp);
+    eliminateCommonSubExpressions(reWriter, domInfo, curOp);
   }
 };
 } // namespace
