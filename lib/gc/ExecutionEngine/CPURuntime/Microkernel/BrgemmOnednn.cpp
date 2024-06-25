@@ -46,6 +46,11 @@ static std::vector<brgemm_desc_t> brgemm_desc_list;
 static std::vector<brgemm_kernel_t *> brgemm_kernel_list;
 static std::vector<char *> brgemm_palette;
 
+// TODO(haixin): use syscall to determine page size?
+static constexpr size_t SCRATCH_SIZE = 2 * 4096;
+// TODO(haixin): need to use custom thread management for scratch in the future?
+static thread_local char scratch[SCRATCH_SIZE] = {0};
+
 extern "C" {
 
 int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
@@ -130,20 +135,11 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
   size_t C_offset_in_bytes =
       dnnl::impl::types::data_type_size(desc.dt_c) * C_offset;
 
-#ifdef _WIN32
-  // fix-me: (win32) impl
-  static size_t scratch_size = 2 * 4096;
-#else
-  static size_t scratch_size = 2 * getpagesize();
-#endif
-  // TODO(haixin): use thread local buffer for scratch
-  char *scratch = new char[scratch_size];
   char *A_arith = (char *)A;
   char *B_arith = (char *)B;
   char *C_arith = (char *)C;
   brgemm_kernel_execute(kernel, num, (void *)(A_arith + A_offset_in_bytes),
                         (void *)(B_arith + B_offset_in_bytes), nullptr,
                         (void *)(C_arith + C_offset_in_bytes), (void *)scratch);
-  delete scratch;
 }
 }
