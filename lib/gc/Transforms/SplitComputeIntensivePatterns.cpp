@@ -200,17 +200,18 @@ bool isSupportedPostOp(Operation *op) {
     return false;
 
   // Get the inputs and outputs of the linalg operation
-  bool ismax = isa<linalg::MaxOp>(op);
-  bool isadd = isa<linalg::AddOp>(op);
-  bool ismul = isa<linalg::MulOp>(op);
-  return ismax || isadd || ismul;
+  bool isMax = isa<linalg::MaxOp>(op);
+  bool isAdd = isa<linalg::AddOp>(op);
+  bool isMul = isa<linalg::MulOp>(op);
+  // bool isTranspose = isa<linalg::TransposeOp>(op);
+  return isMax || isAdd || isMul;
 }
 
 // Helper function to get all post ops following the given operation
 void getUnOps(Operation *op, SmallVectorImpl<Operation *> &postOps) {
   for (auto user : op->getUsers()) {
     if (isSupportedPostOp(user)) postOps.push_back(user);
-    if (isa<linalg::MatmulOp>(user)) return;
+    if (isa<linalg::MatmulOp, linalg::TransposeOp>(user)) return;
       // Recursively search for unary ops, unless it's a matmul op
     getUnOps(user, postOps);
     // }
@@ -225,6 +226,33 @@ void duplicateBinary(SmallVector<Value>& outputs,std::vector<SmallVector<Value>>
     Value Empty = rewriter.create<tensor::EmptyOp>(
         loc, type.getShape(), type.getElementType());
     auto tmpOp = rewriter.create<opType>(loc, inputs[i], ValueRange {Empty});
+    for (auto result : tmpOp->getResults()) {
+      outputs.push_back(result);
+    }
+  }
+}
+
+void duplicateTranspose(SmallVector<Value>& outputs,std::vector<SmallVector<Value>>& inputs, linalg::TransposeOp transposeOp, TensorType& resultTy, PatternRewriter &rewriter) {
+  ArrayRef<int64_t> permutation = transposeOp.getPermutation();
+  if (permutation.size() != SUPPORTED_RANK) {llvm::outs() << "unsupported rank\n"; return;}
+  for (int i = 0; i < NUM_OF_NUMA; ++i) {
+    auto loc = inputs[i][0].getLoc();
+    TensorType type = inputs[i][0].getType().cast<RankedTensorType>();
+    const auto &inputShape = type.getShape();
+    SmallVector<int64_t> transShape{inputShape[permutation[0]], inputShape[permutation[1]]};
+    auto transTy = type.clone(transShape);
+    llvm::outs() << "TransTy shape: [";
+    for (int64_t dim : transTy.getShape()) {
+      llvm::outs() << dim << " ";
+    }
+    llvm::outs() << "]\n";
+    Value zero = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getZeroAttr(transTy.getElementType()));
+    Value empty = rewriter.create<tensor::EmptyOp>(
+      loc, transTy.getShape(), transTy.getElementType());
+    Value tensor =
+        rewriter.create<linalg::FillOp>(loc, zero, empty).getResult(0);
+    auto tmpOp = rewriter.create<linalg::TransposeOp>(loc, inputs[i][0], tensor, permutation);
     for (auto result : tmpOp->getResults()) {
       outputs.push_back(result);
     }
@@ -263,10 +291,12 @@ void deleteOperation(Operation *op) {
 
 void deleteOperands(Operation *op) {
   for (auto operand : op->getOperands()) {
+    // llvm::outs() << "operands: " << operand << "\n";
     if (!operand) continue;
     if (operand.use_empty()) {continue;}  // Skip if operand has no uses
     if (auto definingOp = operand.getDefiningOp()) {
       if (definingOp->hasOneUse()) {
+        deleteOperands(definingOp);
         definingOp->dropAllUses();
         definingOp->dropAllReferences();
         definingOp->erase();
@@ -414,6 +444,10 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
         duplicateBinary<linalg::MulOp>(Outputs, Inputs, resultTy, rewriter);
       else if (auto postOpType = llvm::dyn_cast<linalg::MaxOp>(postOp))
         duplicateBinary<linalg::MaxOp>(Outputs, Inputs, resultTy, rewriter);
+      // else if (auto transOp = llvm::dyn_cast<linalg::TransposeOp>(postOp)) {
+      //   duplicateTranspose(Outputs, Inputs, transOp, resultTy, rewriter);
+      //   target_dim ^= 0x1;
+      // }
       llvm::outs() << "post op creation and deletion done \n";
       lastInput = postOp->getResult(0);
       if(auto lastop = lastInput.getDefiningOp())
