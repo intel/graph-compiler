@@ -253,185 +253,189 @@ So required size is: `64*512*2 + 64*64 = 69'632`.
 7                                                                  store_ofm24
 ```
 
-Now we should tile single tile for `2nd level`: 
+It takes `8` ticks. In this case layout in buffer is: 
+```
+ +------+-------------+------+
+ | ifm0 |     w0      | ofm0 |
+ +------+-------------+------+
+```
+
+Let's try to reduce amount of ticks.
 
 ```
-[64 x 512] ifm         [512 x 64] weight
+  x*512*2 (ifm0 + ifm1) + 128*512 (w0) + x*128*2 (ofm0 + ofm1) = 100'000 (buffer size)
+```
+`x = 26`-> requires `5` tiles -> more regular: `x = 26`, tiles are `26 26 26 26 24`.
+```
+ +------+------+-------------+------+------+
+ | ifm0 | ifm1 |     w0      | ofm0 | ofm1 |
+ +------+------+-------------+------+------+
+```
+
+```
+0 |      3: load_ifm0 load_w0         
+1 *      execution_t0          3: load_ifm1 
+2        store_ofm0            execution_t1   3: load_ifm0
+3                              store_ofm1     execution_t2   3: load_ifm1
+4                                             store_ofm0     execution_t3  3: load_ifm1
+5                                                            store_ofm1    execution_t4
+6                                                                          store_ofm0
+```
+This configuration requires `7` ticks, which is a little better. 
+
+```
+input                            weight 
+               512                              128
+    +-----------------------+        +----------------------+
+ 26 |          1            |        |                      |
+    -------------------------        |                      |
+ 26 |          2            |    512 |          6           |
+    -------------------------        |                      |
+ 26 |          3            |        |                      |
+    -------------------------        +----------------------+
+ 26 |          4            |
+    -------------------------
+ 24 |          5            |
+    +-----------------------+
+
+output
+           128        
+    +---------------+
+ 26 |       16      |
+    -----------------
+ 26 |       26      |
+    -----------------
+ 26 |       36      |
+    -----------------
+ 26 |       46      |
+    -----------------
+ 24 |       56      |
+    +---------------+
+```
+As it's best, let's use this tiling.
+
+
+Now we should calculate tile sizes for single tile for `2nd level` buffer: 
+
+```
+[26 x 512] ifm         [512 x 128] weight
     \                       /
               matmul
                 |
-          [64 x 64] ofm
+          [26 x 128] ofm
 ``` 
 
 ```
 input                            weight 
-               512                     16          16
-    +-----------------------+        +-----|-----|-----|-----+
- 16 |          1_2          |        |     |     |     |     |
-    -------------------------        | 5_2 |     |     |     |
-    |          2_2          |        |     | 6_2 |     |     |
-    -------------------------    512 |     |     | 7_2 |     |
- 16 |          3_2          |        |     |     |     | 8_2 |
-    -------------------------        |     |     |     |     |
-    |          4_2          |        |     |     |     |     |
-    +-----------------------+        +-----|-----|-----|-----+
+               512                            128
+    +-----------------------+        +--------------------+
+ 26 |                       |        |                    |
+    +-----------------------+        |                    |
+                                     |                    |
+                                 512 |                    |
+                                     |                    |
+                                     |                    |
+                                     |                    |
+                                     +--------------------+
 
 output
-       16          16        
-    +-----|------|------|-----+
- 16 | 15_2|      |      | 18_2|
-    ------|-------------|------
-    |     |      |      |     |
-    ------|-------------|------
- 16 |     | 36_2 |      |     |
-    ------|-------------|------
-    |     |      | 47_2 |     |
-    +-----|------|------|-----+
+                128        
+    +----------------------+
+ 26 |                      |
+    +----------------------+
 ```
 
-With `32x32` tile size required: `32*512*2 + 32*32 = 33'792`, but it's not possible to parrellise load/stroes of strat tile with execution of the next. It is possible if the size of tile is less than 24. 
+As weigth is beiggest tensor used for operaion processing, let's try to split it. 
 
-Logic is the the following - execution stage "blocks" from modification input, weight and output, so we keep weight split and trying to split input into 2 buffers.
+Straightforward layout in buffer: 
+```
+ +------+-------------+------+
+ | ifm0 |     w0      | ofm0 |
+ +------+-------------+------+
+```
+Such layout produce smallest amount of tiles.
+```
+  26*512 (ifm0) + x*512 (w0) + 26*x (ofm) = 50'000 (buffer size)
+```
+`x = 68` -> 2 tiles required -> `x = 64`. 
 
-To have something like: 
+Corresponding execution:
 ```
- +------+------+-------------+------+
- | ifm0 | ifm1 |     w0      | ofm0 |
- +------+------+-------------+------+
-```
-
-To reuse w0, and switch input to the next tile.
-So we have foolwing equation: 
-```
-  32*512 (w) + x*512*2 (ifm0 + ifm1) + 32*x (ofm) = 50'000 (buffer size)
-```
-from this equation `x = 30` should be fine, but as we have 3 tiles of input, lets make it's size more granular: `round_up(64/3) = 22`, so 3 tile: `22 22 20`
-In this case weight shared between tiles, and not used tiling along reduction axes.
-
-Let's compare:
-```
-input                            weight 
-               512                     32    32   
-    +-----------------------+        +-----|-----+
- 22 |          1_2          |        |     |     |
-    -------------------------        | 4_2 |     |
- 22 |          2_2          |        |     | 5_2 |
-    -------------------------    512 |     |     |
- 20 |          3_2          |        |     |     |
-    -------------------------        |     |     |
-                                     |     |     |
-                                     +-----|-----+
-output
-       32   32   
-    +-----|------+
- 22 | 14_2|      |
-    ------|-------
- 22 |     |      |
-    ------|-------
- 20 |     | 35_2 |
-    +-----|------+
-```
-
-
-`32x32` tile size
-```
-0 |      3: load_ifm1 load_w3         
+0 |      2: load_ifm0 load_w0         
 1 *      execution_t0          
-2        store_ofm13           3: load_ifm2
-3                              execution_t1
-3                              store_ofm23           3: load_ifm1 load_w4
-4                                                    execution_t2          
-5                                                    store_ofm14           3: load_ifm2
-6                                                                          execution_t3
-7                                                                          store_ofm24
+2        store_ofm0           2: load_w1
+3                             execution_t1
+4                             store_ofm1  
 ```
+So `5` ticks. 
 
+Let's estimate how much will take execution with more tiles, but also more units utilization. 
+```
+ +------+-------------+-------------+------+------+
+ | ifm0 |     w0      |     w1      | ofm0 | ofm1 |
+ +------+-------------+-------------+------+------+
+```
+```
+  26*512 (ifm0) + (x*512 + 26*x)*2 (2 ofm + 2 w) = 50'000 (buffer size)
+```
+`x = 34` -> 4 tiles required -> `x = 32`. 
 
-`22x32` tile size:
+Corresponding execution:
 ```
-0 |      2: load_ifm1 load_w4         
-1 *      execution_t0          2: load_ifm2 
-2        store_ofm14           execution_t1   2: load_ifm3
-3                              store_ofm24    execution_t2          
-5                                             store_ofm34    2: load_ifm1 load_w5
-6                                                            execution_t3          2: load_ifm2
-7                                                            store_ofm15           execution_t4   2: load_ifm3
-8                                                                                  store_ofm25    execution_t5                                               
-9                                                                                                 store_ofm25
+0   2: load_ifm0 load_w0         
+1   execution_t0          2: load_w1 
+2   store_ofm0            execution_t1  2: load_w2
+3                         store_ofm1    execution_t2   2: load_w3
+4                                       store_ofm0     execution_t2
+5                                                      store_ofm1                             
 ```
+`6` ticks which is worth than naive approach. 
 
-We can try to save full-sized weights with extra tiling in input, to have this equation:
+Let's also check tiling along reduction axis. In this case extra sum op will be required so buffer layout:
 ```
-  64*512 (w) + x*512*2 (ifm0 + ifm1) + 64*x (ofm) = 50'000 (buffer size)
+ +------+-------------+--------+--------+------+
+ | ifm0 |     w0      | ofm0_p | ofm1_p | ofm0 |
+ +------+-------------+--------+--------+------+
 ```
-from this equation: `x = floor(15.8) = 15`, so it's `rounup(64/15) = 5`, to have more similar file size - `roundup(64 / 5) = 13`, so tiles `13 13 13 13 12`. 
+```
+  26*x (ifm0) + x*128 (w) + 26*128*3 (3 ofm) = 50'000 (buffer size)
+```
+`x = 259` -> 2 tiles required -> `x = 256`. 
 
-and tile size is: `13x64`
+Corresponding execution:
 ```
-input                            weight 
-               512                        64
-    +-----------------------+        +----------+
- 13 |          1_2          |        |          |
-    -------------------------        |          |
- 13 |          2_2          |        |          |
-    -------------------------    512 |   6_2    |
- 13 |          3_2          |        |          |
-    -------------------------        |          |
- 13 |          4_2          |        |          |
-    -------------------------        +----------+
- 12 |          5_2          |
-    +-----------------------+
+0   2: load_ifm0 load_w0         
+1   execution_t0 (ofm0_p)
+2                          2: load_w1
+3                          execution_t0 (ofm1_p)
+4                          sum(ofm0_p, ofm1_p)
+5                          store_ofm0
+```
+As you see tiling along reduction axis is not very effective as produces extra stages, which can slow down execution.
 
-output
-         64   
-    +-----------+
- 13 |           |
-    -------------
- 13 |           |
-    -------------
- 13 |           |
-    -------------
- 13 |           |
-    -------------
- 12 |           |
-    +-----------+
-```
-```
-0 |      2: load_ifm1 load_w6         
-1 *      execution_t0          2: load_ifm2 
-2        store_ofm16           execution_t1   2: load_ifm3
-3                              store_ofm26    execution_t2   2: load_ifm4       
-5                                             store_ofm36    execution_t3  2: load_ifm5
-6                                                            store_ofm46   execution_t4 
-7                                                                          store_ofm56 
-```
-This example shows, that even if time of load is similar for different tile sizes it's effective to tile even for single core. 
+Let's combine solutions for 1st level and 2nd:
 
 ```
-0 |      3: load_ifm1 load_w3         
-1 |         2: load_ifm1_2 load_w6_2         
-2 *         execution_t02             2: load_ifm2_2 
-3           store_ofm16_2             execution_t12    2: load_ifm3_2
-4                                     store_ofm26_2    execution_t22    2: load_ifm4_2       
-5                                                      store_ofm36_2    execution_t32   2: load_ifm5_2
-6                                                                       store_ofm46_2   execution_t42 
-7                                                                                       store_ofm56_2 
-8        store_ofm13           3: load_ifm2 
-9-15                           execution_t1 
-16                             store_ofm23   3: load_ifm1 load_w4
-17-23                                        execution_t2          
-24                                           store_ofm14           3: load_ifm2
-25-31                                                              execution_t3
-32                                                                 store_ofm24
+0        3: load_ifm0 load_w0         
+1           2: load_ifm0 load_w0         
+2           execution_t0          
+3           store_ofm0           2: load_w1
+4                                execution_t1
+5                                store_ofm1        3: load_ifm1 
+6-10     store_ofm0                                execution_t1   3: load_ifm0
+11-15                                              store_ofm1     execution_t2   3: load_ifm1
+16-20                                                             store_ofm0     execution_t3  3: load_ifm1
+21-25                                                                            store_ofm1    execution_t4
+26                                                                                             store_ofm0
 ```
 
-Let's try to add tiling for `1st layer`:
+Finally let's try to add tiling for `1st layer`:
 
 ```
 input                            weight 
                 512                      64
     +-----------------------+        +----------+
- 13 |                       |        |          |
+ 26 |                       |        |          |
     +-----------------------+        |          |
                                      |          |
                                  512 |          |
@@ -442,158 +446,203 @@ input                            weight
 output
          64   
     +-----------+
- 13 |           |
+ 26 |           |
     +-----------+
 ```
-If we are trying to use on this stage share input and tile only weight to have case like:
-```
- +------+-------------+-------------+------+
- | ifm0 |     w0      |     w1      | ofm0 |
- +------+-------------+-------------+------+
-```
-corresponding equation is: 
-```
-  13*512 (ifm0) + x*512*2 (w0 + w1) + 13*x (ofm) = 10'000 (buffer size)
-```
-and resulting `x = 3`. This size looks too small. Produced amount of ticks is `n_ticks = num_tiles + 2`, `n_ticks = 22 + 2 = 24`.
 
-Let's try to tile along reduction axes. 
+At first let's try to avoid tiling along reduction axis. 
 ```
- +------+------+-------------+-------------|--------|--------|------+
- | ifm0 | ifm1 |     w0      |     w1      | ofm0_p | ofm1_p | ofm0 |
- +------+------+-------------+-------------|--------|--------|------+
+  x*512 + y*512 + x*y = 10'000
 ```
-This is `layout 1`.
+As `x*y` is relatively small, we can understand, that it will work if `x + y < 10'000/512 = 19`, so in general as we are interested in integer solutions,
+let's try to have `5` tles for weight - `13 13 13 13 12`. So for `x + 13 < 19`  -> `x < 6`, so `5` tiles on input `6 5 5 5 5`. 
+So output amount of tiles in this case is `5*5 = 25`. 
 
+`5` tiles in w, and `5` tiles in input. 
 
-```
-0 |      1: load_ifm0 load_w0         
-1 *      execution_t0 (ofm0_p)  1: load_ifm1 load_w1 
-2                               execution_t1 (ofm1_p)  1: load_ifm2 load_w2 
-3                               sum(ofm1_p, ofm0_p)               
-4                               store_ofm0             execution_t2 (ofm0_p)  1: load_ifm3 load_w3
-5                                                      sum(ofm0, ofm0_p)                              
-6                                                      store_ofm1_p           execution_t3 (ofm0)     1: load_ifm3 load_w3
-7                                                                             sum(ofm1_p, ofm0)     
-8                                                                             store_ofm0_p            execution_t4 (ofm1_p)
-9                                                                                                     sum(ofm0_p, ofm1_p)
-10                                                                                                    store_ofm0
-                                                                              ^
-                                                                              |
-                                                         It depends on possibility to use sum and execute simultaniously. 
-```
-So number of used ticks is `n_ticks = (num_tiles - 1) * 2 + 2 + 1` . 
-In this formula: `(num_tiles - 1) * 2` - is `execution + sum`, last `+ 1` is first `execution`, `+ 2` is initial load and final store.
+Let's try to check some close solutions to reduce ofm amount of tiles.
+`6` tiles in w - `11 11 11 11 11 9`, `x < 19 - 11 = 8 `, so `4` tiles for input -> `7 7 7 5`, and corresponding ofm tiles amount `24`.
 
-It works when in buffer we have layout like - `layout 1`. In current case to achieve layout like this:
-```
-  x*13*2 (ifm0 + ifm1) + x*64*2 (w0 + w1) + 13*64*3 (ofm0_p + ofm1_p + ofm0) = 10'000 (buffer size)
-```
-so `x = 48`, it requires `11` tiles. Which will produce `n_ticks = 23`.
+`3` tiles for input -> `9 9 8`, so `3*512 + y*512 + 3*y = 10'000` -> `y = 10` -> `7` tiles in w: `10 10 10 10 10 10 4` ( maybe better is `10 9 9 9 9 9 9`), so ofm tiles amout is `7*3 = 21`.
 
-Without approach to pack more ops into single time unit: 
+`2` tiles for input -> `13 13`, so `13*512 + y*512 + 13*y = 10'000` -> `y = 6` -> `10` tiles in w: `7 7 7 7 7 7 7 7 4 4`, so ofm tiles amout is `10*2 = 20`.
+```
+0   1: load_ifm0 load_w0
+1   execution_t0 
+2   store_ofm0            1: load_w1
+3                         execution_t1
+4                         store_ofm0    1: load_w2
+5                                       execution_t2
+...
+```
+`n_ticks = num_tiles * 2 + 1 ` -> for `20` ofm tiles we need `41` ticks.
+
 ```
  +------+-------------+--------+--------+------+
  | ifm0 |     w0      | ofm0_p | ofm1_p | ofm0 |
  +------+-------------+--------+--------+------+
 ```
-This is `layout 2`.
+
+Let's check what will happen with tiling along reduction axis:
+```
+  26*x (ifm0) + x*64 (w) + 26*64*3 (3 ofm) = 10'000 (buffer size)
+```
+`x = 55` -> 10 tiles required -> `x = 52`. 
+
+Corresponding execution:
+```
+0   2: load_ifm0 load_w0         
+1   execution_t0 (ofm0_p)
+2                          2: load_ifm1 load_w1
+3                          execution_t1 (ofm1_p)
+4                          ofm0 = sum(ofm0_p, ofm1_p)   2: load_ifm2 load_w2
+5                                                       execution_t2 (ofm0_p)
+6                                                       ofm1_p = sum(ofm0_p, ofm0)    2: load_ifm3 load_w3
+7                                                                                     execution_t3 (ofm0_p)
+8                                                                                     ofm0 = sum(ofm0_p, ofm1_p)  2: load_ifm4 load_w4
+9                                                                                                                 execution_t4 (ofm0_p)   
+10                                                                                                                ofm1_p = sum(ofm0_p, ofm0)
+11                                                                                                                store_ofm1_p   
+...
+```
+
+`n_ticks = (num_tiles - 1)*2 + 1 + 3 ` -> to process required `22` ticks. This result is much better than previous one.
 
 ```
-  x*13 (ifm0) + x*64*2 (w0) + 13*64*3 (ofm0_p + ofm1_p + ofm0) = 10'000 (buffer size)
+ +------+-------------+------+-------------+--------+--------+------+--------+
+ | ifm0 |     w0      | ifm1 |     w1      | ofm0_p | ofm1_p | ofm0 | ofm2_p |
+ +------+-------------+------+-------------+--------+--------+------+--------+
 ```
-from this equation: `x = 97`, which requires: `6` tiles along reduction. 
+Let's check what will happen with tiling along reduction axis:
 ```
-0 |      1: load_ifm0 load_w0         
-1 *      execution_t0 (ofm0_p)  
-2                               1: load_ifm0 load_w0   
-3                               execution_t1 (ofm1_p)               
-4                               sum(ofm1_p, ofm0_p)    1: load_ifm0 load_w0 
-5                               store_ofm0             execution_t2 (ofm0_p)  
-6                                                      sum(ofm0, ofm0_p)      1: load_ifm0 load_w0                        
-7                                                      store_ofm1_p           execution_t3 (ofm0)     
-8                                                                             sum(ofm1_p, ofm0)       1: load_ifm0 load_w0
-9                                                                             store_ofm0_p            execution_t4 (ofm1_p)
-10                                                                                                    sum(ofm0_p, ofm1_p)
-11                                                                                                    store_ofm0
+  x*26*2 (ifm0) + x*64*2 (w) + 26*64*4 (3 ofm) = 10'000 (buffer size)
 ```
-In this case `n_ticks = (num_tiles - 1) * 2 + 2 + 2`, so `n_ticks = 14`
+`x = 18` -> 29 tiles required -> `x = 18`. 
 
+```
+0   2: load_ifm0 load_w0   2: load_ifm1 load_w1      
+1   execution_t0 (ofm0_p)  
+2                          execution_t1 (ofm1_p)       2: load_ifm0 load_w0           
+3                          ofm0 = sum(ofm0_p, ofm1_p)  execution_t2 (ofm2_p)          2: load_ifm1 load_w1
+4                                                      ofm1_p = sum(ofm2_p, ofm0)     execution_t3 (ofm0_p)       2: load_ifm0 load_w1
+5                                                                                     ofm0 = sum(ofm0_p, ofm1_p)  execution_t4 (ofm2_p)
+6                                                                                                                 ofm1_p = sum(ofm2_p, ofm0)
+7                                                                                                                 store_ofm1_p   
+...
+```
+`n_ticks = num_tiles + 1 + 2 ` -> to process required `32` ticks.
 
-Let's try to check tiling along several axes  (reduction and output w).
+This buffer layout can be used with tiling along second biggest dimnsion - weight w -> split `64` to `32 32`.
+```
+  x*26*2 (ifm0) + x*32*2 (w) + 26*32*4 (3 ofm) = 10'000 (buffer size)
+```
+`x = 57` -> 9 tiles required -> `x = 57`
+
+So total amount of executions is `9*2 = 18`. So estimation for number of ticks is `21`. It's a little better than native approach.
+
+So resulting tiling will have:
+
+```
+0        3: load_ifm0 load_w0         
+1           2: load_ifm0 load_w0         
+2-22        execution_t0          
+23          store_ofm0           2: load_w1
+24-44                            execution_t1
+45                               store_ofm1        3: load_ifm1 
+46-90    store_ofm0                                execution_t1   3: load_ifm0
+91-135                                             store_ofm1     execution_t2   3: load_ifm1
+136-180                                                           store_ofm0     execution_t3  3: load_ifm1
+181-225                                                                          store_ofm1    execution_t4
+226                                                                                            store_ofm0
+```
+
+So total tiled layer took about `226 ticks`. 
+
+#### Tiling that uses smallest buffer 
+
+TBD - Calculations here are not very accurate, need to check than, also ways of searching solution is not so simple. As in this case we have very big search space. 
+
+Let's try to tile same sized matmul without several stages but just to fit into smallest buffer. Buffer size is `10'000`
 
 ```
 input                            weight 
-       171     171       170            32    32
-    +-------+---------+------+        +-----|-----+
- 13 |   1   |   2     |  3   |    171 |  4  |  5  |
-    +-------+---------+------+        |     |     |
-                                      |-----|-----|
-                                  171 |  6  |  7  |
-                                      |     |     |
-                                      |-----|-----|
-                                  170 |  8  |  9  |
-                                      +-----|-----+
+               512                             128
+    +-----------------------+        +----------------------+
+    |                       |        |                      |
+    |                       |        |                      |
+128 |                       |    512 |                      |
+    |                       |        |                      |
+    |                       |        |                      |
+    +-----------------------+        +----------------------+
+
 output
-       32    32   
-    +-----|------+
- 13 |     |      |
-    +-----|------+
+               128
+    +----------------------+
+    |                      |
+    |                      |
+128 |                      |
+    |                      |
+    |                      |
+    +----------------------+
 ```
-We can use same layout here: 
+
 ```
- +------+-------------+--------+--------+------+
- | ifm0 |     w0      | ofm0_p | ofm1_p | ofm0 |
- +------+-------------+--------+--------+------+
+  x*512 (ifm0) + x*512 (w0) + x*x = 10'000 (buffer size)
+```
+from this equation: `x = 9`, which requires: `15` tiles for ifm and weights -> so tile sizes is `9` . This will produce `15*15 = 225` total amount of tiles.
+```
+0 |      1: load_ifm0 load_w0         
+1 *      execution_t0
+2        store_ofm0             1: load_ifm0 load_w0   
+3                               execution_t1                
+4                               store_ofm0             1: load_ifm0 load_w0 
+5                                                      execution_t2
+6                                                      store_ofm1_p           1: load_ifm0 load_w0                        
+7                                                                             execution_t3 (ofm0)     
+8                                                                             store_ofm0_p            1: load_ifm0 load_w0
+9                                                                                                     execution_t4 (ofm1_p)
+10                                                                                                    store_ofm0
+```
+`n_ticks = num_tiles * 2 + 1` -> `num_ticks = 450`, we will also need load to level 3, level 2, so it will be around `450 + 2 + 2 = 454`.
+
+```
+ +------+-------------+------+-------------+------+------+
+ | ifm0 |     w0      | ifm1 |     w1      | ofm0 | ofm1 |
+ +------+-------------+------+-------------+------+------+
 ```
 ```
-0 |      1: load_ifm1 load_w4         
-1 *      execution_t0 (ofm0_p)  
-2                               1: load_ifm2 load_w6   
-3                               execution_t1 (ofm1_p)               
-4                               sum(ofm1_p, ofm0_p)    1: load_ifm3 load_w8 
-5                               store_ofm0             execution_t2 (ofm0_p)  
-6                                                      sum(ofm0, ofm0_p)      1: load_ifm1 load_w5                        
-7                                                      store_ofm1_p           execution_t3 (ofm0)     
-8                                                                             sum(ofm1_p, ofm0)       1: load_ifm2 load_w7
-9                                                                             store_ofm0_p            execution_t4 (ofm1_p)
-10                                                                                                    sum(ofm0_p, ofm1_p)
-11                                                                                                    store_ofm0
+  x*512*2 (ifm0) + x*512*2 (w0) + x*x*2 = 10'000 (buffer size)
+```
+`x = 4` -> 32 tiles in ifm and 32 tiles in weights -> total amount of tiles is `32 * 32 = 1024` -> so total amount of ticks is about `1024 + 2 + 2 = 1028` 
+
+
+```
+ +------+-------------+------+-------------+--------+--------+------+--------+
+ | ifm0 |     w0      | ifm1 |     w1      | ofm0_p | ofm1_p | ofm0 | ofm2_p |
+ +------+-------------+------+-------------+--------+--------+------+--------+
+```
+
+```
+  32*y*2 (ifm0) + 32*y*2 (w0) + 32*32*4 = 10'000 (buffer size)
+```
+`y = 46` -> 12 tiles along reduction axis -> `y = 43`
+
+```
+0   2: load_ifm0 load_w0   2: load_ifm1 load_w1      
+1   execution_t0 (ofm0_p)  
+2                          execution_t1 (ofm1_p)       2: load_ifm0 load_w0           
+3                          ofm0 = sum(ofm0_p, ofm1_p)  execution_t2 (ofm2_p)          2: load_ifm1 load_w1
+4                                                      ofm1_p = sum(ofm2_p, ofm0)     execution_t3 (ofm0_p)       2: load_ifm0 load_w1
+5                                                                                     ofm0 = sum(ofm0_p, ofm1_p)  execution_t4 (ofm2_p)
+6                                                                                                                 ofm1_p = sum(ofm2_p, ofm0)
+7                                                                                                                 store_ofm1_p   
 ...
 ```
-In this case we can have similar amount of ticks as we have similar amount of tiles and same layout `n_ticks = (num_tiles - 1) * 2 + 2 + 2`, so `n_ticks = 14`.
-If we change amount of tiles along weight axises (instead of 2 tiles along weight w and 3 tiles along weight h, we have 3 along h and 2 along 2), we will still have similar layout in buffer. 
-
-So let's assume that best we can achieve here is `n_ticks = 14`.
-
-So resulting tiling will have:
-```
-0        3: load_ifm1 load_w3         
-1           2: load_ifm1_2 load_w6_2         
-2-15        execution_t02             2: load_ifm2_2 
-16-29       store_ofm16_2             execution_t12    2: load_ifm3_2
-30-43                                 store_ofm26_2    execution_t22    2: load_ifm4_2       
-44-57                                                  store_ofm36_2    execution_t32   2: load_ifm5_2
-58-71                                                                   store_ofm46_2   execution_t42 
-72                                                                                      store_ofm56_2 
-73       store_ofm13           3: load_ifm2 
-74-80                          execution_t1 
-81                             store_ofm23   3: load_ifm1 load_w4
-82-88                                        execution_t2          
-89                                           store_ofm14           3: load_ifm2
-90-96                                                              execution_t3
-97                                                                 store_ofm24
-```
-
-So total tiled layer took about `98 ticks`. 
-
-#### Tiling that uses smallest buffer
-
-
+In this configuration 4 tiles along input h, 12 tiles along reduction axis, 4 tiles along weight w -> total amount `4 * 4 * 12 = 192` tiles total.
+number of ticks will be about `192 + 2 + 2 = 196`
 
 ## Threads/Cores
 
 To utilize threads effectively we will need an amount of them and mark memory as shared/private for specific core. 
-
 
 
