@@ -16,11 +16,38 @@ We have 2 main (most interesting) parameters for us:
 
 ## Memory 
 
-Assume we have small amount amount of memory: 
-```
-  buffer = 4096 
-```
+In further doc I will assume several things about HW:
+   1. We have one execution unit and one buffer or buffer hierarachy. 
+   2. Execution unit can handle only single execution command. (we can't have 2 simultaneous executions)
+      ```
+      0  load_ifm0 load_w0
+      1  execute (ofm0)       execute (ofm0)      # Not possible - structural hazard           
+      ```
+   3. Execution stage blocks from any read/modification all used parts of buffer. (we can't write into place, which used during execution)
+      e.g.
+      in buffer we wahe: 
+      ```
+         +------+-------------+------+------+
+         | ifm0 |     w0      | ofm0 | ofm1 |
+         +------+-------------+------+------+
+      ```
+      ```
+      0  load_ifm0 load_w0
+      1  execute (ofm0)      # cannot access on this tick to ifm0, w0 and ofm0           
+      ```
+   4. Schema with ticks assume, that all ops in a row triggered simultneously.
+      e.g.
+      ```
+      0  load_ifm load_w
+      1  execute              store_ofm
+      ```
+      means that we are loading ifm and w into buffer simultaneously and than 
+      execution of op with simultaneous storing of some ofm.
 
+To estimate performance of some tiling I will calculate amount of ticks, that will be required with this black-box execution. To make this prediction more applicable to specific HW we will need to understand how long takes load/store/execution compared to each other and depending on amount of data they are processing. 
+
+
+<!-- 
 Total amount of memory resuired to process this op we need: 
 ```
   128 * 128 + 128 * 512 + 512 * 128 = 147'456
@@ -31,7 +58,7 @@ So we need tiling. In common there are 2 completely different appropaches:
   1. Tiling starts from an input
   2. Tiling strats from output
 
-When you start tiling from input you have to create 
+When you start tiling from input you have to create  -->
 
 
 
