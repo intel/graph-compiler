@@ -1,4 +1,4 @@
-// RUN: gc-opt %s -early-dispatch-microkernel -convert-microkernel-to-dnnl-func -microkernel-invariant-code-motion -split-input-file | FileCheck %s
+// RUN: gc-opt %s -early-dispatch-microkernel -convert-microkernel-to-dnnl-func -cse -microkernel-invariant-code-motion -split-input-file | FileCheck %s
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
