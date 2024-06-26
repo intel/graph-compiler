@@ -137,8 +137,15 @@ public:
 };
 
 class ConvertBrgemmOpRewriter : public OpRewritePattern<microkernel::BrgemmOp> {
+private:
+  DenseMap<Value, std::pair<Value, Value>> &memrefExtractCache;
+
 public:
   using OpRewritePattern<microkernel::BrgemmOp>::OpRewritePattern;
+  ConvertBrgemmOpRewriter(MLIRContext *context,
+                          DenseMap<Value, std::pair<Value, Value>> &cache)
+      : OpRewritePattern(context), memrefExtractCache{cache} {}
+
   // runtime func for stride mode dnnl brgemm execution:
   // void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void
   // *B, uint64_t B_offset, void *C, uint64_t C_offset, int num)
@@ -165,8 +172,20 @@ public:
       Type operandType = operand.getType();
       if (auto memrefType = dyn_cast<MemRefType>(operandType)) {
         Type basePtrType = LLVM::LLVMPointerType::get(context);
-        auto [ptr, offset] =
-            gcext::utils::getPtrAndOffset(rewriter, operand, loc);
+
+        Value ptr, offset;
+        // Use cache to avoid injecting duplicated extraction Ops
+        auto memrefExtractIter = memrefExtractCache.find(operand);
+        if (memrefExtractIter == memrefExtractCache.end()) {
+          auto res = gcext::utils::getPtrAndOffset(rewriter, operand);
+          ptr = res.first;
+          offset = res.second;
+          memrefExtractCache[operand] = res;
+        } else {
+          ptr = memrefExtractIter->second.first;
+          offset = memrefExtractIter->second.second;
+        }
+
         operands.push_back(ptr);
         operands.push_back(offset);
         operandTypes.push_back(basePtrType);
@@ -211,8 +230,11 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns
         .add<ConvertBrgemmDispatchOpRewriter, ConvertBrgemmPrologueOpRewriter,
-             ConvertBrgemmOpRewriter, ConvertBrgemmEpilogueOpRewriter>(
-            &getContext());
+             ConvertBrgemmEpilogueOpRewriter>(&getContext());
+
+    DenseMap<Value, std::pair<Value, Value>> memrefExtractCache;
+    patterns.add<ConvertBrgemmOpRewriter>(&getContext(), memrefExtractCache);
+
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
       signalPassFailure();

@@ -124,10 +124,15 @@ FailureOr<SmallVector<int64_t>> getStaticStrides(Value value) {
   return strides;
 }
 
-std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand,
-                                        Location loc) {
+std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand) {
   auto memrefType = dyn_cast<MemRefType>(operand.getType());
   assert(memrefType && "Expect a memref value");
+
+  Location loc = operand.getDefiningOp()->getLoc();
+  OpBuilder::InsertionGuard guard(builder);
+  // Insert right after operand producer for better opt chances.
+  builder.setInsertionPointAfterValue(operand);
+
   MemRefType baseMemrefType = MemRefType::get({}, memrefType.getElementType());
   Type basePtrType = builder.getIndexType();
   Type offsetType = builder.getIndexType();

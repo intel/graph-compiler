@@ -40,15 +40,16 @@ module {
 // CHECK-LABEL: dnnl_brgemm_execute
 // CHECK-LABEL: dnnl_brgemm_dispatch
 // CHECK-LABEL: simple_brgemm
-// CHECK: %[[CST0:.+]] = arith.constant 0 : index
 // CHECK: %[[CST3:.+]] = arith.constant 3 : i64
 // CHECK: %[[CST1F:.+]] = arith.constant 1.000000e+00 : f32
 // CHECK: %[[CST1024:.+]] = arith.constant 1024 : i64
 // CHECK: %[[CST32:.+]] = arith.constant 32 : i64
+// CHECK: %[[CST0:.+]] = arith.constant 0 : index
 // CHECK: %[[CST16:.+]] = arith.constant 16 : i64
 
-// CHECK: %[[KERNEL:.+]] = func.call @dnnl_brgemm_dispatch(%[[CST32]], %[[CST32]], %[[CST32]], %[[CST32]], %[[CST32]], %[[CST32]], %[[CST1024]], %[[CST1024]], %[[CST1F]], %[[CST3]], %[[CST3]]) : (i64, i64, i64, i64, i64, i64, i64, i64, f32, i64, i64) -> i64
-// CHECK-NOT: microkernel.brgemm.prologue(%[[TMP:.+]]) : (i64) -> ()
+// CHECK: %[[ptrC:.+]] = memref.extract_aligned_pointer_as_index %[[memrefC:.+]] : memref<32x32xf32> -> index
+// CHECK-NEXT: %[[idxC:.+]] = arith.index_cast %[[ptrC]] : index to i64
+// CHECK-NEXT: %[[llvmptrC:.+]] = llvm.inttoptr %[[idxC]] : i64 to !llvm.ptr
 
 // CHECK: %[[bbA:.+]], %[[offA:.+]], %[[szA:.+]]:3, %[[strdA:.+]]:3 = memref.extract_strided_metadata %[[memrefA:.+]] : memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>> -> memref<f32>, index, index, index, index, index, index, index
 // CHECK-NEXT: %[[ptrA:.+]] = memref.extract_aligned_pointer_as_index %[[memrefA]] : memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>> -> index
@@ -60,9 +61,8 @@ module {
 // CHECK-NEXT: %[[idxB:.+]] = arith.index_cast %[[ptrB]] : index to i64
 // CHECK-NEXT: %[[llvmptrB:.+]] = llvm.inttoptr %[[idxB]] : i64 to !llvm.ptr
 
-// CHECK: %[[ptrC:.+]] = memref.extract_aligned_pointer_as_index %[[memrefC:.+]] : memref<32x32xf32> -> index
-// CHECK-NEXT: %[[idxC:.+]] = arith.index_cast %[[ptrC]] : index to i64
-// CHECK-NEXT: %[[llvmptrC:.+]] = llvm.inttoptr %[[idxC]] : i64 to !llvm.ptr
+// CHECK: %[[KERNEL:.+]] = func.call @dnnl_brgemm_dispatch(%[[CST32]], %[[CST32]], %[[CST32]], %[[CST32]], %[[CST32]], %[[CST32]], %[[CST1024]], %[[CST1024]], %[[CST1F]], %[[CST3]], %[[CST3]]) : (i64, i64, i64, i64, i64, i64, i64, i64, f32, i64, i64) -> i64
+// CHECK-NOT: microkernel.brgemm.prologue(%[[TMP:.+]]) : (i64) -> ()
 
 // CHECK: func.call @dnnl_brgemm_execute(%[[KERNEL]], %[[llvmptrA]], %[[offA]], %[[llvmptrB]], %[[offB]], %[[llvmptrC]], %[[CST0]], %[[CST16]]) : (i64, !llvm.ptr, index, !llvm.ptr, index, !llvm.ptr, index, i64) -> ()
 // CHECK-NOT: microkernel.brgemm.epilogue(%[[KERNEL]]) : (i64) -> ()
