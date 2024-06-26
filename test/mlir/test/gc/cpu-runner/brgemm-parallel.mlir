@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --early-dispatch-microkernel --convert-microkernel-to-dnnl-func --microkernel-invariant-code-motion --convert-linalg-to-loops --convert-scf-to-cf --expand-strided-metadata --lower-affine -finalize-memref-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --convert-complex-to-llvm --canonicalize --cse --reconcile-unrealized-casts --symbol-dce | gc-cpu-runner -e main -entry-point-result=void 
+// RUN: gc-opt %s --early-dispatch-microkernel --convert-microkernel-to-dnnl-func --cse --microkernel-invariant-code-motion --convert-linalg-to-loops --convert-scf-to-cf --expand-strided-metadata --lower-affine -finalize-memref-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --convert-complex-to-llvm --canonicalize --cse --reconcile-unrealized-casts --symbol-dce | gc-cpu-runner -e main -entry-point-result=void 
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
