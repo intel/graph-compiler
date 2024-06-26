@@ -27,7 +27,13 @@
 #include <stdfloat>
 #else
 namespace std {
+#if defined(__SIZEOF_FLOAT__) && __SIZEOF_FLOAT__ == 4
 using float32_t = float;
+#elif defined(__SIZEOF_DOUBLE__) && __SIZEOF_DOUBLE__ == 4
+using float32_t = double;
+#else
+static_assert(false, "Unable to determine 32-bit floating point type");
+#endif
 } // namespace std
 #endif
 
@@ -145,8 +151,16 @@ class JsonParser {
   }
   std::unordered_map<std::string, OpBuilderFn> _opBuilders{
       GC_OP("Add", mlir::onednn_graph::AddOp),
+      GC_OP("Divide", mlir::onednn_graph::DivOp),
       GC_OP("MatMul", mlir::onednn_graph::MatMulOp),
+      GC_OP("Multiply", mlir::onednn_graph::MulOp),
+      GC_OP("Pow", mlir::onednn_graph::PowOp),
+      GC_OP("ReduceMean", mlir::onednn_graph::ReduceMeanOp),
+      GC_OP("ReduceSum", mlir::onednn_graph::ReduceSumOp),
       GC_OP("ReLU", mlir::onednn_graph::ReLUOp),
+      GC_OP("Sigmoid", mlir::onednn_graph::SigmoidOp),
+      GC_OP("Subtract", mlir::onednn_graph::SubOp),
+      GC_OP("Typecast", mlir::onednn_graph::TypeCastOp),
   };
 #undef GC_OP
 
