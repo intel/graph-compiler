@@ -131,36 +131,42 @@ void splitBroadcast(SmallVector<Value>& outputs, linalg::BroadcastOp broadcastOp
   }
 }
 
-void SplitMMonN(SmallVector<Value>& outputs, SmallVector<Value>& inputs, TensorType& resultTy, Location& loc, PatternRewriter &rewriter) {
+void SplitMMonN(Operation* op, SmallVector<Value>& outputs, SmallVector<Value>& inputs, TensorType& resultTy, int64_t target_dim, Location& loc, PatternRewriter &rewriter) {
   /*Split on N axis*/
   std::cout << "split on N" << std::endl;
   int64_t M = inputs[0].getType().cast<RankedTensorType>().getDimSize(0);
-  int64_t N = inputs[1].getType().cast<RankedTensorType>().getDimSize(1);
+  int64_t N = inputs[1].getType().cast<RankedTensorType>().getDimSize(target_dim);
   int64_t K = inputs[0].getType().cast<RankedTensorType>().getDimSize(1);
   SmallVector<Value> splited_weights;
-  getSplitedTensors(splited_weights, inputs[1], /*target_dim*/1, rewriter);
+  getSplitedTensors(splited_weights, inputs[1], target_dim, rewriter);
   if (splited_weights.size() != NUM_OF_NUMA) return;
 
   for (Value weight : splited_weights) {
     Value zero = rewriter.create<arith::ConstantOp>(
       loc, rewriter.getZeroAttr(resultTy.getElementType()));
-    std::cout << "weight.getType().cast<RankedTensorType>().getDimSize(1): " << weight.getType().cast<RankedTensorType>().getDimSize(1) << std::endl;
+    std::cout << "weight.getType().cast<RankedTensorType>().getDimSize(1): " << weight.getType().cast<RankedTensorType>().getDimSize(target_dim) << std::endl;
     Value empty = rewriter.create<tensor::EmptyOp>(
-      loc, ArrayRef<int64_t> {M, weight.getType().cast<RankedTensorType>().getDimSize(1)}, resultTy.getElementType());
+      loc, ArrayRef<int64_t> {M, weight.getType().cast<RankedTensorType>().getDimSize(target_dim)}, resultTy.getElementType());
     Value tensor =
         rewriter.create<linalg::FillOp>(loc, zero, empty).getResult(0);
-    auto newMM = rewriter.create<linalg::MatmulOp>(
-          /*location=*/loc,
-          /*resultTensorTypes=*/tensor.getType().cast<RankedTensorType>(),
-          /*inputs=*/ValueRange{inputs[0], weight},
-          /*outputs=*/tensor);
+    auto newMM = isa<linalg::MatmulOp>(op) ?
+          rewriter.create<linalg::MatmulOp>(
+            /*location=*/loc,
+            /*resultTensorTypes=*/tensor.getType().cast<RankedTensorType>(),
+            /*inputs=*/ValueRange{inputs[0], weight},
+            /*outputs=*/tensor) : 
+          rewriter.create<linalg::MatmulTransposeBOp>(
+            /*location=*/loc,
+            /*resultTensorTypes=*/tensor.getType().cast<RankedTensorType>(),
+            /*inputs=*/ValueRange{inputs[0], weight},
+            /*outputs=*/tensor);
     mlir::BoolAttr boolAttr = rewriter.getBoolAttr(true);
     newMM->setAttr("splited", boolAttr);
     outputs.push_back(newMM->getResult(0));
   }
 }
 
-void SplitMMonK(SmallVector<Value>& outputs, SmallVector<Value>& inputs, TensorType& resultTy, Location& loc, PatternRewriter &rewriter) {
+void SplitMMonK(Operation* op, SmallVector<Value>& outputs, SmallVector<Value>& inputs, TensorType& resultTy, Location& loc, PatternRewriter &rewriter) {
   /*Split on K axis*/
   std::cout << "split on K" << std::endl;
   int64_t M = inputs[0].getType().cast<RankedTensorType>().getDimSize(0);
@@ -211,7 +217,7 @@ bool isSupportedPostOp(Operation *op) {
 void getUnOps(Operation *op, SmallVectorImpl<Operation *> &postOps) {
   for (auto user : op->getUsers()) {
     if (isSupportedPostOp(user)) postOps.push_back(user);
-    if (isa<linalg::MatmulOp, linalg::TransposeOp>(user)) return;
+    if (isa<linalg::MatmulOp, linalg::TransposeOp, tensor::ExpandShapeOp>(user)) return;
       // Recursively search for unary ops, unless it's a matmul op
     getUnOps(user, postOps);
     // }
@@ -333,18 +339,13 @@ Value addN(Value& initTensor, SmallVector<Value>& ins, TensorType& resultTy, Loc
   return genericOp.getResults().front();;
 }
 
-LogicalResult splitSingleMM(linalg::MatmulOp& op,
+LogicalResult splitSingleMM(Operation* op,
                                 PatternRewriter &rewriter) {
-  // rewriter.updateRootInPlace(op, [&]() {
-  // mlir::BoolAttr boolAttr = rewriter.getBoolAttr(true);
-  // op->setAttr("splited", boolAttr);
-  // });
-                          
   SmallVector<Operation *> postOps = {};
   getUnOps(op, postOps);
   auto loc = op->getLoc();
   auto resultTy = dyn_cast<TensorType>(op->getResultTypes().front());
-  auto input_operands = op.getInputs();
+  auto input_operands = op->getOperands().drop_back();
   SmallVector<Value> input_tensors;
   for (Value operand : input_operands) {
     if (!operand.getType().isa<TensorType>()) {
@@ -352,16 +353,17 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
     }
     input_tensors.push_back(operand);
   }
-
+  bool istransB = isa<linalg::MatmulTransposeBOp>(op);
+  llvm::outs() << "is trans B\n";
   int64_t M = input_tensors[0].getType().cast<RankedTensorType>().getDimSize(0);
-  int64_t N = input_tensors[1].getType().cast<RankedTensorType>().getDimSize(1);
+  int64_t N = input_tensors[1].getType().cast<RankedTensorType>().getDimSize(istransB ? 0 : 1);
   int64_t K = input_tensors[0].getType().cast<RankedTensorType>().getDimSize(1);
   std::cout << "M: " << M << ", N: " << N << ", K: " << K << std::endl;
 
   int64_t target_dim = N / K >= 2 ? 1 : 1;
   SmallVector<Value> splites_res;
   if (target_dim == 1) {
-    SplitMMonN(splites_res, input_tensors, resultTy, loc, rewriter);
+    SplitMMonN(op, splites_res, input_tensors, resultTy, target_dim ^ istransB, loc, rewriter);
     if (splites_res.size() != NUM_OF_NUMA) return failure();
     SmallVector<Value> Outputs = splites_res;
     auto lastInput = op->getResult(0);
@@ -390,7 +392,7 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
           if (auto fillOp = dyn_cast<linalg::FillOp>(definingOp)) {
             llvm::outs() << "is fill \n";
             SmallVector<Value> splited_inputs;
-            getSplitedTensors(splited_inputs, input, /*target_dim*/1, rewriter);
+            getSplitedTensors(splited_inputs, input, target_dim, rewriter);
             int i = 0;
             for (const auto &splited_input : splited_inputs) {
                 Inputs[i].push_back(splited_input);
@@ -401,7 +403,7 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
           } else if (auto broadcastOp = dyn_cast<linalg::BroadcastOp>(definingOp)){
             llvm::outs() << "is broadcast \n";
             SmallVector<Value> splited_inputs;
-            splitBroadcast(splited_inputs, broadcastOp, /*target_dim*/1, rewriter);
+            splitBroadcast(splited_inputs, broadcastOp, target_dim, rewriter);
             llvm::outs() << "inputs[0].size: " << Inputs[0].size() <<" \n";
             int i = 0;
             for (const auto &splited_input : splited_inputs) {
@@ -415,7 +417,7 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
             auto newConstantOp = rewriter.create<arith::ConstantOp>(
               constantOp.getLoc(), constantOp.getType(), constantOp.getValue());
             SmallVector<Value> splited_inputs;
-            getSplitedTensors(splited_inputs, newConstantOp, /*target_dim*/1, rewriter);
+            getSplitedTensors(splited_inputs, newConstantOp, target_dim, rewriter);
             int i = 0;
             for (const auto &splited_input : splited_inputs) {
                 Inputs[i].push_back(splited_input);
@@ -428,7 +430,7 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
         } else {
           llvm::outs() << "doesnot match anything \n";
           SmallVector<Value> splited_inputs;
-          getSplitedTensors(splited_inputs, input, /*target_dim*/1, rewriter);
+          getSplitedTensors(splited_inputs, input, target_dim, rewriter);
           llvm::outs() << "inputs[0].size: " << Inputs[0].size() <<" \n";
           int i = 0;
           for (const auto &splited_input : splited_inputs) {
@@ -469,7 +471,7 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
     postOps = {};
     llvm::outs() << "after duplicate, postOps num: " << postOps.size() << "\n";
   } else {
-    SplitMMonK(splites_res, input_tensors, resultTy, loc, rewriter);
+    SplitMMonK(op, splites_res, input_tensors, resultTy, loc, rewriter);
     if (splites_res.size() != NUM_OF_NUMA) return failure();
     // Add the two halves back together
     // Create linalg.map operation
@@ -488,61 +490,7 @@ LogicalResult splitSingleMM(linalg::MatmulOp& op,
   return success();
 }
 
-LogicalResult splitSingleMMwithUnary(linalg::MatmulOp& op,
-                                PatternRewriter &rewriter) {
-  auto loc = op->getLoc();
-  auto resultTy = dyn_cast<TensorType>(op->getResultTypes().front());
-  auto input_operands = op.getInputs();
-  SmallVector<Value> input_tensors;
-  for (Value operand : input_operands) {
-    if (!operand.getType().isa<TensorType>()) {
-      continue;
-    }
-    input_tensors.push_back(operand);
-  }
-
-  int64_t M = input_tensors[0].getType().cast<RankedTensorType>().getDimSize(0);
-  int64_t N = input_tensors[1].getType().cast<RankedTensorType>().getDimSize(1);
-  int64_t K = input_tensors[0].getType().cast<RankedTensorType>().getDimSize(1);
-  std::cout << "M: " << M << ", N: " << N << ", K: " << K << std::endl;
-
-  int64_t target_dim = N / K >= 2 ? 1 : 0;
-  SmallVector<Value> splites_res;
-  if (target_dim == 1) {
-    SplitMMonN(splites_res, input_tensors, resultTy, loc, rewriter);
-    if (splites_res.size() != NUM_OF_NUMA) return failure();
-
-
-    // Concatenate the two halves back together on N axis
-    auto newop = rewriter.create<tensor::ConcatOp>(
-        loc, target_dim, splites_res);
-    rewriter.replaceOp(op, newop);
-  } else {
-    SplitMMonK(splites_res, input_tensors, resultTy, loc, rewriter);
-    if (splites_res.size() != NUM_OF_NUMA) return failure();
-    // Add the two halves back together
-    // Create linalg.map operation
-    Value zero = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getZeroAttr(resultTy.getElementType()));
-    Value empty = rewriter.create<tensor::EmptyOp>(
-      loc, resultTy.getShape(), resultTy.getElementType());
-    Value initTensor =
-        rewriter.create<linalg::FillOp>(loc, zero, empty).getResult(0);
-    auto newop = rewriter.create<linalg::AddOp>(
-        loc, resultTy, splites_res, ValueRange{initTensor});
-
-    // Replace the original operation with the new linalg.map operation
-    rewriter.replaceOp(op, newop);
-  }
-  return success();
-}
-
-LogicalResult splitMLP(linalg::MatmulOp& op,
-                                PatternRewriter &rewriter) {
-  return success();
-}
-
-class SplitComputeIntensivePatternsRewriter
+class SplitMatmulRewriter
     : public OpRewritePattern<linalg::MatmulOp> {
 public:
   using OpRewritePattern<linalg::MatmulOp>::OpRewritePattern;
@@ -551,21 +499,21 @@ public:
     // Check if the operation has already been processed
     if (op->hasAttr("splited"))
       return failure();
-    // Ensure the operation is followed by relu and another matmul.
-    // auto nextOp = op->getNextNode();
-    // while (isa<linalg::FillOp>(nextOp) || isa<arith::ConstantOp>(nextOp)) nextOp = nextOp->getNextNode();
-    // std::cout << !isa<linalg::MaxOp>(nextOp) << std::endl;
-    // need to break when encounters computational op
-    // if (!nextOp || !isa<linalg::MaxOp>(nextOp))
     return splitSingleMM(op, rewriter);
-    // auto reluOp = cast<linalg::MaxOp>(nextOp);
-    // auto nextNextOp = reluOp->getNextNode();
-    // while (isa<linalg::FillOp>(nextNextOp) || isa<arith::ConstantOp>(nextNextOp)) nextNextOp = nextNextOp->getNextNode();
-    // // need to break when encounters binary op
-    // if (!nextNextOp || !isa<linalg::MatmulOp>(nextNextOp))
-    //   return splitSingleMMwithUnary(op, rewriter);
-    // auto nextMatmulOp = cast<linalg::MatmulOp>(nextNextOp);
-    // return splitMLP(op, rewriter);
+  }
+};
+
+class SplitMatmulTransposeBRewriter
+    : public OpRewritePattern<linalg::MatmulTransposeBOp> {
+public:
+  using OpRewritePattern<linalg::MatmulTransposeBOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(linalg::MatmulTransposeBOp op,
+                                PatternRewriter &rewriter) const final {
+    // Check if the operation has already been processed
+    llvm::outs() << "get into mm transpose b\n";
+    if (op->hasAttr("splited"))
+      return failure();
+    return splitSingleMM(op, rewriter);
   }
 };
 
@@ -577,11 +525,12 @@ public:
       SplitComputeIntensivePatterns>::SplitComputeIntensivePatternsBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.insert<SplitComputeIntensivePatternsRewriter>(&getContext());
+    patterns.insert<SplitMatmulRewriter>(&getContext());
+    patterns.insert<SplitMatmulTransposeBRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     SmallVector<Operation *> ops;
     getOperation()->walk([&](Operation *op) {
-      if (isa<linalg::MatmulOp>(op))
+      if (isa<linalg::MatmulOp, linalg::MatmulTransposeBOp>(op))
         ops.push_back(op);
     });
     GreedyRewriteConfig config;
