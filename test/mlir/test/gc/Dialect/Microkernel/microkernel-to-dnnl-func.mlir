@@ -1,4 +1,4 @@
-// RUN: gc-opt %s -convert-microkernel-to-dnnl-func -split-input-file | FileCheck %s
+// RUN: gc-opt %s -convert-microkernel-to-dnnl-func -cse -split-input-file | FileCheck %s
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
