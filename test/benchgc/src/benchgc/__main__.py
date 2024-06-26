@@ -85,9 +85,55 @@ try:
         help="define the dimensions attribute in linalg op",
         type=int,
     )
+    parser.add_argument(
+        "--stride_w",
+        required=False,
+        default=1,
+        help="define the stride attribute",
+        type=int,
+    )
+    parser.add_argument(
+        "--stride_h",
+        required=False,
+        default=1,
+        help="define the stride attribute",
+        type=int,
+    )
+    parser.add_argument(
+        "--stride_d",
+        required=False,
+        default=1,
+        help="define the stride attribute",
+        type=int,
+    )
+
+    parser.add_argument(
+        "--dilation_w",
+        required=False,
+        default=1,
+        help="define the dilation attribute",
+        type=int,
+    )
+    parser.add_argument(
+        "--dilation_h",
+        required=False,
+        default=1,
+        help="define the dilation attribute",
+        type=int,
+    )
+    parser.add_argument(
+        "--dilation_d",
+        required=False,
+        default=1,
+        help="define the dilation attribute",
+        type=int,
+    )
 
     flags = parser.parse_args()
     benchgc.util.set_seed(flags.seed)
+
+
+
 except argparse.ArgumentError:
     sys.stderr.write("Argument parse failed\n")
     sys.exit(1)

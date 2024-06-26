@@ -78,6 +78,22 @@ def set_default_fill_param(flags: argparse.Namespace, args: Dict[str, Arg], arg:
                 arg.param.append(str(arg.shape[-2]))
         elif flags.case in ["abs"]:
             arg.param = ["eltwise", flags.case, "", ""]
+        elif flags.case in ["conv_1d_ncw_fcw", "conv_1d_nwc_wcf", "conv_1d", "conv_2d_nchw_fchw", "conv_2d_ngchw_fgchw"]:
+            arg.param = [
+                "conv",
+                arg.name,
+                args["src"].dtype,
+                args["wei"].dtype,
+                args["dst"].dtype,
+            ]
+            if flags.case == "conv_1d_ncw_fcw" or flags.case == "conv_2d_nchw_fchw":
+                arg.param.append(str(benchgc.util.nelem(args["wei"].shape) // args["wei"].shape[0]))
+            elif flags.case == "conv_2d_ngchw_fgchw": 
+                arg.param.append(str(benchgc.util.nelem(args["wei"].shape[2:])))
+            elif flags.case == "conv_1d_nwc_wcf": 
+                arg.param.append(str(benchgc.util.nelem(args["wei"].shape) // args["wei"].shape[-1]))
+            elif flags.case == "conv_1d": 
+                arg.param.append(str(benchgc.util.nelem(args["wei"].shape)))
 
 
 def fill_tensor(flags: argparse.Namespace, arg: Arg) -> torch.Tensor:

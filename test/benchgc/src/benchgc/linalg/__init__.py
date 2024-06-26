@@ -26,7 +26,7 @@ mlir_op: Dict[
     str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
 ] = {}
 
-for dri in ["binary", "matmul", "eltwise", "misc"]:
+for dri in ["binary", "matmul", "eltwise", "misc", "conv"]:
     mod = importlib.import_module("benchgc.linalg.%s" % dri)
     for key in mod.__dict__:
         if key.startswith("ref_"):

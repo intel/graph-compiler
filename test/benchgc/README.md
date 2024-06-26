@@ -78,7 +78,8 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
     | driver_name | drvier filling parameter |
     |-------------|--------------------------|
     | binary | src0 dtype, src1 dtype, dst dtype |
-    | matmul | src dtype, wei dtype, dst dtype, K |
+    | matmul | src dtype, wei dtype, dst dtype, amplifier |
+    | conv | src dtype, wei dtype, dst dtype, amplifier |
 
 ### -o name:dtype:shape:check_type[:check_parameter]*
 * set or rewrite the variable {shape, dtype} in mlir or single op test
@@ -99,5 +100,5 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 
 ## Example
 ```
-python3 -m benchgc --verbose 4 --driver linalg --case add --arg src0:f32:4x5x6:N:0:1 --arg src1:f32:4x5x6:N:5:2 --arg dst:f32:4x5x6::
+python3 -m benchgc --verbose 4 --driver linalg --case add -i src0:f32:4x5x6:N:0:1 -i src1:f32:4x5x6:N:5:2 -o dst:f32:4x5x6::
 ```

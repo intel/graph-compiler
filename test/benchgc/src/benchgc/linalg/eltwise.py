@@ -49,3 +49,17 @@ def mlir_abs(
     map_eltwise_args(args)
     return init_i1o1_module(args["arg0"], args["1"], lambda ctx, arg0: linalg.abs(arg0, outs=[args["1"].get_empty_op(ctx)]))
 
+def ref_ceil(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    src, dst_var = __ref_init(op, var)
+    var[dst_var] = torch.ceil(src)
+
+
+def mlir_ceil(
+    flags: argparse.Namespace, args: Dict[str, Arg]
+) -> gc_mlir.ir.Module:
+    map_eltwise_args(args)
+    return init_i1o1_module(args["arg0"], args["1"], lambda ctx, arg0: linalg.ceil(arg0, outs=[args["1"].get_empty_op(ctx)]))
+
+
+
+

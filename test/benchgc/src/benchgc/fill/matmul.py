@@ -18,12 +18,12 @@ import torch
 import benchgc.util
 from typing import List, Dict, Tuple
 
-# params format: [src0 | wei, src dt, wei dt, dst dt, T/F transpose]
+# params format: [src | wei, src dt, wei dt, dst dt, amp]
 # use other filling type for bias
 
 
 def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
-    name, src_dt, wei_dt, dst_dt, k = params
+    name, src_dt, wei_dt, dst_dt, amp = params
 
     arg_rng: List[Dict[torch.dtype, Tuple[int, int]]] = [
         {
@@ -55,7 +55,7 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
         density = 1.0
     elif name == "wei":
         arg_min, arg_max = arg_rng[0][wei_dt]
-        density = min(safe_n_acc / int(k), 1.0)
+        density = min(safe_n_acc / int(amp), 1.0)
     else:
         raise Exception("unknown arg name %s", name)
 
