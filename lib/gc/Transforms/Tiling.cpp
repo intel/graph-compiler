@@ -284,7 +284,7 @@ static void calculateTileOffsetsAndSizes(
   OpBuilder::InsertionGuard g(b);
   b.setInsertionPointToStart(forallOp.getBody(0));
 
-  ValueRange threadIds = forallOp.getInductionVars();
+  SmallVector<Value> threadIds = forallOp.getInductionVars();
   SmallVector<OpFoldResult> nonZeroNumThreads =
       llvm::to_vector(llvm::make_filter_range(numThreads, [](OpFoldResult ofr) {
         return !isConstantIntValue(ofr, 0);
@@ -755,8 +755,8 @@ FailureOr<linalg::ForallReductionTilingResult> tileReductionUsingForall(
   ForallReductionTilingResult results;
   results.initialValues = initTensors;
   results.loops = forallOp;
-  results.parallelTiledOp = tiledOp;
-  results.mergeOp = mergeOp;
+  results.parallelTiledOps = {tiledOp};
+  results.mergeOps = {mergeOp};
   return results;
 }
 
@@ -1069,8 +1069,8 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
   ForallReductionTilingResult results;
   results.initialValues = initTensors;
   results.loops = forallOp;
-  results.parallelTiledOp = tiledOp;
-  results.mergeOp = mergeOp;
+  results.parallelTiledOps = SmallVector<Operation *>{tiledOp};
+  results.mergeOps = SmallVector<Operation *>{mergeOp};
   return results;
 }
 
