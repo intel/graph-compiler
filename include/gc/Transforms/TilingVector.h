@@ -41,11 +41,13 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <deque>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <queue>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 namespace mlir {
@@ -53,10 +55,6 @@ namespace gc {
 namespace {
 
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
-void rewriteOperationAsVectorize(
-    const std::queue<Operation *> &groupOps,
-    const llvm::DenseMap<Operation *, size_t> &opMap, OpBuilder &rewriter,
-    llvm::DenseMap<Operation *, AffineMap> &opPermuationMap);
 void checkAndSetOperand(
     Operation *op, const ValueRange &iterArgs,
     const llvm::DenseMap<Value, int> &operandIdxMap,
@@ -113,24 +111,40 @@ public:
 
 enum CanonicalizerKind { OperationsGroup, Operations };
 
-class MultiReductionCanonicalizer {
+template <class T> class SpecialOperationCanonicalizer {
 private:
-  llvm::SmallVector<vector::MultiDimReductionOp, 4> candidateRdOps;
+  llvm::SmallVector<T, 4> candidateRdOps;
+
+public:
+  SpecialOperationCanonicalizer() = default;
+  SpecialOperationCanonicalizer(const llvm::SmallVector<T, 4> &candidateRdOps)
+      : candidateRdOps(candidateRdOps) {}
+  llvm::SmallVector<T, 4> &getCandidateOps();
+  virtual void prepareSpecialOperationInfo() = 0;
+};
+
+class MultiReductionCanonicalizer
+    : virtual public SpecialOperationCanonicalizer<
+          vector::MultiDimReductionOp> {
+private:
   llvm::SmallVector<int64_t, 4> reductionAxis, parallelAxis;
+  std::queue<Operation *> prevOps, postOps, accRelatedOps, sourceRelatedOps;
   bool haslastDimReduction = false;
   bool isStandaloneOp = false;
   int64_t typeRank = -1;
+  llvm::SetVector<Value> originalOpResults;
+  VectorType sourceType, accType;
+  llvm::SmallDenseMap<Value, int> resultIdxMap;
 
 public:
   MultiReductionCanonicalizer(
       const llvm::SmallVector<vector::MultiDimReductionOp, 4> &candidateRdOps)
-      : candidateRdOps(candidateRdOps) {
-    assert(candidateRdOps.size() > 1);
+      : SpecialOperationCanonicalizer<vector::MultiDimReductionOp>(
+            candidateRdOps) {
     isStandaloneOp = candidateRdOps.size() == 1;
-    prepareReductionInfo();
+    prepareSpecialOperationInfo();
   };
   int64_t getTypeRank();
-  llvm::SmallVector<vector::MultiDimReductionOp, 4> &getCandidateOps();
   void getReductionAxisAndParallelAxis();
   bool hasLastDimReduction();
   bool getIsStandAloneOp() { return isStandaloneOp; }
@@ -138,7 +152,38 @@ public:
   void initParallelAxis();
   llvm::SmallVector<int64_t, 4> &getReductionAxis() { return reductionAxis; };
   llvm::SmallVector<int64_t, 4> &getParallelAxis() { return parallelAxis; };
-  void prepareReductionInfo();
+  std::queue<Operation *> &getPrevOps() { return prevOps; }
+  std::queue<Operation *> &getPostOps() { return postOps; }
+  std::queue<Operation *> &getAccRelatedOps() { return accRelatedOps; }
+  std::queue<Operation *> &getSourceRelatedOps() { return sourceRelatedOps; }
+  llvm::SetVector<Value> &getOriginalOpResults() { return originalOpResults; }
+  VectorType &getSourceType() { return sourceType; };
+  VectorType &getAccType() { return accType; };
+  llvm::SmallDenseMap<Value, int> &getResultIdxMap() { return resultIdxMap; }
+  void setResultIdxMap(const llvm::SmallDenseMap<Value, int> &map) {
+    resultIdxMap = std::move(map);
+  }
+  void prepareSpecialOperationInfo() override;
+};
+
+class BroadcastCanonicalizer
+    : virtual public SpecialOperationCanonicalizer<vector::BroadcastOp> {
+private:
+public:
+  BroadcastCanonicalizer(
+      const llvm::SmallVector<vector::BroadcastOp, 4> &candidateBcOps)
+      : SpecialOperationCanonicalizer<vector::BroadcastOp>(candidateBcOps){};
+  void prepareSpecialOperationInfo() override {}
+};
+
+class TransposeCanonicalizer
+    : virtual public SpecialOperationCanonicalizer<vector::TransposeOp> {
+private:
+public:
+  TransposeCanonicalizer(
+      const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps)
+      : SpecialOperationCanonicalizer<vector::TransposeOp>(candidateTpOps){};
+  void prepareSpecialOperationInfo() override {}
 };
 
 class CanonicalizerCommonUsedData {
@@ -150,7 +195,9 @@ private:
   // store read and write operations permutation maps in order to convenient
   // to replace loop induction var
   llvm::DenseMap<Operation *, AffineMap> opPermuationMap;
-  llvm::SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizer;
+  llvm::SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizers;
+  llvm::SmallVector<BroadcastCanonicalizer, 8> broadcastCanonicalizers;
+  llvm::SmallVector<TransposeCanonicalizer, 8> transposeCanonicalizers;
 
 public:
   CanonicalizerCommonUsedData() = default;
@@ -205,9 +252,21 @@ public:
   llvm::DenseMap<Operation *, AffineMap> &getOpPermuationMap() {
     return opPermuationMap;
   }
+
   llvm::SmallVector<MultiReductionCanonicalizer, 8> &getMultiRdCanonicalizer() {
-    return multiRdCanonicalizer;
+    return multiRdCanonicalizers;
   }
+
+  llvm::SmallVector<BroadcastCanonicalizer, 8> &getBroadcastCanonicalizer() {
+    return broadcastCanonicalizers;
+  }
+
+  llvm::SmallVector<TransposeCanonicalizer, 8> &getTransposeCanonicalizer() {
+    return transposeCanonicalizers;
+  }
+
+  // other methods
+  void initSpeicalOperationCanonicalizers();
 };
 
 class CanonicalizerVectorOperation {
@@ -239,24 +298,34 @@ public:
 
   void analysisGroupOperaionOperandsResults();
 
+  void generateEmptyTensorAndWrite(
+      Operation *sourceOp, llvm::DenseMap<Operation *, std::pair<Value, Value>>
+                               &srcOpCanoniclizedMap);
   void analysisGroupOperationResults();
 
   LogicalResult canonicalizeReductionOperation();
   LogicalResult canonicalizeTransposeOperation(vector::TransposeOp &transposeOp,
                                                IRRewriter &rewriter);
-  void rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId);
+  void rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
+                                   const std::queue<Operation *> &queue = {});
 
   // special operation methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
   void getCandidateSpecialOps();
   void canonicalizeSpecialOperation();
-  scf::ForOp parallelAxisGenerateForLoop(
-      const int groupIdx, const int parallelIdx, ValueRange &initArgs,
-      llvm::SmallVector<Value, 5> &inductionVars, Value &originalWriteResult);
+
   scf::ForOp
-  reductionAxisGenerateForLoop(const int groupIdx, const size_t reductionIdx,
-                               ValueRange &initArgs,
+  parallelAxisGenerateForLoop(OpBuilder &opBuilder, const int groupIdx,
+                              const size_t parallelIdx, ValueRange &initArgs,
+                              llvm::SmallVector<Value, 5> &inductionVars,
+                              Value &originalWriteResult);
+
+  scf::ForOp
+  reductionAxisGenerateForLoop(OpBuilder &opBuilder, const int groupIdx,
+                               const size_t reductionIdx, ValueRange &initArgs,
                                llvm::SmallVector<Value, 5> &inductionVars);
+
+  bool isGroupHasSpecialOperation(const size_t grpIdx);
 
   void run();
 };

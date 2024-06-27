@@ -471,7 +471,7 @@ struct LowerTileVectorPass
     populateLowerToTileVectorPatterns(patterns);
     linalg::populatePadOpVectorizationPatterns(patterns);
 
-    // vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
+    vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
     vector::populateSinkVectorBroadcastPatterns(patterns);
     vector::TransferReadOp::getCanonicalizationPatterns(patterns, ctx);
     vector::TransferWriteOp::getCanonicalizationPatterns(patterns, ctx);
