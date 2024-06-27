@@ -9,7 +9,8 @@
 #include <memory>
 
 #include "gc/Analysis/MatmulConfigAnalysis.h"
-
+// #include "json/json.h"
+#include <fstream>
 namespace mlir {
 namespace gc {
 
@@ -31,12 +32,14 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
 
 std::vector<uint32_t> getCandidate(uint32_t num, uint32_t floor,
                                    uint32_t ceil) {
+  // factor
   std::vector<uint32_t> candidates;
   for (uint32_t i = 1; i <= num; i++) {
     if (num % i == 0 && i <= ceil && i >= floor) {
       candidates.push_back(i);
     }
   }
+  // the pow of 2
   auto candidate = 1U;
   while (candidate < num && candidate <= ceil && candidate >= floor) {
     candidates.push_back(candidate);
@@ -72,16 +75,6 @@ bool isValidConfig(const MatmulConfig &config, SystemDesc &sysDesc,
   return true;
 }
 
-double threadUtilizationCost(linalg::LinalgOp &linalgOp,
-                             ArrayRef<uint32_t> shape,
-                             const MatmulConfig &config, SystemDesc &sysDesc) {
-  auto threads = sysDesc.getNumThreads();
-  auto actualThreads =
-      (float)(config.MThreads * config.NThreads * config.KThreads);
-  return threads >= actualThreads ? threads / actualThreads
-                                  : actualThreads / threads;
-}
-
 double hardwareEfficiencyCost(linalg::LinalgOp &linalgOp,
                               ArrayRef<uint32_t> shape,
                               const MatmulConfig &config, SystemDesc &sysDesc) {
@@ -103,9 +96,21 @@ double hardwareEfficiencyCost(linalg::LinalgOp &linalgOp,
 double workloadBalancedCost(linalg::LinalgOp &linalgOp,
                             ArrayRef<uint32_t> shape,
                             const MatmulConfig &config, SystemDesc &sysDesc) {
-  return 1;
+  auto M = shape[0], N = shape[1], K = shape[2];
+  auto MTaskNum = llvm::divideCeil(M, config.MBlock);
+  auto NTaskNum = llvm::divideCeil(N, config.NBlock);
+  auto KTaskNum = llvm::divideCeil(K, config.KBlock);
+  auto cost = (MTaskNum % config.MThreads) * 1.0 / MTaskNum +
+              (NTaskNum % config.NThreads) * 1.0 / NTaskNum +
+              (KTaskNum % config.KThreads) * 1.0 / KTaskNum;
+  if(MTaskNum < config.MThreads || NTaskNum < config.NThreads || KTaskNum < config.KThreads)
+  {
+    auto threadNotFulllyUtilizedPenalty = 10.0;
+    cost *= threadNotFulllyUtilizedPenalty;
+  }
+  return cost;
 }
-
+constexpr unsigned bitPerByte = 8;
 double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
                                      ArrayRef<uint32_t> shape,
                                      const MatmulConfig &config,
@@ -113,31 +118,35 @@ double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
   auto M = shape[0], N = shape[1], K = shape[2];
   auto dtypeSize = DataLayout().getTypeSizeInBits(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
-  auto penalty = 2.0 * (dtypeSize / 8);
+  // if use K split, there will be one more final reduce and break the post
+  // fusion
+
+  auto KSplitPenalty = 8.0 * (dtypeSize / bitPerByte);
   auto memoryConsumptionPerThread =
       M * K * 1.0 / config.MThreads / config.KThreads +
       K * N * 1.0 / config.KThreads / config.NThreads +
-      M * N * ((config.KThreads - 1) * penalty + 1.0) / config.MThreads /
+      M * N * ((config.KThreads - 1) * KSplitPenalty + 1.0) / config.MThreads /
           config.NThreads;
   return memoryConsumptionPerThread;
 }
 
-double computationIntensityOnL1Cache(linalg::LinalgOp &linalgOp,
+double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
                                      ArrayRef<uint32_t> shape,
                                      const MatmulConfig &config,
                                      SystemDesc &sysDesc) {
-  auto L1Cache = sysDesc.getCacheSize(2);
+  double simulationPenalty = 0.7;
+  auto L2Cache = sysDesc.getCacheSize(2);
   auto dtypeSize = DataLayout().getTypeSizeInBits(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
   auto outOfCachePenalty = 1024;
-  double FLOPS =
-      2.0 * config.innerMostMBlock * config.innerMostNBlock * config.KBlock;
-  double memoryConsumption = config.innerMostMBlock * config.innerMostNBlock +
-                             config.innerMostNBlock * config.KBlock +
-                             config.innerMostMBlock * config.KBlock;
+  double FLOPS = 2.0 * config.MBlock * config.NBlock * config.KBlock;
+  double memoryConsumption = config.MBlock * config.NBlock +
+                             config.NBlock * config.KBlock +
+                             config.MBlock * config.KBlock;
   double computationIntensity = FLOPS / memoryConsumption;
-  if (memoryConsumption * (dtypeSize / 8) > L1Cache) {
-    computationIntensity /= outOfCachePenalty;
+  if (memoryConsumption * (dtypeSize / bitPerByte) > L2Cache * simulationPenalty)
+  {
+      computationIntensity /= outOfCachePenalty;
   }
   return 1 / computationIntensity;
 }
@@ -149,7 +158,7 @@ using CostModelFn =
 std::vector<MatmulConfig>
 filterConfigByCostModel(std::vector<MatmulConfig> configs,
                         linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
-                        SystemDesc &sysDesc, const CostModelFn &costModel,
+                        SystemDesc &sysDesc, CostModelFn costModel,
                         float eliminationRatio = 0.5, float threshold = -1) {
   std::vector<MatmulConfig> result;
   std::vector<float> costs;
@@ -175,7 +184,7 @@ filterConfigByCostModel(std::vector<MatmulConfig> configs,
                << "\n worst with cost: " << costs[idx[configs.size() - 1]]
                << "\n"
                << configs[idx[configs.size() - 1]] << "\n";
-  return !result.empty() ? result : configs;
+  return result.size() > 0 ? result : configs;
 }
 
 std::vector<MatmulConfig>
@@ -269,19 +278,21 @@ previous matmul
 MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
   SystemDesc sysDesc;
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
-    // TODO: build a more complex heuristic to determine the best tiling
-    auto oprandDimType = *getOprandDimType(linalgOp);
-    // get the origin M,N,K size
-    auto MDimTypeIdx = extractDimTypeIdx(oprandDimType[0], DimType::M);
-    auto KDimTypeIdx = extractDimTypeIdx(oprandDimType[1], DimType::K);
-    auto NDimTypeIdx = extractDimTypeIdx(oprandDimType[1], DimType::N);
-    uint32_t M = 1U, N = 1U, K = 1U;
-    for (auto [s, dimType] :
-         llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(0)),
-                   oprandDimType[0])) {
-      if (dimType == DimType::M) {
-        M *= s;
-      }
+      // TODO: build a more complex heuristic to determine the best tiling
+      auto oprandDimType = *getOprandDimType(linalgOp);
+      // get the origin M,N,K size
+      auto MDimTypeIdx = extractDimTypeIdx(oprandDimType[0], DimType::M);
+      auto KDimTypeIdx = extractDimTypeIdx(oprandDimType[1], DimType::K);
+      auto NDimTypeIdx = extractDimTypeIdx(oprandDimType[1], DimType::N);
+      uint32_t M = 1U, N = 1U, K = 1U;
+      for (auto [s, dimType] :
+           llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(0)),
+                     oprandDimType[0]))
+      {
+          if (dimType == DimType::M)
+          {
+              M *= s;
+          }
     }
     for (auto [s, dimType] :
          llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(1)),
@@ -292,7 +303,6 @@ MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
         K *= s;
       }
     }
-
     // innermost Block, if the layout is blockied layout, the innermost block
     // will derived from the layout directly
     auto defaultBlock = 32;
@@ -330,12 +340,10 @@ MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
     } else {
       givenInnermostBlock.push_back(0);
     }
-
     // Number of block
     auto MNumBlock = M / config.innerMostMBlock;
     auto NNumBlock = N / config.innerMostNBlock;
     auto KNumBlock = K / config.innerMostKBlock;
-
     // Threads
     config.MThreads = 32;
     config.NThreads = 1;
@@ -357,30 +365,53 @@ MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
 
     llvm::outs() << "M: " << M << ", N: " << N << ", K: " << K << "\n";
 
-    SmallVector<std::pair<CostModelFn, std::string>> costModelList = {
-        {threadUtilizationCost, "threadUtilizationCost"},
-        {hardwareEfficiencyCost, "hardwareEfficiencyCost"},
-        {workloadBalancedCost, "workloadBalancedCost"},
-        {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost"},
-        {computationIntensityOnL1Cache, "computationIntensityOnL1Cache"}};
+    SmallVector<std::tuple<CostModelFn, std::string, double>> costModelList = {
+        {workloadBalancedCost, "workloadBalancedCost", 1},
+        {hardwareEfficiencyCost, "hardwareEfficiencyCost", -1},
+        {computationIntensityOnL2Cache, "computationIntensityOnL2Cache", -1},
+        {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost", -1}};
 
     auto configCandidates =
         prepareConfigCandidates(root, sysDesc, {M, N, K}, givenInnermostBlock);
-
-    for (auto [fn, name] : costModelList) {
-      llvm::outs() << name << "\n\n";
-      configCandidates = filterConfigByCostModel(configCandidates, linalgOp,
-                                                 {M, N, K}, sysDesc, fn, 0.5);
-      llvm::outs() << "ConfigCandidates size: " << configCandidates.size()
-                   << "\n";
+    for (auto [fn, name, threshold] : costModelList) {
+        llvm::outs() << "\n" << name << "\n";
+        configCandidates = filterConfigByCostModel(configCandidates, linalgOp,
+                                                   {M, N, K}, sysDesc, fn, 0.5, threshold);
+        llvm::outs() << "ConfigCandidates size: " << configCandidates.size()
+                     << "\n";
     }
 
-    if (!configCandidates.empty()) {
+    if (configCandidates.size() > 0) {
       config = configCandidates[0];
     }
 
+    // Json::Value cfg;
+    // std::ifstream cfgFile("/home/zhicong/code/tpp-mlir-ext/build/cfg.json",
+    //                       std::ifstream::binary);
+    // if (cfgFile.is_open()) {
+    //   cfgFile >> cfg;
+    //   bool use = cfg["use"].asBool();
+    //   if (use) {
+    //     config.MBlock = cfg["MBlock"].asUInt();
+    //     config.NBlock = cfg["NBlock"].asUInt();
+    //     config.KBlock = cfg["KBlock"].asUInt();
+    //     config.MThreads = cfg["MThreads"].asUInt();
+    //     config.NThreads = cfg["NThreads"].asUInt();
+    //     config.KThreads = cfg["KThreads"].asUInt();
+    //     config.innerMostMBlock = cfg["innerMostMBlock"].asUInt();
+    //     config.innerMostNBlock = cfg["innerMostNBlock"].asUInt();
+    //     config.innerMostKBlock = cfg["innerMostKBlock"].asUInt();
+    //   }
+    // }
     llvm::outs() << "Final config\nNumThreads: " << sysDesc.getNumThreads()
                  << ", MatmulConfig: " << config << "\n";
+    for (auto [fn, name, threshold] : costModelList)
+    {
+        auto cost = fn(linalgOp,
+                              {M, N, K}, config, sysDesc);
+        llvm::outs() << name << ": " << cost
+                     << "\n";
+    }
   }
 }
 } // namespace gc
