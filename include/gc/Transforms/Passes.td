@@ -41,7 +41,7 @@ def GCCPUPipeline : Pass<"gc-cpu-pipeline"> {
     "memref::MemRefDialect", "linalg::LinalgDialect", "linalgx::LinalgxDialect",
     "LLVM::LLVMDialect", "scf::SCFDialect",
     "bufferization::BufferizationDialect", "omp::OpenMPDialect",
-    "vector::VectorDialect"
+    "vector::VectorDialect", "microkernel::MicrokernelDialect"
   ];
 }
 

@@ -99,6 +99,14 @@ set(GC_LIB_LINKED_LIBS
         GCPasses
         GCAnalysis
         MLIROneDNNGraph
+        GCCpuRuntime 
+        MLIRMicrokernel 
+        MLIRMicrokernelTransforms 
+        GCMLIRUtils 
+        MLIRLinalgx 
+        GCPasses 
+        GCAnalysis 
+        MLIRLinalgxTransforms
 )
 add_library(graph_compiler SHARED ${GC_LIB_SOURCES})
 target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
