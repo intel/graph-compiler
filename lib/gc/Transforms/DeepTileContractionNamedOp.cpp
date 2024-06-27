@@ -497,10 +497,12 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         auto tilingResult = linalgX::tileAllUsingForall(
             b, cast<PartialReductionOpInterface>(currentOp.getOperation()), {},
             tileSizes, newParallelDims, std::nullopt);
-        if (failed(tilingResult))
+        if (failed(tilingResult) &&
+            tilingResult->parallelTiledOps.size() == 1UL)
           return failure();
-        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->parallelTiledOp);
-        if (tilingResult->mergeOp) {
+        currentOp =
+            dyn_cast<linalg::LinalgOp>(tilingResult->parallelTiledOps.back());
+        if (!tilingResult->mergeOps.empty()) {
           for (const auto &fn : option.finalReduceCallBacks) {
             auto result = fn(b, currentOp.getLoc(), *tilingResult);
             if (succeeded(result)) {
@@ -672,7 +674,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                  initValue[0].getDefiningOp())
                                  .getDpsInits()[0]);
         }
-        return dyn_cast<linalg::LinalgOp>(result.parallelTiledOp);
+        return dyn_cast<linalg::LinalgOp>(result.parallelTiledOps.back());
       };
       option.finalReduceCallBacks.push_back(removeReduncantFill);
     }
