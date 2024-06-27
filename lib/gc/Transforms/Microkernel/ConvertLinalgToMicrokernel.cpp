@@ -20,7 +20,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Utils/StructuredOpMatcher.h"
 #include "gc/Utils/ValueUtils.h"
@@ -350,7 +350,7 @@ public:
       return failure();
     // Check for immediately preceding linalg::FillOp
     auto contractionOperand = op.getDpsInits()[0];
-    for(auto &use: contractionOperand.getUses()) {
+    for (auto &use : contractionOperand.getUses()) {
       if (auto fillOp = dyn_cast<linalg::FillOp>(use.getOwner())) {
         auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
             fillOp.getInputs()[0].getDefiningOp());
