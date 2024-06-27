@@ -29,6 +29,37 @@
 #include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
+#define GEN_PASS_DEF_LINALGLOWERTOLOOP
+#include "gc/Transforms/Passes.h.inc"
+struct LinalgLowerToLoop
+    : public impl::LinalgLowerToLoopBase<LinalgLowerToLoop> {
+public:
+  void runOnOperation() override {
+    auto module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    module->walk([&](linalg::LinalgOp linalgOp) {
+      rewriter.setInsertionPoint(linalgOp);
+      if (linalgOp->getParentOfType<scf::ForallOp>() ||
+          linalgOp->getParentOfType<scf::ParallelOp>()) {
+        auto loops = linalgOpToLoops(rewriter, linalgOp);
+        if (failed(loops)) {
+          llvm::outs() << "Failed to convert to parallel loops\n";
+          return;
+        }
+        rewriter.eraseOp(linalgOp);
+      } else {
+        auto loops = linalgOpToParallelLoops(rewriter, linalgOp);
+        if (failed(loops)) {
+          llvm::outs() << "Failed to convert to parallel loops\n";
+          return;
+        }
+        rewriter.eraseOp(linalgOp);
+      }
+    });
+  }
+};
+#undef GEN_PASS_DEF_LINALGLOWERTOLOOP
 
 void populateCleanUpPasses(mlir::PassManager &pm) {
   pm.addPass(createCanonicalizerPass());
@@ -161,8 +192,7 @@ void populateCPUPipeline(mlir::PassManager &pm) {
   populateMicroKernelPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
-  pm.addNestedPass<scf::ForallOp>(createConvertLinalgToLoopsPass());
-  pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
+  pm.addPass(createLinalgLowerToLoop());
   populateCPURuntimePasses(pm);
   // // back-end, llvm dialect
   populateLLVMPasses(pm);
@@ -171,7 +201,6 @@ void populateCPUPipeline(mlir::PassManager &pm) {
 #define GEN_PASS_DEF_GCCPUPIPELINE
 #include "gc/Transforms/Passes.h.inc"
 namespace {
-
 class GCCPUPipeline : public impl::GCCPUPipelineBase<GCCPUPipeline> {
 public:
   friend struct PassHelper;
