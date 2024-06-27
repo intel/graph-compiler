@@ -272,7 +272,7 @@ static Operation *findParentFillOp(Value val) {
          !isa<linalg::FillOp>(currentOp)) {
     currentOp = currentOp->getResult(0).getDefiningOp();
   }
-  if (isa<linalg::FillOp>(currentOp)) {
+  if (currentOp && isa<linalg::FillOp>(currentOp)) {
     return currentOp;
   }
 
@@ -322,11 +322,10 @@ static unsigned getOprandDim(linalg::LinalgOp &linalgOp, unsigned iteratorPos,
   return linalgOp.getShape(linalgOp.getDpsInputOperand(operandIdx))[dimPos];
 }
 
-static LogicalResult setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
-                                                    Operation *op,
-                                                    bool isExtract,
-                                                    SmallVector<int64_t> size,
-                                                    int shrinDimNum = 0) {
+static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
+                                           Operation *op, bool isExtract,
+                                           SmallVector<int64_t> size,
+                                           int shrinDimNum = 0) {
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(op);
   if (auto extractSlice = dyn_cast<tensor::ExtractSliceOp>(op)) {
@@ -348,15 +347,12 @@ static LogicalResult setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
           extractSlice, extractSlice.getSource(), mixedOffsets, mixedSizes,
           mixedStrides);
     }
-  } else {
-    return failure();
   }
-  return mlir::success();
 }
 
-static LogicalResult setStaticSizeForInsertSliceOp(RewriterBase &rewriter,
-                                                   Operation *op, Value source,
-                                                   SmallVector<int64_t> size) {
+static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
+                                          Value source,
+                                          SmallVector<int64_t> size) {
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(op);
   if (auto insertSlice = dyn_cast<tensor::InsertSliceOp>(op)) {
@@ -369,10 +365,7 @@ static LogicalResult setStaticSizeForInsertSliceOp(RewriterBase &rewriter,
     rewriter.replaceOpWithNewOp<tensor::InsertSliceOp>(
         insertSlice, source, insertSlice.getDest(), mixedOffsets, mixedSizes,
         mixedStrides);
-  } else {
-    return failure();
   }
-  return success();
 }
 
 using InnermostFullResultCallBackFn = std::function<FailureOr<linalg::LinalgOp>(
@@ -691,7 +684,6 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                     linalg::LinalgOp originOp,
                                     linalg::LinalgOp currentOp,
                                     innerBodyGenerationOption &option) const {
-
     mlir::easybuild::EasyBuilder eb{rewriter, originOp.getLoc()};
     auto operandDimTypes = getOprandDimType(originOp);
     auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
@@ -744,6 +736,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       CInnermostDims =
           SmallVector<int64_t>{cfg.innerMostMBlock, cfg.innerMostNBlock};
     }
+
     if (NDimNum > 1) {
       firstN = true;
       firstK = true;
@@ -780,21 +773,17 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // update the extractSlice to static size, replace it with
     // useBlockedLayout when
-    if (failed(setStaticSizeForExtractSliceOp(
-            rewriter, currentOp.getDpsInits()[0].getDefiningOp(), true,
-            CInnermostDims, MDimNum > 1 ? 2 : 0)) ||
-        failed(setStaticSizeForExtractSliceOp(
-            rewriter, currentOp.getDpsInputs()[1].getDefiningOp(), true,
-            BInnermostDims, NDimNum > 1)) ||
-        failed(setStaticSizeForExtractSliceOp(
-            rewriter, currentOp.getDpsInputs()[0].getDefiningOp(), true,
-            AInnermostDims, MDimNum > 1)) ||
-        (currentOp.getDpsInits().size() > 1 &&
-         failed(setStaticSizeForExtractSliceOp(
-             rewriter, currentOp.getDpsInits()[1].getDefiningOp(), true,
-             CInnermostDims, MDimNum > 1 ? 2 : 0)))) {
-      return failure();
+    setStaticSizeForExtractSliceOp(rewriter,
+                                   currentOp.getDpsInputs()[1].getDefiningOp(),
+                                   true, BInnermostDims, NDimNum > 1);
+    setStaticSizeForExtractSliceOp(rewriter,
+                                   currentOp.getDpsInputs()[0].getDefiningOp(),
+                                   true, AInnermostDims, MDimNum > 1);
+    for (auto init : currentOp.getDpsInits()) {
+      setStaticSizeForExtractSliceOp(rewriter, init.getDefiningOp(), true,
+                                     CInnermostDims, MDimNum > 1 ? 2 : 0);
     }
+
     // View the tensor to brgemm required format
     Value dataOprand = tensorViewRankedTensor(
         rewriter,
@@ -841,10 +830,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // Insert the result back to the original tensor
     for (Operation *user : currentOp->getResult(0).getUsers()) {
-      if (failed(setStaticSizeForInsertSliceOp(rewriter, user, result,
-                                               CInnermostDims))) {
-        return failure();
-      }
+      setStaticSizeForInsertSliceOp(rewriter, user, result, CInnermostDims);
     }
 
     if (option.needLowPrecisionCast) {
@@ -869,10 +855,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       auto ifOp = eb.getLastOperaion();
       // set static size for the insertSliceOp of copyOp
       for (Operation *user : currentOp->getResult(1).getUsers()) {
-        if (failed(setStaticSizeForInsertSliceOp(
-                rewriter, user, ifOp->getResult(0), CInnermostDims))) {
-          return failure();
-        }
+        setStaticSizeForInsertSliceOp(rewriter, user, ifOp->getResult(0),
+                                      CInnermostDims);
       }
       rewriter.replaceOp(currentOp, {matmul->getResult(0), ifOp->getResult(0)});
     } else {
@@ -885,7 +869,11 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       if (cfg.KThreads <= 1) {
         // if use k slicing, the fill op is still need to be kept for the reduce
         // init
-        rewriter.replaceOp(fillOp, fillOp.getDpsInits()[0]);
+        rewriter.replaceUsesWithIf(fillOp.getResult(0), fillOp.getDpsInits()[0],
+                                   [&](OpOperand &operand) {
+                                     return isa<LoopLikeOpInterface>(
+                                         operand.getOwner());
+                                   });
       }
 
       rewriter.setInsertionPointAfter(currentOp);
@@ -954,8 +942,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     }
 
     // Step 2. Outer loop generation
-    auto outerLoopResult = outerLoopGeneration(rewriter, linalgOp, cfg,
-                                               isa<linalg::FillOp>(fillOp));
+    auto outerLoopResult = outerLoopGeneration(
+        rewriter, linalgOp, cfg, fillOp && isa<linalg::FillOp>(fillOp));
     if (failed(outerLoopResult)) {
       return failure();
     }
