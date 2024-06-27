@@ -1,14 +1,12 @@
-//===-- TilingInterfaceImpl.cpp.inc -----------------------------*- C++ -*-===//
+//===- TilingInterfaceImpl.cpp - Implementation of TilingInterface -------===//
 //
-// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-// This file is a partial copy of 
-// mlir/lib/Dialect/Linalg/Transforms/TilingInterfaceImpl.cpp
-//===----------------------------------------------------------------------===//
+
+#include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
 
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -370,11 +368,11 @@ struct LinalgOpPartialReductionInterface
     return inits;
   }
 
-  Operation *tileToPartialReduction(Operation *op, OpBuilder &b, Location loc,
-                                    ValueRange init,
-                                    ArrayRef<OpFoldResult> offsets,
-                                    ArrayRef<OpFoldResult> sizes,
-                                    ArrayRef<int> reductionDims) const {
+  FailureOr<TilingResult>
+  tileToPartialReduction(Operation *op, OpBuilder &b, Location loc,
+                         ValueRange init, ArrayRef<OpFoldResult> offsets,
+                         ArrayRef<OpFoldResult> sizes,
+                         ArrayRef<int> reductionDims) const {
     OpBuilder::InsertionGuard guard(b);
     auto linalgOp = cast<LinalgOp>(op);
 
@@ -439,12 +437,15 @@ struct LinalgOpPartialReductionInterface
     IRMapping mapping;
     op->getRegion(0).cloneInto(&genericOp.getRegion(),
                                genericOp.getRegion().begin(), mapping);
-    return genericOp.getOperation();
+    return TilingResult{
+        {genericOp.getOperation()},
+        llvm::map_to_vector(genericOp->getResults(),
+                            [](OpResult r) -> Value { return r; })};
   }
 
-  Operation *mergeReductions(Operation *op, OpBuilder &b, Location loc,
-                             ValueRange partialReduce,
-                             ArrayRef<int> reductionDims) const {
+  FailureOr<MergeResult> mergeReductions(Operation *op, OpBuilder &b,
+                                         Location loc, ValueRange partialReduce,
+                                         ArrayRef<int> reductionDims) const {
     auto linalgOp = cast<LinalgOp>(op);
 
     // Step 1. Recover the dims that actually need to be merged from the
@@ -495,7 +496,10 @@ struct LinalgOpPartialReductionInterface
           }
           b.create<linalg::YieldOp>(loc, yieldedValues);
         });
-    return reduction.getOperation();
+    return MergeResult{
+        {reduction.getOperation()},
+        llvm::map_to_vector(reduction->getResults(),
+                            [](OpResult r) -> Value { return r; })};
   }
 };
 

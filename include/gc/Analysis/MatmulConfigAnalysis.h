@@ -9,7 +9,7 @@
 #ifndef MLIR_ANALYSIS_MATMULCONFIGANALYSIS_H
 #define MLIR_ANALYSIS_MATMULCONFIGANALYSIS_H
 
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"

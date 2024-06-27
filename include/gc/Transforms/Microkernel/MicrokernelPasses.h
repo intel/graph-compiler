@@ -9,7 +9,7 @@
 #ifndef GC_MICROKERNELPASSES_H
 #define GC_MICROKERNELPASSES_H
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "mlir/Pass/Pass.h"
