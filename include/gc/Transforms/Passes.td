@@ -45,4 +45,12 @@ def GCCPUPipeline : Pass<"gc-cpu-pipeline"> {
   ];
 }
 
+def LinalgLowerToLoop : Pass<"linalg-lower-to-loop", "ModuleOp"> {
+  let summary = "Lower Linalg ops to loops(scf.for is inside parallel loop, "
+                "otherwise scf.parallel)";
+  let dependentDialects = [
+    "arith::ArithDialect", "func::FuncDialect", "memref::MemRefDialect",
+    "scf::SCFDialect", "LLVM::LLVMDialect", "linalg::LinalgDialect"
+  ];
+}
 #endif // GC_DIALECT_GC_PASSES
