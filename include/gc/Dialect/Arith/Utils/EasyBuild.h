@@ -361,8 +361,9 @@ inline EBUnsigned extend(Type type, const EBUnsigned &a) {
 }
 
 inline EBFloatPoint extend(Type type, const EBFloatPoint &a) {
+  arith::FastMathFlagsAttr fastMathAttr;
   return OperatorHandlers::create<EBFloatPoint, arith::ExtFOp>(a.builder, type,
-                                                               a);
+                                                               a, fastMathAttr);
 }
 
 inline EBSigned trunc(Type type, const EBSigned &a) {
