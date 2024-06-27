@@ -15,7 +15,15 @@ foreach (TEST_SOURCE ${TEST_SOURCES})
     target_link_libraries(${TEST_NAME} graph_compiler_static
             gtest
             gtest_main
-            ${GC_LIB_LINKED_LIBS}
+            ${GC_LIB_LINKED_LIBS}    
+            GCCpuRuntime 
+                MLIRMicrokernel 
+                MLIRMicrokernelTransforms 
+                GCMLIRUtils 
+                MLIRLinalgx 
+                GCPasses 
+                GCAnalysis 
+                MLIRLinalgxTransforms
     )
     add_test(NAME ${TEST_NAME}
             COMMAND ${TEST_NAME}

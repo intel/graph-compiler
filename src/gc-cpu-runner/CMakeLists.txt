@@ -15,6 +15,10 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
+get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
+
 if(GC_DEV_LINK_LLVM_DYLIB)
   set(LLVM_LINK_COMPONENTS
     LLVM
@@ -44,6 +48,17 @@ else()
     MLIRParser
     MLIRTargetLLVMIRExport
     MLIRSupport
+    ${dialect_libs}
+    ${conversion_libs}
+    ${extension_libs}
+    GCCpuRuntime 
+    MLIRMicrokernel 
+    MLIRMicrokernelTransforms 
+    GCMLIRUtils 
+    MLIRLinalgx 
+    GCPasses 
+    GCAnalysis 
+    MLIRLinalgxTransforms
   )
 endif()
 
@@ -55,10 +70,12 @@ endif()
 set(gc_cpu_runner_libs
         ${MLIR_LINK_COMPONENTS}
         GCCpuRuntime)
-add_mlir_tool(gc-cpu-runner
+add_llvm_executable(gc-cpu-runner
         gc-cpu-runner.cpp
 )
 llvm_update_compile_flags(gc-cpu-runner)
 
 target_link_libraries(gc-cpu-runner PRIVATE ${gc_cpu_runner_libs})
 mlir_check_all_link_libraries(gc-cpu-runner)
+
+install(TARGETS gc-cpu-runner RUNTIME DESTINATION bin)
