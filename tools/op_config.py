@@ -49,16 +49,19 @@ class MatMulConfig(Config):
 
     def __init__(self, op: OpView):
         super().__init__()
-        assert isinstance(op, onednn_graph.MatMulOp)
+        # assert isinstance(op, onednn_graph.MatMulOp)
         # you can set the default value by matmul_op
         # cpu_counts = os.cpu_count()
+        
+        print(op.operands[0].type.shape)
+        
         # self.input_a_shape = op.input_a.type.shape
         # self.input_b_shape = op.input_b.type.shape
         # self.input_a_dtype = op.input_a.type.element_type
-        # print(self.input_a_shape, self.input_a_dtype)
         self.M_threads = 1
         self.K_threads = 1
         self.N_threads = 1
+        
         self.M_block = 1
         self.K_block = 1
         self.N_block = 1
@@ -82,7 +85,7 @@ class MatMulConfig(Config):
         self.field_constraints["N_block"] = None
 
     def attach_to_ir(self, op: OpView):
-        assert isinstance(op, onednn_graph.MatMulOp)
+        # assert isinstance(op, onednn_graph.MatMulOp)
         attr_to_field = {
             "Mthreads": self.M_threads,
             "Kthreads": self.K_threads,

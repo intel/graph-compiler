@@ -25,7 +25,7 @@ def context_init_hook(context):
     register_onednn_graph_dialect(context)
     register_cpuruntime_dialect(context)
     register_linalgx_dialect(context)
-    print("context_init_hook")
+  
     
     d = get_dialect_registry()
     register_linalgx_interface(d)
