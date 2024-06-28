@@ -137,6 +137,8 @@ void populateMicroKernelPasses(mlir::PassManager &pm) {
   pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
   pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
   pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  // pm.addPass(createRemoveDeadValuesPass());
+  // pm.addPass(createInlinerPass());
   populateCleanUpPasses(pm);
   PrintIRPassOptions option{"MicroKernel passes result"};
   pm.addPass(createPrintIRPass(option));
