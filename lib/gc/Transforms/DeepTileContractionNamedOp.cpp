@@ -684,7 +684,6 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                     linalg::LinalgOp originOp,
                                     linalg::LinalgOp currentOp,
                                     innerBodyGenerationOption &option) const {
-
     mlir::easybuild::EasyBuilder eb{rewriter, originOp.getLoc()};
     auto operandDimTypes = getOprandDimType(originOp);
     auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
@@ -737,6 +736,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       CInnermostDims =
           SmallVector<int64_t>{cfg.innerMostMBlock, cfg.innerMostNBlock};
     }
+
     if (NDimNum > 1) {
       firstN = true;
       firstK = true;
@@ -774,17 +774,15 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     // update the extractSlice to static size, replace it with
     // useBlockedLayout when
     setStaticSizeForExtractSliceOp(rewriter,
-                                   currentOp.getDpsInits()[0].getDefiningOp(),
-                                   true, CInnermostDims, MDimNum > 1 ? 2 : 0);
-    setStaticSizeForExtractSliceOp(rewriter,
                                    currentOp.getDpsInputs()[1].getDefiningOp(),
                                    true, BInnermostDims, NDimNum > 1);
     setStaticSizeForExtractSliceOp(rewriter,
                                    currentOp.getDpsInputs()[0].getDefiningOp(),
                                    true, AInnermostDims, MDimNum > 1);
-    setStaticSizeForExtractSliceOp(rewriter,
-                                   currentOp.getDpsInits()[1].getDefiningOp(),
-                                   true, CInnermostDims, MDimNum > 1 ? 2 : 0);
+    for (auto init : currentOp.getDpsInits()) {
+      setStaticSizeForExtractSliceOp(rewriter, init.getDefiningOp(), true,
+                                     CInnermostDims, MDimNum > 1 ? 2 : 0);
+    }
 
     // View the tensor to brgemm required format
     Value dataOprand = tensorViewRankedTensor(

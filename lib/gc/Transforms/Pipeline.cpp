@@ -28,6 +28,9 @@
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 
+#include <string>
+#include <iostream>
+
 namespace mlir::gc {
 #define GEN_PASS_DEF_LINALGLOWERTOLOOP
 #include "gc/Transforms/Passes.h.inc"
@@ -113,6 +116,10 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
+
+  PrintIRPassOptions option1{"createOneShotBufferizePass result"};
+  pm.addPass(createPrintIRPass(option1));
+
   pm.addPass(createCSEPass());
 
   bufferization::BufferResultsToOutParamsOpts opt{};
@@ -137,6 +144,8 @@ void populateMicroKernelPasses(mlir::PassManager &pm) {
   pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
   pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
   pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  // pm.addPass(createRemoveDeadValuesPass());
+  // pm.addPass(createInlinerPass());
   populateCleanUpPasses(pm);
   PrintIRPassOptions option{"MicroKernel passes result"};
   pm.addPass(createPrintIRPass(option));
@@ -208,8 +217,18 @@ public:
   using impl::GCCPUPipelineBase<GCCPUPipeline>::GCCPUPipelineBase;
   void runOnOperation() final {
     auto op = getOperation();
-    PassManager pm{op->getContext()};
+    auto ctx = op->getContext();
+    // ctx->disableMultithreading();
+    PassManager pm{ctx};
     populateCPUPipeline(pm);
+    // pm.enableIRPrinting();
+  
+  // std::string pipeline;
+  // llvm::raw_string_ostream pipelineStream(pipeline);
+  // pm.printAsTextualPipeline(pipelineStream);
+  // std::cout << "pipeline= " << pipeline << std::endl;
+
+
     // TODO(longsheng): add a option to
     // disable threading and enable pm.enableIRPrinting();
     if (failed(pm.run(op)))

@@ -8,6 +8,8 @@
 
 #include "gc/Transforms/Passes.h"
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+
+// #include "gc/Dialect/Linalgx/Transforms/AllInterfaces.h"
 #include "mlir-c/Pass.h"
 #include "mlir/CAPI/Pass.h"
 
