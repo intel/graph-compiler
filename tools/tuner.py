@@ -165,7 +165,7 @@ class Tuner(ABC):
                     self.tunning_space.initial_ir.context,
                 )
                 utils.attach_configs_to_ir(new_ir, real_config)
-                _, cost = self.executor(new_ir)
+                cost,_ = self.executor(new_ir)
                 perf_result.append(cost)
 
             print(
