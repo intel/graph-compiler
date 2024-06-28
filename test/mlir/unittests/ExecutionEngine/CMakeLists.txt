@@ -4,4 +4,15 @@ add_mlir_unittest(GCExecutionEngineTests
 target_link_libraries(GCExecutionEngineTests
   PRIVATE
   GCJitWrapper
-  GCCpuRuntime)
+  GCCpuRuntime
+  MLIROneDNNGraph
+  MLIRCPURuntimeDialect
+  GCPasses
+  MLIRCPURuntimeTransforms
+  MLIRMicrokernel 
+  MLIRMicrokernelTransforms 
+  GCMLIRUtils 
+  MLIRLinalgx 
+  GCPasses 
+  GCAnalysis 
+  MLIRLinalgxTransforms)
