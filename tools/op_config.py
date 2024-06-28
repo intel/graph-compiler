@@ -5,6 +5,7 @@ from gc_mlir.dialects import onednn_graph
 from gc_mlir.dialects._ods_common import OpView
 from gc_mlir.extras import types as T
 from gc_mlir.ir import IntegerAttr
+import copy
 
 
 class Config:
@@ -71,8 +72,19 @@ class MatMulConfig(Config):
 
     def init_candidates(self):
         # you can set the candidates by info form matmul op
-        self.field_candidates["M_block"] = [16, 32]
-        self.field_candidates["K_block"] = [16, 32, 64]
+        def get_factors(num: int):
+            factors = []
+            for i in range(1, num+1):
+                if num % i == 0:
+                    factors.append(i)
+            return factors
+        f = get_factors(56)
+
+        self.field_candidates["M_threads"] = copy.deepcopy(f)
+        self.field_candidates["K_threads"] = copy.deepcopy(f)
+        self.field_candidates["N_threads"] = copy.deepcopy(f)
+        self.field_candidates["M_block"] = [16]
+        self.field_candidates["K_block"] = [16]
         self.field_candidates["N_block"] = [16]
 
     def init_constraints(self):
@@ -80,6 +92,13 @@ class MatMulConfig(Config):
         # self.field_constraints["K_block"] = (
         #     lambda MatMulConfig, K_block: MatMulConfig.M_block <= K_block
         # )
+        self.field_constraints["M_threads"] = None
+        self.field_constraints["K_threads"] = (
+            lambda MatMulConfig, K_threads: 56 / MatMulConfig.M_threads % K_threads == 0
+        )
+        self.field_constraints["N_threads"] = (
+            lambda MatMulConfig, N_threads: 56 / MatMulConfig.M_threads / MatMulConfig.K_threads % N_threads == 0
+        )
         self.field_constraints["M_block"] = None
         self.field_constraints["K_block"] = None
         self.field_constraints["N_block"] = None
