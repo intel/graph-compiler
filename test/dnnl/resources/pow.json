@@ -1,0 +1,41 @@
+{
+  "version": "3.5.0",
+  "engine_kind": "cpu",
+  "fpmath_mode": "any",
+  "input_ports": [
+    0
+  ],
+  "output_ports": [
+    1
+  ],
+  "graph": [
+    {
+      "id": 0,
+      "kind": "Pow",
+      "attrs": {
+        "beta": {
+          "type": "f32",
+          "value": 2
+        }
+      },
+      "inputs": [
+        {
+          "id": 0,
+          "dtype": "f32",
+          "shape": [
+            64
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 1,
+          "dtype": "f32",
+          "shape": [
+            64
+          ]
+        }
+      ]
+    }
+  ]
+}

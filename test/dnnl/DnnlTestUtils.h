@@ -1,27 +1,31 @@
-/*
- * Copyright (C) 2024 Intel Corporation
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions
- * and limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+//===-- DnnlTestUtils.h - Test utils ----------------------------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
 
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 
-static std::string read_str_resource(const std::string &name) {
+#if __cplusplus > 202002L
+#include <stdfloat>
+#else
+namespace std {
+#if defined(__SIZEOF_FLOAT__) && __SIZEOF_FLOAT__ == 4
+using float32_t = float;
+#elif defined(__SIZEOF_DOUBLE__) && __SIZEOF_DOUBLE__ == 4
+using float32_t = double;
+#else
+static_assert(false, "No 32-bit floating point type available");
+#endif
+} // namespace std
+#endif
+
+static std::string readStrResource(const std::string &name) {
   std::filesystem::path res_dir{"resources"};
   auto path = std::filesystem::absolute(res_dir / name);
   std::ifstream file(path);

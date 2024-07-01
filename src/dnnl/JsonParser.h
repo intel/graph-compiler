@@ -27,7 +27,13 @@
 #include <stdfloat>
 #else
 namespace std {
+#if defined(__SIZEOF_FLOAT__) && __SIZEOF_FLOAT__ == 4
 using float32_t = float;
+#elif defined(__SIZEOF_DOUBLE__) && __SIZEOF_DOUBLE__ == 4
+using float32_t = double;
+#else
+static_assert(false, "Unable to determine 32-bit floating point type");
+#endif
 } // namespace std
 #endif
 
@@ -43,22 +49,25 @@ using float32_t = float;
 #include "mlir/Parser/Parser.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
+#include "dnnl_types.h"
 #include "graph/utils/json.hpp"
+
+using Strides = llvm::SmallVector<int64_t, DNNL_MAX_NDIMS>;
 
 class JsonParser {
   dnnl::impl::graph::utils::json::json_reader_t _reader;
   mlir::OpBuilder _builder;
   mlir::Location _loc;
   mlir::Block *_entryBlock;
-  std::vector<size_t> &_inputIds;
-  std::vector<size_t> &_outputIds;
+  llvm::SmallVector<size_t> &_inputIds;
+  std::unordered_map<std::size_t, Strides> _strides;
   // Function input and operations output values. Used to connect the
   // operations inputs and outputs.
   std::unordered_map<std::size_t, mlir::Value> _valueMap;
   // Temporary value holders, used by the parser
-  std::vector<mlir::Value> _operands;
-  std::vector<mlir::Type> _resultTypes;
-  std::vector<mlir::NamedAttribute> _attributes;
+  llvm::SmallVector<mlir::Value> _operands;
+  llvm::SmallVector<mlir::Type> _resultTypes;
+  llvm::SmallVector<mlir::NamedAttribute> _attributes;
   std::string _str;
   std::string _str2;
   std::size_t _uS;
@@ -70,9 +79,9 @@ class JsonParser {
   std::vector<std::float32_t> _fa32;
 
   JsonParser(mlir::MLIRContext &context, std::istream &stream,
-             std::vector<size_t> &inputIds, std::vector<size_t> &outputIds)
+             llvm::SmallVector<size_t> &inputIds)
       : _reader(&stream), _builder(&context), _loc(_builder.getUnknownLoc()),
-        _inputIds(inputIds), _outputIds(outputIds), _valueMap(), _operands(),
+        _inputIds(inputIds), _strides(), _valueMap(), _operands(),
         _resultTypes(), _attributes(), _str(), _str2(), _uS(), _i64(), _f32(),
         _uaS(), _ia64(), _ia642(), _fa32() {
     // Creating a dummy function since we don't know the actual type yet.
@@ -82,7 +91,8 @@ class JsonParser {
     _builder.setInsertionPointToStart(_entryBlock);
   }
 
-  mlir::ModuleOp parse();
+  mlir::ModuleOp parse(llvm::SmallVector<size_t> &outputIds,
+                       std::unordered_map<std::size_t, Strides> &strides);
   void readOp();
   mlir::Attribute readAttr();
   mlir::Type readTensorType();
@@ -120,11 +130,12 @@ class JsonParser {
     }
   }
 
-  template <typename T> inline void readNumArray(std::vector<T> &vec) {
+  template <typename T, template <typename...> class Container, typename... Any>
+  inline void readNumArray(Container<T, Any...> &c) {
     _reader.begin_array();
     for (T value; _reader.next_array_item();) {
       _reader.read_number(&value);
-      vec.push_back(value);
+      c.push_back(value);
     }
   }
 
@@ -140,8 +151,16 @@ class JsonParser {
   }
   std::unordered_map<std::string, OpBuilderFn> _opBuilders{
       GC_OP("Add", mlir::onednn_graph::AddOp),
+      GC_OP("Divide", mlir::onednn_graph::DivOp),
       GC_OP("MatMul", mlir::onednn_graph::MatMulOp),
+      GC_OP("Multiply", mlir::onednn_graph::MulOp),
+      GC_OP("Pow", mlir::onednn_graph::PowOp),
+      GC_OP("ReduceMean", mlir::onednn_graph::ReduceMeanOp),
+      GC_OP("ReduceSum", mlir::onednn_graph::ReduceSumOp),
       GC_OP("ReLU", mlir::onednn_graph::ReLUOp),
+      GC_OP("Sigmoid", mlir::onednn_graph::SigmoidOp),
+      GC_OP("Subtract", mlir::onednn_graph::SubOp),
+      GC_OP("Typecast", mlir::onednn_graph::TypeCastOp),
   };
 #undef GC_OP
 
@@ -175,14 +194,16 @@ public:
    * @param json JSON string containing the oneDNN graph.
    * @param inputIds Input tensor IDs are added to this vector.
    * @param outputIds Output tensor IDs are added to this vector.
+   * @param strides Strides for each tensor are added to this map.
    * @return The resulting MLIR module.
    */
-  static mlir::ModuleOp parse(mlir::MLIRContext &context,
-                              const std::string_view &json,
-                              std::vector<size_t> &inputIds,
-                              std::vector<size_t> &outputIds) {
+  static mlir::ModuleOp
+  parse(mlir::MLIRContext &context, const std::string_view &json,
+        llvm::SmallVector<size_t> &inputIds,
+        llvm::SmallVector<size_t> &outputIds,
+        std::unordered_map<std::size_t, Strides> &strides) {
     std::istringstream stream(json.data());
-    JsonParser parser(context, stream, inputIds, outputIds);
-    return parser.parse();
+    JsonParser parser(context, stream, inputIds);
+    return parser.parse(outputIds, strides);
   }
 };
