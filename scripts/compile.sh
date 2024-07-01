@@ -6,12 +6,14 @@ repo=intel/graph-compiler
 # set -x
 
 print_usage() {
-    echo "Usage:"
-    echo "$0 "
-    echo "    [ -d | --dev   ] Dev build, build LLVM in current env and place all to 'external' dir"
-    echo "    [ -l | --dyn   ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option"
-    echo "    [ -c | --clean ] Delete the build artifacts from the previous build"
-    echo "    [ -h | --help  ] Print this message"
+    cat <<EOF
+Usage:
+$(basename "$0")
+    [ -d | --dev   ] Dev build, build LLVM in current env and place all to 'external' dir
+    [ -l | --dyn   ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
+    [ -c | --clean ] Delete the build artifacts from the previous build
+    [ -h | --help  ] Print this message
+EOF
 }
 
 DEV_BUILD=false
