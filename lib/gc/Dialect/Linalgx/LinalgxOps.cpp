@@ -78,8 +78,7 @@ void SigmoidOp::getEffects(
         &effects) {
   if (hasPureTensorSemantics())
     return;
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -188,8 +187,7 @@ void Mm2DVnniOp::getEffects(
         &effects) {
   if (hasPureTensorSemantics())
     return;
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
 }
 
 LogicalResult Mm2DVnniOp::verify() {
@@ -329,8 +327,7 @@ void Mm4DVnniOp::getEffects(
         &effects) {
   if (hasPureTensorSemantics())
     return;
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
 }
 
 LogicalResult Mm4DVnniOp::verify() {
@@ -472,8 +469,7 @@ void BatchReduceMatmulVnniOp::getEffects(
         &effects) {
   if (hasPureTensorSemantics())
     return;
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
 }
 
 LogicalResult BatchReduceMatmulVnniOp::verify() {
@@ -609,8 +605,7 @@ void MultiBatchMatmulOp::getEffects(
         &effects) {
   if (hasPureTensorSemantics())
     return;
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
 }
 
 /////// Operations corresponding to library calls defined with Tablegen ////////
