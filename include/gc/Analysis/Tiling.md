@@ -672,4 +672,122 @@ number of ticks will be about `192 + 2 + 2 = 196`
 
 To utilize threads effectively we will need an amount of them and mark memory as shared/private for specific core. 
 
+To estimate required amount of threads, we should use "diagonal" direction for axises that have parallel "iterator type", for reduction axis parallelisation should be used reduction tree logic, which much less effective than parallelisation along parallel axis. Also it can be used if the shared memory amount is enough. 
 
+Let's take a look how our estimations will work in the case of several avialable execution units (let's assume 4) and 3 lavels of memory:
+
+```
+    [ 10'000 ]      1st level (local)
+        | 
+   [  50'000  ]     2nd level (shared)
+        |
+ [    100'000    ]  3rd level (shared)
+```
+
+We will tile this kind of matmul:
+```
+[128 x 512] ifm         [512 x 128] weight
+    \                       /
+              matmul
+                |
+          [128 x 128] ofm
+```
+Same as previously considered example.
+ 
+For tiling of highest shared layer we can try to ise naive buffer layout:
+```
+ +------+-------------+------+------+-------------+------+------+-------------+------+------+-------------+------+
+ | ifm0 |     w0      | ofm0 | ifm1 |     w1      | ofm1 | ifm2 |     w2      | ofm2 | ifm3 |     w3      | ofm3 |
+ +------+-------------+------+------+-------------+------+------+-------------+------+------+-------------+------+
+```
+```
+   x*y*4 (4 ifms) + y*z*4 (4 w) + x*z*4 (4 ofm) = 50'000 
+                     |
+             x*y + y*z + x*z = 12'500                 
+```
+At first let's try to avoid tiling on reduction:
+```
+ x*512 + 512*z + x*z = 12'500                 
+```
+```
+ x*512 + 512*x + x*x = 12'500                 
+```
+`x = 12` -> required 11 tiles on each parallel, so `x = 12`.
+So total anount of tiles: `11 * 11 = 121` tile total. 
+So execution pipeline is: 
+```
+0 |      1: load_ifm0 load_w0    1: load_ifm1 load_w1   1: load_ifm2 load_w2  1: load_ifm3 load_w3      
+1 *      execution_t0            execution_t1           execution_t2          execution_t3         
+2        store_ofm0              store_ofm1             store_ofm2            store_ofm2             1: load_ifm0 load_w0       1: load_ifm3 load_w3  
+3                                                                                                    execution_t4           ... execution_t7           
+4                                                                                                    store_ofm0                 store_ofm3          
+ ...
+```
+`num_ticks = (num_tiles/4) * 2 + 1` -> `num_ticks = 62`
+With 1 execution unit for 2nd level we had `27` ticks, so we should try to reduce amount of ticks. Let's try to share weight:
+```
+ x*512*4 + 512*64 + x*64*4 = 50'000                 
+```
+`x = 7` -> 19 tiles in input. Total amount of tiles is `19 * 2 = 38`.
+
+```
+0 |      1: load_ifm0 load_w0       1: load_ifm3      
+1 *      execution_t0          ...  execution_t3         
+2        store_ofm0                 store_ofm2             1: load_ifm0         1: load_ifm3  
+3                                                          execution_t4    ...  execution_t7           
+4                                                          store_ofm0           store_ofm3          
+ ...
+```
+Total pipeline layout is the same, so at first we load all 19 input tiles and w0 (first tile of weight), than we load same 19 input tiles with second weight tile (w1). 1 tick will be lost to load new weights:
+`num_ticks = (num_tiles/4) * 2 + 1 + 1` -> `num_ticks = 21`
+Let's try to parallelise loads with execution:
+```
+0 |      1: load_ifm0 load_w0 1: load_ifm1      
+1 *      execution_t0         execution_t1      1: load_ifm2    1: load_ifm3     
+2        store_ofm0           store_ofm1        execution_t2    execution_t3                
+3                                               store_ofm2      store_ofm3               
+4                                                      
+ ...
+```
+`num_ticks = (num_tiles/2) * 1 + 2` -> `num_ticks = 21`
+
+To have similar case with 3 tiles we need following layout: 
+```
+ x*512*6 + 512*64 + x*64*6 = 50'000                 
+```
+`x = 4` -> 32 tiles. Total amount of tiles: `32 * 2 = 64`.
+In this case:
+`num_ticks = (num_tiles/3) * 1 + 2` -> `num_ticks = 24`. 
+
+Let's try to estimate amount of ticks if we have split on reduction:
+```
+ 64*x*2 + x*128*2 + 64*128*3 = 50'000                 
+```
+`x = 66` -> 8 tiles required (along reduction)-> `x = 64`
+
+```
+
+0   1: load_ifm0 load_w0         1: load_ifm1 load_w1     
+1   execution_t0                 execution_t1         
+2   ofm0 = sum(ofm0_p, ofm1_p)                         1: load_ifm0 load_w0         1: load_ifm1 load_w1
+3   store_ofm0                                         execution_t2                 execution_t3
+4                                                      ofm0 = sum(ofm0_p, ofm1_p)                            1: load_ifm0 load_w0         1: load_ifm1 load_w1 
+5                                                      store_ofm0                                            execution_t4                 execution_t5           
+6                                                                                                            ofm0 = sum(ofm0_p, ofm1_p)
+7                                                                                                            store_ofm0                
+ ...
+```
+```
+ +------+-------------+------+-------------+--------+--------+------+
+ | ifm0 |     w0      | ifm1 |     w1      | ofm0_p | ofm1_p | ofm0 |
+ +------+-------------+------+-------------+--------+--------+------+
+```
+So total amount of tiles: `8 * 2 = 16`. 
+`num_ticks = (num_tiles/2)*2 + 1 + 1 = 18 `
+
+If we will try to also have 2 tiles along weight w. 
+```
+ 64*x*2 + x*64*2 + 64*64*3 = 50'000                 
+```
+`x = 147` -> 4 tiles required along reduction -> `x = 128`,
+Total amount of tiles is `4 * 2 * 2 = 16`, pipeline will be similar, so number of ticks will be same. 
