@@ -45,16 +45,128 @@ namespace gc {
 
 namespace {
 
-struct MHAToFlashAttention
-    : public OpInterfaceRewritePattern<linalg::LinalgOp> {
-  using OpInterfaceRewritePattern<linalg::LinalgOp>::OpInterfaceRewritePattern;
+struct FlashAttentionConfig {
+  int RowBlock, ColumnBlock;
+};
 
-  LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
+static FlashAttentionConfig
+getDefaultFlashAttentionConfig(linalgx::ScaledDotProductAttentionOp &sdpaOp) {
+  // TODO: allow tuning
+  auto shape =
+      dyn_cast<RankedTensorType>(sdpaOp.getOperand(0).getType()).getShape();
+  int64_t seqLen = shape[2];
+
+  FlashAttentionConfig cfg;
+  cfg.RowBlock = seqLen / 64;
+  cfg.ColumnBlock = seqLen / 64;
+  return cfg;
+}
+
+static LogicalResult verifyAndAppend(SmallVector<Operation *> &decomposedOps,
+                                     Value curVal) {
+  return success();
+}
+
+struct MHAToFlashAttention
+    : public OpRewritePattern<linalgx::ScaledDotProductAttentionOp> {
+  using OpRewritePattern<
+      linalgx::ScaledDotProductAttentionOp>::OpRewritePattern;
+
+  struct OuterLoopGenerationResult {
+    /// Tiled operations that are generated during tiling. The order does not
+    /// matter except the last op. The replacements are expected to be the
+    /// results of the last op.
+    SmallVector<Operation *> tiledOps;
+    /// The `scf.for` operations that iterate over the tiles.
+    SmallVector<LoopLikeOpInterface> loops;
+  };
+
+  static FailureOr<OuterLoopGenerationResult>
+  generateOuterLoop(RewriterBase &b,
+                    linalgx::ScaledDotProductAttentionOp sdpaOp,
+                    const FlashAttentionConfig &cfg) {
+    // TODO: handle the return value
+    OuterLoopGenerationResult result;
+
+    auto decomposableOp =
+        dyn_cast<mlir::linalg::AggregatedOpInterface>(sdpaOp.getOperation());
+    FailureOr<SmallVector<Value>> maybeNewResults =
+        decomposableOp.decomposeOperation(b);
+    b.replaceOp(decomposableOp, *maybeNewResults);
+    // collect decomposed ops: matmul + mul + add + softmax + matmul
+    SmallVector<Operation *> decomposedOps;
+    Value curVal = (*maybeNewResults)[0];
+    decomposedOps.push_back(curVal.getDefiningOp());
+    if (!mlir::isa<linalgx::MultiBatchMatmulOp>(decomposedOps.back()))
+      return b.notifyMatchFailure(sdpaOp,
+                                  "currentOp should be a batch reduce matmul");
+    curVal = mlir::dyn_cast<linalg::LinalgOp>(decomposedOps.back())
+                 .getDpsInputs()[0];
+    decomposedOps.push_back(curVal.getDefiningOp());
+    if (!mlir::isa<linalg::SoftmaxOp>(decomposedOps.back())) {
+      return b.notifyMatchFailure(sdpaOp, "currentOp should be softmax op");
+    }
+    curVal = mlir::dyn_cast<linalg::SoftmaxOp>(decomposedOps.back())
+                 .getDpsInputs()[0];
+    decomposedOps.push_back(curVal.getDefiningOp());
+    if (!mlir::isa<linalg::AddOp>(decomposedOps.back()))
+      return b.notifyMatchFailure(sdpaOp, "currentOp should be add op");
+    curVal = mlir::dyn_cast<linalg::LinalgOp>(decomposedOps.back())
+                 .getDpsInputs()[0];
+    decomposedOps.push_back(curVal.getDefiningOp());
+    if (!mlir::isa<linalg::GenericOp>(decomposedOps.back()))
+      return b.notifyMatchFailure(sdpaOp, "currentOp should be generic mul op");
+    curVal = mlir::dyn_cast<linalg::LinalgOp>(decomposedOps.back())
+                 .getDpsInputs()[0];
+    decomposedOps.push_back(curVal.getDefiningOp());
+    if (!mlir::isa<linalgx::MultiBatchMatmulOp>(decomposedOps.back()))
+      return b.notifyMatchFailure(sdpaOp,
+                                  "currentOp should be batch reduce matmul");
+    if (decomposedOps.size() != 5)
+      return b.notifyMatchFailure(sdpaOp,
+                                  "currentOp should be a decomposed sdpa.");
+
+    // construct outer Row parallel for and Col parallel for
+    scf::SCFTilingOptions rowTileOption;
+    SmallVector<OpFoldResult> rowTileSizes(
+        4, getAsIndexOpFoldResult(b.getContext(), 0));
+    rowTileSizes[0] = getAsIndexOpFoldResult(b.getContext(), 1UL);
+    rowTileSizes[1] = getAsIndexOpFoldResult(b.getContext(), 1UL);
+    rowTileSizes[2] = getAsIndexOpFoldResult(b.getContext(), 32UL);
+    rowTileOption.setTileSizes(rowTileSizes);
+    rowTileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForOp);
+    for (auto &op : llvm::reverse(decomposedOps)) {
+      OpBuilder::InsertionGuard guard(b);
+      if (mlir::isa<linalg::LinalgOp>(op)) {
+        linalg::LinalgOp linalgOp = mlir::dyn_cast<linalg::LinalgOp>(op);
+        b.setInsertionPoint(linalgOp);
+        if (mlir::isa<linalgx::MultiBatchMatmulOp>(op))
+          linalgOp = *linalg::generalizeNamedOp(b, linalgOp);
+        auto tilingInterfaceOp =
+            dyn_cast<TilingInterface>(linalgOp.getOperation());
+        if (!tilingInterfaceOp)
+          return b.notifyMatchFailure(sdpaOp,
+                                      "dyn_cast to tilingInterface failed");
+        auto tilingResult =
+            scf::tileUsingSCF(b, tilingInterfaceOp, rowTileOption);
+        std::cout << "get tilingResult" << std::endl;
+        if (failed(tilingResult))
+          return failure();
+        std::cout << "get tilingResult succeed" << std::endl;
+        b.replaceOp(linalgOp, tilingResult->replacements);
+      } else {
+        linalg::SoftmaxOp softmaxOp = mlir::dyn_cast<linalg::SoftmaxOp>(op);
+      }
+    }
+    return result;
+  }
+
+  LogicalResult matchAndRewrite(linalgx::ScaledDotProductAttentionOp sdpaOp,
                                 PatternRewriter &rewriter) const override {
-    if (!llvm::isa<linalgx::ScaledDotProductAttentionOp>(linalgOp))
-      return failure();
-    if (linalgOp.hasPureBufferSemantics())
-      return failure();
+    FlashAttentionConfig cfg = getDefaultFlashAttentionConfig(sdpaOp);
+    FailureOr<OuterLoopGenerationResult> result =
+        generateOuterLoop(rewriter, sdpaOp, cfg);
+    return success();
   }
 };
 
@@ -65,19 +177,7 @@ public:
     auto &ctx = getContext();
     IRRewriter rewriter(&ctx);
     RewritePatternSet patterns(&ctx);
-
     patterns.add<MHAToFlashAttention>(patterns.getContext());
-    // linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
-    // linalg::ControlDropUnitDims options;
-    // options.rankReductionStrategy =
-    //     linalg::ControlDropUnitDims::RankReductionStrategy::ExtractInsertSlice;
-    // linalg::populateFoldUnitExtentDimsPatterns(patterns, options);
-    // tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
-
-    // for (auto *dialect : ctx.getLoadedDialects())
-    //   dialect->getCanonicalizationPatterns(patterns);
-    // for (RegisteredOperationName op : ctx.getRegisteredOperations())
-    //   op.getCanonicalizationPatterns(patterns, &ctx);
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {
       return signalPassFailure();
