@@ -264,7 +264,7 @@ inline EBFloatPoint operator-(const EBFloatPoint &a) {
 }
 
 #define DEF_EASYBUILD_CMP_OPERATOR(OP, OPCLASS, TYPE, PRED)                    \
-  EBUnsigned operator OP(const TYPE &a, const TYPE &b) {                       \
+  inline EBUnsigned operator OP(const TYPE &a, const TYPE &b) {                       \
     return OperatorHandlers::handleCmp<OPCLASS>(a, b, PRED);                   \
   }                                                                            \
   template <typename T> EBUnsigned operator OP(const TYPE &a, T b) {           \
