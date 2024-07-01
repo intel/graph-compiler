@@ -1,5 +1,9 @@
 
-Let's take a look for single matmul tiling: 
+Tiling pass currently applies IR transformation immediately, this is possible design for analysis, that should decide which tile sizes are fine and most "effective" in terms of memory or preformance. Some approaches to tiling can conflict with each other (depending on hardware). 
+
+I think there should be some schema (or layout) that can be modified from analysis to analysis. Such approach allow to have some consensus with several types of analysis and avoid unresolvable configurations. 
+
+We will start analysis with the example of matmul:
 
 ```
 [128 x 512] ifm         [512 x 128] weight
@@ -8,15 +12,29 @@ Let's take a look for single matmul tiling:
                 |
           [128 x 128] ofm
 ```
-**ifm** stands for input feature map, **ofm** - output feature map. 
+Sometimes I will use following abbreveations: 
+ - **ifm** stands for input feature map, 
+ - **ofm** - output feature map. 
 
-We have 2 main (most interesting) parameters for us:
+Most interesting hardware parameters for tiling are:
   1. memory (or maybe memory hierarchy)
   2. parallelisation
 
+To compare differnet tiling layouts I will try to calculate amount of ticks for execution and use several assumptions about HW, attempting to formulate minimal model that needed to make a decision on layout. 
+
+To make this prediction more applicable to specific HW we will need to understand how long takes load/store/execution compared to each other and depending on amount of data they are processing. 
+
+In general there are 2 approaches to tiling of ops:
+   1. Split input -> write over outputs 
+   2. Split output -> calculate how much of input we need for each tile. 
+
+Both approaches can be applied, but I want to propagate layout throught several operations, which can be done in more memory-saving way when we start from ofm. So mainly I will focus on 2nd option.
+
+I will start description from memory, as this constraint is more strict.
+
 ## Memory 
 
-In further doc I will assume several things about HW:
+In this chapter I will assume several things about HW:
    1. We have one execution unit and one buffer or buffer hierarachy. 
    2. Execution unit can handle only single execution command. (we can't have 2 simultaneous executions)
       ```
@@ -44,44 +62,23 @@ In further doc I will assume several things about HW:
       means that we are loading ifm and w into buffer simultaneously and than 
       execution of op with simultaneous storing of some ofm.
 
-To estimate performance of some tiling I will calculate amount of ticks, that will be required with this black-box execution. To make this prediction more applicable to specific HW we will need to understand how long takes load/store/execution compared to each other and depending on amount of data they are processing. 
-
-
-<!-- 
-Total amount of memory resuired to process this op we need: 
+Origianl layer without tiling requires `128*128 + 128*512*2 = 147'456` of memory. To simplify calculations I will use `dtype = 1`, so all sizes are simple multiplication of shapes. 
+Black-box execution of this layer can be described in this form: 
 ```
-  128 * 128 + 128 * 512 + 512 * 128 = 147'456
+0 | t   load_ifm load_w
+1 *     execute
+2       store_ofm
 ```
-what is much more than size of buffer. 
 
-So we need tiling. In common there are 2 completely different appropaches:
-  1. Tiling starts from an input
-  2. Tiling strats from output
+Each row is a tick, amount of them increases from first to last.
 
-When you start tiling from input you have to create  -->
-
-
-
-at first just about memory.  We are tiling starting from output. 
-Also assume that smallest reasonable tile size is `[32 x 32]`. (It is used to avoid super small tiles)
-
-Origianl layer without tiling requires `128*128 + 128*512*2 = 147'456`.
-To execute it we will need: 
-```
-| t   load_ifm load_w
-*     execute
-      store_ofm
-```
 We need some estimation for load/store time depending on size, and execution depending on size. 
 Dependency of execution time from total processing data size should be almost linear. (as in general we are changing loop boundaries)
 Dependency of load/store operation time from data size can be non-trivial - it can be constant or stepped, or linear. 
-So it will be something like: `max(t_li, t_lw) + t_x * 144 + t_so` . 
 
-Let's estimate what changing in case of 4 ofm tiles. 
+We won't focus on this and will just use them as some same-sized in time units. 
 
-```
-original [128 x 128] -> just divide by 2 -> tile [64 x 64]                              
-```
+Let's estimate what changing in case of 4 ofm tiles. `2` tiles along h in input, `2` tiles along w in weights.
 
 ```
 input                            weight 
@@ -104,8 +101,7 @@ output
     |           |           |
     +-----------|-----------+
 ```
-so ifm and weight sizes are `[64 x 512]` and `[512 x 64]` without additional tiling: additional required size `65'536`. It fits to memory.
-So it's possible to handle several tiles in parallel 
+so ifm and weight sizes are `[64 x 512]` and `[512 x 64]`.
 
 Consider execution workflow without memory restriction:
 ```
@@ -119,24 +115,7 @@ Consider execution workflow without memory restriction:
 in each row all ops can be triggered simultaneously, but expected that stage ends when slowest ends
 We need to decide which of these options ares better. 
 
-```
-  assume store > load > exec 
-
-  2 mem op < bandwidth of device -> Q to cost model: Can we use 2 ops in parallel? 
-
-  In this case we will have: 
-    max(t_li0, t_lw0) + max(t_x0, t_li1, t_lw1) + max(t_s0, t_x1, t_li2, t_lw2) + max(t_s1, t_x2, t_li3, t_lw3) + t_x * 144 + t_so
-
-  [ buffer ... output ] {execution unit}
-```
-
-In this case we need some cost model or some estimation to decide which configuration is better.
-  1. Is it possible to execute this ops simulatneously? 
-  2. What a some perf estimation for load/store/execution from the size of data that will be processed?
-  3. Is so simple HW model is enough or we should do some more complex? Can we have complex model as sequense of several simple ones?
-
-
-In the case of tiling along reduction axis let's consider ifm and weight sizes are `[64 x 256]` and `[256 x 64]` and we will need extra space for summation
+Let's take a look what changes in the case of tiling along "reduction" axis. We will need extra space for summation.
 If we tile along reduction axis:
 
 ```
@@ -187,37 +166,24 @@ output
 ```
 
 
-These 3 configurations should be chosen on the basis of HW model. Number of possibiliteies will be strictly limited with amount of memory. For example if amount of memory is very low we should tile just to fit to limitation.  
+These 3 configurations should be chosen on the basis of HW model. Number of possibiliteies will be strictly limited with amount of memory. 
 
-For example, ifms sizes are `256*64 = 16'384`, weight sizes similar `64*256 = 16'384` and ofm is `64*64 = 4'096`
-
-
+It is trivial example that reduces memory usage. Without tiling memory required `128*512*2 + 128*128 = 147'456`. And in buffer it uses trivial memory layot:
 ```
- 0        load_ifm1 load_w5         
-   32'768 [  16'384(ifm1) |  16'384(w5)  |      free        ]
- 1        execution_t15       load_ifm2 load_w7 
-   69'632 [  16'384(ifm1) |  16'384(w5)  |  4'096(ofm0)   | 16'384(ifm2) |  16'384(w7)  |     free        ]
- 2                            execution_t27      load_w6
-   73'728 [  16'384(ifm1) |  16'384(w6)  |  4'096(ofm0)   | 16'384(ifm2) |  16'384(w7)  |  4'096(ofm1)  |     free        ]
- 3        sum(ofm0 ofm1)                         execution_t16      load_w8
-   73'728 [  16'384(ifm1) |  16'384(w6)  |  4'096(ofm01)  | 16'384(ifm2) |  16'384(w8)  |  4'096(ofm2)  |     free        ]
- 4        store_ofm01                                               execution_t28       load_ifm3 load_w5
-   77'824 [  16'384(ifm3) |  16'384(w5)  |  4'096(ofm01)  | 16'384(ifm2) |  16'384(w8)  |  4'096(ofm2)  |  4'096(ofm3)  |     free        ]
- 5                                                sum(ofm2 ofm3)                        execution_t35      load_ifm4 load_w7
-   77'824 [  16'384(ifm3) |  16'384(w5)  |  4'096(ofm23)  | 16'384(ifm4) |  16'384(w7)  |  4'096(ofm4)  |  4'096(ofm3)  |     free        ]
- 6                                                store_ofm23                                              execution_t47     load_w6
-   77'824 [  16'384(ifm3) |  16'384(w6)  |  4'096(ofm23)  | 16'384(ifm4) |  16'384(w7)  |  4'096(ofm4)  |  4'096(ofm5)  |     free        ]
- 7                                                                                      sum(ofm4 ofm5)                       execution_t36   load_w8
-   77'824 [  16'384(ifm3) |  16'384(w6)  |  4'096(ofm45)  | 16'384(ifm4) |  16'384(w8)  |  4'096(ofm6)  |  4'096(ofm5)  |     free        ]
- 8                                                                                      store_ofm45                                          execution_t48
-   77'824 [  16'384(ifm3) |  16'384(w6)  |  4'096(ofm45)  | 16'384(ifm4) |  16'384(w8)  |  4'096(ofm6)  |  4'096(ofm7)  |     free        ]
- 9                                                                                                                           sum(ofm6 ofm7)
-   77'824 [  16'384(ifm3) |  16'384(w6)  |  4'096(ofm67)  | 16'384(ifm4) |  16'384(w8)  |  4'096(ofm6)  |  4'096(ofm7)  |     free        ]
-10                                                                                                                           store_ofm610
+ +------+-------------+------+
+ | ifm0 |     w0      | ofm0 |
+ +------+-------------+------+
 ```
-It is trivial example that reduces memory usage. Without tiling memory required `128*512*2 + 128*128 = 147'456`. Memory usage can be reduced with extra load operations. In extreme case this tiling can be used with memory for single tile and space for partial sum: `64*256*2 + 64*64 + 64*64= 40'960`. And such extreme case without tiling along reduction axis: `64*512*2 + 64*64 = 69'632`. 
+Memory usage can be reduced with extra load operations. In extreme case this tiling can be used with memory for single tile and space for partial sum: `64*256*2 (ifm + w) + 64*64 + 64*64 + 64*64 = 45'056`. 
+```
+ +------+-------------+--------+--------+------+
+ | ifm0 |     w0      | ofm0_p | ofm1_p | ofm0 |
+ +------+-------------+--------+--------+------+
+``` 
 
 Of cause such estimation ignores possible fragmatation and depends on ops possibility to execute inplace. 
+
+We will consider several strategies to decrease amount of produced ticks in the following examples.
 
 ### Memory with hierarchy
 
@@ -341,6 +307,9 @@ output
 ```
 As it's best, let's use this tiling.
 
+Visualisation of tiling in iteration space with initial buffer size constraint (naive buffer layout). Most difficult question is finding appropriate tile configurations with non-linear constraints issued by memory size and chosen layout. 
+
+![alt text](check3.png "Title")
 
 Now we should calculate tile sizes for single tile for `2nd level` buffer: 
 
@@ -439,6 +408,10 @@ Corresponding execution:
 5                          store_ofm0
 ```
 As you see tiling along reduction axis is not very effective as produces extra stages, which can slow down execution.
+
+Tiling visualisation for result of this stage: 
+
+![alt text](check2.png "Title")
 
 Let's combine solutions for 1st level and 2nd:
 
@@ -584,6 +557,10 @@ So resulting tiling will have:
 ```
 
 So total tiled layer took about `226 ticks`. 
+
+Corresponding visualisation for smallest buffer:
+
+![alt text](check1.png "Title")
 
 #### Tiling that uses smallest buffer 
 
