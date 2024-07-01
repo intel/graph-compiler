@@ -22,12 +22,21 @@
 
 #include "mlir-c/IR.h"
 
+namespace mlir {
+   class DialectRegistry;
+}
+
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph);
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(CPURuntime, cpuruntime);
+MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Linalg, linalgx);
+
+MLIR_CAPI_EXPORTED void mlirRegisterWithRegistry(mlir::DialectRegistry &registry);
 
 #ifdef __cplusplus
 }

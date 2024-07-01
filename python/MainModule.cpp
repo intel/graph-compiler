@@ -21,6 +21,11 @@
 #include "gc-c/Passes.h"
 #include "mlir/Bindings/Python/PybindAdaptors.h"
 
+#include "mlir/CAPI/IR.h"
+
+
+#include <string>
+#include <iostream>
 PYBIND11_MODULE(_gc_mlir, m) {
   m.doc() = "Graph-compiler MLIR Python binding";
 
@@ -56,4 +61,33 @@ PYBIND11_MODULE(_gc_mlir, m) {
         }
       },
       py::arg("context") = py::none(), py::arg("load") = true);
+
+  auto linalgxM = m.def_submodule("linalgx");
+  linalgxM.def(
+      "register_dialect",
+      [](MlirContext context, bool load) {
+        MlirDialectHandle dialect = mlirGetDialectHandle__linalgx__();
+        mlirDialectHandleRegisterDialect(dialect, context);
+        if (load) {
+          mlirDialectHandleLoadDialect(dialect, context);
+        }
+      },
+      py::arg("context") = py::none(), py::arg("load") = true);
+  
+  linalgxM.def(
+      "register_interface_imp",
+      [](MlirDialectRegistry registry) {
+          mlirRegisterWithRegistry(*unwrap(registry));
+      },
+      py::arg("registry") = py::none());
+
+    
+  
+  
+
+  //  m.def("register_interface", [](MlirDialectRegistry registry) {
+  //   std::cout << "====================" << std::endl;
+  //   mlirRegisterWithRegistry(*unwrap(registry));
+  // });
+
 }

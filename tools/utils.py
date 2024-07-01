@@ -181,7 +181,7 @@ def get_all_tunable_ops(op: ir.Operation):
                     and child_op.attributes["skipTuner"]
                 ):
                     continue
-                if child_op.name == "onednn_graph.matmul":
+                if str(child_op.name).startswith("linalgx.mm4d"):
                     tunable_ops.append(child_op)
                 tunable_ops = tunable_ops + get_all_tunable_ops(child_op)
     return tunable_ops
@@ -191,7 +191,7 @@ def gen_configs_from_ir(ir_module: ir.Module):
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     configs = []
     for op in tunable_ops:
-        if op.name == "onednn_graph.matmul":
+        if str(op.name).startswith("linalgx.mm4d"):
             configs.append(MatMulConfig(op))
     return configs
 
@@ -202,5 +202,5 @@ def attach_configs_to_ir(ir_module: ir.Module, configs: List[Config]):
         configs
     ), "tunable ops and configs should have the same length"
     for i, op in enumerate(tunable_ops):
-        if op.name == "onednn_graph.matmul":
+        if str(op.name).startswith("linalgx.mm4d"):
             configs[i].attach_to_ir(op)

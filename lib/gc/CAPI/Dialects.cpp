@@ -8,7 +8,9 @@
 
 #include "gc-c/Dialects.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
+#include "gc/Dialect/Linalgx/Transforms/AllInterfaces.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
 #include "mlir/CAPI/Registration.h"
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph,
@@ -16,3 +18,12 @@ MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph,
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(CPURuntime, cpuruntime,
                                       mlir::cpuruntime::CPURuntimeDialect)
+
+
+MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Linalgx, linalgx,
+                                      mlir::linalgx::LinalgxDialect)
+
+
+void mlirRegisterWithRegistry(mlir::DialectRegistry &registry) {
+    mlir::linalgx::registerAllDialectInterfaceImplementations(registry);
+};
