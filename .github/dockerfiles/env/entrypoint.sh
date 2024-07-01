@@ -58,6 +58,4 @@ jupyter kernelspec remove -y python3 || true
 # Remove lost+found
 rm -rf lost+found
 
-find ~/.conda -name '*singleuser'
-
 exec jupyterhub-singleuser
