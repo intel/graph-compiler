@@ -26,6 +26,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/Support/raw_ostream.h"
+#include<iostream>
 using namespace mlir::onednn_graph;
 
 namespace mlir {
@@ -492,6 +494,8 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outBias);
     }
 
+    // Passing mutmal configs to linalg.matmul
+    newOp->setAttrs(op->getAttrs());
     rewriter.replaceOp(op, newOp);
     return success();
   }
