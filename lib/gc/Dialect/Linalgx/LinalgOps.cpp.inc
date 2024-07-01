@@ -526,28 +526,23 @@ static void getGenericEffectsImpl(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects,
     LinalgOp linalgOp) {
-  SmallVector<Value> inputOperands = linalgOp.getDpsInputs();
-  for (auto [index, operand] : llvm::enumerate(inputOperands)) {
+  for (auto [index, operand] : llvm::enumerate(linalgOp.getDpsInputs())) {
     if (!llvm::isa<MemRefType>(operand.getType()))
       continue;
-    if (linalgOp.payloadUsesValueFromOperand(&linalgOp->getOpOperand(index))) {
-      effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
-                           /*effectOnFullRegion=*/true,
-                           SideEffects::DefaultResource::get());
-    }
+    effects.emplace_back(
+        MemoryEffects::Read::get(), &linalgOp->getOpOperand(index), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
   }
-  unsigned inputOperandSize = inputOperands.size();
 
-  for (auto [index, operand] : llvm::enumerate(linalgOp.getDpsInits())) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
+  for (OpOperand &operand : linalgOp.getDpsInitsMutable()) {
+    if (!llvm::isa<MemRefType>(operand.get().getType()))
       continue;
-    if (linalgOp.payloadUsesValueFromOperand(
-            &linalgOp->getOpOperand(index + inputOperandSize))) {
-      effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+    if (linalgOp.payloadUsesValueFromOperand(&operand)) {
+      effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage=*/0,
                            /*effectOnFullRegion=*/true,
                            SideEffects::DefaultResource::get());
     }
-    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/0,
+    effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage=*/0,
                          /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
