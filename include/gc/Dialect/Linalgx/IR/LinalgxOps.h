@@ -20,9 +20,9 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #define GET_OP_CLASSES
-#include "gc/Dialect/Linalgx/LinalgxOps.h.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h.inc"
 
 #define GET_OP_CLASSES
-#include "gc/Dialect/Linalgx/LinalgxStructuredOps.h.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxStructuredOps.h.inc"
 
 #endif // GC_DIALECTS_LINALGXOPS_H

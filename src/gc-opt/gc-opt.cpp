@@ -18,10 +18,12 @@
  */
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/Transforms/AllInterfaces.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
@@ -34,7 +36,9 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   mlir::registerAllDialects(registry);
+  mlir::registerAllExtensions(registry);
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
+  mlir::linalgx::registerAllDialectInterfaceImplementations(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));
 }

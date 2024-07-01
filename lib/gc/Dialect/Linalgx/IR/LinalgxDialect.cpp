@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -21,15 +21,15 @@
 using namespace mlir;
 using namespace mlir::linalgx;
 
-#include "gc/Dialect/Linalgx/LinalgxOpsDialect.cpp.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxOpsDialect.cpp.inc"
 
 void LinalgxDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "gc/Dialect/Linalgx/LinalgxOps.cpp.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.cpp.inc"
       >();
   addOperations<
 #define GET_OP_LIST
-#include "gc/Dialect/Linalgx/LinalgxStructuredOps.cpp.inc"
+#include "gc/Dialect/Linalgx/IR/LinalgxStructuredOps.cpp.inc"
       >();
 }
