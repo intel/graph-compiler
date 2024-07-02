@@ -21,7 +21,8 @@ from typing import List
 
 import numpy as np
 from gc_mlir import ir
-from gc_mlir.dialects import func, onednn_graph
+from gc_mlir.dialects import arith, func, linalg, tensor
+from gc_mlir.ir import BF16Type, FloatAttr
 from utils import (
     get_default_passes,
     get_kernel_func_from_module,
@@ -98,7 +99,7 @@ class MLP(Driver):
     def add_args(parser: argparse.ArgumentParser):
         parser.add_argument("--batch_size", type=int, default=1)
         parser.add_argument("--hidden_size_list", type=str, default="")
-        parser.add_argument("--has_bias", type=str, default="")
+        parser.add_argument("--has_bias", required=False, type=str)
         parser.add_argument("--has_ln", type=str, default="")
         parser.add_argument(
             "--act_type", type=str, choices=["noop", "relu", "sigmoid"], default="noop"
@@ -122,9 +123,7 @@ class MLP(Driver):
         assert layers >= 1, "hidden_size_list should have at least 2 elements"
 
         self.has_bias = (
-            [False] * layers
-            if "has_bias" not in args.__dict__
-            else to_bool_vector(args.has_bias)
+            [False] * layers if args.has_bias == None else to_bool_vector(args.has_bias)
         )
 
         assert (
@@ -185,13 +184,36 @@ class MLP(Driver):
                             bias_idx += 1
                         else:
                             bias = None
-                        data = onednn_graph.MatMulOp(
-                            data,
-                            weight,
-                            bias=bias,
-                            transpose_a=False,
-                            transpose_b=False,
-                        ).result
+                        layer_out_shape = [
+                            self.batch_size,
+                            self.hidden_size_list[i + 1],
+                        ]
+
+                        data = linalg.matmul(
+                            data, weight, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
+                        )
+                        if bias:
+                            broadcast_bias = linalg.broadcast(
+                                bias,
+                                outs=[tensor.EmptyOp(layer_out_shape, dtype)],
+                                dimensions=[0],
+                            )
+                            data = linalg.add(
+                                data,
+                                broadcast_bias,
+                                outs=[tensor.EmptyOp(layer_out_shape, dtype)],
+                            )
+
+                        if self.act_type == "relu":
+                            element = FloatAttr.get(dtype, 0)
+                            tensor_type = ir.RankedTensorType.get(
+                                layer_out_shape, dtype
+                            )
+                            attr = ir.DenseElementsAttr.get_splat(tensor_type, element)
+                            cst = arith.ConstantOp(tensor_type, attr)
+                            data = linalg.max(
+                                data, cst, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
+                            )
                     func.ReturnOp([data])
         return module
 
