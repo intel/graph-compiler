@@ -104,5 +104,4 @@ target_compile_options(graph_compiler PRIVATE -fvisibility=hidden)
 target_link_options(graph_compiler PRIVATE -Wl,--gc-sections)
 target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
-add_subdirectory(unittests)
 add_subdirectory(test)
