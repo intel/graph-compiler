@@ -32,6 +32,10 @@ namespace linalgx {
 class LinalgxDialect;
 }
 
+namespace linalgx {
+class LinalgxDialect;
+}
+
 namespace MemRef {
 class MemRefDialect;
 }

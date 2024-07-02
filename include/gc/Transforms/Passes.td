@@ -46,4 +46,16 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "vector::VectorDialect"];
 }
 
+def PropagateLayoutOnNamedOps : Pass<"propagate-layout-on-named-ops"> {
+  let summary = "Insert and propagte tensor.pack to pack the computation of linalg named ops and tensor ops.";
+  let description = [{
+    Insert and propagte tensor.pack
+  }];
+  let dependentDialects = [
+      "mlir::tensor::TensorDialect",
+      "mlir::linalg::LinalgDialect",
+      "mlir::linalgx::LinalgxDialect"
+      ];
+}
+
 #endif // GC_DIALECT_GC_PASSES

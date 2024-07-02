@@ -10,6 +10,7 @@ get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
+  PropagateLayout.cpp
   TileNamed.cpp
 
   ADDITIONAL_HEADER_DIRS
