@@ -106,5 +106,16 @@ def mlir_wrapper_bench(
 
 
 # for test
-def fake_bench() -> float:
-    return float(random.randint(1, 100))
+def fake_bench(
+    ir_module: ir.Module = None,
+    entry_name: str = None,
+    pipeline: str = None,
+    mlir_args: list = None,
+    shared_libs: Sequence = None,
+    ir_printing=False,
+    repeat_time=100,
+    warm_up=20,
+) -> float:
+    execute_cost = float(random.randint(1, 100))
+    compile_cost = float(random.randint(1, 100))
+    return (execute_cost, compile_cost)

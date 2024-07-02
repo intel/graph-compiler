@@ -116,6 +116,7 @@ class Tuner(ABC):
         self.checkpoint = checkpoint
         if self.checkpoint:
             os.makedirs(os.path.dirname(self.checkpoint), exist_ok=True)
+        assert len(tunning_space.graph_config), "There are no tunable ops"
 
     def tuner_update(self, config_indices_batch: List[List[int]], costs: List[float]):
         if min(costs) < self.best_cost:
@@ -182,7 +183,7 @@ class Tuner(ABC):
                     self.tunning_space.initial_ir.context,
                 )
                 utils.attach_configs_to_ir(new_ir, real_config)
-                _, cost = self.executor(new_ir)
+                cost, _ = self.executor(new_ir)
                 perf_result.append(cost)
 
             print(
