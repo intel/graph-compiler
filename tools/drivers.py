@@ -83,11 +83,23 @@ class LoadMLIR(Driver):
     def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_args = []
+        idx = 0
         for arg in bench_func.arguments:
-            np_args.append(make_tensor(arg.type))
+            print(idx, ":", arg)
+            if idx in [1, 3]:
+                np_args.append(make_tensor(arg.type, 1))
+            else:
+                np_args.append(make_tensor(arg.type, 0))
+            # idx += 1
+        idx = 0
         if not disable_results_to_params:
             for res in bench_func.type.results:
-                np_args.append(make_tensor(res))
+                print(idx, ":", res)
+                if idx in [1]:
+                    np_args.append(make_tensor(res, 1))
+                else:
+                    np_args.append(make_tensor(res, 0))
+                # idx += 1
         # todo : data filling
         for i in range(len(np_args)):
             np.ndarray.fill(np_args[i], 1)
