@@ -170,7 +170,7 @@ def to_int_vector(s: str) -> List[int]:
 def to_bool_vector(s: str) -> List[bool]:
     if not s or len(s) == 0:
         return []
-    return [bool(i) for i in s.strip().split("x")]
+    return [bool(int(i)) for i in s.strip().split("x")]
 
 
 def load_mlir_from_path(path: str) -> str:
