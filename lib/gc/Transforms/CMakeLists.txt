@@ -12,6 +12,8 @@ add_mlir_library(GCPasses
   Pipeline.cpp
   DeepTileContractionNamedOp.cpp
   Tiling.cpp
+  AnyTilableFusion.cpp
+  TilingUsingInterfaceX.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include

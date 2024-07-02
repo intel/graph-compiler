@@ -53,4 +53,25 @@ def LinalgLowerToLoop : Pass<"linalg-lower-to-loop", "ModuleOp"> {
     "scf::SCFDialect", "LLVM::LLVMDialect", "linalg::LinalgDialect"
   ];
 }
+def AnyTilableFusion : Pass<"any-tilable-fusion",
+                                        "func::FuncOp"> {
+  let summary = "Fusion for any tilable operation";
+  let description = [{
+    The pass tries to fuse any MLIR operation which can be tiled. Moreover, this pass aims to support:
+      1. Matmul fusion with element-wise/reduce/broadcast ops.
+      2. Pre-op and post-op fusion.
+      3. Multi-consumer and multi-producer support.
+      4. Cost-model to determine whether to fuse or not.
+      5. TBC
+
+    It intends to control the granularity of fusion by `fusion-level`, E.g.
+    * `0`: disable any fusion.
+    * `1`:[Default] enable pre-op fusion + post-op fusion covering any tilable operation including tensor.pack/tensor.fill/linalg.reduce etc but excluding branches forked by multiple uses.
+    * `2`: `LEVEL 1` + extend to any topology including branches.
+    * `3`: `LEVEL 2` + support coarse-grained fusion.
+  }];
+  let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
+                           "tensor::TensorDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
