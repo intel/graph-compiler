@@ -26,8 +26,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "llvm/Support/raw_ostream.h"
-#include<iostream>
 using namespace mlir::onednn_graph;
 
 namespace mlir {
