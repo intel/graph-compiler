@@ -12,6 +12,16 @@ from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref, onednn_graph
 from op_config import *
 
+# Load libnuma
+libnuma = ctypes.CDLL("libnuma.so.1")
+
+# Define numa_alloc_onnode function
+libnuma.numa_alloc_onnode.restype = ctypes.c_void_p
+libnuma.numa_alloc_onnode.argtypes = [ctypes.c_size_t, ctypes.c_int]
+
+# Define numa_free function
+libnuma.numa_free.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+
 MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,
     "f32": np.float32,
@@ -116,11 +126,32 @@ def mlir_type(s, ctx):
     return type_mapping[s]
 
 
-def make_tensor(tensor_type):
-    return np.zeros(
-        tensor_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
-    )
+def make_tensor(tensor_type, numa_node = 1):
+    # return np.zeros(
+    #     tensor_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
+    # )
+    shape = tensor_type.shape
+    element_type = MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
+    dtype = np.dtype(element_type)
+    # Calculate the total size of the tensor in bytes
+    tensor_size = np.prod(shape) * dtype.itemsize
+    
+    # Allocate memory on the specified NUMA node
+    buffer_addr = libnuma.numa_alloc_onnode(tensor_size, numa_node)
+    if not buffer_addr:
+        raise MemoryError(f"Failed to allocate memory on NUMA node {numa_node}")
+    
+    # Cast buffer_addr to the correct pointer type
+    buffer_pointer = ctypes.cast(buffer_addr, ctypes.POINTER(ctypes.c_float))
+    # Create numpy array pointing to allocated memory
+    tensor = np.ctypeslib.as_array(buffer_pointer, shape=shape)
 
+    # Check if the actual buffer size is sufficient
+    actual_buffer_size = ctypes.sizeof(ctypes.c_char) * tensor.nbytes
+    if actual_buffer_size < tensor_size:
+        raise ValueError(f"Buffer size {actual_buffer_size} is smaller than required size {tensor_size}")
+    
+    return tensor
 
 def get_kernel_func_from_module(
     module: ir.Module, func_name: str = "main_entry"
