@@ -104,6 +104,11 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
         SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
         SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
         SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
+  } else if (llvm::isa<linalg::GenericOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N},
+        SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
   }
   return failure();
 }

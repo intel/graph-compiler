@@ -903,7 +903,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
            llvm::isa<linalgx::Mm2DVnniOp>(linalgOp) ||
            llvm::isa<linalgx::Mm4DVnniOp>(linalgOp) ||
            llvm::isa<linalgx::MultiBatchMatmulOp>(linalgOp) ||
-           llvm::isa<linalg::BatchMatmulOp>(linalgOp);
+           llvm::isa<linalg::BatchMatmulOp>(linalgOp) ||
+           llvm::isa<linalg::GenericOp>(linalgOp);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
@@ -926,7 +927,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
     auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
-    linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
+    if (!isa<linalg::GenericOp>(linalgOp))
+      linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
     bool needLowPrecisionCast = needToLegalizeDtype(linalgOp);
     if (cfg.KThreads > 1) {
       auto result = matmulDtypeLegalize(rewriter, linalgOp.getOperation());
