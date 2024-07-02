@@ -38,10 +38,16 @@ class MemRefDialect;
 
 class PassManager;
 
+namespace bufferization {
+class BufferizationDialect;
+}
+
 namespace gc {
 
 void populateFrontendPasses(mlir::PassManager &);
 void populateCPUPipeline(mlir::PassManager &);
+
+std::unique_ptr<Pass> createBufferNestedParallelLoopHoistingPass();
 
 #define GEN_PASS_DECL
 #include "gc/Transforms/Passes.h.inc"
