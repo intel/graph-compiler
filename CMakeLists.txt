@@ -103,6 +103,6 @@ add_mlir_library(graph_compiler SHARED ${GC_LIB_SOURCES})
 target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
 target_compile_options(graph_compiler PRIVATE -fvisibility=hidden -fexceptions)
 target_link_options(graph_compiler PRIVATE -Wl,--gc-sections)
-target_link_libraries(graph_compiler PUBLIC ${GC_LIB_LINKED_LIBS})
+target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
 add_subdirectory(test)
