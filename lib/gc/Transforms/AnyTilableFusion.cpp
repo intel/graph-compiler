@@ -22,6 +22,7 @@
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/RegionUtils.h"
 
 #include "gc/Transforms/Passes.h"
 
@@ -256,7 +257,7 @@ public:
  *         Collected insertExtractOp List during walk including targetSliceOp:
  *                %4 = extract %args2 and %2 = extract %arg1
  */
-FailureOr<std::pair<Value, SmallVector<tensor::ExtractSliceOp>>>
+static FailureOr<std::pair<Value, SmallVector<tensor::ExtractSliceOp>>>
 getRootSourceOfExtractSliceOp(tensor::ExtractSliceOp targetSliceOp,
                               int curDepth = 0) {
   // control recursive time in avoid of stack overflow
@@ -294,6 +295,14 @@ getRootSourceOfExtractSliceOp(tensor::ExtractSliceOp targetSliceOp,
 
 static FailureOr<tensor::ExtractSliceOp>
 getFirstExtractSliceOpOfOperand(OpOperand &operand) {
+  if (auto iterArg = dyn_cast<BlockArgument>(operand.get())) {
+    if (auto loop =
+            dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp())) {
+      return getFirstExtractSliceOpOfOperand(*loop.getTiedLoopInit(iterArg));
+    }
+    return failure();
+  }
+
   Operation *defineOp = operand.get().getDefiningOp();
   if (auto sliceOp = dyn_cast<tensor::ExtractSliceOp>(defineOp)) {
     return sliceOp;
@@ -347,6 +356,87 @@ getProducerFusionAnchorFromOpOperand(RewriterBase &rewriter,
   return failure();
 }
 
+// Get the Result of top-level Loop which yield the target InsertSliceOp. E.g
+// ```
+// %1 = scf.for
+//  %2 = scf.for
+//   %3 = scf.for
+//      ...
+//      %4 = insert
+//      yield %4
+//   %5 = insert %3
+//   yield %5
+//  yield %2
+// ```
+// @param targetSliceOp: %4 = insert
+// @return Result Value: %1
+//         Collected insertSliceOp List during walk including targetSliceOp:
+//                %4 = insert and %5 = insert %3
+static FailureOr<std::pair<Value, SmallVector<OffsetSizeAndStrideOpInterface>>>
+getResultOfTopLevelLoopYieldInsertSliceOp(
+    OffsetSizeAndStrideOpInterface targetSliceOp, int curDepth = 0) {
+  // control recursive time in avoid of stack overflow
+  if (curDepth > MAX_DEPTH)
+    return failure();
+
+  SmallVector<OffsetSizeAndStrideOpInterface> candidateSliceOpList;
+  candidateSliceOpList.push_back(targetSliceOp);
+  Value resultOfLoop;
+  if (auto sliceOp = dyn_cast<tensor::ParallelInsertSliceOp>(
+          targetSliceOp.getOperation())) {
+    Value destValue = sliceOp.getDest();
+    auto iterArg = cast<BlockArgument>(destValue);
+    auto forallOp = dyn_cast<scf::ForallOp>(iterArg.getOwner()->getParentOp());
+    if (!forallOp)
+      return failure();
+    resultOfLoop = forallOp.getTiedOpResult(forallOp.getTiedOpOperand(iterArg));
+  } else if (auto sliceOp = dyn_cast<tensor::InsertSliceOp>(
+                 targetSliceOp.getOperation())) {
+    Value resultValue = sliceOp.getResult();
+    for (auto &useOperand : resultValue.getUses()) {
+      if (auto yieldOp = dyn_cast<scf::YieldOp>(useOperand.getOwner())) {
+        if (llvm::detail::isPresent(resultOfLoop))
+          return failure();
+        auto forOp = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp());
+        if (!forOp)
+          return failure();
+        resultOfLoop = forOp->getResult(useOperand.getOperandNumber());
+      }
+    }
+  }
+
+  if (!llvm::detail::isPresent(resultOfLoop))
+    return failure();
+
+  while (true) {
+    bool walkThroughOuterLoop = false;
+    for (auto &useOperand : resultOfLoop.getUses()) {
+      if (auto sliceOp =
+              dyn_cast<OffsetSizeAndStrideOpInterface>(useOperand.getOwner())) {
+        auto resultAndSliceOpsPair =
+            getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp, curDepth + 1);
+        if (failed(resultAndSliceOpsPair))
+          return failure();
+        candidateSliceOpList.append((*resultAndSliceOpsPair).second.begin(),
+                                    (*resultAndSliceOpsPair).second.end());
+        return std::make_pair((*resultAndSliceOpsPair).first,
+                              candidateSliceOpList);
+      } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOperand.getOwner())) {
+        // walk through outer loop
+        auto forOp = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp());
+        if (!forOp)
+          return failure();
+        resultOfLoop = forOp->getResult(useOperand.getOperandNumber());
+        walkThroughOuterLoop = true;
+        break;
+      }
+    }
+    if (!walkThroughOuterLoop)
+      break;
+  }
+  return std::make_pair(resultOfLoop, candidateSliceOpList);
+}
+
 /**
  * Find the untiled Consumer op based on given OpResult of Tiled Op, E.g.
  *
@@ -380,6 +470,11 @@ getConsumerFusionAnchorFromOpResult(RewriterBase &rewriter,
         return failure();
       sliceOp =
           dyn_cast<OffsetSizeAndStrideOpInterface>(useOfResult.getOwner());
+    } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOfResult.getOwner())) {
+      if (auto loop = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp())) {
+        return getConsumerFusionAnchorFromOpResult(
+            rewriter, loop->getResult(useOfResult.getOperandNumber()));
+      }
     }
   }
 
@@ -387,7 +482,7 @@ getConsumerFusionAnchorFromOpResult(RewriterBase &rewriter,
     return failure();
 
   auto resultAndSliceOpsPair =
-      scfX::getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp);
+      getResultOfTopLevelLoopYieldInsertSliceOp(sliceOp);
   if (failed(resultAndSliceOpsPair))
     return failure();
 
@@ -424,9 +519,8 @@ static Operation *preOpFuseProducerOfOpOperand(
   if (failed(candidateSliceOp)) {
     return nullptr;
   }
-  auto outerLoops = scfX::getOuterLoopsOfSliceOp(*candidateSliceOp);
   std::optional<scf::SCFFuseProducerOfSliceResult> fusedResult =
-      scfX::tileAndFuseProducerOfSlice(rewriter, *candidateSliceOp, outerLoops);
+      scfX::tileAndFuseProducerOfSlice(rewriter, *candidateSliceOp);
 
   if (!fusedResult)
     return nullptr;
@@ -456,8 +550,23 @@ static SmallVector<Operation *> postOpFuseConsumerOfOpResult(
     std::optional<scf::SCFFuseConsumerOfSliceResult> fusedResult =
         scfX::tileAndFuseConsumerOfSlice(rewriter, *candidateSliceOp);
     if (fusedResult) {
-      tiledConsumerList.push_back(fusedResult.value().tiledOps[0]);
-      rewriter.eraseOp(fusedResult.value().origConsumerOperand->getOwner());
+      auto tiledOp = fusedResult.value().tiledOps[0];
+      tiledConsumerList.push_back(tiledOp);
+      auto whileProducerOutOfBlock =
+          [&tiledOp](LoopLikeOpInterface loop) -> LogicalResult {
+        Block &body = loop->getRegion(0).front();
+        return (tiledOp->getBlock() == &body) ? failure() : success();
+      };
+      SmallVector<LoopLikeOpInterface> outerLoops =
+          scfX::getOuterNestLoopsWhile(
+              (*candidateSliceOp)->getParentOfType<LoopLikeOpInterface>(),
+              whileProducerOutOfBlock);
+      // Manually run cse on region which contains top-level loop of candidate
+      // slice in avoid of conflict with subsequent `tileAndFuseConsumerOfSlice`
+      // get nest loops between next candidate sliceOp and tiled producer.
+      auto region = outerLoops.front()->getParentRegion();
+      (void)mlir::eraseUnreachableBlocks(rewriter, {*region});
+      (void)mlir::runRegionDCE(rewriter, {*region});
     }
   }
 
