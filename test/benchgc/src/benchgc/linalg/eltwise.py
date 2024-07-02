@@ -18,7 +18,7 @@ import torch
 import argparse
 import gc_mlir.ir
 
-from benchgc.linalg.mlir import init_i1o1_module, escape_var
+from benchgc.mlir import init_i1o1_module, escape_var
 
 from gc_mlir.dialects import linalg
 

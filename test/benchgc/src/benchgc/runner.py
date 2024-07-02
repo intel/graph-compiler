@@ -14,17 +14,23 @@
 # limitations under the License.
 ################################################################################
 
+import gc_mlir._mlir_libs
 import gc_mlir.ir
 import torch
 from typing import Dict
+from benchgc.linalg import ref_op as linalg_ref_op
+from benchgc.tensor import ref_op as tensor_ref_op
+from benchgc.arith import ref_op as arith_ref_op
 
 
 def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
     dialect_call: str = str(op.name)
-    if dialect_call.startswith("onednn_graph"):
-        from benchgc.onednn_graph import ref_op
-    elif dialect_call.startswith("linalg"):
-        from benchgc.linalg import ref_op
+    if dialect_call.startswith("linalg"):
+        ref_op = linalg_ref_op
+    elif dialect_call.startswith("tensor"):
+        ref_op = tensor_ref_op
+    elif dialect_call.startswith("arith"):
+        ref_op = arith_ref_op
     else:
         for region in op.regions:
             dfs_region(region, tensors)
@@ -34,7 +40,8 @@ def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
     if dialect_op not in ref_op:
         raise Exception("unknown op call %s" % dialect_call)
     ref_func = ref_op[dialect_op]
-    ref_func(op, tensors)
+    # yield op may return value
+    return ref_func(op, tensors)
 
 
 def dfs_region(region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
@@ -44,7 +51,9 @@ def dfs_region(region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
 
 def dfs_block(block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
     for op in block.operations:
-        dfs_op(op, tensors)
+        ret = dfs_op(op, tensors)
+        if ret is not None:
+            return ret
 
 
 def ref_run(

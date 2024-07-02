@@ -18,7 +18,7 @@ import torch
 import argparse
 
 from benchgc.arg import Arg
-from benchgc.linalg.mlir import init_i2o1_module, escape_var
+from benchgc.mlir import init_i2o1_module, escape_var
 from typing import Dict, Tuple
 
 from gc_mlir.dialects import linalg

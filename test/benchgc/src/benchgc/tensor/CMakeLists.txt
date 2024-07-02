@@ -15,25 +15,8 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-if(NOT GC_BENCH_ENABLE)
-    message(STATUS "Benchgc is not enabled")
-    return()
-endif()
-
-configure_file(setup.py ${CMAKE_BINARY_DIR}/test/benchgc/setup.py COPYONLY)
 
 file(GLOB PYTHON_SCRIPTS "*.py")
 foreach(PY_SCRIPT ${PYTHON_SCRIPTS})
-  configure_file(${PY_SCRIPT} ${CMAKE_BINARY_DIR} COPYONLY)
+  configure_file(${PY_SCRIPT} ${CMAKE_BINARY_DIR}/test/benchgc/src/benchgc/tensor/ COPYONLY)
 endforeach()
-
-add_custom_target(benchgc
-    COMMAND ${Python_EXECUTABLE} setup.py bdist_wheel
-    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test/benchgc/"
-    DEPENDS GcPythonModules) 
-
-add_subdirectory("src/benchgc")
-add_subdirectory("src/benchgc/ops")
-add_subdirectory("src/benchgc/fill")
-add_subdirectory("src/benchgc/linalg")
-add_subdirectory("src/benchgc/tensor")

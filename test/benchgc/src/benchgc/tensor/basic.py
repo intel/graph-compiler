@@ -14,24 +14,12 @@
 # limitations under the License.
 ################################################################################
 
-import torch
-import argparse
-import importlib
 import gc_mlir.ir
-from benchgc.arg import Arg
-from typing import Dict, Callable
+import torch
+from benchgc.mlir import escape_var
+import benchgc.util
 
-ref_op: Dict[str, Callable[[gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
-mlir_op: Dict[
-    str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
-] = {}
+from typing import Dict
 
-for dri in ["binary", "matmul", "eltwise", "misc", "conv", "generic"]:
-    mod = importlib.import_module("benchgc.linalg.%s" % dri)
-    for key in mod.__dict__:
-        if key.startswith("ref_"):
-            op: str = key.removeprefix("ref_")
-            ref_op[op] = mod.__dict__[key]
-        if key.startswith("mlir_"):
-            op: str = key.removeprefix("mlir_")
-            mlir_op[op] = mod.__dict__[key]
+def ref_empty(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[escape_var(op.results[0].get_name())] = torch.zeros(size = op.results[0].type.shape, dtype = benchgc.util.get_dtype(str(op.results[0].type.element_type)))

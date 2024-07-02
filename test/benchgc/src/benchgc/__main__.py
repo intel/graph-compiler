@@ -24,6 +24,7 @@ from typing import Dict
 import runner
 import benchgc.fill
 import benchgc.util
+import gc_mlir.ir
 
 try:
     parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
@@ -157,12 +158,15 @@ for _, arg in ins.items():
 
 if flags.driver == "linalg":
     from .linalg import mlir_op
+    mlir_func = mlir_op[flags.case]
+    module = mlir_func(flags, args)
+elif flags.driver == "mlir":
+    with open(flags.case, "r") as mlir_file:
+        with gc_mlir.ir.Context() as ctx:
+            module = gc_mlir.ir.Module.parse(mlir_file.read())
 else:
     raise Exception("unsupported driver %s" % flags.driver)
 
-
-mlir_func = mlir_op[flags.case]
-module = mlir_func(flags, args)
 print(module)
 
 tensors: Dict[str, torch.Tensor] = {}

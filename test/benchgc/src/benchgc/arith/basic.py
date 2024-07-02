@@ -14,24 +14,22 @@
 # limitations under the License.
 ################################################################################
 
-import torch
-import argparse
-import importlib
 import gc_mlir.ir
-from benchgc.arg import Arg
-from typing import Dict, Callable
+import torch
+from benchgc.mlir import escape_var
 
-ref_op: Dict[str, Callable[[gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
-mlir_op: Dict[
-    str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
-] = {}
+from typing import Dict
 
-for dri in ["binary", "matmul", "eltwise", "misc", "conv", "generic"]:
-    mod = importlib.import_module("benchgc.linalg.%s" % dri)
-    for key in mod.__dict__:
-        if key.startswith("ref_"):
-            op: str = key.removeprefix("ref_")
-            ref_op[op] = mod.__dict__[key]
-        if key.startswith("mlir_"):
-            op: str = key.removeprefix("mlir_")
-            mlir_op[op] = mod.__dict__[key]
+def ref_mulf(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    src0_name = escape_var(op.operands[0].get_name())
+    src1_name = escape_var(op.operands[1].get_name())
+    dst_name = escape_var(op.results[0].get_name())
+
+    var[dst_name] = var[src0_name] * var[src1_name]
+
+def ref_addf(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    src0_name = escape_var(op.operands[0].get_name())
+    src1_name = escape_var(op.operands[1].get_name())
+    dst_name = escape_var(op.results[0].get_name())
+
+    var[dst_name] = var[src0_name] + var[src1_name]
