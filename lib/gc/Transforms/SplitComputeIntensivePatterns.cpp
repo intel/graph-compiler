@@ -35,7 +35,7 @@ namespace gc {
 #include "gc/Transforms/Passes.h.inc"
 } // namespace gc
 
-size_t NUM_OF_NUMA = 3;
+size_t NUM_OF_NUMA = 2;
 size_t SUPPORTED_RANK = 2;
 
 void printValueType(Value value) {
@@ -195,7 +195,6 @@ void SplitMMonK(Operation* op, SmallVector<Value>& outputs, SmallVector<Value>& 
           /*outputs=*/tensor);
     mlir::BoolAttr boolAttr = rewriter.getBoolAttr(true);
     newMM->setAttr("splited", boolAttr);
-    outputs.push_back(newMM->getResult(0));
     outputs.push_back(newMM->getResult(0));
   }
 }
@@ -360,7 +359,7 @@ LogicalResult splitSingleMM(Operation* op,
   int64_t K = input_tensors[0].getType().cast<RankedTensorType>().getDimSize(1);
   std::cout << "M: " << M << ", N: " << N << ", K: " << K << std::endl;
 
-  int64_t target_dim = N / K >= 2 ? 1 : 1;
+  int64_t target_dim = N / K >= 2 ? 1 : 0;
   SmallVector<Value> splites_res;
   if (target_dim == 1) {
     SplitMMonN(op, splites_res, input_tensors, resultTy, target_dim ^ istransB, loc, rewriter);
