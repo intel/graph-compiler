@@ -563,7 +563,6 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     linalgOp.getReductionDims(KDimPos);
     getMatmulParallelDims(linalgOp, 0, MDimPos);
     getMatmulParallelDims(linalgOp, 1, NDimPos);
-
     OuterLoopGenerationOption option;
     auto iteratorTypes = linalgOp.getIteratorTypesArray();
     auto KFirstDim = getOprandDim(linalgOp, KDimPos[0], 1);
@@ -869,7 +868,11 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       if (cfg.KThreads <= 1) {
         // if use k slicing, the fill op is still need to be kept for the reduce
         // init
-        rewriter.replaceOp(fillOp, fillOp.getDpsInits()[0]);
+        rewriter.replaceUsesWithIf(fillOp.getResult(0), fillOp.getDpsInits()[0],
+                                   [&](OpOperand &operand) {
+                                     return isa<LoopLikeOpInterface>(
+                                         operand.getOwner());
+                                   });
       }
 
       rewriter.setInsertionPointAfter(currentOp);
@@ -923,7 +926,6 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     linalg::LinalgOp originOp =
         dyn_cast<linalg::LinalgOp>(*rewriter.clone(*(linalgOp.getOperation())));
     Operation *fillOp = findParentFillOp(linalgOp.getDpsInits()[0]);
-
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
     auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
@@ -940,8 +942,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     }
 
     // Step 2. Outer loop generation
-    auto outerLoopResult = outerLoopGeneration(rewriter, linalgOp, cfg,
-                                               isa<linalg::FillOp>(fillOp));
+    auto outerLoopResult = outerLoopGeneration(
+        rewriter, linalgOp, cfg, fillOp && isa<linalg::FillOp>(fillOp));
     if (failed(outerLoopResult)) {
       return failure();
     }
@@ -959,6 +961,82 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 };
 
+struct tileReduce : public OpRewritePattern<linalg::ReduceOp> {
+  using OpRewritePattern<linalg::ReduceOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(linalg::ReduceOp reduceOp,
+                                PatternRewriter &rewriter) const override {
+    if (reduceOp.hasPureBufferSemantics())
+      return failure();
+    if (reduceOp.getOperation()->getParentOfType<LoopLikeOpInterface>())
+      return failure();
+
+    auto iteratorTypes = reduceOp.getIteratorTypesArray();
+
+    SmallVector<Range> loopRanges =
+        cast<TilingInterface>(reduceOp.getOperation())
+            .getIterationDomain(rewriter);
+
+    linalg::LinalgOp currentOp = reduceOp;
+    auto cnt = 0;
+    auto loopType = scf::SCFTilingOptions::LoopType::ForallOp;
+    for (auto [iter, range] : llvm::zip(iteratorTypes, loopRanges)) {
+      if (iter == mlir::utils::IteratorType::parallel) {
+        scf::SCFTilingOptions tileOption;
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPoint(currentOp);
+        SmallVector<OpFoldResult> TileSizes(
+            currentOp.getNumLoops(),
+            getAsIndexOpFoldResult(rewriter.getContext(), 0));
+        auto rangeSize = getConstantIntValue(range.size);
+        TileSizes[cnt] = getAsIndexOpFoldResult(
+            rewriter.getContext(),
+            cnt == loopRanges.size() - 1 && rangeSize && rangeSize >= 32 &&
+                    loopType != scf::SCFTilingOptions::LoopType::ForallOp
+                ? 32
+                : 1);
+        tileOption.setTileSizes(TileSizes);
+        tileOption.setLoopType(loopType);
+        auto tilingResult = scf::tileUsingSCF(
+            rewriter, cast<TilingInterface>(currentOp.getOperation()),
+            tileOption);
+        if (!isDummyLoop(tilingResult->loops.back())) {
+          rewriter.replaceOp(currentOp, tilingResult->replacements);
+          currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+        }
+
+        if (loopType == scf::SCFTilingOptions::LoopType::ForallOp)
+          loopType = scf::SCFTilingOptions::LoopType::ForOp;
+      }
+      cnt++;
+    }
+
+    cnt = 0;
+    for (auto [iter, range] : llvm::zip(iteratorTypes, loopRanges)) {
+      if (iter == mlir::utils::IteratorType::reduction) {
+        scf::SCFTilingOptions tileOption;
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPoint(currentOp);
+        SmallVector<OpFoldResult> TileSizes(
+            currentOp.getNumLoops(),
+            getAsIndexOpFoldResult(rewriter.getContext(), 0));
+        TileSizes[cnt] = getAsIndexOpFoldResult(rewriter.getContext(), 1);
+        tileOption.setTileSizes(TileSizes);
+        tileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForOp);
+        auto tilingResult = scf::tileUsingSCF(
+            rewriter, cast<TilingInterface>(currentOp.getOperation()),
+            tileOption);
+        if (!isDummyLoop(tilingResult->loops.back())) {
+          rewriter.replaceOp(currentOp, tilingResult->replacements);
+          currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+          ;
+        }
+      }
+      cnt++;
+    }
+    return success();
+  }
+};
+
 struct DeepTileContractionNamedOp
     : public impl::DeepTileContractionNamedOpBase<DeepTileContractionNamedOp> {
 public:
@@ -968,6 +1046,7 @@ public:
     RewritePatternSet patterns(&ctx);
 
     patterns.add<deepTileMatmul>(patterns.getContext());
+    patterns.add<tileReduce>(patterns.getContext());
     linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
     linalg::ControlDropUnitDims options;
     options.rankReductionStrategy =

@@ -349,15 +349,20 @@ public:
     if (failed(brgemmInfo))
       return failure();
     // Check for immediately preceding linalg::FillOp
-    auto contractionOperand = op.getDpsInits()[0];
-    for (auto &use : contractionOperand.getUses()) {
-      if (auto fillOp = dyn_cast<linalg::FillOp>(use.getOwner())) {
+    Operation *rawOp = op;
+    auto block = rawOp->getBlock();
+    auto opIter = Block::iterator(rawOp);
+    if (block->begin() != opIter) {
+      auto prevOp = &(*(--opIter));
+      if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
         auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
             fillOp.getInputs()[0].getDefiningOp());
         auto fillOperand = fillOp.getOutputs()[0];
-        if (isZeroArithConstant(inputCst)) {
+        auto contractionOperand = op.getOutputs()[0];
+        if (isZeroArithConstant(inputCst) &&
+            contractionOperand == fillOperand) {
           brgemmInfo->isInitOutput = true;
-          rewriter.eraseOp(fillOp);
+          rewriter.eraseOp(prevOp);
         }
       }
     }

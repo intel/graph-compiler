@@ -49,7 +49,6 @@ do
     elapsed_time=`numactl -N 1 --membind=1 python3 ${PROJECT_DIR}/tools/main.py --type=bench --driver=load_mlir --path=${PROJECT_DIR}/build/mlp.mlir 2>log | tail -n 2 | head -n 1 | sed 's/.*execute_cost":.//g'`
     gflops=`python -c "print(int($bs) * (int)('$hidden_size'.split('x')[0]) * (int)('$hidden_size'.split('x')[1]) * 2 / $elapsed_time / 1e6)"`
 	echo "$thread,$mode,$bs,$hidden_size,$tile,$elapsed_time,${gflops},$1"
-    exit 0
 done
 done
 
@@ -77,11 +76,3 @@ done
 done
 done
 done
-
-
-
-
-
-
-
-# python3 /home/xurui/mlir/tpp-mlir/benchmark/main.py --type=bench --driver=load_mlir --entry=entry --path=${BUILD_DIR}/mlp.mlir --repeat=20

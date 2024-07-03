@@ -63,6 +63,7 @@ build_llvm() {
     fi
 
     cd llvm-project
+    git pull
     git checkout ${LLVM_HASH}
 
     dylib=OFF
