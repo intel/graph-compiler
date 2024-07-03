@@ -1002,10 +1002,10 @@ struct tileReduce : public OpRewritePattern<linalg::ReduceOp> {
         if (!isDummyLoop(tilingResult->loops.back())) {
           rewriter.replaceOp(currentOp, tilingResult->replacements);
           currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+          if (loopType == scf::SCFTilingOptions::LoopType::ForallOp)
+              loopType = scf::SCFTilingOptions::LoopType::ForOp;
         }
-
-        if (loopType == scf::SCFTilingOptions::LoopType::ForallOp)
-          loopType = scf::SCFTilingOptions::LoopType::ForOp;
+        
       }
       cnt++;
     }
