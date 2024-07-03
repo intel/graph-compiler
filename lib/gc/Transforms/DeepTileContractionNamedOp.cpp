@@ -563,7 +563,6 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     linalgOp.getReductionDims(KDimPos);
     getMatmulParallelDims(linalgOp, 0, MDimPos);
     getMatmulParallelDims(linalgOp, 1, NDimPos);
-
     OuterLoopGenerationOption option;
     auto iteratorTypes = linalgOp.getIteratorTypesArray();
     auto KFirstDim = getOprandDim(linalgOp, KDimPos[0], 1);
@@ -869,7 +868,11 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       if (cfg.KThreads <= 1) {
         // if use k slicing, the fill op is still need to be kept for the reduce
         // init
-        rewriter.replaceOp(fillOp, fillOp.getDpsInits()[0]);
+        rewriter.replaceUsesWithIf(fillOp.getResult(0), fillOp.getDpsInits()[0],
+                                   [&](OpOperand &operand) {
+                                     return isa<LoopLikeOpInterface>(
+                                         operand.getOwner());
+                                   });
       }
 
       rewriter.setInsertionPointAfter(currentOp);
@@ -923,7 +926,6 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     linalg::LinalgOp originOp =
         dyn_cast<linalg::LinalgOp>(*rewriter.clone(*(linalgOp.getOperation())));
     Operation *fillOp = findParentFillOp(linalgOp.getDpsInits()[0]);
-
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
     auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
@@ -940,8 +942,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     }
 
     // Step 2. Outer loop generation
-    auto outerLoopResult = outerLoopGeneration(rewriter, linalgOp, cfg,
-                                               isa<linalg::FillOp>(fillOp));
+    auto outerLoopResult = outerLoopGeneration(
+        rewriter, linalgOp, cfg, fillOp && isa<linalg::FillOp>(fillOp));
     if (failed(outerLoopResult)) {
       return failure();
     }
