@@ -1,12 +1,8 @@
 set -ex
-export PYTHONPATH=`pwd`/python_packages/tpp_core
-export LD_PRELOAD=/home/zhicong/miniforge3/lib/libiomp5.so
-export MLIR_RUNNER_UTILS=/home/zhicong/code/llvm-project/llvm-install/lib/libmlir_runner_utils.so
-export MLIR_C_RUNNER_UTILS=/home/zhicong/code/llvm-project/llvm-install/lib/libmlir_runner_utils.so
 export L1_CACHE_SIZE=49152
 export L2_CACHE_SZIE=2097152
 export L3_CACHE_SIZE=1966080
-PROJECT_DIR=/home/zhicong/code/gc-pipeline
+PROJECT_DIR=`pwd`/../
 BUILD_DIR=${PROJECT_DIR}/build
 export PYTHONPATH=${PROJECT_DIR}/build/python_packages/gc_mlir_core
 export LD_PRELOAD="/home/zhicong/miniforge3/lib/libiomp5.so ${PROJECT_DIR}/build/lib/libGCCpuRuntime.so"
@@ -46,7 +42,6 @@ do
     elapsed_time=`numactl -N 1 --membind=1 python3 ${PROJECT_DIR}/tools/main.py --type=bench --driver=load_mlir --path=${PROJECT_DIR}/build/mlp.mlir 2>log | tail -n 2 | head -n 1 | sed 's/.*execute_cost":.//g'`
     gflops=`python -c "print(int($bs) * (int)('$hidden_size'.split('x')[0]) * (int)('$hidden_size'.split('x')[1]) * 2 / $elapsed_time / 1e6)"`
 	echo "$thread,$mode,$bs,$hidden_size,$tile,$elapsed_time,${gflops},$1"
-    exit 0
 done
 done
 
@@ -74,11 +69,3 @@ done
 done
 done
 done
-
-
-
-
-
-
-
-# python3 /home/xurui/mlir/tpp-mlir/benchmark/main.py --type=bench --driver=load_mlir --entry=entry --path=${BUILD_DIR}/mlp.mlir --repeat=20
