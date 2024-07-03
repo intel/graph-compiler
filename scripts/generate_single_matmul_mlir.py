@@ -31,6 +31,22 @@ func.func @main_entry() attributes {block_start}llvm.emit_c_interface{block_end}
     '''
     return mlir_code
 
+def generate_single_matmul_mlir_wo_data(M, N, K):
+    mat_A = numpy.random.rand(M, K)
+    mat_B = numpy.random.rand(K, N)
+    mat_C = numpy.dot(mat_A, mat_B)
+    block_start = "{"
+    block_end = "}"
+    mlir_code = f'''
+func.func @main_entry(%arg0: tensor<{M}x{K}xf32>, %arg1: tensor<{K}x{N}xf32> ) -> tensor<{M}x{N}xf32> attributes {block_start}llvm.emit_c_interface{block_end} {block_start}
+  %cst_0 = arith.constant 0.000000e+00 : f32
+  %0 = tensor.empty() : tensor<{M}x{N}xf32>
+  %1 = linalg.fill ins(%cst_0 : f32) outs(%0 : tensor<{M}x{N}xf32>) -> tensor<{M}x{N}xf32>
+  %2 = linalg.matmul ins(%arg0, %arg1 : tensor<{M}x{K}xf32>, tensor<{K}x{N}xf32>) outs(%1 : tensor<{M}x{N}xf32>) -> tensor<{M}x{N}xf32>
+  return %2 : tensor<{M}x{N}xf32>
+{block_end}
+    '''
+    return mlir_code
 
 def generate_mlir_bf16_2dx4d(M, N, K, tile_m = 32, tile_n = 32, tile_k = 32, dtype_size=2):
     M_block = (M-1) // tile_m + 1
@@ -123,6 +139,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.mode == "correctness":
         code = generate_single_matmul_mlir(args.M, args.N, args.K)
+    elif args.mode == "f32_2dx2d":
+        code = generate_single_matmul_mlir_wo_data(args.M, args.N, args.K)
     elif args.mode == "bf16_2dx4d":
         code = generate_mlir_bf16_2dx4d(args.M, args.N, args.K, args.tile_m, args.tile_n, args.tile_k)
     elif args.mode == "bf16_4dx4d":

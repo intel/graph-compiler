@@ -1,15 +1,18 @@
 set -ex
 export PYTHONPATH=`pwd`/python_packages/tpp_core
-export LD_PRELOAD=/home/zhicong/miniforge3/lib/libiomp5.so
-export MLIR_RUNNER_UTILS=/home/zhicong/code/llvm-project/llvm-install/lib/libmlir_runner_utils.so
-export MLIR_C_RUNNER_UTILS=/home/zhicong/code/llvm-project/llvm-install/lib/libmlir_runner_utils.so
+export LD_PRELOAD=/home/zhangyan/miniforge3/envs/gc/lib/libiomp5.so
+export MLIR_RUNNER_UTILS=/home/zhangyan/graph_compiler_v2/externals/llvm-project/llvm-install/lib/libmlir_runner_utils.so
+export MLIR_C_RUNNER_UTILS=/home/zhangyan/graph_compiler_v2/externals/llvm-project/llvm-install/lib/libmlir_runner_utils.so
+BUILD_DIR=${PROJECT_DIR}/build
+
 export L1_CACHE_SIZE=49152
 export L2_CACHE_SZIE=2097152
-export L3_CACHE_SIZE=1966080
-PROJECT_DIR=/home/zhicong/code/gc-pipeline
-BUILD_DIR=${PROJECT_DIR}/build
+export L3_CACHE_SIZE=335544320
+export PROJECT_DIR=/home/zhangyan/graph_compiler_v2
+
 export PYTHONPATH=${PROJECT_DIR}/build/python_packages/gc_mlir_core
-export LD_PRELOAD="/home/zhicong/miniforge3/lib/libiomp5.so ${PROJECT_DIR}/build/lib/libGCCpuRuntime.so"
+export LD_PRELOAD=$LD_PRELOAD:"/home/zhangyan/miniforge3/envs/gc/lib/libiomp5.so"
+export LD_PRELOAD=$LD_PRELOAD:"/home/zhangyan/graph_compiler_v2/build/lib/libGCCpuRuntime.so"
 export MLIR_RUNNER_UTILS=${PROJECT_DIR}/externals/llvm-project/build/lib/libmlir_runner_utils.so
 export MLIR_C_RUNNER_UTILS=${PROJECT_DIR}/externals/llvm-project/build/lib/libmlir_c_runner_utils.so 
 
@@ -20,14 +23,14 @@ cd $BUILD_DIR
 echo "thread, dtype, bs, hidden_size, tile, time(ms), GFlops, extra, cmd"
 for tile in 32 64 128
 do
-for thread in 1 32 56
+for thread in 32
 do
 for mode in f32_4dx4d_generic bf16_4dx4d
 do
 
 for hidden_size in 4096x4096 4096x11008 11008x4096 4096x32000
 do
-for bs in 1 16 32 64 512
+for bs in 32
 do
 	export OMP_NUM_THREADS=$thread
     M_SIZE=$bs
