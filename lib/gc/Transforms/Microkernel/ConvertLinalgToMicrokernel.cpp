@@ -349,8 +349,9 @@ public:
     if (failed(brgemmInfo))
       return failure();
     // Check for immediately preceding linalg::FillOp
-    auto block = op.getBlock();
-    auto opIter = Block::iterator(op);
+    Operation *rawOp = op;
+    auto block = rawOp->getBlock();
+    auto opIter = Block::iterator(rawOp);
     if (block->begin() != opIter) {
       auto prevOp = &(*(--opIter));
       if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
