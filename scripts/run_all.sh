@@ -13,7 +13,7 @@ cd $BUILD_DIR
 # cmake --build . 
 
 
-echo "thread, dtype, bs, hidden_size, tile, time(ms), GFlops, extra, cmd"
+echo "thread, dtype, bs, hidden_size, tile, time(ms), GFlops, Correctness, extra"
 for tile in 32 64 128
 do
 for thread in 1 32 56
@@ -34,14 +34,15 @@ do
     TILE_K=`python -c "print(min(int($K_SIZE), int($tile)))"`
     PERF_MODE=$mode
     FLOP=`python -c "print(${M_SIZE} * ${K_SIZE} * ${N_SIZE} * 2 / ${thread})"`
-	repeat=`python -c "print(1 if $FLOP > 1e13 else 10 if $FLOP > 1e12 else 100)"`
+	repeat=`python -c "print(1 if $FLOP > 1e12 else 10 if $FLOP > 5e11 else 100)"`
     REPEAT=$repeat
 
     python ../scripts/generate_single_matmul_mlir.py --M=${M_SIZE} --N=${N_SIZE} --K=${K_SIZE} --tile_m=${TILE_M} --tile_n=${TILE_N} --tile_k=${TILE_K} --mode=${PERF_MODE}  > ${BUILD_DIR}/mlp.mlir
 
     elapsed_time=`numactl -N 1 --membind=1 python3 ${PROJECT_DIR}/tools/main.py --type=bench --driver=load_mlir --path=${PROJECT_DIR}/build/mlp.mlir 2>log | tail -n 2 | head -n 1 | sed 's/.*execute_cost":.//g'`
     gflops=`python -c "print(int($bs) * (int)('$hidden_size'.split('x')[0]) * (int)('$hidden_size'.split('x')[1]) * 2 / $elapsed_time / 1e6)"`
-	echo "$thread,$mode,$bs,$hidden_size,$tile,$elapsed_time,${gflops},$1"
+	correctness=`numactl -N 1 --membind=1 python3 ${PROJECT_DIR}/tools/example/simple_test.py --M=${M_SIZE} --K=${K_SIZE} --N=${N_SIZE} --tile_m=${TILE_M} --tile_n=${TILE_N} --tile_k=${TILE_K} --mode=${PERF_MODE} | tail -n 1`
+    echo "$thread,$mode,$bs,$hidden_size,$tile,$elapsed_time,${gflops},${correctness},$1"
 done
 done
 
@@ -56,14 +57,14 @@ do
     TILE_K=`python -c "print(min(int($K_SIZE), int($tile)))"`
     PERF_MODE=$mode
     FLOP=`python -c "print(${M_SIZE} * ${K_SIZE} * ${N_SIZE} * 2 / ${thread})"`
-	repeat=`python -c "print(1 if $FLOP > 1e13 else 10 if $FLOP > 1e12 else 100)"`
+	repeat=`python -c "print(1 if $FLOP > 1e12 else 10 if $FLOP > 5e11 else 100)"`
     REPEAT=$repeat
 
     python ../scripts/generate_single_matmul_mlir.py --M=${M_SIZE} --N=${N_SIZE} --K=${K_SIZE} --tile_m=${TILE_M} --tile_n=${TILE_N} --tile_k=${TILE_K} --mode=${PERF_MODE}  > ${BUILD_DIR}/mlp.mlir
     elapsed_time=`numactl -N 1 --membind=1 python3 ${PROJECT_DIR}/tools/main.py --type=bench --driver=load_mlir --path=${PROJECT_DIR}/build/mlp.mlir 2>log | tail -n 2 | head -n 1 | sed 's/.*execute_cost":.//g'`
-    echo $elapsed_time
     gflops=`python -c "print(int($K_SIZE) * (int)($M_SIZE) * (int)($N_SIZE) * 2 / $elapsed_time / 1e6)"`
-	echo "$thread,$mode,$M_SIZE,${K_SIZE}x${N_SIZE},$tile,$elapsed_time,${gflops},$1"
+    correctness=`numactl -N 1 --membind=1 python3 ${PROJECT_DIR}/tools/example/simple_test.py --M=${M_SIZE} --K=${K_SIZE} --N=${N_SIZE} --tile_m=${TILE_M} --tile_n=${TILE_N} --tile_k=${TILE_K} --mode=${PERF_MODE} | tail -n 1`
+	echo "$thread,$mode,$M_SIZE,${K_SIZE}x${N_SIZE},$tile,$elapsed_time,${gflops},${correctness},$1"
 done
 
 done
