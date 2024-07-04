@@ -146,13 +146,11 @@ GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
 }
 
 GC_DLL_EXPORT void dnnl_graph_compiler_destroy_executable(
-    const struct dnnl_graph_compiler *gc,
     const struct dnnl_graph_compiler_executable *exe) {
   delete exe;
 }
 
 GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_execute(
-    const struct dnnl_graph_compiler *gc,
     const struct dnnl_graph_compiler_executable *exe,
     dnnl_graph_compiler_tensor *inputs, dnnl_graph_compiler_tensor *outputs) {
   try {
