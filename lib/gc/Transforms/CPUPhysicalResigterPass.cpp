@@ -1439,15 +1439,12 @@ void checkAndSetOperand(
   if (llvm::dyn_cast<vector::TransferWriteOp>(op) ||
       llvm::dyn_cast<vector::TransferReadOp>(op)) {
     assert(opPermuationMap.contains(op));
-    std::cout << "op verify ..." << std::endl;
-    op->dump();
     auto permutationMap = opPermuationMap.at(op);
 
     auto dimExpr = permutationMap.getResults();
     for (auto [idx, x] : llvm::enumerate(dimExpr)) {
       if (mlir::dyn_cast<AffineDimExpr>(x)) {
         auto dim = mlir::dyn_cast<AffineDimExpr>(x).getPosition();
-        std::cout << inductionVars.size() << "," << dim << std::endl;
         op->setOperand(dim + offset, inductionVars[dim]);
       }
     }
