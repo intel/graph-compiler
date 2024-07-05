@@ -47,6 +47,10 @@ struct BrgemmInfo {
 
   bool isInitOutput;
   BrgemmMode mode;
+
+  // Auxiliary vars for Brgemm info inference result
+  bool skipTransA;
+  bool skipTransB;
 };
 
 FailureOr<linalg::ContractionDimensions>
@@ -101,117 +105,110 @@ static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
 }
 
 // Return the position of `dim` in the codomain of `operand`.
-static std::optional<unsigned> getPosInCodomain(ArrayRef<unsigned> dimPos,
-                                                OpOperand *operand,
-                                                linalg::LinalgOp linalgOp) {
+static FailureOr<unsigned> getPosInCodomain(ArrayRef<unsigned> dimPos,
+                                            OpOperand *operand,
+                                            linalg::LinalgOp linalgOp) {
   assert(operand->getOwner() == linalgOp);
   auto map = linalgOp.getMatchingIndexingMap(operand);
   for (unsigned i = 0, numResults = map.getNumResults(); i < numResults; i++) {
     if (isMatchingAffineResult(linalgOp, map.getResult(i), dimPos))
       return i;
   }
-  return std::nullopt;
+  return failure();
 }
 
-static FailureOr<BrgemmInfo>
-inferBrgemmInfo(linalg::LinalgOp linalgOp,
-                const linalg::ContractionDimensions &dims) {
-  unsigned mPos = dims.m[0];
-  unsigned nPos = dims.n[0];
-  // dims.k could be of 2 cases:
-  //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
-  //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
-  unsigned batchPos = dims.k.front();
+struct BrgemmOperand {
+  OpOperand *operand;
+  // dim pos in operand's codomain
+  unsigned batchDim, minorDim, majorDim;
+  bool isVnni;
+};
+
+struct BrgemmDimLoopPos {
+  // dim pos in linalg loops
+  unsigned mPos, nPos;
+  unsigned batchPos;
   SmallVector<unsigned, 2> kPos;
-  if (dims.k.size() == 2) {
-    kPos = {dims.k[1]};
-  } else if (dims.k.size() == 3) {
-    kPos = {dims.k[1], dims.k[2]};
-  } else {
-    return failure();
-  }
+};
 
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Candidate dims: "
-                          << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] m pos in affine: " << mPos
-                          << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] n pos in affine: " << nPos
-                          << "\n");
-  for (auto kp : kPos) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "[inferBrgemmInfo] k pos in affine: " << kp << "\n");
-  }
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] batch pos in affine: "
-                          << batchPos << "\n");
+struct BrgemmOperands {
+  BrgemmDimLoopPos loopPos;
+  BrgemmOperand operandA;
+  BrgemmOperand operandB;
+  BrgemmOperand operandC;
+};
 
-  auto checkStridesAndGetLda =
-      [&](ArrayRef<unsigned> minorDim, ArrayRef<unsigned> majorDim,
-          OpOperand *operand, bool allowVnni) -> FailureOr<int64_t> {
-    auto minorDimPosInCodomain = getPosInCodomain(minorDim, operand, linalgOp);
-    auto majorDimPosInCodomain = getPosInCodomain(majorDim, operand, linalgOp);
-    if (!minorDimPosInCodomain || !majorDimPosInCodomain)
-      return failure();
-    auto stridesOnOperand = gcext::utils::getStaticStrides(operand->get());
+static FailureOr<BrgemmInfo> inferBrgemmInfo(linalg::LinalgOp linalgOp,
+                                             const BrgemmOperands &operands) {
+
+  auto checkStridesAndGetLd =
+      [&](const BrgemmOperand &operand) -> FailureOr<int64_t> {
+    auto stridesOnOperand =
+        gcext::utils::getStaticStrides(operand.operand->get());
     if (failed(stridesOnOperand))
       return failure();
-    auto minorDimLd = (*stridesOnOperand)[*minorDimPosInCodomain];
-    auto majorDimLd = (*stridesOnOperand)[*majorDimPosInCodomain];
+    auto minorDimLd = (*stridesOnOperand)[operand.minorDim];
+    auto majorDimLd = (*stridesOnOperand)[operand.majorDim];
     if (minorDimLd != 1) {
-      // VNNI format exists, special treatment to align LD with non-VNNI format
-      if (!allowVnni || (minorDimLd != 2 && minorDimLd != 4))
+      // VNNI format exists, special treatment to align LD with non-VNNI format,
+      // as VNNI does not change input LD
+      if (!operand.isVnni || (minorDimLd != 2 && minorDimLd != 4))
         return failure();
       return majorDimLd / minorDimLd;
     }
     return majorDimLd;
   };
 
-  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
-  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
-  OpOperand *operandC = &linalgOp.getDpsInitsMutable()[0];
-
   // A(m, k)
-  auto lda = checkStridesAndGetLda(kPos, {mPos}, operandA, false);
+  auto lda = checkStridesAndGetLd(operands.operandA);
   if (failed(lda))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on A: OK\n");
 
   // B(k, n)
   // note: B does not use VNNI format K affine
-  auto ldb = checkStridesAndGetLda({nPos}, {kPos[0]}, operandB, true);
+  auto ldb = checkStridesAndGetLd(operands.operandB);
   if (failed(ldb))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on B: OK\n");
 
   // C(m, n)
-  auto ldc = checkStridesAndGetLda({nPos}, {mPos}, operandC, false);
+  auto ldc = checkStridesAndGetLd(operands.operandC);
   if (failed(ldc))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on C: OK\n");
 
   int64_t strideA = 1;
   int64_t strideB = 1;
-  auto batchPosCodomainA = getPosInCodomain(batchPos, operandA, linalgOp);
-  auto stridesOnA = gcext::utils::getStaticStrides(operandA->get());
-  strideA = (*stridesOnA)[*batchPosCodomainA];
+  auto stridesOnA =
+      gcext::utils::getStaticStrides(operands.operandA.operand->get());
+  strideA = (*stridesOnA)[operands.operandA.batchDim];
 
-  auto batchPosCodomainB = getPosInCodomain(batchPos, operandB, linalgOp);
-  auto stridesOnB = gcext::utils::getStaticStrides(operandB->get());
-  strideB = (*stridesOnB)[*batchPosCodomainB];
+  auto stridesOnB =
+      gcext::utils::getStaticStrides(operands.operandB.operand->get());
+  strideB = (*stridesOnB)[operands.operandB.batchDim];
 
+  const auto &loopPos = operands.loopPos;
   auto loops = linalgOp.computeStaticLoopSizes();
-  auto kSize =
-      kPos.size() == 1 ? loops[kPos[0]] : (loops[kPos[0]] * loops[kPos[1]]);
+  auto kSize = loopPos.kPos.size() == 1
+                   ? loops[loopPos.kPos[0]]
+                   : (loops[loopPos.kPos[0]] * loops[loopPos.kPos[1]]);
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] final BrgemmInfo: m("
-                          << loops[mPos] << "), n(" << loops[nPos] << "), k("
-                          << kSize << "), batch(" << loops[batchPos]
-                          << "), lda(" << *lda << "), ldb(" << *ldb << "), ldc("
-                          << *ldc << "), strideA(" << strideA << "), strideB("
+                          << loops[loopPos.mPos] << "), n("
+                          << loops[loopPos.nPos] << "), k(" << kSize
+                          << "), batch(" << loops[loopPos.batchPos] << "), lda("
+                          << *lda << "), ldb(" << *ldb << "), ldc(" << *ldc
+                          << "), strideA(" << strideA << "), strideB("
                           << strideB << ")\n");
-  BrgemmInfo info{loops[mPos],
-                  loops[nPos],
+
+  auto origOperandA = linalgOp.getDpsInputOperands()[0];
+  auto origOperandB = linalgOp.getDpsInputOperands()[1];
+
+  BrgemmInfo info{loops[loopPos.mPos],
+                  loops[loopPos.nPos],
                   kSize,
-                  loops[batchPos],
+                  loops[loopPos.batchPos],
                   0 /* addrLen useless under stride mode */,
                   *lda,
                   *ldb,
@@ -219,30 +216,24 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
                   strideA,
                   strideB,
                   false,
-                  BrgemmInfo::STRIDE_MODE};
+                  BrgemmInfo::STRIDE_MODE,
+                  /* skipTransA */ origOperandA != operands.operandA.operand,
+                  /* skipTransB */ origOperandB != operands.operandB.operand};
   return info;
 }
 
-static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
-  using namespace mlir::gcext::utils::structured_match;
-  auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
-                                .output(MatchAll(), HasStaticShape())
-                                .input(MatchAll(), HasStaticShape())
-                                .output(MatchAll(), HasStaticStrides())
-                                .input(MatchAll(), HasStaticStrides())
-                                .operation(NumOfLoops(GreaterThanOrEqualTo(3)));
-  // clang-format on
-  if (!validBrgemmMatcher.match(linalgOp))
-    return failure();
-
+static FailureOr<BrgemmOperands>
+inferBrgemmOperands(linalg::LinalgOp linalgOp,
+                    std::optional<linalg::TransposeOp> transOpA,
+                    std::optional<linalg::TransposeOp> transOpB) {
   auto contractionDims = customInferContractionDims(linalgOp);
   if (failed(contractionDims)) {
     LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Not a valid contraction\n");
     return failure();
   }
   if (contractionDims->m.size() != 1 || contractionDims->n.size() != 1 ||
-      // batch-reduce dim for BRGEMM should be identified as one of k dim
-      // including VNNI & non-VNNI cases
+      // batch-reduce dim for BRGEMM would be identified as one of k dim
+      // for both VNNI & non-VNNI cases
       (contractionDims->k.size() != 2 && contractionDims->k.size() != 3) ||
       contractionDims->batch.size() != 0) {
     LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions\n");
@@ -261,13 +252,138 @@ static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
     return failure();
   }
 
-  return inferBrgemmInfo(linalgOp, *contractionDims);
+  BrgemmOperands operands;
+  BrgemmDimLoopPos &loopPos = operands.loopPos;
+
+  loopPos.mPos = contractionDims->m[0];
+  loopPos.nPos = contractionDims->n[0];
+  // dims.k could be of 2 cases:
+  //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
+  //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
+  loopPos.batchPos = contractionDims->k.front();
+  if (contractionDims->k.size() == 2)
+    loopPos.kPos = {contractionDims->k[1]};
+  else if (contractionDims->k.size() == 3)
+    loopPos.kPos = {contractionDims->k[1], contractionDims->k[2]};
+  else
+    return failure();
+
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmOperands] Candidate loop dims: \n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmOperands] m pos in affine: "
+                          << loopPos.mPos << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmOperands] n pos in affine: "
+                          << loopPos.nPos << "\n");
+  for (auto kp : loopPos.kPos)
+    LLVM_DEBUG(llvm::dbgs()
+               << "[inferBrgemmOperands] k pos in affine: " << kp << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmOperands] batch pos in affine: "
+                          << loopPos.batchPos << "\n");
+
+  operands.operandA.operand = linalgOp.getDpsInputOperands()[0];
+  operands.operandB.operand = linalgOp.getDpsInputOperands()[1];
+  operands.operandC.operand = &linalgOp.getDpsInitsMutable()[0];
+
+  auto getAllPosInCodomain =
+      [&](BrgemmOperand &operand, ArrayRef<unsigned> minor,
+          ArrayRef<unsigned> major,
+          std::optional<unsigned> batch = std::nullopt) -> bool {
+    auto minorDimPos = getPosInCodomain(minor, operand.operand, linalgOp);
+    auto majorDimPos = getPosInCodomain(major, operand.operand, linalgOp);
+    if (failed(minorDimPos) || failed(majorDimPos))
+      return false;
+    operand.minorDim = *minorDimPos;
+    operand.majorDim = *majorDimPos;
+    if (batch) {
+      auto batchDimPos = getPosInCodomain(*batch, operand.operand, linalgOp);
+      if (failed(batchDimPos))
+        return false;
+      operand.batchDim = *batchDimPos;
+    }
+    return true;
+  };
+
+  auto trySkipPrecedingTranspose =
+      [&](std::optional<linalg::TransposeOp> transOp, BrgemmOperand &operand) {
+        if (!transOp)
+          return;
+        // Try to incorporate the transposeOp
+        ArrayRef<int64_t> permutation = transOp->getPermutation();
+        bool lastDimContigious = true;
+        // Last dim can't not be permuted if we want to incorporate the
+        // transpose, because BRGEMM requires last dim to be contigious.
+        // For VNNI, it requires the last two dims to be non-permutedi
+        size_t lastDimOffset = operand.isVnni ? 2 : 1;
+        for (size_t idx = permutation.size() - lastDimOffset;
+             idx < permutation.size(); idx++)
+          lastDimContigious = lastDimContigious && (permutation[idx] == idx);
+        if (lastDimContigious) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "[inferBrgemmOperands] Skip preceding transpose, dims "
+                        "change from "
+                     << operand.operand->get() << "(" << operand.batchDim
+                     << ", " << operand.minorDim << ", " << operand.majorDim
+                     << ") \n");
+          operand.operand = &(*transOp)->getOpOperand(0);
+          operand.minorDim = permutation[operand.minorDim];
+          operand.majorDim = permutation[operand.majorDim];
+          operand.batchDim = permutation[operand.batchDim];
+          LLVM_DEBUG(llvm::dbgs()
+                     << "[inferBrgemmOperands] To " << operand.operand->get()
+                     << " (" << operand.batchDim << ", " << operand.minorDim
+                     << ", " << operand.majorDim << ") \n");
+        }
+      };
+
+  // A(m, k)
+  if (!getAllPosInCodomain(operands.operandA, loopPos.kPos, {loopPos.mPos},
+                           loopPos.batchPos))
+    return failure();
+  operands.operandA.isVnni = false;
+  trySkipPrecedingTranspose(transOpA, operands.operandA);
+
+  // B(k, n)
+  // note: B does not use VNNI format K affine
+  if (!getAllPosInCodomain(operands.operandB, {loopPos.nPos}, {loopPos.kPos[0]},
+                           loopPos.batchPos))
+    return failure();
+  operands.operandB.isVnni = loopPos.kPos.size() == 2;
+  trySkipPrecedingTranspose(transOpB, operands.operandB);
+
+  // C(m, n)
+  if (!getAllPosInCodomain(operands.operandC, {loopPos.nPos}, {loopPos.mPos}))
+    return failure();
+  operands.operandC.isVnni = false;
+
+  return operands;
+}
+
+static FailureOr<BrgemmInfo>
+inferBrgemmInfo(linalg::LinalgOp linalgOp,
+                std::optional<linalg::TransposeOp> transOpA,
+                std::optional<linalg::TransposeOp> transOpB) {
+  using namespace mlir::gcext::utils::structured_match;
+  auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
+                                .output(MatchAll(), HasStaticShape())
+                                .input(MatchAll(), HasStaticShape())
+                                .output(MatchAll(), HasStaticStrides())
+                                .input(MatchAll(), HasStaticStrides())
+                                .operation(NumOfLoops(GreaterThanOrEqualTo(3)));
+  // clang-format on
+  if (!validBrgemmMatcher.match(linalgOp))
+    return failure();
+
+  auto brgemmOperands = inferBrgemmOperands(linalgOp, transOpA, transOpB);
+  if (failed(brgemmOperands))
+    return failure();
+
+  return inferBrgemmInfo(linalgOp, *brgemmOperands);
 }
 
 // Replace linalgOp with a set of microkernel ops
-static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
-                                          linalg::LinalgOp linalgOp,
-                                          const BrgemmInfo &info) {
+static void replaceOpWithMicrokernelOpSet(
+    PatternRewriter &rewriter, linalg::LinalgOp linalgOp,
+    std::optional<linalg::TransposeOp> transOpA,
+    std::optional<linalg::TransposeOp> transOpB, const BrgemmInfo &info) {
   assert(linalgOp.getDpsInputs().size() == 2);
   OpBuilder::InsertionGuard guard(rewriter);
 
@@ -315,7 +431,18 @@ static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
                         linalgOp->getOperands().end());
   invokeOperands.push_back(batchDim);
   invokeOperands.push_back(lenDim);
-  rewriter.create<microkernel::BrgemmOp>(loc, invokeOperands);
+  auto invoke = rewriter.create<microkernel::BrgemmOp>(loc, invokeOperands);
+  // replace invoke op operands if preceding transpose could be fused
+  if (transOpA && info.skipTransA)
+    rewriter.modifyOpInPlace(invoke, [&]() {
+      invoke->replaceUsesOfWith((*transOpA)->getResult(0),
+                                transOpA->getInput());
+    });
+  if (transOpB && info.skipTransB)
+    rewriter.modifyOpInPlace(invoke, [&]() {
+      invoke->replaceUsesOfWith((*transOpB)->getResult(0),
+                                transOpB->getInput());
+    });
 
   // create epilogue op & replace original op
   rewriter.replaceOpWithNewOp<microkernel::BrgemmEpilogueOp>(linalgOp,
@@ -338,6 +465,23 @@ bool isZeroArithConstant(arith::ConstantOp op) {
   return true;
 }
 
+template <typename PrevOpType, typename CurrOpType>
+static inline std::optional<PrevOpType>
+getPrevUserWithType(Value value, CurrOpType currUser) {
+  Operation *prevUser = nullptr;
+  LLVM_DEBUG(llvm::dbgs() << "getPrevUserWithType\n");
+  for (Operation *user : value.getUsers()) {
+    LLVM_DEBUG(llvm::dbgs() << "Check value: " << value
+                            << ", user: " << user->getName() << "\n");
+    if (user == currUser)
+      break;
+    prevUser = user;
+  }
+  if (prevUser && llvm::isa<PrevOpType>(prevUser))
+    return dyn_cast<PrevOpType>(prevUser);
+  return std::nullopt;
+}
+
 template <typename ContractionOp>
 class ConvertContractionOpToBrgemmRewriter
     : public OpRewritePattern<ContractionOp> {
@@ -345,28 +489,39 @@ public:
   using OpRewritePattern<ContractionOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
-    auto brgemmInfo = getBrgemmInfo(op);
-    if (failed(brgemmInfo))
-      return failure();
-    // Check for immediately preceding linalg::FillOp
-    Operation *rawOp = op;
-    auto block = rawOp->getBlock();
-    auto opIter = Block::iterator(rawOp);
-    if (block->begin() != opIter) {
-      auto prevOp = &(*(--opIter));
-      if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
-        auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
-            fillOp.getInputs()[0].getDefiningOp());
-        auto fillOperand = fillOp.getOutputs()[0];
-        auto contractionOperand = op.getOutputs()[0];
-        if (isZeroArithConstant(inputCst) &&
-            contractionOperand == fillOperand) {
-          brgemmInfo->isInitOutput = true;
-          rewriter.eraseOp(prevOp);
-        }
+    // All operands should be MemRef.
+    for (auto value : op->getOperands()) {
+      auto valueType = value.getType();
+      if (!isa<MemRefType>(valueType)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Cannot convert: expecting MemRef for all op operands\n");
+        return failure();
       }
     }
-    replaceOpWithMicrokernelOpSet(rewriter, op, *brgemmInfo);
+    // Check for preceding linalg::TransposeOp and try to incorporate it into
+    // BRGEMM by adjusting stride & ld.
+    auto operandA = op.getInputs()[0];
+    auto operandB = op.getInputs()[1];
+    auto transOpA = getPrevUserWithType<linalg::TransposeOp>(operandA, op);
+    auto transOpB = getPrevUserWithType<linalg::TransposeOp>(operandB, op);
+
+    auto brgemmInfo = inferBrgemmInfo(op, transOpA, transOpB);
+    if (failed(brgemmInfo))
+      return failure();
+
+    // Check for immediately preceding linalg::FillOp and try to incorporate it
+    auto operandC = op.getOutputs()[0];
+    if (auto fillOp = getPrevUserWithType<linalg::FillOp>(operandC, op)) {
+      auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
+          fillOp->getInputs()[0].getDefiningOp());
+      // auto fillOperand = fillOp->getOutputs()[0];
+      if (isZeroArithConstant(inputCst)) {
+        brgemmInfo->isInitOutput = true;
+        rewriter.eraseOp(*fillOp);
+      }
+    }
+    replaceOpWithMicrokernelOpSet(rewriter, op, transOpA, transOpB,
+                                  *brgemmInfo);
     return success();
   }
 };
