@@ -31,13 +31,13 @@ def set_default_fill_param(flags: argparse.Namespace, args: Dict[str, Arg], arg:
         if flags.driver not in ["linalg"]:
             raise Exception("unsupported driver %s for default filling" % flags.driver)
 
-        if flags.case in ["add"]:
+        if flags.case in ["add", "div", "mul"]:
             arg.param = [
                 "binary",
-                arg.name,
-                args["src0"].dtype,
-                args["src1"].dtype,
-                args["dst"].dtype,
+                "src0" if arg.name == "%arg0" else "src1",
+                args["%arg0"].dtype,
+                args["%arg1"].dtype,
+                args["%1"].dtype,
             ]
         elif flags.case in [
             "batch_matmul",
@@ -47,58 +47,64 @@ def set_default_fill_param(flags: argparse.Namespace, args: Dict[str, Arg], arg:
             "batch_mmt4d",
             "batch_reduce_matmul",
             "batch_vecmat",
+            "matmul_transpose_b",
         ]:
             arg.param = [
                 "matmul",
-                arg.name,
-                args["src"].dtype,
-                args["wei"].dtype,
-                args["dst"].dtype,
+                "src" if arg.name == "%arg0" else "wei",
+                args["%arg0"].dtype,
+                args["%arg1"].dtype,
+                args["%1"].dtype,
             ]
 
             if (
                 flags.case == "batch_matmul_transpose_a"
-                and arg.name == "src"
+                and arg.name == "%arg0"
                 or flags.case == "batch_matmul_transpose_b"
-                and arg.name == "wei"
+                or flags.case == "matmul_transpose_b"
+                and arg.name == "%arg1"
                 or flags.case == "batch_matmul"
-                and arg.name == "src"
+                and arg.name == "%arg0"
                 or flags.case == "batch_matvec"
-                or flags.case == "batch_vecmat" and arg.name == "src"
+                or flags.case == "batch_vecmat" and arg.name == "%arg0"
             ):
                 arg.param.append(str(arg.shape[-1]))
 
-            elif flags.case == "batch_reduce_matmul" and arg.name == "src":
+            elif flags.case == "batch_reduce_matmul" and arg.name == "%arg0":
                 arg.param.append(str(arg.shape[0] * arg.shape[-1]))
-            elif flags.case == "batch_reduce_matmul" and arg.name == "wei":
+            elif flags.case == "batch_reduce_matmul" and arg.name == "%arg1":
                 arg.param.append(str(arg.shape[0] * arg.shape[-2]))
             elif flags.case == "batch_mmt4d":
                 arg.param.append(str(arg.shape[-1] * arg.shape[-3]))
             else:
                 arg.param.append(str(arg.shape[-2]))
-        elif flags.case in ["abs"]:
-            arg.param = ["eltwise", flags.case, "", ""]
+        elif flags.case in ["abs", "negf", "exp"]:
+            arg.param = ["eltwise", flags.case]
+            if flags.case in ["abs", "exp"]:
+                arg.param.extend(["", ""])
+            elif flags.case == "negf":
+                arg.param.extend(["-1", "0"])
         elif flags.case in ["conv_1d_ncw_fcw", "conv_1d_nwc_wcf", "conv_1d", "conv_2d_nchw_fchw", "conv_2d_ngchw_fgchw"]:
             arg.param = [
                 "conv",
-                arg.name,
-                args["src"].dtype,
-                args["wei"].dtype,
-                args["dst"].dtype,
+                "src" if arg.name == "%arg0" else "wei",
+                args["%arg0"].dtype,
+                args["%arg1"].dtype,
+                args["%1"].dtype,
             ]
             if flags.case == "conv_1d_ncw_fcw" or flags.case == "conv_2d_nchw_fchw":
-                arg.param.append(str(benchgc.util.nelem(args["wei"].shape) // args["wei"].shape[0]))
+                arg.param.append(str(benchgc.util.nelem(args["%arg1"].shape) // args["%arg1"].shape[0]))
             elif flags.case == "conv_2d_ngchw_fgchw": 
-                arg.param.append(str(benchgc.util.nelem(args["wei"].shape[2:])))
+                arg.param.append(str(benchgc.util.nelem(args["%arg1"].shape[2:])))
             elif flags.case == "conv_1d_nwc_wcf": 
-                arg.param.append(str(benchgc.util.nelem(args["wei"].shape) // args["wei"].shape[-1]))
+                arg.param.append(str(benchgc.util.nelem(args["%arg1"].shape) // args["%arg1"].shape[-1]))
             elif flags.case == "conv_1d": 
-                arg.param.append(str(benchgc.util.nelem(args["wei"].shape)))
+                arg.param.append(str(benchgc.util.nelem(args["%arg1"].shape)))
 
 
 def fill_tensor(flags: argparse.Namespace, arg: Arg) -> torch.Tensor:
-    if arg.shape == [] or arg.dtype == "" or arg.type == "":
-        raise Exception("arg %s filling: shape/dtype/fill_type is not set" % arg.name)
+    if arg.dtype == "" or arg.type == "":
+        raise Exception("arg %s filling: dtype/fill_type is not set" % arg.name)
 
     if arg.type == "N" and len(arg.param) == 2:
         # Normal distribution

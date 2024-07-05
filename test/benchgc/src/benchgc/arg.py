@@ -33,15 +33,15 @@ class Arg:
     def __init__(self, cfg: str):
         cfgs = cfg.split(":")
         self.name = cfgs[0]
-        self.dtype = cfgs[1]
+        tensor_type = cfgs[1].split("x")
+        self.dtype = tensor_type[-1]
 
         self.shape = []
-        if cfgs[2] != "":
-            for dim in cfgs[2].split("x"):
-                self.shape.append(int(dim))
+        for dim in tensor_type[:-1]:
+            self.shape.append(int(dim))
 
-        self.type = cfgs[3]
-        self.param = cfgs[4:]
+        self.type = cfgs[2]
+        self.param = cfgs[3:]
 
     def get_mlir_dtype(self, ctx: gc_mlir.ir.Context) -> gc_mlir.ir.Type:
         if self.dtype == "f32":
@@ -67,11 +67,15 @@ class Arg:
         else:
             raise Exception("data type not support: %s" % self.dtype)
 
+    def get_mlir_type(self, ctx: gc_mlir.ir.Context) -> gc_mlir.ir.Type:
+        if self.shape == []:
+            return self.get_mlir_dtype(ctx)
+        else:
+            return gc_mlir.ir.RankedTensorType.get(self.shape, self.get_mlir_dtype(ctx))
+
     def get_ranked_tensor_type(
         self, ctx: gc_mlir.ir.Context
     ) -> gc_mlir.ir.RankedTensorType:
-        if self.shape == []:
-            raise Exception("shape is unknown")
         return gc_mlir.ir.RankedTensorType.get(self.shape, self.get_mlir_dtype(ctx))
 
     def get_empty_op(self, ctx: gc_mlir.ir.Context) -> tensor.EmptyOp:

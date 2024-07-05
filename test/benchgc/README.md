@@ -48,19 +48,6 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 ### -i name:dtype:shape:fill_type[:fill_parameter]*
 * set or rewrite the variable {shape, dtype} in mlir or single op test
 * set the data filling strategy
-* single op name setting
-
-    | dialect.op | arg name |
-    |------------|----------|
-    | linalg.abs | src |
-    | linalg.add | src0, src1 |
-    | linalg.batch_matmul | src, wei |
-    | linalg.batch_matmul_transpose_a | |
-    | linalg.batch_matmul_transpose_b | |
-    | linalg.batch_matvec | |
-    | linalg.batch_mmt4d | |
-    | linalg.batch_reduce_matmul | |
-    | linalg.batch_vecmat | |
 * use the variable name defined in your mlir case if driver = mlir
 
 * fill_type & fill_parameter setting
@@ -84,21 +71,9 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 ### -o name:dtype:shape:check_type[:check_parameter]*
 * set or rewrite the variable {shape, dtype} in mlir or single op test
 * set the data compare & check strategy
-* single op name setting
 
-    | dialect.op | arg name |
-    |------------|----------|
-    | linalg.abs | dst |
-    | linalg.add | |
-    | linalg.batch_matmul | |
-    | linalg.batch_matmul_transpose_a | |
-    | linalg.batch_matmul_transpose_b | |
-    | linalg.batch_matvec | |
-    | linalg.batch_mmt4d | |
-    | linalg.batch_reduce_matmul | |
-    | linalg.batch_vecmat | |
 
 ## Example
 ```
-python3 -m benchgc --verbose 4 --driver linalg --case add -i src0:f32:4x5x6:N:0:1 -i src1:f32:4x5x6:N:5:2 -o dst:f32:4x5x6::
+python3 -m benchgc --verbose 4 --driver linalg --case add -i %arg0:f32:4x5x6:N:0:1 -i %arg1:f32:4x5x6:N:5:2 -o %1:f32:4x5x6::
 ```

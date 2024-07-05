@@ -33,7 +33,7 @@ add_custom_target(benchgc
     DEPENDS GcPythonModules) 
 
 add_subdirectory("src/benchgc")
-add_subdirectory("src/benchgc/ops")
 add_subdirectory("src/benchgc/fill")
 add_subdirectory("src/benchgc/linalg")
 add_subdirectory("src/benchgc/tensor")
+add_subdirectory("src/benchgc/arith")

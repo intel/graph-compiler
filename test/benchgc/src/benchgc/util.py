@@ -76,15 +76,15 @@ def flip_coin(
 
 def get_problem_bounds(kind: str, dt: torch.dtype) -> Tuple[int, int]:
     if not dt.is_floating_point:
-        if kind in ["ReduceMax", "ReduceMin"]:
+        if kind in ["max", "min"]:
             return _problem_bounds["minmax_int"]
-        elif kind == "ReduceMul":
+        elif kind == "mul":
             return _problem_bounds["mul_int"]
         else:
             return _problem_bounds["sum_int"]
-    elif kind in ["ReduceMax", "ReduceMin"]:
+    elif kind in ["max", "min"]:
         return _problem_bounds["minmax_fp"]
-    elif kind == "ReduceMul":
+    elif kind == "mul":
         return (
             _problem_bounds["mul_fp16"]
             if dt == torch.float16
@@ -125,9 +125,9 @@ def get_dtype(dtype: str) -> torch.dtype:
         return torch.float16
     elif dtype == "bf16":
         return torch.bfloat16
-    elif dtype == "u8":
+    elif dtype == "u8" or dtype == "ui8":
         return torch.uint8
-    elif dtype == "s8":
+    elif dtype == "s8" or dtype == "i8":
         return torch.int8
     elif dtype == "boolean":
         return torch.uint8
@@ -135,7 +135,7 @@ def get_dtype(dtype: str) -> torch.dtype:
         return torch.float8_e4m3fn
     elif dtype == "f8_e5m2":
         return torch.float8_e5m2
-    elif dtype == "s32":
+    elif dtype == "s32" or dtype == "i32":
         return torch.int32
     else:
         raise Exception("data type not support: %s" % dtype)

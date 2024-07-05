@@ -19,48 +19,47 @@ import argparse
 import gc_mlir.ir
 import copy
 
-from benchgc.mlir import init_i1o1_module, escape_var
+import benchgc.util
+from benchgc.mlir import MLIRCache, init_i1o1_module
 from gc_mlir._mlir_libs._mlir.ir import DenseI64ArrayAttr
 from gc_mlir.dialects import linalg
+from gc_mlir.dialects.linalg.opdsl.lang.comprehension import TypeFnType
 
 from benchgc.arg import Arg
-from typing import Dict, Tuple, List
-
-def __ref_init(
-    op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
-) -> Tuple[torch.Tensor, str]:
-
-    src = var[escape_var(op.operands[0].get_name())]
-    dst_var: str = escape_var(op.results[0].get_name())
-    return (src, dst_var)
-
-def map_misc_args(args: Dict[str, Arg]):
-    for k, v in {"arg0": "src", "1": "dst"}.items():
-        args[k] = args[v]
-        del args[v]
-
+from typing import Dict, List
 
 # 1. use to reshape to match ndim
 # 2. perform broadcast
-def ref_broadcast(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    src, dst_var = __ref_init(op, var)
-
+def ref_broadcast(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     dst_shape: List[int] = op.results[0].type.shape
     tmp_shape = copy.copy(dst_shape)
     dimensions: DenseI64ArrayAttr = op.attributes["dimensions"]
     for d in dimensions:
         tmp_shape[d] = 1
 
-    var[dst_var] = src.reshape(tmp_shape).broadcast_to(dst_shape)
+    var[cache.res[0]] = var[cache.opr[0]].reshape(tmp_shape).broadcast_to(dst_shape)
 
 def mlir_broadcast(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
 
-    for k, v in {"arg0": "src", "broadcasted": "dst"}.items():
-        args[k] = args[v]
-        del args[v]
+    return init_i1o1_module(args["%arg0"], args["%broadcasted"], lambda ctx, arg0: linalg.broadcast(arg0, outs=[args["%broadcasted"].get_empty_op(ctx)], dimensions= flags.dimensions))
 
-    return init_i1o1_module(args["arg0"], args["broadcasted"], lambda ctx, arg0: linalg.broadcast(arg0, outs=[args["broadcasted"].get_empty_op(ctx)], dimensions= flags.dimensions))
+def ref_fill(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.full(tuple(op.results[0].type.shape), var[cache.opr[0]])
+
+def mlir_fill(
+    flags: argparse.Namespace, args: Dict[str, Arg]
+) -> gc_mlir.ir.Module:
+    return init_i1o1_module(args["%arg0"], args["%1"], lambda ctx, arg0: linalg.fill(arg0, outs=[args["%1"].get_empty_op(ctx)], dimensions= flags.dimensions))
+
+def ref_copy(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] =  var[cache.opr[0]].to(benchgc.util.get_dtype(str(op.result.type.element_type))).clone()
+
+def mlir_copy(
+    flags: argparse.Namespace, args: Dict[str, Arg]
+) -> gc_mlir.ir.Module:
+
+    return init_i1o1_module(args["%arg0"], args["%1"], lambda ctx, arg0: linalg.copy(arg0, outs=[args["%1"].get_empty_op(ctx)], cast = TypeFnType(flags.cast)))
 
 

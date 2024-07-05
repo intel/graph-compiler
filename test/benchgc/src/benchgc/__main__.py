@@ -77,7 +77,14 @@ try:
             benchgc.util.INPUT_VERBOSE,
         ],
     )
-
+    parser.add_argument(
+        "--cast",
+        required=False,
+        default="cast_signed",
+        help="define attribute supported by linalg op such as matmul_transpose_b",
+        choices=["cast_signed", "cast_unsigned"],
+        type=str,
+    )
     parser.add_argument(
         "--dimensions",
         required=False,
@@ -172,12 +179,6 @@ print(module)
 tensors: Dict[str, torch.Tensor] = {}
 for k, v in ins.items():
     tensors[k] = benchgc.fill.fill_tensor(flags, v)
-
-# map tensors arg to mlir arg
-for name, arg in args.items():
-    if name != arg.name and arg.name in tensors:
-        tensors[name] = tensors[arg.name]
-        del tensors[arg.name]
 
 runner.ref_run(module, tensors)
 

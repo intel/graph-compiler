@@ -14,12 +14,12 @@
 # limitations under the License.
 ################################################################################
 
+from benchgc.mlir import MLIRCache
 import gc_mlir.ir
 import torch
-from benchgc.mlir import escape_var
 import benchgc.util
 
 from typing import Dict
 
-def ref_empty(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    var[escape_var(op.results[0].get_name())] = torch.zeros(size = op.results[0].type.shape, dtype = benchgc.util.get_dtype(str(op.results[0].type.element_type)))
+def ref_empty(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.zeros(size = op.results[0].type.shape, dtype = benchgc.util.get_dtype(str(op.results[0].type.element_type)))

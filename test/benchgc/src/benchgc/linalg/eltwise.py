@@ -18,47 +18,28 @@ import torch
 import argparse
 import gc_mlir.ir
 
-from benchgc.mlir import init_i1o1_module, escape_var
+from benchgc.mlir import MLIRCache, init_i1o1_module
 
 from gc_mlir.dialects import linalg
 
 from benchgc.arg import Arg
-from typing import Dict, Tuple
+from typing import Dict
 
-def __ref_init(
-    op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
-) -> Tuple[torch.Tensor, str]:
+def ref_negf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.neg(var[cache.opr[0]])
 
-    src = var[escape_var(op.operands[0].get_name())]
-    dst_var: str = escape_var(op.results[0].get_name())
-    return (src, dst_var)
-
-def map_eltwise_args(args: Dict[str, Arg]):
-    for k, v in {"arg0": "src", "1": "dst"}.items():
-        args[k] = args[v]
-        del args[v]
-
-def ref_abs(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    src, dst_var = __ref_init(op, var)
-    var[dst_var] = torch.abs(src)
-
-
-def mlir_abs(
+def mlir_negf(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
-    map_eltwise_args(args)
-    return init_i1o1_module(args["arg0"], args["1"], lambda ctx, arg0: linalg.abs(arg0, outs=[args["1"].get_empty_op(ctx)]))
+    return init_i1o1_module(args["%arg0"], args["%1"], lambda ctx, arg0: linalg.negf(arg0, outs=[args["%1"].get_empty_op(ctx)]))
 
-def ref_ceil(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    src, dst_var = __ref_init(op, var)
-    var[dst_var] = torch.ceil(src)
+def ref_exp(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.exp(var[cache.opr[0]])
 
-
-def mlir_ceil(
+def mlir_exp(
     flags: argparse.Namespace, args: Dict[str, Arg]
 ) -> gc_mlir.ir.Module:
-    map_eltwise_args(args)
-    return init_i1o1_module(args["arg0"], args["1"], lambda ctx, arg0: linalg.ceil(arg0, outs=[args["1"].get_empty_op(ctx)]))
+    return init_i1o1_module(args["%arg0"], args["%1"], lambda ctx, arg0: linalg.exp(arg0, outs=[args["%1"].get_empty_op(ctx)]))
 
 
 

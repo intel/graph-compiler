@@ -14,19 +14,12 @@
 # limitations under the License.
 ################################################################################
 
-import argparse
 import gc_mlir.ir
 
 from gc_mlir.dialects import func
-from gc_mlir.dialects.linalg.opdsl.lang.dsl import DefinedOpCallable
 
 from benchgc.arg import Arg
-from typing import Dict, Callable, Any
-
-
-def escape_var(var: str) -> str:
-    return var.removeprefix("%").removeprefix("$")
-
+from typing import Callable, List, Self
 
 def init_i1o1_module(argin: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Context, gc_mlir.ir.BlockArgument], gc_mlir.ir.OpResult]) -> gc_mlir.ir.Module:
     with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
@@ -35,8 +28,8 @@ def init_i1o1_module(argin: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Cont
             f = func.FuncOp(
                 name="entry",
                 type=gc_mlir.ir.FunctionType.get(
-                    inputs=[argin.get_ranked_tensor_type(ctx)],
-                    results=[argout.get_ranked_tensor_type(ctx)],
+                    inputs=[argin.get_mlir_type(ctx)],
+                    results=[argout.get_mlir_type(ctx)],
                 ),
             )
 
@@ -54,10 +47,10 @@ def init_i2o1_module(argin0: Arg, argin1: Arg, argout: Arg, op_func: Callable[[g
                 name="entry",
                 type=gc_mlir.ir.FunctionType.get(
                     inputs=[
-                        argin0.get_ranked_tensor_type(ctx),
-                        argin1.get_ranked_tensor_type(ctx),
+                        argin0.get_mlir_type(ctx),
+                        argin1.get_mlir_type(ctx),
                     ],
-                    results=[argout.get_ranked_tensor_type(ctx)],
+                    results=[argout.get_mlir_type(ctx)],
                 ),
             )
 
@@ -65,3 +58,21 @@ def init_i2o1_module(argin0: Arg, argin1: Arg, argout: Arg, op_func: Callable[[g
                 arg0, arg1 = f.entry_block.arguments
                 func.ReturnOp([op_func(ctx, arg0, arg1)])
         return module
+
+# calling python binding consumes a lot of time e.g. get_name()
+# we need to cache some result to avoid duplicate call
+class MLIRCache:
+    # operand name cache
+    opr: List[str]
+    # result name cache
+    res: List[str]
+    # argument name cache
+    arg: List[str] 
+    # next hierarchy
+    next: List[Self]
+
+    def __init__(self):
+        self.opr = []
+        self.res = []
+        self.arg = []
+        self.next = []

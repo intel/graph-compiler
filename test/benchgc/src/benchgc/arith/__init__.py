@@ -18,10 +18,11 @@ import torch
 import argparse
 import importlib
 import gc_mlir.ir
+from benchgc.mlir import MLIRCache
 from benchgc.arg import Arg
 from typing import Dict, Callable
 
-ref_op: Dict[str, Callable[[gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
+ref_op: Dict[str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
 mlir_op: Dict[
     str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
 ] = {}

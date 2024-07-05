@@ -14,22 +14,32 @@
 # limitations under the License.
 ################################################################################
 
+from benchgc.mlir import MLIRCache
 import gc_mlir.ir
+import gc_mlir._mlir_libs._mlir.ir
 import torch
-from benchgc.mlir import escape_var
+import benchgc.util
 
 from typing import Dict
 
-def ref_mulf(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    src0_name = escape_var(op.operands[0].get_name())
-    src1_name = escape_var(op.operands[1].get_name())
-    dst_name = escape_var(op.results[0].get_name())
+def ref_constant(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    value = op.attributes["value"]
+    if isinstance(value, gc_mlir._mlir_libs._mlir.ir.FloatAttr):
+        var[cache.res[0]] = torch.full(size=tuple(), 
+            fill_value= value.__float__(), 
+            dtype = torch.float)
+    elif isinstance(value, gc_mlir._mlir_libs._mlir.ir.DenseFPElementsAttr):
+        if value.is_splat:
+            var[cache.res[0]] = torch.full(size=tuple(value.type.shape), 
+                fill_value= value.get_splat_value().value,
+                dtype = benchgc.util.get_dtype(str(value.get_splat_value().type)))
+        else:
+            raise Exception("only support splat value now")
+    else:
+        raise Exception("Not support constant type %s", type(value))
 
-    var[dst_name] = var[src0_name] * var[src1_name]
+def ref_mulf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = var[cache.opr[0]] * var[cache.opr[1]]
 
-def ref_addf(op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    src0_name = escape_var(op.operands[0].get_name())
-    src1_name = escape_var(op.operands[1].get_name())
-    dst_name = escape_var(op.results[0].get_name())
-
-    var[dst_name] = var[src0_name] + var[src1_name]
+def ref_addf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = var[cache.opr[0]] + var[cache.opr[1]]

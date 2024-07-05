@@ -17,13 +17,15 @@
 import gc_mlir._mlir_libs
 import gc_mlir.ir
 import torch
+from benchgc.mlir import MLIRCache
 from typing import Dict
 from benchgc.linalg import ref_op as linalg_ref_op
 from benchgc.tensor import ref_op as tensor_ref_op
 from benchgc.arith import ref_op as arith_ref_op
 
 
-def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
+def dfs_op(cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
+
     dialect_call: str = str(op.name)
     if dialect_call.startswith("linalg"):
         ref_op = linalg_ref_op
@@ -32,8 +34,13 @@ def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
     elif dialect_call.startswith("arith"):
         ref_op = arith_ref_op
     else:
-        for region in op.regions:
-            dfs_region(region, tensors)
+        build_cache = len(cache.next) == 0
+        for i in range(len(op.regions)):
+            if build_cache:
+                # we do not need to cache things for region
+                # keep an empty cache 
+                cache.next.append(MLIRCache())
+            dfs_region(cache.next[i], op.regions[i], tensors)
         return
 
     dialect_op: str = dialect_call.split(".")[1]
@@ -41,20 +48,37 @@ def dfs_op(op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
         raise Exception("unknown op call %s" % dialect_call)
     ref_func = ref_op[dialect_op]
     # yield op may return value
-    return ref_func(op, tensors)
+    return ref_func(cache, op, tensors)
 
 
-def dfs_region(region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
-    for block in region.blocks:
-        dfs_block(block, tensors)
+def dfs_region(cache: MLIRCache, region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
+    build_cache = len(cache.next) == 0
+    for i in range(len(region.blocks)):
+        if build_cache:
+            _cache = MLIRCache()
+            # we need to cache argument name for block object
+            for arg in region.blocks[i].arguments:
+                _cache.arg.append(arg.get_name())
+            cache.next.append(_cache)
+        dfs_block(cache.next[i], region.blocks[i], tensors)
 
 
-def dfs_block(block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
-    for op in block.operations:
-        ret = dfs_op(op, tensors)
+def dfs_block(cache: MLIRCache, block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
+    build_cache = len(cache.next) == 0
+    for i in range(len(block.operations)):
+        if build_cache:
+            _cache = MLIRCache()
+            # we need to cache operand name and result name 
+            for opr in block.operations[i].operands:
+                _cache.opr.append(opr.get_name())
+            
+            for res in block.operations[i].results:
+                _cache.res.append(res.get_name())
+            cache.next.append(_cache)
+
+        ret = dfs_op(cache.next[i], block.operations[i], tensors)
         if ret is not None:
             return ret
-
 
 def ref_run(
     module: gc_mlir.ir.Module, tensors: Dict[str, torch.Tensor], entry: str = '"entry"'
@@ -64,7 +88,12 @@ def ref_run(
         if str(op.name) == entry:
             entry_op = op
             break
+    
+    # cache some information of block & op
+    
+    cache = MLIRCache()
+
     if entry_op is None:
         raise Exception("entry function %s is not found at the top level" % entry)
     else:
-        dfs_op(entry_op, tensors)
+        dfs_op(cache, entry_op, tensors)
