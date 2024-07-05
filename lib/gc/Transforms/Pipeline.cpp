@@ -7,10 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
@@ -22,6 +25,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 
@@ -29,7 +33,7 @@ namespace mlir::gc {
 
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::PassManager &pm) {
-  // pm.addPass(onednn_graph::createConvertOneDNNGraphToLinalg());
+  pm.addPass(createConvertOneDNNGraphToLinalg());
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
@@ -48,8 +52,16 @@ void populateTensorPasses(mlir::PassManager &pm) {
 
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::PassManager &pm) {
-  // todo: bf16 promotion pass, device dependent pass
-  // todo: bf16 cast elimilation pass, fast-math kind pass, designed to support
+  // Do promotion for math / arith ops
+  pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
+  // sourceTypeStrs can be extended
+  arith::ArithEmulateUnsupportedFloatsOptions options;
+  options.sourceTypeStrs = {"bf16"};
+  options.targetTypeStr = "f32";
+  pm.addNestedPass<func::FuncOp>(
+      arith::createArithEmulateUnsupportedFloats(options));
+  // Bf16 cast elimilation pass
+  pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
@@ -92,12 +104,12 @@ void populateCPURuntimePasses(mlir::PassManager &pm) {
 }
 
 void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
+  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
-  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
@@ -143,6 +155,8 @@ public:
     auto op = getOperation();
     PassManager pm{op->getContext()};
     populateCPUPipeline(pm);
+    // TODO(longsheng): add a option to
+    // disable threading and enable pm.enableIRPrinting();
     if (failed(pm.run(op)))
       signalPassFailure();
   }

@@ -29,6 +29,9 @@ class OpenMPDialect;
 namespace linalg {
 class LinalgDialect;
 }
+namespace linalgx {
+class LinalgxDialect;
+}
 
 namespace MemRef {
 class MemRefDialect;

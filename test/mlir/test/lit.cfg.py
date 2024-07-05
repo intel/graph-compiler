@@ -24,6 +24,7 @@ config.test_source_root = os.path.dirname(__file__)
 
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.gc_obj_root, "test")
+config.gc_tools_dir = os.path.join(config.gc_obj_root, "bin")
 
 config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
@@ -38,10 +39,6 @@ llvm_config.use_default_substitutions()
 # subdirectories contain auxiliary inputs for various tests in their parent
 # directories.
 config.excludes = []
-
-# test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.gc_obj_root, "test")
-config.gc_tools_dir = os.path.join(config.gc_obj_root, "bin")
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
