@@ -46,19 +46,15 @@ namespace gc {
 namespace {
 
 struct FlashAttentionConfig {
-  int RowBlock, ColumnBlock;
+  int RowBlockSize, ColumnBlockSize;
 };
 
 static FlashAttentionConfig
 getDefaultFlashAttentionConfig(linalgx::ScaledDotProductAttentionOp &sdpaOp) {
   // TODO: allow tuning
-  auto shape =
-      dyn_cast<RankedTensorType>(sdpaOp.getOperand(0).getType()).getShape();
-  int64_t seqLen = shape[2];
-
   FlashAttentionConfig cfg;
-  cfg.RowBlock = seqLen / 64;
-  cfg.ColumnBlock = seqLen / 64;
+  cfg.RowBlockSize = 32;
+  cfg.ColumnBlockSize = 32;
   return cfg;
 }
 
@@ -72,100 +68,353 @@ struct MHAToFlashAttention
   using OpRewritePattern<
       linalgx::ScaledDotProductAttentionOp>::OpRewritePattern;
 
-  struct OuterLoopGenerationResult {
-    /// Tiled operations that are generated during tiling. The order does not
-    /// matter except the last op. The replacements are expected to be the
-    /// results of the last op.
-    SmallVector<Operation *> tiledOps;
-    /// The `scf.for` operations that iterate over the tiles.
-    SmallVector<LoopLikeOpInterface> loops;
-  };
-
-  static FailureOr<OuterLoopGenerationResult>
-  generateOuterLoop(RewriterBase &b,
-                    linalgx::ScaledDotProductAttentionOp sdpaOp,
-                    const FlashAttentionConfig &cfg) {
-    // TODO: handle the return value
-    OuterLoopGenerationResult result;
-
-    auto decomposableOp =
-        dyn_cast<mlir::linalg::AggregatedOpInterface>(sdpaOp.getOperation());
-    FailureOr<SmallVector<Value>> maybeNewResults =
-        decomposableOp.decomposeOperation(b);
-    b.replaceOp(decomposableOp, *maybeNewResults);
-    // collect decomposed ops: matmul + mul + add + softmax + matmul
-    SmallVector<Operation *> decomposedOps;
-    Value curVal = (*maybeNewResults)[0];
-    decomposedOps.push_back(curVal.getDefiningOp());
-    if (!mlir::isa<linalgx::MultiBatchMatmulOp>(decomposedOps.back()))
-      return b.notifyMatchFailure(sdpaOp,
-                                  "currentOp should be a batch reduce matmul");
-    curVal = mlir::dyn_cast<linalg::LinalgOp>(decomposedOps.back())
-                 .getDpsInputs()[0];
-    decomposedOps.push_back(curVal.getDefiningOp());
-    if (!mlir::isa<linalg::SoftmaxOp>(decomposedOps.back())) {
-      return b.notifyMatchFailure(sdpaOp, "currentOp should be softmax op");
-    }
-    curVal = mlir::dyn_cast<linalg::SoftmaxOp>(decomposedOps.back())
-                 .getDpsInputs()[0];
-    decomposedOps.push_back(curVal.getDefiningOp());
-    if (!mlir::isa<linalg::AddOp>(decomposedOps.back()))
-      return b.notifyMatchFailure(sdpaOp, "currentOp should be add op");
-    curVal = mlir::dyn_cast<linalg::LinalgOp>(decomposedOps.back())
-                 .getDpsInputs()[0];
-    decomposedOps.push_back(curVal.getDefiningOp());
-    if (!mlir::isa<linalg::GenericOp>(decomposedOps.back()))
-      return b.notifyMatchFailure(sdpaOp, "currentOp should be generic mul op");
-    curVal = mlir::dyn_cast<linalg::LinalgOp>(decomposedOps.back())
-                 .getDpsInputs()[0];
-    decomposedOps.push_back(curVal.getDefiningOp());
-    if (!mlir::isa<linalgx::MultiBatchMatmulOp>(decomposedOps.back()))
-      return b.notifyMatchFailure(sdpaOp,
-                                  "currentOp should be batch reduce matmul");
-    if (decomposedOps.size() != 5)
-      return b.notifyMatchFailure(sdpaOp,
-                                  "currentOp should be a decomposed sdpa.");
-
-    // construct outer Row parallel for and Col parallel for
-    scf::SCFTilingOptions rowTileOption;
-    SmallVector<OpFoldResult> rowTileSizes(
-        4, getAsIndexOpFoldResult(b.getContext(), 0));
-    rowTileSizes[0] = getAsIndexOpFoldResult(b.getContext(), 1UL);
-    rowTileSizes[1] = getAsIndexOpFoldResult(b.getContext(), 1UL);
-    rowTileSizes[2] = getAsIndexOpFoldResult(b.getContext(), 32UL);
-    rowTileOption.setTileSizes(rowTileSizes);
-    rowTileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForOp);
-    for (auto &op : llvm::reverse(decomposedOps)) {
-      OpBuilder::InsertionGuard guard(b);
-      if (mlir::isa<linalg::LinalgOp>(op)) {
-        linalg::LinalgOp linalgOp = mlir::dyn_cast<linalg::LinalgOp>(op);
-        b.setInsertionPoint(linalgOp);
-        if (mlir::isa<linalgx::MultiBatchMatmulOp>(op))
-          linalgOp = *linalg::generalizeNamedOp(b, linalgOp);
-        auto tilingInterfaceOp =
-            dyn_cast<TilingInterface>(linalgOp.getOperation());
-        if (!tilingInterfaceOp)
-          return b.notifyMatchFailure(sdpaOp,
-                                      "dyn_cast to tilingInterface failed");
-        auto tilingResult =
-            scf::tileUsingSCF(b, tilingInterfaceOp, rowTileOption);
-        std::cout << "get tilingResult" << std::endl;
-        if (failed(tilingResult))
-          return failure();
-        std::cout << "get tilingResult succeed" << std::endl;
-        b.replaceOp(linalgOp, tilingResult->replacements);
-      } else {
-        linalg::SoftmaxOp softmaxOp = mlir::dyn_cast<linalg::SoftmaxOp>(op);
-      }
-    }
-    return result;
-  }
-
   LogicalResult matchAndRewrite(linalgx::ScaledDotProductAttentionOp sdpaOp,
                                 PatternRewriter &rewriter) const override {
     FlashAttentionConfig cfg = getDefaultFlashAttentionConfig(sdpaOp);
-    FailureOr<OuterLoopGenerationResult> result =
-        generateOuterLoop(rewriter, sdpaOp, cfg);
+    Location loc = sdpaOp.getLoc();
+    OpBuilder::InsertionGuard guard(rewriter);
+    SmallVector<LoopLikeOpInterface> loops;
+    SmallVector<Value> ivs;
+    auto shape =
+        dyn_cast<RankedTensorType>(sdpaOp.getOperand(0).getType()).getShape();
+    auto dtype = dyn_cast<RankedTensorType>(sdpaOp.getOperand(0).getType())
+                     .getElementType();
+    int64_t seqLen = shape[2], headDim = shape[3];
+    auto Q = sdpaOp.getOperand(0), K = sdpaOp.getOperand(1),
+         V = sdpaOp.getOperand(2), mask = sdpaOp.getOperand(3);
+    // construct 2 parallel outermost loops for batchSize and numHeads
+    SmallVector<Range> loopRanges;
+    for (size_t i = 0; i < 2; ++i) {
+      Range curRange;
+      curRange.offset = getAsIndexOpFoldResult(rewriter.getContext(), 0UL);
+      curRange.size = getAsIndexOpFoldResult(rewriter.getContext(), shape[i]);
+      curRange.stride = getAsIndexOpFoldResult(rewriter.getContext(), 1UL);
+      loopRanges.push_back(curRange);
+    }
+    SmallVector<OpFoldResult> tileSizes(
+        2, getAsIndexOpFoldResult(rewriter.getContext(), 1UL));
+    SmallVector<Value> destinationTensors;
+    tensor::getOrCreateDestinations(rewriter, sdpaOp.getLoc(), sdpaOp,
+                                    destinationTensors);
+    for (auto [loopRange, tileSize] : llvm::zip_equal(loopRanges, tileSizes)) {
+      Value lb =
+          getValueOrCreateConstantIndexOp(rewriter, loc, loopRange.offset);
+      Value ub = getValueOrCreateConstantIndexOp(rewriter, loc, loopRange.size);
+      Value step = getValueOrCreateConstantIndexOp(rewriter, loc, tileSize);
+      auto loop = rewriter.create<scf::ForOp>(
+          loc, lb, ub, step, destinationTensors,
+          [](OpBuilder &bodyBuilder, Location bodyLoc, Value iv,
+             ValueRange /*iterArgs*/) {});
+      loops.push_back(loop);
+      rewriter.setInsertionPointToEnd(loop.getBody());
+      ivs.push_back(loop.getInductionVar());
+      destinationTensors.clear();
+      destinationTensors.insert(destinationTensors.begin(),
+                                loop.getRegionIterArgs().begin(),
+                                loop.getRegionIterArgs().end());
+    }
+    // create rowBlockLoop
+    auto rowBlockLoop = rewriter.create<scf::ForOp>(
+        loc,
+        getValueOrCreateConstantIndexOp(
+            rewriter, loc, getAsIndexOpFoldResult(rewriter.getContext(), 0UL)),
+        getValueOrCreateConstantIndexOp(
+            rewriter, loc,
+            getAsIndexOpFoldResult(rewriter.getContext(), seqLen)),
+        getValueOrCreateConstantIndexOp(
+            rewriter, loc,
+            getAsIndexOpFoldResult(rewriter.getContext(), cfg.RowBlockSize)),
+        destinationTensors,
+        [](OpBuilder &bodyBuilder, Location bodyLoc, Value iv,
+           ValueRange /*iterArgs*/) {});
+    loops.push_back(rowBlockLoop);
+    ivs.push_back(rowBlockLoop.getInductionVar());
+    rewriter.setInsertionPointToEnd(rowBlockLoop.getBody());
+    // inserting body for rowBlockLoop
+    SmallVector<OpFoldResult> offsets;
+    offsets.push_back(getAsOpFoldResult(ivs[0]));
+    offsets.push_back(getAsOpFoldResult(ivs[1]));
+    offsets.push_back(getAsOpFoldResult(ivs[2]));
+    offsets.push_back(rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> sizes(4, rewriter.getIndexAttr(1));
+    sizes[2] = rewriter.getIndexAttr(cfg.RowBlockSize);
+    sizes[3] = rewriter.getIndexAttr(headDim);
+    SmallVector<OpFoldResult> strides(4, rewriter.getIndexAttr(1));
+    Value QSlice = rewriter.create<tensor::ExtractSliceOp>(loc, Q, offsets,
+                                                           sizes, strides);
+    SmallVector<ReassociationIndices> reassocIndices{{0, 1, 2}, {3}};
+    Value collapsedQSlice =
+        rewriter.create<tensor::CollapseShapeOp>(loc, QSlice, reassocIndices);
+    Value OSlice = rewriter.create<tensor::ExtractSliceOp>(
+        loc, destinationTensors[0], offsets, sizes, strides);
+    Value collapsedOSlice =
+        rewriter.create<tensor::CollapseShapeOp>(loc, OSlice, reassocIndices);
+    SmallVector<int64_t> blockShape(1, cfg.RowBlockSize);
+    Value maxSlice = rewriter.create<tensor::EmptyOp>(loc, blockShape, dtype);
+    Value sumSlice = rewriter.create<tensor::EmptyOp>(loc, blockShape, dtype);
+    Value zero =
+        rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(dtype));
+    Value minusInf = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getFloatAttr(
+                 dtype, APFloat::getLargest(
+                            cast<FloatType>(dtype).getFloatSemantics(), true)));
+    Value maxSliceFilled =
+        rewriter.create<linalg::FillOp>(loc, minusInf, maxSlice).getResult(0);
+    Value sumSliceFilled =
+        rewriter.create<linalg::FillOp>(loc, zero, sumSlice).getResult(0);
+    // create the innermost for loop for columnBlock
+    SmallVector<Value> innermostDestinationTensors{
+        collapsedOSlice, maxSliceFilled, sumSliceFilled};
+    auto columnBlockLoop = rewriter.create<scf::ForOp>(
+        loc,
+        getValueOrCreateConstantIndexOp(
+            rewriter, loc, getAsIndexOpFoldResult(rewriter.getContext(), 0UL)),
+        getValueOrCreateConstantIndexOp(
+            rewriter, loc,
+            getAsIndexOpFoldResult(rewriter.getContext(), seqLen)),
+        getValueOrCreateConstantIndexOp(
+            rewriter, loc,
+            getAsIndexOpFoldResult(rewriter.getContext(), cfg.ColumnBlockSize)),
+        innermostDestinationTensors,
+        [](OpBuilder &bodyBuilder, Location bodyLoc, Value iv,
+           ValueRange /*iterArgs*/) {});
+    ivs.push_back(columnBlockLoop.getInductionVar());
+    rewriter.setInsertionPointToEnd(columnBlockLoop.getBody());
+    // innermost computations
+    Value prevOSlice = columnBlockLoop.getRegionIterArgs()[0],
+          prevMaxSlice = columnBlockLoop.getRegionIterArgs()[1],
+          prevSumSlice = columnBlockLoop.getRegionIterArgs()[2];
+    // adjust offsets and sizes
+    offsets[2] = getAsOpFoldResult(ivs[3]);
+    sizes[2] = rewriter.getIndexAttr(cfg.ColumnBlockSize);
+    Value KSlice = rewriter.create<tensor::ExtractSliceOp>(loc, K, offsets,
+                                                           sizes, strides);
+    Value VSlice = rewriter.create<tensor::ExtractSliceOp>(loc, V, offsets,
+                                                           sizes, strides);
+    offsets[2] = getAsOpFoldResult(ivs[2]);
+    offsets[3] = getAsOpFoldResult(ivs[3]);
+    sizes[2] = rewriter.getIndexAttr(cfg.RowBlockSize);
+    sizes[3] = rewriter.getIndexAttr(cfg.ColumnBlockSize);
+    Value maskSlice = rewriter.create<tensor::ExtractSliceOp>(
+        loc, mask, offsets, sizes, strides);
+    // collapse
+    Value collapsedKSlice =
+        rewriter.create<tensor::CollapseShapeOp>(loc, KSlice, reassocIndices);
+    Value collapsedVSlice =
+        rewriter.create<tensor::CollapseShapeOp>(loc, VSlice, reassocIndices);
+    Value collapsedMaskSlice = rewriter.create<tensor::CollapseShapeOp>(
+        loc, maskSlice, reassocIndices);
+    // transpose K
+    SmallVector<int64_t> transposedShape{headDim, cfg.RowBlockSize};
+    Value transposedShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, transposedShape, dtype);
+    SmallVector<int64_t> transPerm{1, 0};
+    Value transposedK =
+        rewriter
+            .create<linalg::TransposeOp>(loc, collapsedKSlice,
+                                         transposedShapeOut, transPerm)
+            ->getResult(0);
+    // matmul QK
+    SmallVector<int64_t> QKShape{cfg.RowBlockSize, cfg.ColumnBlockSize};
+    Value QKShapeOut = rewriter.create<tensor::EmptyOp>(loc, QKShape, dtype);
+    Value matmulQKOutFilled =
+        rewriter.create<linalg::FillOp>(loc, zero, QKShapeOut).getResult(0);
+    Value matmulQK =
+        rewriter
+            .create<linalg::MatmulOp>(loc, matmulQKOutFilled.getType(),
+                                      ValueRange{collapsedQSlice, transposedK},
+                                      ValueRange{matmulQKOutFilled})
+            .getResult(0);
+    // scale & add mask
+    float rsqrtHead = 1 / sqrt(headDim);
+    SmallVector<AffineMap, 2> indexingMaps;
+    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(2));
+    indexingMaps.push_back(rewriter.getMultiDimIdentityMap(2));
+    Value mul =
+        rewriter
+            .create<linalg::GenericOp>(
+                loc, QKShapeOut.getType(), ValueRange{matmulQK},
+                ValueRange{QKShapeOut}, indexingMaps,
+                SmallVector<utils::IteratorType>(2,
+                                                 utils::IteratorType::parallel),
+                [&](OpBuilder &nestedBuilder, Location nestedLoc,
+                    ValueRange args) {
+                  Value constant = nestedBuilder.create<arith::ConstantOp>(
+                      loc, nestedBuilder.getFloatAttr(dtype, rsqrtHead));
+                  Value added = nestedBuilder.create<arith::MulFOp>(
+                      loc, args[0], constant);
+                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, added);
+                })
+            .getResult(0);
+    Value add = rewriter
+                    .create<linalg::AddOp>(loc, QKShapeOut.getType(),
+                                           ValueRange{mul, collapsedMaskSlice},
+                                           ValueRange{QKShapeOut})
+                    .getResult(0);
+    // tiling softmax
+    SmallVector<int64_t> reducedShape{cfg.RowBlockSize};
+    Value reducedShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, reducedShape, dtype);
+    Value reduceMaxFilled =
+        rewriter.create<linalg::FillOp>(loc, minusInf, reducedShapeOut)
+            .getResult(0);
+    Value curMaxSlice =
+        rewriter
+            .create<linalg::ReduceOp>(
+                loc, ValueRange{add}, ValueRange{reduceMaxFilled}, 1,
+                [&](OpBuilder &nestedBuilder, Location nestedLoc,
+                    ValueRange blockArgs) {
+                  Value result = nestedBuilder.create<arith::MaximumFOp>(
+                      nestedLoc, blockArgs[0], blockArgs[1]);
+                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, result);
+                })
+            .getResult(0);
+    Value newMaxSlice =
+        rewriter
+            .create<linalg::MaxOp>(loc, reducedShapeOut.getType(),
+                                   ValueRange{prevMaxSlice, curMaxSlice},
+                                   ValueRange{reducedShapeOut})
+            .getResult(0);
+    Value newMaxSliceBroadcasted =
+        rewriter
+            .create<linalg::BroadcastOp>(loc, newMaxSlice, QKShapeOut,
+                                         SmallVector<int64_t>{1})
+            .getResults()[0];
+    Value sub =
+        rewriter
+            .create<linalg::SubOp>(loc, QKShapeOut.getType(),
+                                   ValueRange{add, newMaxSliceBroadcasted},
+                                   ValueRange{QKShapeOut})
+            .getResult(0);
+    Value PSlice =
+        rewriter
+            .create<linalg::ExpOp>(loc, QKShapeOut.getType(), ValueRange{sub},
+                                   ValueRange{QKShapeOut})
+            .getResult(0);
+    Value reduceSumFilled =
+        rewriter.create<linalg::FillOp>(loc, zero, reducedShapeOut)
+            .getResult(0);
+    Value curSumSlice =
+        rewriter
+            .create<linalg::ReduceOp>(
+                loc, ValueRange{PSlice}, ValueRange{reduceSumFilled}, 1,
+                [&](OpBuilder &nestedBuilder, Location nestedLoc,
+                    ValueRange blockArgs) {
+                  Value result = nestedBuilder.create<arith::AddFOp>(
+                      nestedLoc, blockArgs[0], blockArgs[1]);
+                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, result);
+                })
+            .getResult(0);
+    Value maxDiff =
+        rewriter
+            .create<linalg::SubOp>(loc, reducedShapeOut.getType(),
+                                   ValueRange{prevMaxSlice, newMaxSlice},
+                                   ValueRange{reducedShapeOut})
+            .getResult(0);
+    Value expMaxDiff = rewriter
+                           .create<linalg::ExpOp>(
+                               loc, reducedShapeOut.getType(),
+                               ValueRange{maxDiff}, ValueRange{reducedShapeOut})
+                           .getResult(0);
+    Value rescaledPrevSumSlice =
+        rewriter
+            .create<linalg::MulOp>(loc, reducedShapeOut.getType(),
+                                   ValueRange{prevSumSlice, expMaxDiff},
+                                   ValueRange{reducedShapeOut})
+            .getResult(0);
+    Value newSumSlice = rewriter
+                            .create<linalg::AddOp>(
+                                loc, reducedShapeOut.getType(),
+                                ValueRange{curSumSlice, rescaledPrevSumSlice},
+                                ValueRange{reducedShapeOut})
+                            .getResult(0);
+    SmallVector<int64_t> VShape{cfg.RowBlockSize, headDim};
+    Value VShapeOut = rewriter.create<tensor::EmptyOp>(loc, VShape, dtype);
+    Value matmulVOutFilled =
+        rewriter.create<linalg::FillOp>(loc, zero, VShapeOut).getResult(0);
+    Value matmulV =
+        rewriter
+            .create<linalg::MatmulOp>(loc, matmulVOutFilled.getType(),
+                                      ValueRange{PSlice, collapsedVSlice},
+                                      ValueRange{matmulVOutFilled})
+            .getResult(0);
+    Value expMaxDiffRecip =
+        rewriter
+            .create<linalg::ReciprocalOp>(loc, reducedShapeOut.getType(),
+                                          ValueRange{expMaxDiff},
+                                          ValueRange{reducedShapeOut})
+            .getResult(0);
+    Value expMaxDiffRecipBroadcasted =
+        rewriter
+            .create<linalg::BroadcastOp>(loc, expMaxDiffRecip, VShapeOut,
+                                         SmallVector<int64_t>{1})
+            .getResults()[0];
+    Value rescaledOSlice =
+        rewriter
+            .create<linalg::MulOp>(
+                loc, VShapeOut.getType(),
+                ValueRange{prevOSlice, expMaxDiffRecipBroadcasted},
+                ValueRange{VShapeOut})
+            .getResult(0);
+    Value newOSlice =
+        rewriter
+            .create<linalg::AddOp>(loc, VShapeOut.getType(),
+                                   ValueRange{rescaledOSlice, matmulV},
+                                   ValueRange{VShapeOut})
+            .getResult(0);
+    // yield all the results of the innermost loop.
+    rewriter.create<scf::YieldOp>(
+        loc, ValueRange{newOSlice, newMaxSlice, newSumSlice});
+    // yield rowBlockLoop results
+    rewriter.setInsertionPointToEnd(rowBlockLoop.getBody());
+    auto innermostLoopResults = columnBlockLoop->getResults();
+    Value OSliceFinal = innermostLoopResults[0],
+          sumSliceFinal = innermostLoopResults[2];
+    Value sliceShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, reducedShape, dtype);
+    Value sumSliceFinalRecip =
+        rewriter
+            .create<linalg::ReciprocalOp>(loc, sliceShapeOut.getType(),
+                                          ValueRange{sumSliceFinal},
+                                          ValueRange{sliceShapeOut})
+            .getResult(0);
+    Value broadcastedSliceShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, VShape, dtype);
+    Value sumSliceFinalRecipBroadcasted =
+        rewriter
+            .create<linalg::BroadcastOp>(loc, sumSliceFinalRecip,
+                                         broadcastedSliceShapeOut,
+                                         SmallVector<int64_t>{1})
+            .getResults()[0];
+    Value rescaledOSliceFinal =
+        rewriter
+            .create<linalg::MulOp>(
+                loc, broadcastedSliceShapeOut.getType(),
+                ValueRange{sumSliceFinalRecipBroadcasted, OSliceFinal},
+                ValueRange{broadcastedSliceShapeOut})
+            .getResult(0);
+    SmallVector<OpFoldResult> outputOffsets;
+    outputOffsets.push_back(getAsOpFoldResult(ivs[0]));
+    outputOffsets.push_back(getAsOpFoldResult(ivs[1]));
+    outputOffsets.push_back(getAsOpFoldResult(ivs[2]));
+    outputOffsets.push_back(rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> outputSizes(4, rewriter.getIndexAttr(1));
+    outputSizes[2] = rewriter.getIndexAttr(cfg.RowBlockSize);
+    outputSizes[3] = rewriter.getIndexAttr(headDim);
+    Value insertedRescaledOSlice = rewriter.create<tensor::InsertSliceOp>(
+        loc, rescaledOSliceFinal, rowBlockLoop.getRegionIterArgs()[0],
+        outputOffsets, outputSizes, strides);
+    rewriter.create<scf::YieldOp>(loc, ValueRange{insertedRescaledOSlice});
+    // Add the scf.yield operations for all the outer loops.
+    for (auto [outerLoop, innerLoop] :
+         llvm::zip_equal(MutableArrayRef(loops).drop_back(),
+                         MutableArrayRef(loops).drop_front())) {
+      rewriter.setInsertionPointToEnd(
+          cast<scf::ForOp>(outerLoop.getOperation()).getBody());
+      rewriter.create<scf::YieldOp>(outerLoop.getLoc(),
+                                    innerLoop->getResults());
+    }
+    rewriter.replaceOp(sdpaOp, loops.front()->getResults());
     return success();
   }
 };
