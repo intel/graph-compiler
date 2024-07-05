@@ -85,7 +85,7 @@ struct dnnl_graph_compiler_executable {
           tensor = nullptr;
           for (size_t j = 0; j < n; j++) {
             if (tensors[j].id == id) {
-              tensor = &tensors[i];
+              tensor = &tensors[j];
               break;
             }
           }
