@@ -77,14 +77,24 @@ LogicalResult lowerBitcastOpPrecondition(tensor::BitcastOp bitCastOp) {
 
 /// Need to check if the reassociation are static/constant.
 LogicalResult
-lowerCollapseShapeOpPrecondition(tensor::CollapseShapeOp expandOp) {
-
-  if (llvm::any_of(expandOp.getReassociation(), [](Attribute x) {
-        return !getConstantIntValue(x).has_value();
-      })) {
-    LDBG("Reassociation must be constant: " << expandOp << "\n");
+lowerCollapseShapeOpPrecondition(tensor::CollapseShapeOp collapseOp) {
+  auto isShapeStatic = [](Value v) {
+    auto type = mlir::dyn_cast<ShapedType>(v.getType());
+    if (!type) {
+      LDBG("Operation type error: " << v << "\n");
+      return false;
+    }
+    return type.hasStaticShape();
+  };
+  if (!isShapeStatic(collapseOp->getResults()[0])) {
+    LDBG("Output shape must be static: " << collapseOp << "\n");
     return failure();
   }
+  if (!isShapeStatic(collapseOp.getSrc())) {
+    LDBG("Input shape must be static: " << collapseOp << "\n");
+    return failure();
+  }
+
   return success();
 }
 
@@ -120,22 +130,74 @@ LogicalResult lowerTargetOpPrecondition(Operation *op) {
       .Default([](auto) { return failure(); });
 }
 
-/// Create a TransferReadOp from `source` with static shape `readShape`.
-Value createTransferRead(OpBuilder &builder, Location loc, Value source,
-                         ArrayRef<int64_t> readShape) {
-  assert(llvm::none_of(readShape,
-                       [](int64_t s) { return s == ShapedType::kDynamic; }));
-  assert(source && " source null.");
-  auto shapedType = mlir::dyn_cast<ShapedType>(source.getType());
-  auto sourceShape = shapedType.getShape();
-  auto vectorType = VectorType::get(readShape, shapedType.getElementType());
+Operation *createWriteOrMaskedWrite(OpBuilder &builder, Location loc,
+                                    Value input,
+                                    SmallVector<OpFoldResult> destSizes,
+                                    ArrayRef<int64_t> inputVectorSizes,
+                                    bool useInBoundsInsteadOfMasking) {
 
-  auto padValue = builder.create<arith::ConstantOp>(
-      loc, builder.getZeroAttr(shapedType.getElementType()));
-  assert(sourceShape.size() == readShape.size());
+  auto inputType = cast<VectorType>(input.getType());
+  Value dest = builder.create<tensor::EmptyOp>(loc, destSizes,
+                                               inputType.getElementType());
+  int64_t rank = cast<ShapedType>(dest.getType()).getRank();
+  auto zero = builder.create<arith::ConstantIndexOp>(loc, 0);
+  auto destShape = cast<ShapedType>(dest.getType()).getShape();
+  SmallVector<bool> inBoundsVal(rank, true);
+  if (useInBoundsInsteadOfMasking) {
+    // Update the inBounds attribute.
+    for (unsigned i = 0; i < rank; i++)
+      inBoundsVal[i] = (destShape[i] == inputVectorSizes[i]) &&
+                       !ShapedType::isDynamic(destShape[i]);
+  }
+  Operation *write = builder.create<vector::TransferWriteOp>(
+      loc,
+      /*vector=*/input,
+      /*source=*/dest,
+      /*indices=*/SmallVector<Value>(rank, zero),
+      /*inBounds=*/inBoundsVal);
+  assert(llvm::none_of(
+             destShape.drop_front(inputVectorSizes.size()),
+             [](int64_t size) { return size == ShapedType::kDynamic; }) &&
+         "Only dims aligned with inputVectorSizes may be dynamic");
+  if (useInBoundsInsteadOfMasking)
+    return write;
+  bool needMaskForWrite = !llvm::equal(
+      inputVectorSizes, destShape.take_front(inputVectorSizes.size()));
+  if (needMaskForWrite) {
+    SmallVector<int64_t> writeMaskShape;
+    writeMaskShape.append(inputVectorSizes.begin(), inputVectorSizes.end());
+    writeMaskShape.append(destShape.begin() + inputVectorSizes.size(),
+                          destShape.end());
+    auto writeMaskType = VectorType::get(writeMaskShape, builder.getI1Type());
+    Value maskForWrite =
+        builder.create<vector::CreateMaskOp>(loc, writeMaskType, destSizes);
+    write = mlir::vector::maskOperation(builder, write, maskForWrite);
+  }
+  return write;
+}
+
+Value createReadOrMaskedRead(OpBuilder &builder, Location loc, Value source,
+                             ArrayRef<int64_t> readShape, Value padValue,
+                             bool useInBoundsInsteadOfMasking) {
+  assert(llvm::none_of(readShape,
+                       [](int64_t s) { return s == ShapedType::kDynamic; }) &&
+         "expected static shape");
+  auto sourceShapedType = cast<ShapedType>(source.getType());
+  auto sourceShape = sourceShapedType.getShape();
+  assert(sourceShape.size() == readShape.size() && "expected same ranks.");
+  auto maskType = VectorType::get(readShape, builder.getI1Type());
+  auto vectorType = VectorType::get(readShape, padValue.getType());
+  assert(padValue.getType() == sourceShapedType.getElementType() &&
+         "expected same pad element type to match source element type");
   int64_t readRank = readShape.size();
   auto zero = builder.create<arith::ConstantIndexOp>(loc, 0);
   SmallVector<bool> inBoundsVal(readRank, true);
+  if (useInBoundsInsteadOfMasking) {
+    // Update the inBounds attribute.
+    for (unsigned i = 0; i < readRank; i++)
+      inBoundsVal[i] = (sourceShape[i] == readShape[i]) &&
+                       !ShapedType::isDynamic(sourceShape[i]);
+  }
   auto transferReadOp = builder.create<vector::TransferReadOp>(
       loc,
       /*vectorType=*/vectorType,
@@ -144,35 +206,14 @@ Value createTransferRead(OpBuilder &builder, Location loc, Value source,
       /*padding=*/padValue,
       /*inBounds=*/inBoundsVal);
 
-  if (llvm::equal(readShape, sourceShape)) {
+  if (llvm::equal(readShape, sourceShape) || useInBoundsInsteadOfMasking)
     return transferReadOp;
-  } else {
-    assert(false && "wrong shape.");
-  }
-}
-
-/// create an empty destination tensor and create a TransferWriteOp from the
-/// input to the empty tensor.
-Operation *createTransferWrite(OpBuilder &builder, Location loc, Value input,
-                               SmallVector<OpFoldResult> destSizes,
-                               ArrayRef<int64_t> inputVectorSizes) {
-  auto inputType = cast<VectorType>(input.getType());
-  Value dest = builder.create<tensor::EmptyOp>(loc, destSizes,
-                                               inputType.getElementType());
-  int64_t rank = cast<ShapedType>(dest.getType()).getRank();
-  auto zero = builder.create<arith::ConstantIndexOp>(loc, 0);
-  Operation *write = builder.create<vector::TransferWriteOp>(
-      loc,
-      /*vector=*/input,
-      /*source=*/dest,
-      /*indices=*/SmallVector<Value>(rank, zero),
-      /*inBounds=*/SmallVector<bool>(rank, true));
-  auto destShape = cast<ShapedType>(dest.getType()).getShape();
-  assert(llvm::none_of(
-             destShape.drop_front(inputVectorSizes.size()),
-             [](int64_t size) { return size == ShapedType::kDynamic; }) &&
-         "InputVectorSizes may be dynamic");
-  return write;
+  SmallVector<OpFoldResult> mixedSourceDims =
+      tensor::getMixedSizes(builder, loc, source);
+  Value mask =
+      builder.create<vector::CreateMaskOp>(loc, maskType, mixedSourceDims);
+  return mlir::vector::maskOperation(builder, transferReadOp, mask)
+      ->getResult(0);
 }
 
 /// Vectorize a `tensor::expandshape` to these 3 Ops:
@@ -181,43 +222,38 @@ Operation *createTransferWrite(OpBuilder &builder, Location loc, Value input,
 ///   vector::TransferWriteOp. - Write the result vector back to the destination
 ///   tensor
 template <class T>
-LogicalResult lowerTensorExpandShapeOp(RewriterBase &rewriter, T expandShapeOp,
+LogicalResult lowerTensorExpandShapeOp(RewriterBase &rewriter,
+                                       Operation *inputOp,
                                        SmallVectorImpl<Value> &newResults) {
   OpBuilder::InsertionGuard g(rewriter);
-  rewriter.setInsertionPoint(expandShapeOp);
+  rewriter.setInsertionPoint(inputOp);
+  auto src = inputOp->getOperand(0);
+  auto srcType = mlir::dyn_cast<ShapedType>(src.getType());
+  auto result = inputOp->getResults()[0];
+  auto resultType = mlir::dyn_cast<ShapedType>(result.getType());
 
-  RankedTensorType expandShapeTensorType = expandShapeOp.getSrcType();
+  ArrayRef<int64_t> resultShape = resultType.getShape();
+  Location loc = inputOp->getLoc();
 
-  SmallVector<int64_t> readMaskShape;
-  ArrayRef<int64_t> sourceShape = expandShapeTensorType.getShape();
-  ArrayRef<int64_t> resultShape = expandShapeOp.getResultType().getShape();
-  readMaskShape.append(sourceShape.begin(), sourceShape.end());
+  // read
+  auto padValue = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getZeroAttr(srcType.getElementType()));
+  Value readResult = createReadOrMaskedRead(
+      rewriter, loc, src, srcType.getShape(), padValue, false);
 
-  ReifiedRankedShapedTypeDims reifiedRetShapes;
-  LogicalResult status =
-      cast<ReifyRankedShapedTypeOpInterface>(expandShapeOp.getOperation())
-          .reifyResultShapes(rewriter, reifiedRetShapes);
-  if (status.failed()) {
-    LDBG("Unable to reify result shapes of " << expandShapeOp << "\n");
-    return failure();
-  }
-  Location loc = expandShapeOp->getLoc();
-
-  // Read result, mask if necessary. If transferReadOp shape is not equal
-  // to shape of source, then a mask is necessary.
-  Value readResult = createTransferRead(
-      rewriter, loc, expandShapeOp.getSrc(),
-      ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()));
-
-  auto resultVectorType =
-      VectorType::get(resultShape, expandShapeTensorType.getElementType());
+  auto shapeCastType =
+      VectorType::get(resultType.getShape(), resultType.getElementType());
   vector::ShapeCastOp shapeCastOp =
-      rewriter.create<vector::ShapeCastOp>(loc, resultVectorType, readResult);
+      rewriter.create<vector::ShapeCastOp>(loc, shapeCastType, readResult);
 
-  SmallVector<int64_t> writeMaskShape(
-      shapeCastOp.getResultVectorType().getShape());
-  Operation *write = createTransferWrite(rewriter, loc, shapeCastOp.getResult(),
-                                         reifiedRetShapes[0], writeMaskShape);
+  // write
+  SmallVector<OpFoldResult> destSizes;
+  for (auto size : resultShape) {
+    destSizes.emplace_back(rewriter.getIndexAttr(size));
+  }
+  Operation *write =
+      createWriteOrMaskedWrite(rewriter, loc, shapeCastOp->getResults()[0],
+                               destSizes, resultShape, false);
   newResults.push_back(write->getResult(0));
   return success();
 }
@@ -234,19 +270,14 @@ LogicalResult lowerTensorBitcastOp(RewriterBase &rewriter,
   rewriter.setInsertionPoint(bitCastOp);
 
   auto sourceType = bitCastOp.getSource().getType();
-  auto sourceShape = sourceType.getShape();
   auto resultType = bitCastOp.getResult().getType();
   auto resultShape = resultType.getShape();
-
-  SmallVector<int64_t> readMaskShape;
-  readMaskShape.append(sourceShape.begin(), sourceShape.end());
   Location loc = bitCastOp->getLoc();
 
-  // Read result, mask if necessary. If transferReadOp shape is not equal
-  // to shape of source, then a mask is necessary.
-  Value readResult = createTransferRead(
-      rewriter, loc, bitCastOp->getOperand(0),
-      ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()));
+  auto padValue = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getZeroAttr(sourceType.getElementType()));
+  Value readResult = createReadOrMaskedRead(
+      rewriter, loc, bitCastOp.getSource(), resultShape, padValue, false);
 
   auto resultVectorType =
       VectorType::get(resultShape, resultType.getElementType());
@@ -259,8 +290,8 @@ LogicalResult lowerTensorBitcastOp(RewriterBase &rewriter,
   for (auto size : resultShape)
     destSizes.emplace_back(rewriter.getIndexAttr(size));
   auto write =
-      createTransferWrite(rewriter, loc, vectorbitCastOp->getResults()[0],
-                          destSizes, writeMaskShape);
+      createWriteOrMaskedWrite(rewriter, loc, vectorbitCastOp->getResult(0),
+                               destSizes, resultShape, false);
   newResults.push_back(write->getResults()[0]);
   return success();
 }
@@ -293,6 +324,10 @@ LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
       rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(dim));
 
   int64_t rank = concatOp.getResultType().getRank();
+  auto srcType =
+      mlir::dyn_cast<RankedTensorType>(concatOp->getResultTypes()[0]);
+  auto padValue = rewriter.create<arith::ConstantOp>(
+      loc, rewriter.getZeroAttr(srcType.getElementType()));
 
   // Construct the chain of insert_slice ops into the destination.
   Value result = *dest;
@@ -302,13 +337,12 @@ LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
     SmallVector<OpFoldResult> sizes =
         tensor::getMixedSizes(rewriter, loc, input);
     SmallVector<int64_t> readMaskShape;
-    auto inputType = llvm::cast<RankedTensorType>(input.getType());
+    auto inputType = mlir::dyn_cast<RankedTensorType>(input.getType());
     auto sourceShape = inputType.getShape();
 
     readMaskShape.append(sourceShape.begin(), sourceShape.end());
-    Value readResult = createTransferRead(
-        rewriter, loc, input,
-        ArrayRef<int64_t>(readMaskShape.begin(), readMaskShape.end()));
+    Value readResult = createReadOrMaskedRead(rewriter, loc, input, sourceShape,
+                                              padValue, false);
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     SmallVector<Value> indices(rank, zero);
     indices[dim] = previous_offset;

@@ -78,6 +78,7 @@ void checkAndSetOperand(
 class VectorFusionStrategy {
 private:
   llvm::SmallVector<std::queue<Operation *>, 8> opGroups;
+  llvm::SmallVector<uint32_t, 8> groupMaxSteps;
   // query current operation in which group, return group index
   llvm::DenseMap<Operation *, size_t> opGroupIndexMap;
   // can fused into prev operation which axis position
@@ -94,6 +95,7 @@ public:
   llvm::DenseMap<Operation *, size_t> &getOpGroupIndexMap() {
     return opGroupIndexMap;
   }
+  llvm::SmallVector<uint32_t, 8> &getGroupMaxSteps() { return groupMaxSteps; }
 
   func::FuncOp getFunc() { return func; }
   llvm::SmallVector<std::queue<Operation *>, 8> getIgnoreInitOperations() {
@@ -186,6 +188,16 @@ public:
   void prepareSpecialOperationInfo() override {}
 };
 
+class ShapeCastCanonicalizer
+    : virtual public SpecialOperationCanonicalizer<vector::ShapeCastOp> {
+private:
+public:
+  ShapeCastCanonicalizer(
+      const llvm::SmallVector<vector::ShapeCastOp, 4> &candidateScOps)
+      : SpecialOperationCanonicalizer<vector::ShapeCastOp>(candidateScOps){};
+  void prepareSpecialOperationInfo() override {}
+};
+
 class CanonicalizerCommonUsedData {
 private:
   VectorFusionStrategy fusionStrategy;
@@ -198,6 +210,7 @@ private:
   llvm::SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizers;
   llvm::SmallVector<BroadcastCanonicalizer, 8> broadcastCanonicalizers;
   llvm::SmallVector<TransposeCanonicalizer, 8> transposeCanonicalizers;
+  llvm::SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
 
 public:
   CanonicalizerCommonUsedData() = default;
@@ -265,6 +278,10 @@ public:
     return transposeCanonicalizers;
   }
 
+  llvm::SmallVector<ShapeCastCanonicalizer, 8> &getShapeCastCanonicalizer() {
+    return shapeCastCanonicalizers;
+  }
+
   // other methods
   void initSpeicalOperationCanonicalizers();
 };
@@ -296,6 +313,7 @@ public:
 
   void generateGroupOpVectorizedIR(const int idx);
 
+  void analysisEmptyGroupAndMaxSteps();
   void analysisGroupOperaionOperandsResults();
 
   void generateEmptyTensorAndWrite(
@@ -308,6 +326,8 @@ public:
                                                IRRewriter &rewriter);
   void rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
                                    const std::queue<Operation *> &queue = {});
+  void createNewConstantOp(Operation *srcOp,
+                           vector::TransferWriteOp *transferWriteOp);
 
   // special operation methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
