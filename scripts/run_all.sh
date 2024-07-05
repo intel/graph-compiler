@@ -5,7 +5,7 @@ export L3_CACHE_SIZE=1966080
 PROJECT_DIR=`pwd`/../
 BUILD_DIR=${PROJECT_DIR}/build
 export PYTHONPATH=${PROJECT_DIR}/build/python_packages/gc_mlir_core
-export LD_PRELOAD="/home/zhicong/miniforge3/lib/libiomp5.so ${PROJECT_DIR}/build/lib/libGCCpuRuntime.so"
+export LD_PRELOAD="/home/zhicong/miniforge3/lib/libiomp5.so ${PROJECT_DIR}/build/lib/libGCCpuRuntime.so $HOME/miniforge3/lib/libjemalloc.so"
 export MLIR_RUNNER_UTILS=${PROJECT_DIR}/externals/llvm-project/build/lib/libmlir_runner_utils.so
 export MLIR_C_RUNNER_UTILS=${PROJECT_DIR}/externals/llvm-project/build/lib/libmlir_c_runner_utils.so 
 
