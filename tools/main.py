@@ -74,8 +74,8 @@ def do_bench(args):
         json_res = json.dumps(
             {
                 "args": vars(args),
-                "compile_cost": compile_cost,
-                "execute_cost": execute_cost,
+                "compile_cost(ms)": compile_cost,
+                "execute_cost(ms)": execute_cost,
             },
             indent=4,
         )
@@ -127,6 +127,7 @@ def do_tune(args):
                 args.tuning_batch,
                 args.early_stop,
                 args.checkpoint_path,
+                random_seed=args.random_seed,
             )
         tuner.run(args.tuning_times, args.timeout)
 
@@ -155,11 +156,29 @@ if __name__ == "__main__":
         parser.add_argument(
             "--search_alg", type=str, choices=["grid", "ga"], default="ga"
         )
-        parser.add_argument("--tuning_batch", type=int, default=50)
-        parser.add_argument("--early_stop", type=int, default=-1)
+        parser.add_argument(
+            "--tuning_batch", type=int, default=Tuner.DEFAULT_BATCH_SIZE
+        )
+        parser.add_argument("--early_stop", type=int, default=Tuner.DEFAULT_EARLY_STOP)
         parser.add_argument("--tuning_times", type=int, default=100)
         parser.add_argument("--timeout", type=int, default=-1)
         parser.add_argument("--space_percent", type=float, default=1.0)
         parser.add_argument("--checkpoint_path", type=str, default="")
+
+        if parser.parse_known_args()[0].search_alg == "ga":
+            parser.add_argument(
+                "--random_seed", type=int, default=GATuner.DEFAULT_RANDOM_SEED
+            )
+            parser.add_argument(
+                "--elite_num", type=int, default=GATuner.DEFAULT_ELITE_NUM
+            )
+            parser.add_argument(
+                "--mutation_prob", type=float, default=GATuner.DEFAULT_MUTATION_PROB
+            )
+            parser.add_argument(
+                "--expected_tune_num",
+                type=int,
+                default=GATuner.DEFAULT_EXPECTED_TUNE_NUM,
+            )
         args = parser.parse_args()
         do_tune(args)

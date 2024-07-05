@@ -15,19 +15,21 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-from copy import deepcopy
-import os
-import sys
-import random
-from functools import reduce
-import time
-from config_filter import *
-from op_config import *
-from gc_mlir import ir
-import utils
 import json
+import os
+import random
+import sys
+import time
 from abc import ABC, abstractmethod
+from copy import deepcopy
+from functools import reduce
 from typing import List
+from unittest.mock import DEFAULT
+
+import utils
+from config_filter import *
+from gc_mlir import ir
+from op_config import *
 
 need_print = False
 
@@ -96,6 +98,10 @@ class TuningSpace:
 
 
 class Tuner(ABC):
+    DEFAULT_BATCH_SIZE = 50
+    DEFAULT_EARLY_STOP = -1
+    DEFAULT_TIMEOUT = -1
+
     def __init__(
         self,
         executor,
@@ -148,7 +154,7 @@ class Tuner(ABC):
             self.tunning_space.initial_ir,
         )
 
-    def run(self, max_iter: int, timeout: int = -1):
+    def run(self, max_iter: int, timeout: int = DEFAULT_TIMEOUT):
         if self.early_stop > 0 and self.iter - self.last_update_iter > self.early_stop:
             # in case of resuming from a saved state and it has already
             # early-stopped
@@ -219,8 +225,8 @@ class GridTuner(Tuner):
         self,
         executor,
         tunning_space: TuningSpace,
-        batch_size,
-        early_stop,
+        batch_size=Tuner.DEFAULT_BATCH_SIZE,
+        early_stop=Tuner.DEFAULT_EARLY_STOP,
         checkpoint="",
     ):
         super().__init__(executor, tunning_space, batch_size, early_stop, checkpoint)
@@ -299,17 +305,22 @@ class GridTuner(Tuner):
 
 
 class GATuner(Tuner):
+    DEFAULT_ELITE_NUM = 9
+    DEFAULT_MUTATION_PROB = 0.1
+    DEFAULT_RANDOM_SEED = 0
+    DEFAULT_EXPECTED_TUNE_NUM = 0
+
     def __init__(
         self,
         executor,
         tuning_space,
-        pop_size=100,
-        early_stop=-1,
+        pop_size=Tuner.DEFAULT_BATCH_SIZE,
+        early_stop=Tuner.DEFAULT_EARLY_STOP,
         checkpoint="",
-        elite_num: int = 9,
-        mutation_prob: float = 0.1,
-        random_seed: int = 0,
-        expected_tune_num: int = 0,
+        elite_num: int = DEFAULT_ELITE_NUM,
+        mutation_prob: float = DEFAULT_MUTATION_PROB,
+        random_seed: int = DEFAULT_RANDOM_SEED,
+        expected_tune_num: int = DEFAULT_EXPECTED_TUNE_NUM,
     ):
         super().__init__(executor, tuning_space, pop_size, early_stop, checkpoint)
         self.elite_num = min(elite_num, pop_size)
@@ -318,6 +329,7 @@ class GATuner(Tuner):
         self.cur_mutation_prob = mutation_prob
         self.prev_result = []
         self.elites = []
+        random.seed(random_seed)
         if expected_tune_num == 0:
             self.filter = HashSetFilter()
         else:
