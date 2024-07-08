@@ -32,7 +32,7 @@ def init_i1o1_module(argin: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Cont
                     results=[argout.get_mlir_type(ctx)],
                 ),
             )
-
+            f.attributes["llvm.emit_c_interface"] = gc_mlir.ir.UnitAttr.get()
             with gc_mlir.ir.InsertionPoint(f.add_entry_block()):
                 arg0: gc_mlir.ir.BlockArgument = f.entry_block.arguments[0]
                 func.ReturnOp([op_func(ctx, arg0)])
@@ -53,6 +53,7 @@ def init_i2o1_module(argin0: Arg, argin1: Arg, argout: Arg, op_func: Callable[[g
                     results=[argout.get_mlir_type(ctx)],
                 ),
             )
+            f.attributes["llvm.emit_c_interface"] = gc_mlir.ir.UnitAttr.get()
 
             with gc_mlir.ir.InsertionPoint(f.add_entry_block()):
                 arg0, arg1 = f.entry_block.arguments

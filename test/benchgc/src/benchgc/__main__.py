@@ -15,8 +15,11 @@
 ################################################################################
 
 
+import imp
 import sys
 import argparse
+
+from numpy import dtype
 import torch
 
 from .arg import Arg
@@ -25,6 +28,9 @@ import runner
 import benchgc.fill
 import benchgc.util
 import gc_mlir.ir
+from gc_mlir.graph_compiler import GraphCompiler
+import os
+from tools.utils import get_mlir_args
 
 try:
     parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
@@ -176,12 +182,44 @@ else:
 
 print(module)
 
+gc_args = []
 tensors: Dict[str, torch.Tensor] = {}
 for k, v in ins.items():
     tensors[k] = benchgc.fill.fill_tensor(flags, v)
+    gc_args.append(benchgc.util.tensor_to_ndarray(tensors[k]))
 
+for k, v in outs.items():
+    tensors[k] = torch.zeros(size=v.shape, dtype=benchgc.util.get_dtype(v.dtype))
+    gc_args.append(benchgc.util.tensor_to_ndarray(tensors[k]))
+
+gc_out_tensor =  tensors["%1"]
 runner.ref_run(module, tensors)
 
-for k, v in tensors.items():
-    print(k)
-    print(v)
+entry = "entry"
+
+mlir_args = get_mlir_args(module, entry, gc_args)
+passes = "any(gc-cpu-pipeline)"
+shared_libs = [
+    os.environ["MLIR_C_RUNNER_UTILS"],
+    os.environ["MLIR_RUNNER_UTILS"],
+]
+        
+with module.context:
+    compiler = GraphCompiler(passes, shared_libs)
+    engine = compiler.compile_and_jit(module)
+    engine.invoke(entry, *mlir_args)
+
+# for k, v in tensors.items():
+#     print(k)
+#     print(v)
+
+res = torch.allclose(
+    tensors["%1"],
+    gc_out_tensor,
+    )
+print("res", res)
+
+print("========ref out=========")
+print(tensors["%1"])
+print("========gc out=========")
+print(gc_out_tensor)
