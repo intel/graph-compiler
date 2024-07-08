@@ -42,7 +42,7 @@ bool structured_match::StructuredOpMatcher::match(Operation *op) {
 
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::operation(
-    std::function<bool(Operation *op)> fun) {
+    std::function<bool(Operation *op)> &fun) {
   predicates.push_back(
       [=](linalg::LinalgOp linalgOp) -> bool { return fun(linalgOp); });
   return *this;
@@ -55,7 +55,7 @@ structured_match::StructuredOpMatcher::operation(
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::input(
     MatchSelector range,
-    std::function<bool(OpOperand *operand, Operation *op)> fun) {
+    std::function<bool(OpOperand *operand, Operation *op)> &fun) {
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     auto operands = linalgOp.getDpsInputOperands();
     size_t upperBound = range.getUpperBound();
@@ -80,7 +80,7 @@ structured_match::StructuredOpMatcher::input(
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::output(
     MatchSelector range,
-    std::function<bool(OpOperand *operand, Operation *operation)> fun) {
+    std::function<bool(OpOperand *operand, Operation *operation)> &fun) {
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     auto operands = linalgOp.getDpsInitsMutable();
     size_t upperBound = range.getUpperBound();
@@ -104,7 +104,7 @@ structured_match::StructuredOpMatcher::output(
 
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::dim(
-    MatchSelector range, SmallVector<mlir::utils::IteratorType> kinds) {
+    MatchSelector range, SmallVector<mlir::utils::IteratorType> &kinds) {
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     size_t upperBound = range.getUpperBound();
     size_t lowerBound = range.getLowerBound();
@@ -282,10 +282,10 @@ bool structured_match::withOpChainImpl(
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::region(
     MatchSelector range,
-    std::function<bool(Region *region, Operation *op)> fun) {
+    std::function<bool(Region *region, Operation *op)> &fun) {
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     auto regions = linalgOp->getRegions();
-    assert(regions.size() != 0);
+    assert(!regions.empty());
     size_t upperBound = range.getUpperBound();
     size_t lowerBound = range.getLowerBound();
     if (upperBound == std::numeric_limits<size_t>::max())
