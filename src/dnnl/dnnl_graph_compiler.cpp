@@ -133,8 +133,10 @@ private:
         std::copy(strides->begin(), strides->end(),
                   dimsAndStrides + tensor->ndims);
       } else {
-        std::fill(dimsAndStrides + tensor->ndims,
-                  dimsAndStrides + 2 * tensor->ndims, 0);
+        for (int64_t d = tensor->ndims - 1, stride = 1; d >= 0; d--) {
+          dimsAndStrides[tensor->ndims + d] = stride;
+          stride *= tensor->dims[d];
+        }
       }
     }
   };
