@@ -31,6 +31,22 @@ Going up the pipeline, the abstractions needed to express specific ISA semantics
 
 TODO: gpu(x), linalg-to-scf, gpu-map-parallel-loops.
 
+### Integration
+There are three major point of integration that affect the way the pipeline is built:
+1. Input representation.
+2. Memory management.
+3. Runtime interfaces.
+
+The primary input for our pipelines is linalg on tesnors with named ops. These are pretty flexible (adding more to the upstream is more-or-less straightforward) and cover a lot of ground.
+
+Memory management has to deal with weight caching, dynamic shapes, input/output handling, etc. Certain decisions on the compiler user side lead to additional complications in the pipeline.
+For example, having to deal with 'logical' tenors for OneDNN imposes constraints on constant folding.
+
+The choice of runtime interface defines how much additional logic should reside in the pipeline. For managed devices (such as a GPU) there are two distinct options:
+1. The compiler only emits a binary for the target device.
+2. The compiler emits a binary and a launch stub that interacts with an appropriate runtime.
+The latter provides more context, and thus, potentially more opportunities for optimization. The former gives more control to the user and simplifies the pipeline.
+
 ### The path of least resistance
 First milestone for the pipeline creation aims at taking what's working now and putting it together.
 
