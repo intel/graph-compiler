@@ -27,7 +27,7 @@ bool structured_match::StructuredOpMatcher::match(Operation *op) {
     return false;
   LLVM_DEBUG(llvm::dbgs() << "Running matcher on: " << *op << "\n");
 
-  for (auto [idx, predicate] : llvm::enumerate(predicates)) {
+  for (auto [idx, predicate] : llvm::enumerate(predicates)) { // NOLINT
     if (!predicate(linalgOp)) {
       LLVM_DEBUG(llvm::dbgs() << "Exit on predicate: " << idx << "\n");
       return false;
@@ -271,7 +271,7 @@ bool structured_match::withOpChainImpl(
   // Last op must be a chained yield.
   Operation *yieldOp = linalgOp.getBlock()->getTerminator();
   assert(isa<linalg::YieldOp>(yieldOp) && "Wrong terminator");
-  for (auto op : yieldOp->getOperands()) {
+  for (auto op : yieldOp->getOperands()) { // NOLINT
     if (!chainedValues.contains(op))
       return false;
   }
