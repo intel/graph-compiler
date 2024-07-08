@@ -55,7 +55,7 @@ namespace gc {
 namespace {
 
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
-void checkAndSetOperand(
+void setOperationCorrectOperand(
     Operation *op, const ValueRange &iterArgs,
     const llvm::DenseMap<Value, int> &operandIdxMap,
     const llvm::SmallVector<Value, 5> &inductionVars,
@@ -84,8 +84,6 @@ private:
   // can fused into prev operation which axis position
   llvm::DenseMap<Operation *, int32_t> opAnchorPos;
 
-  llvm::SmallVector<std::queue<Operation *>, 8> ignoreInitOperations;
-
   func::FuncOp func;
 
 public:
@@ -98,9 +96,6 @@ public:
   llvm::SmallVector<uint32_t, 8> &getGroupMaxSteps() { return groupMaxSteps; }
 
   func::FuncOp getFunc() { return func; }
-  llvm::SmallVector<std::queue<Operation *>, 8> getIgnoreInitOperations() {
-    return ignoreInitOperations;
-  }
 
   VectorFusionStrategy() = default;
   VectorFusionStrategy(func::FuncOp func) : func(func) {}
@@ -126,8 +121,7 @@ public:
 };
 
 class MultiReductionCanonicalizer
-    : virtual public SpecialOperationCanonicalizer<
-          vector::MultiDimReductionOp> {
+    : public SpecialOperationCanonicalizer<vector::MultiDimReductionOp> {
 private:
   llvm::SmallVector<int64_t, 4> reductionAxis, parallelAxis;
   std::queue<Operation *> prevOps, postOps, accRelatedOps, sourceRelatedOps;
@@ -169,7 +163,7 @@ public:
 };
 
 class BroadcastCanonicalizer
-    : virtual public SpecialOperationCanonicalizer<vector::BroadcastOp> {
+    : public SpecialOperationCanonicalizer<vector::BroadcastOp> {
 private:
 public:
   BroadcastCanonicalizer(
@@ -179,7 +173,7 @@ public:
 };
 
 class TransposeCanonicalizer
-    : virtual public SpecialOperationCanonicalizer<vector::TransposeOp> {
+    : public SpecialOperationCanonicalizer<vector::TransposeOp> {
 private:
 public:
   TransposeCanonicalizer(
@@ -189,7 +183,7 @@ public:
 };
 
 class ShapeCastCanonicalizer
-    : virtual public SpecialOperationCanonicalizer<vector::ShapeCastOp> {
+    : public SpecialOperationCanonicalizer<vector::ShapeCastOp> {
 private:
 public:
   ShapeCastCanonicalizer(
@@ -224,6 +218,7 @@ public:
       llvm::DenseMap<Operation *, AffineMap> &opPermuationMap)
       : fusionStrategy(fusionStrategy), groupOpResults(groupOpResults),
         groupOpIterArgs(groupOpIterArgs), opPermuationMap(opPermuationMap) {}
+  virtual ~CanonicalizerCommonUsedData(){};
 
   // set methods
   void setFuseStrategy(VectorFusionStrategy &strategy) {
@@ -266,74 +261,57 @@ public:
     return opPermuationMap;
   }
 
-  llvm::SmallVector<MultiReductionCanonicalizer, 8> &getMultiRdCanonicalizer() {
+  llvm::SmallVector<MultiReductionCanonicalizer, 8> &
+  getMultiRdCanonicalizers() {
     return multiRdCanonicalizers;
   }
 
-  llvm::SmallVector<BroadcastCanonicalizer, 8> &getBroadcastCanonicalizer() {
+  llvm::SmallVector<BroadcastCanonicalizer, 8> &getBroadcastCanonicalizers() {
     return broadcastCanonicalizers;
   }
 
-  llvm::SmallVector<TransposeCanonicalizer, 8> &getTransposeCanonicalizer() {
+  llvm::SmallVector<TransposeCanonicalizer, 8> &getTransposeCanonicalizers() {
     return transposeCanonicalizers;
   }
 
-  llvm::SmallVector<ShapeCastCanonicalizer, 8> &getShapeCastCanonicalizer() {
+  llvm::SmallVector<ShapeCastCanonicalizer, 8> &getShapeCastCanonicalizers() {
     return shapeCastCanonicalizers;
   }
 
   // other methods
-  void initSpeicalOperationCanonicalizers();
+  bool isGroupHasSpecialOperation(const size_t grpIdx);
 };
 
-class CanonicalizerVectorOperation {
-private:
+class ForLoopGenerator : virtual public CanonicalizerCommonUsedData {
   func::FuncOp func;
-  IRRewriter rewriter;
-  CanonicalizerKind kind;
-  CanonicalizerCommonUsedData commonUsedData;
 
 public:
-  CanonicalizerVectorOperation(
-      func::FuncOp func,
-      CanonicalizerKind kind = CanonicalizerKind::OperationsGroup)
-      : func(func), rewriter(func), kind(kind) {
-    // vector operation fusion
-    if (kind == CanonicalizerKind::OperationsGroup) {
-      auto fusionStrategy = VectorFusionStrategy(func);
-      fusionStrategy.run();
-      commonUsedData.setFuseStrategy(fusionStrategy);
-    }
-  }
-
-  // get functions
-  func::FuncOp &getFunc() { return func; };
-  IRRewriter &getIRWewriter() { return rewriter; }
-  CanonicalizerCommonUsedData &getCommonUsedData() { return commonUsedData; }
-
+  virtual ~ForLoopGenerator() {}
+  void setGeneratorFunc(func::FuncOp &func) { this->func = func; }
   void generateGroupOpVectorizedIR(const int idx);
-
-  void analysisEmptyGroupAndMaxSteps();
-  void analysisGroupOperaionOperandsResults();
-
-  void generateEmptyTensorAndWrite(
-      Operation *sourceOp, llvm::DenseMap<Operation *, std::pair<Value, Value>>
-                               &srcOpCanoniclizedMap);
-  void analysisGroupOperationResults();
-
-  LogicalResult canonicalizeReductionOperation();
-  LogicalResult canonicalizeTransposeOperation(vector::TransposeOp &transposeOp,
-                                               IRRewriter &rewriter);
   void rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
                                    const std::queue<Operation *> &queue = {});
   void createNewConstantOp(Operation *srcOp,
                            vector::TransferWriteOp *transferWriteOp);
+  // elementwise for loop
+  mlir::FailureOr<scf::ForOp>
+  generateVectorizedForLoop(const size_t groupId, IRRewriter &rewriter,
+                            const VectorType &vectorType);
+  scf::ForOp
+  constructNestedForOp(const size_t forDimIdx, const size_t groupIdx,
+                       OpBuilder &b, const Location &loc,
+                       const ValueRange &iterArgs, const VectorType &type,
+                       const llvm::ArrayRef<int64_t> &dims,
+                       llvm::SmallVector<Value, 5> &inductionVars,
+                       const llvm::DenseMap<Value, int> &operandIdxMap);
+  void moveOperationsToCurrentForBody(
+      const size_t groupIdx, OpBuilder &b,
+      const llvm::SmallVector<Value, 5> &inductionVars,
+      const llvm::DenseMap<Value, int> &operandIdxMap,
+      const ValueRange &loopState, const std::queue<Operation *> &queue = {});
 
-  // special operation methods
+  // multireduction forloop  methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
-  void getCandidateSpecialOps();
-  void canonicalizeSpecialOperation();
-
   scf::ForOp
   parallelAxisGenerateForLoop(OpBuilder &opBuilder, const int groupIdx,
                               const size_t parallelIdx, ValueRange &initArgs,
@@ -344,8 +322,55 @@ public:
   reductionAxisGenerateForLoop(OpBuilder &opBuilder, const int groupIdx,
                                const size_t reductionIdx, ValueRange &initArgs,
                                llvm::SmallVector<Value, 5> &inductionVars);
+};
 
-  bool isGroupHasSpecialOperation(const size_t grpIdx);
+class VectorOperationAnalysizer : virtual public CanonicalizerCommonUsedData {
+private:
+  func::FuncOp func;
+
+public:
+  virtual ~VectorOperationAnalysizer(){};
+  void generateEmptyTensorAndWrite(
+      Operation *sourceOp, llvm::DenseMap<Operation *, std::pair<Value, Value>>
+                               &srcOpCanoniclizedMap);
+  void setAnalysisFunc(func::FuncOp &func) { this->func = func; }
+  void analysisEmptyGroupAndMaxSteps();
+  void analysisGroupOperaion();
+  void analysisGroupOperationResults();
+};
+
+class CanonicalizerVectorOperation : virtual public VectorOperationAnalysizer,
+                                     ForLoopGenerator {
+private:
+  func::FuncOp func;
+  IRRewriter rewriter;
+  CanonicalizerKind kind;
+
+public:
+  CanonicalizerVectorOperation(
+      func::FuncOp func,
+      CanonicalizerKind kind = CanonicalizerKind::OperationsGroup)
+      : func(func), rewriter(func), kind(kind) {
+    setAnalysisFunc(func);
+    setGeneratorFunc(func);
+    // vector operation fusion
+    if (kind == CanonicalizerKind::OperationsGroup) {
+      auto fusionStrategy = VectorFusionStrategy(func);
+      fusionStrategy.run();
+      setFuseStrategy(fusionStrategy);
+    }
+  }
+  virtual ~CanonicalizerVectorOperation(){};
+
+  // get functions
+  func::FuncOp &getFunc() { return func; };
+  IRRewriter &getIRWewriter() { return rewriter; }
+  //
+  void canonicalizeSpecialOperation();
+  LogicalResult canonicalizeReductionOperation();
+  void clearSpecialOperationCanonicalizers();
+  void dummyInitSpecialOperation();
+  void initSpeicalOperationCanonicalizers();
 
   void run();
 };
