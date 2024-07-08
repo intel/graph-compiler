@@ -35,7 +35,12 @@ need_print = False
 
 
 class TuningSpace:
-    def __init__(self, ir_module: ir.Module):
+
+    DEFAULT_SPACE_PERCENT = 1.0
+
+    def __init__(
+        self, ir_module: ir.Module, space_percent: float = DEFAULT_SPACE_PERCENT
+    ):
         self.initial_ir = ir_module
         self.graph_config = utils.gen_configs_from_ir(ir_module)
         self.space_size = 1
@@ -52,6 +57,7 @@ class TuningSpace:
                 self.flatten_constraints.append(config.field_constraints[field_name])
                 self.ind_candidate_to_config[candidate_ind] = config_ind
                 candidate_ind += 1
+        self.space_size = int(self.space_size * space_percent)
 
     def make_config_from_indexes(self, indexes: List[int]):
         graph_config = deepcopy(self.graph_config)
@@ -101,13 +107,14 @@ class Tuner(ABC):
     DEFAULT_BATCH_SIZE = 50
     DEFAULT_EARLY_STOP = -1
     DEFAULT_TIMEOUT = -1
+    DEFAULT_MAX_ITERS = sys.maxsize
 
     def __init__(
         self,
         executor,
         tunning_space: TuningSpace,
-        batch_size=50,
-        early_stop=-1,
+        batch_size=DEFAULT_BATCH_SIZE,
+        early_stop=DEFAULT_EARLY_STOP,
         checkpoint="",
     ):
         self.executor = executor
@@ -154,7 +161,7 @@ class Tuner(ABC):
             self.tunning_space.initial_ir,
         )
 
-    def run(self, max_iter: int, timeout: int = DEFAULT_TIMEOUT):
+    def run(self, max_iter: int = DEFAULT_MAX_ITERS, timeout: int = DEFAULT_TIMEOUT):
         if self.early_stop > 0 and self.iter - self.last_update_iter > self.early_stop:
             # in case of resuming from a saved state and it has already
             # early-stopped

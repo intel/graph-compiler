@@ -111,7 +111,8 @@ def do_tune(args):
             warm_up=1,
         )
 
-        space = TuningSpace(driver.ir_module)
+        assert args.space_percent > 0 and args.space_percent <= 1.0
+        space = TuningSpace(driver.ir_module, args.space_percent)
         if args.search_alg == "grid":
             tuner = GridTuner(
                 tuner_bench,
@@ -129,7 +130,7 @@ def do_tune(args):
                 args.checkpoint_path,
                 random_seed=args.random_seed,
             )
-        tuner.run(args.tuning_times, args.timeout)
+        tuner.run(args.max_tuning_iters, args.timeout)
 
 
 if __name__ == "__main__":
@@ -160,9 +161,13 @@ if __name__ == "__main__":
             "--tuning_batch", type=int, default=Tuner.DEFAULT_BATCH_SIZE
         )
         parser.add_argument("--early_stop", type=int, default=Tuner.DEFAULT_EARLY_STOP)
-        parser.add_argument("--tuning_times", type=int, default=100)
-        parser.add_argument("--timeout", type=int, default=-1)
-        parser.add_argument("--space_percent", type=float, default=1.0)
+        parser.add_argument(
+            "--max_tuning_iters", type=int, default=Tuner.DEFAULT_MAX_ITERS
+        )
+        parser.add_argument("--timeout", type=int, default=Tuner.DEFAULT_TIMEOUT)
+        parser.add_argument(
+            "--space_percent", type=float, default=TuningSpace.DEFAULT_SPACE_PERCENT
+        )
         parser.add_argument("--checkpoint_path", type=str, default="")
 
         if parser.parse_known_args()[0].search_alg == "ga":
