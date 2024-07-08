@@ -162,9 +162,12 @@ struct MHAToFlashAttention
         rewriter.create<linalg::FillOp>(loc, minusInf, maxSlice).getResult(0);
     Value sumSliceFilled =
         rewriter.create<linalg::FillOp>(loc, zero, sumSlice).getResult(0);
+    Value collapsedOSliceFilled =
+        rewriter.create<linalg::FillOp>(loc, zero, collapsedOSlice)
+            .getResult(0);
     // create the innermost for loop for columnBlock
     SmallVector<Value> innermostDestinationTensors{
-        collapsedOSlice, maxSliceFilled, sumSliceFilled};
+        collapsedOSliceFilled, maxSliceFilled, sumSliceFilled};
     auto columnBlockLoop = rewriter.create<scf::ForOp>(
         loc,
         getValueOrCreateConstantIndexOp(
@@ -241,9 +244,9 @@ struct MHAToFlashAttention
                     ValueRange args) {
                   Value constant = nestedBuilder.create<arith::ConstantOp>(
                       loc, nestedBuilder.getFloatAttr(dtype, rsqrtHead));
-                  Value added = nestedBuilder.create<arith::MulFOp>(
+                  Value scaled = nestedBuilder.create<arith::MulFOp>(
                       loc, args[0], constant);
-                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, added);
+                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, scaled);
                 })
             .getResult(0);
     Value add = rewriter
@@ -338,22 +341,32 @@ struct MHAToFlashAttention
                                       ValueRange{PSlice, collapsedVSlice},
                                       ValueRange{matmulVOutFilled})
             .getResult(0);
-    Value expMaxDiffRecip =
+    Value expMaxDiffBroadcasted =
         rewriter
-            .create<linalg::ReciprocalOp>(loc, reducedShapeOut.getType(),
-                                          ValueRange{expMaxDiff},
-                                          ValueRange{reducedShapeOut})
-            .getResult(0);
-    Value expMaxDiffRecipBroadcasted =
-        rewriter
-            .create<linalg::BroadcastOp>(loc, expMaxDiffRecip, VShapeOut,
+            .create<linalg::BroadcastOp>(loc, expMaxDiff, VShapeOut,
                                          SmallVector<int64_t>{1})
             .getResults()[0];
+    Value expMaxDiffBroadcastedEps =
+        rewriter
+            .create<linalg::GenericOp>(
+                loc, VShapeOut.getType(), ValueRange{expMaxDiffBroadcasted},
+                ValueRange{VShapeOut}, indexingMaps,
+                SmallVector<utils::IteratorType>(2,
+                                                 utils::IteratorType::parallel),
+                [&](OpBuilder &nestedBuilder, Location nestedLoc,
+                    ValueRange args) {
+                  Value eps = nestedBuilder.create<arith::ConstantOp>(
+                      loc, nestedBuilder.getFloatAttr(dtype, 1e-9));
+                  Value added =
+                      nestedBuilder.create<arith::AddFOp>(loc, args[0], eps);
+                  nestedBuilder.create<linalg::YieldOp>(nestedLoc, added);
+                })
+            .getResult(0);
     Value rescaledOSlice =
         rewriter
-            .create<linalg::MulOp>(
+            .create<linalg::DivOp>(
                 loc, VShapeOut.getType(),
-                ValueRange{prevOSlice, expMaxDiffRecipBroadcasted},
+                ValueRange{prevOSlice, expMaxDiffBroadcastedEps},
                 ValueRange{VShapeOut})
             .getResult(0);
     Value newOSlice =
@@ -372,25 +385,19 @@ struct MHAToFlashAttention
           sumSliceFinal = innermostLoopResults[2];
     Value sliceShapeOut =
         rewriter.create<tensor::EmptyOp>(loc, reducedShape, dtype);
-    Value sumSliceFinalRecip =
-        rewriter
-            .create<linalg::ReciprocalOp>(loc, sliceShapeOut.getType(),
-                                          ValueRange{sumSliceFinal},
-                                          ValueRange{sliceShapeOut})
-            .getResult(0);
     Value broadcastedSliceShapeOut =
         rewriter.create<tensor::EmptyOp>(loc, VShape, dtype);
-    Value sumSliceFinalRecipBroadcasted =
+    Value sumSliceFinalBroadcasted =
         rewriter
-            .create<linalg::BroadcastOp>(loc, sumSliceFinalRecip,
+            .create<linalg::BroadcastOp>(loc, sumSliceFinal,
                                          broadcastedSliceShapeOut,
                                          SmallVector<int64_t>{1})
             .getResults()[0];
     Value rescaledOSliceFinal =
         rewriter
-            .create<linalg::MulOp>(
+            .create<linalg::DivOp>(
                 loc, broadcastedSliceShapeOut.getType(),
-                ValueRange{sumSliceFinalRecipBroadcasted, OSliceFinal},
+                ValueRange{OSliceFinal, sumSliceFinalBroadcasted},
                 ValueRange{broadcastedSliceShapeOut})
             .getResult(0);
     SmallVector<OpFoldResult> outputOffsets;
