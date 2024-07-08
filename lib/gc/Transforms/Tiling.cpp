@@ -782,6 +782,22 @@ FailureOr<TiledLinalgOp> static tileLinalgOpImpl(
   return tileLinalgOpImpl<LoopTy>(b, op, tileSizeVector, options);
 }
 
+FailureOr<TilingResult>
+getTiledImplementationOnNuma(Operation *op, OpBuilder &b,
+                             ArrayRef<OpFoldResult> offsets,
+                             ArrayRef<OpFoldResult> sizes) {
+  // Leave the `sizeBounds` value empty. That is only needed when the `sizes`
+  // specified could lead to out of bounds accesses.
+  Location loc = op->getLoc();
+  LinalgOp linalgOp = cast<LinalgOp>(op);
+  SmallVector<Value> valuesToTile = linalgOp->getOperands();
+
+  SmallVector<Type> resultTensorTypes =
+      getTensorOutputTypes(linalgOp, valuesToTile);
+  Operation *tiledOp = clone(b, linalgOp, resultTensorTypes, valuesToTile);
+  return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
+}
+
 FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
     RewriterBase &b, PartialReductionOpInterface op,
     ArrayRef<OpFoldResult> threadNums, ArrayRef<OpFoldResult> tileSizes,
@@ -964,6 +980,16 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
     // 4.b. Clone the op and update init operands.
     // We cannot use a IRMapping here because it can replace
     // different OpOperands with the same value.
+    bool isNumaLoop = false;
+    if (tileSizes.size() == iterationDomain.size()) {
+      for (auto [idx, tile] : llvm::enumerate(tileSizes)) {
+        if (idx == 0 && tileSizes[idx] == iterationDomain[idx].size)
+          break;
+        if (idx > 0 && tileSizes[idx] != iterationDomain[idx].size)
+          break;
+        isNumaLoop = true;
+      }
+    }
     Operation *clonedOp = b.clone(*op.getOperation());
     b.modifyOpInPlace(clonedOp, [&]() {
       for (auto [initOperandPtr, tiledInitValue] : llvm::zip_equal(
@@ -974,17 +1000,32 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
     });
     // 5. Tile the cloned op and delete the clone.
     if (tileSizes.empty() || threadNums.empty()) {
-      FailureOr<TilingResult> tilingResult =
-          cast<TilingInterface>(clonedOp).getTiledImplementation(
-              b, tiledOffsets, tiledSizes);
-      if (failed(tilingResult))
-        return clonedOp->emitError("Failed to tile op: ");
-      if (tilingResult->tiledOps.size() != 1) {
-        return clonedOp->emitError("expected a single produced tiled op, got ")
-               << tilingResult->tiledOps.size();
+      if (!isNumaLoop) {
+        FailureOr<TilingResult> tilingResult =
+            cast<TilingInterface>(clonedOp).getTiledImplementation(
+                b, tiledOffsets, tiledSizes);
+        if (failed(tilingResult))
+          return clonedOp->emitError("Failed to tile op: ");
+        if (tilingResult->tiledOps.size() != 1) {
+          return clonedOp->emitError(
+                     "expected a single produced tiled op, got ")
+                 << tilingResult->tiledOps.size();
+        }
+        tiledOp = tilingResult->tiledOps.front();
+        tilingResults = tilingResult->tiledValues;
+      } else {
+        FailureOr<TilingResult> tilingResult = getTiledImplementationOnNuma(
+            cast<TilingInterface>(clonedOp), b, tiledOffsets, tiledSizes);
+        if (failed(tilingResult))
+          return clonedOp->emitError("Failed to tile op: ");
+        if (tilingResult->tiledOps.size() != 1) {
+          return clonedOp->emitError(
+                     "expected a single produced tiled op, got ")
+                 << tilingResult->tiledOps.size();
+        }
+        tiledOp = tilingResult->tiledOps.front();
+        tilingResults = tilingResult->tiledValues;
       }
-      tiledOp = tilingResult->tiledOps.front();
-      tilingResults = tilingResult->tiledValues;
     } else {
       LinalgTilingOptions options;
       FailureOr<TiledLinalgOp> maybeTiled = tileLinalgOpImpl<scf::ForOp>(
@@ -1037,6 +1078,19 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
       }
       if (!isConstantIntValue(numThreads[i], 0)) {
         nonZeroDimIdx++;
+      }
+    }
+    if (auto attr = resultSizesRank[0].dyn_cast<Attribute>()) {
+      if (auto intAttr = attr.dyn_cast<IntegerAttr>()) {
+        if (intAttr.getInt() == 16)
+          resultSizesRank[0] = b.getIndexAttr(32);
+      }
+    } else if (auto value = resultSizesRank[0].dyn_cast<Value>()) {
+      if (auto constantOp = value.getDefiningOp<arith::ConstantOp>()) {
+        if (auto intAttr = constantOp.getValue().dyn_cast<IntegerAttr>()) {
+          if (intAttr.getInt() == 16)
+            resultSizesRank[0] = b.getIndexAttr(32);
+        }
       }
     }
     if (hasReductionThreads) {

@@ -28,11 +28,29 @@ struct SystemDesc {
   // get runtime OMP_NUM_THREADS
   uint32_t getNumThreads() {
     char *numThreads = getenv("OMP_NUM_THREADS");
-    if (numThreads) {
+    if (!threads_limited && numThreads) {
       return std::stoi(numThreads);
+    }
+    return curThreads;
+  }
+
+  // set the expected threads
+  void limitOnSingleNode(uint32_t numa_node) {
+    char *cacheSize = getenv("NUMA_THREADS");
+    if (cacheSize) {
+      curThreads = std::stoi(cacheSize);
+      threads_limited = true;
+    }
+  }
+
+  uint32_t getNumNodes() {
+    char *numThreads = getenv("OMP_NUM_THREADS");
+    if (threads_limited && numThreads) {
+      return std::stoi(numThreads) / curThreads;
     }
     return 1;
   }
+
   // get cache size by cacheLevel
   size_t getCacheSize(uint8_t cacheLevel) {
     if (cacheLevel == 1) {
@@ -57,6 +75,10 @@ struct SystemDesc {
   SmallVector<size_t> getContractionOperationMaxVectorLength() {
     return {512UL, 512UL};
   }
+
+private:
+  uint32_t curThreads = 1;
+  bool threads_limited = false;
 };
 
 struct MatmulConfig {

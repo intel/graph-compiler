@@ -471,6 +471,7 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         else
           tileSizes[d] = getAsIndexOpFoldResult(b.getContext(), tile);
       }
+
       SmallVector<Range> loopRanges =
           cast<TilingInterface>(currentOp.getOperation()).getIterationDomain(b);
       OpBuilder::InsertionGuard guard(b);
@@ -482,7 +483,6 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
             tileSizes[idx] = loopRanges[idx].size;
           }
         }
-
         SmallVector<OpFoldResult> newParallelDims;
         for (auto i = 0UL; i < reductionDims.size(); i++) {
           newParallelDims.push_back(getAsIndexOpFoldResult(b.getContext(), i));
@@ -595,6 +595,11 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     auto NOuterBlockSize = NDimPos.size() > 1
                                ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
                                : cfg.NBlock;
+    // Outermost Numa loop
+    option.nestedTileSizes.emplace_back(
+        SmallVector<size_t>{uint32_t(MFirstDim / 2)});
+    option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForallOp);
+    option.loopDim.emplace_back(SmallVector<size_t>{MDimPos[0]});
     // Outer
     option.nestedTileSizes.emplace_back(SmallVector<size_t>{
         MParallelBlockSize, NParallelBlockSize, KParallelBlockSize});

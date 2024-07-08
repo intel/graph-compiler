@@ -345,6 +345,12 @@ previous matmul
 MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
   SystemDesc sysDesc;
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
+    // Check if the operation has an attribute named 'splited'
+    auto splitedAttr = linalgOp->getAttrOfType<IntegerAttr>("splited");
+    if (splitedAttr) {
+      sysDesc.limitOnSingleNode(splitedAttr.getInt());
+      llvm::outs() << "splited mm, and should be allocated on numa node 0.\n";
+    }
     auto oprandDimType = *getOprandDimType(linalgOp);
     // get the origin M,N,K size
     auto MDimTypeIdx = extractDimTypeIdx(oprandDimType[0], DimType::M);
