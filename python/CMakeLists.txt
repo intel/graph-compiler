@@ -34,6 +34,7 @@ declare_mlir_python_sources(GcPythonSources.Common
   ADD_TO_PARENT GcPythonSources
   SOURCES
     __init__.py
+    graph_compiler.py
     dialects/__init__.py
     # init hooks
     _mlir_libs/_site_initialize_0.py
@@ -84,6 +85,8 @@ add_mlir_python_common_capi_library(GcPythonCAPI
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources
     MLIRPythonSources.Core
+    MLIRPythonSources.Dialects.linalg
+    MLIRPythonSources.ExecutionEngine
 )
 
 ################################################################################
@@ -97,6 +100,7 @@ add_mlir_python_modules(GcPythonModules
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources
+    MLIRPythonSources.ExecutionEngine
   COMMON_CAPI_LINK_LIBS
     GcPythonCAPI
   )

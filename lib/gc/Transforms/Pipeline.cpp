@@ -7,11 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
@@ -50,8 +52,16 @@ void populateTensorPasses(mlir::PassManager &pm) {
 
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::PassManager &pm) {
-  // todo: bf16 promotion pass, device dependent pass
-  // todo: bf16 cast elimilation pass, fast-math kind pass, designed to support
+  // Do promotion for math / arith ops
+  pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
+  // sourceTypeStrs can be extended
+  arith::ArithEmulateUnsupportedFloatsOptions options;
+  options.sourceTypeStrs = {"bf16"};
+  options.targetTypeStr = "f32";
+  pm.addNestedPass<func::FuncOp>(
+      arith::createArithEmulateUnsupportedFloats(options));
+  // Bf16 cast elimilation pass
+  pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
@@ -65,6 +75,7 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
+
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
