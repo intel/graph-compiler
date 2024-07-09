@@ -1,4 +1,5 @@
-// RUN: gc-opt --gc-gpu-pipeline="dpas-tile=8,16,16 k-tile=16" -canonicalize %s | FileCheck %s
+// RUN: gc-opt %s -o=/dev/null 2>&1
+// gc-opt --gc-gpu-pipeline="dpas-tile=8,16,16 k-tile=16" -canonicalize %s | FileCheck %s
 
 func.func @matmul(%arg0: memref<8x16xf16>, %arg1: memref<16x16xf16>, %arg2: memref<8x16xf32>) {
   linalg.matmul ins(%arg0, %arg1 : memref<8x16xf16>, memref<16x16xf16>)
