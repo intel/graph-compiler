@@ -149,15 +149,14 @@ void populateCPUPipeline(mlir::PassManager &pm) {
   populateLLVMPasses(pm);
 }
 
-void populateGPUPipeline(mlir::PassManager &pm) {
+void populateGPUPipeline(mlir::PassManager &pm,
+                         tpp::LinalgToXeGPUOptions options) {
   // middle-end, arith/math/vector dialects
   populateVectorPasses(pm);
   // back-end, arith/math/vector/memref dialects
   populateBufferizationPasses(pm);
 #ifdef TPP_ENABLED
-  //
-  pm.addNestedPass<func::FuncOp>(
-      tpp::createLinalgToXeGPU(tpp::LinalgToXeGPUOptions{32, 1, 16}));
+  pm.addNestedPass<func::FuncOp>(tpp::createLinalgToXeGPU(options));
 #endif
 }
 
@@ -188,7 +187,8 @@ public:
   void runOnOperation() final {
     auto op = getOperation();
     PassManager pm{op->getContext()};
-    populateGPUPipeline(pm);
+    tpp::LinalgToXeGPUOptions options{kTile, stages, dpasTile};
+    populateGPUPipeline(pm, options);
     if (failed(pm.run(op)))
       signalPassFailure();
   }

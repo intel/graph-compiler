@@ -1,4 +1,4 @@
-// RUN: gc-opt --gc-gpu-pipeline %s | FileCheck %s
+// RUN: gc-opt --gc-gpu-pipeline="dpas-tile=8,16,16 k-tile=16" -canonicalize %s | FileCheck %s
 
 func.func @mlp(%arg0: tensor<8x16xf32>, %arg1: tensor<16x16xf32>, %arg2: tensor<8x16xf32>) -> tensor<8x16xf32> {
   %cst = arith.constant 0.000000e+00 : f32

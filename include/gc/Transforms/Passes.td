@@ -61,6 +61,16 @@ def GCGPUPipeline: Pass<"gc-gpu-pipeline"> {
       "xegpu::XeGPUDialect",
       "math::MathDialect",
       "vector::VectorDialect"];
+  let options = [
+    Option<"kTile", "k-tile", "int64_t",
+           /*default=*/"32",
+           "GEMM tile size for reduction dimension.">,
+    Option<"stages", "stages", "int64_t",
+           /*default=*/"1",
+           "Number of cooperative prefetch stages.">,
+    ListOption<"dpasTile", "dpas-tile", "int64_t",
+               "DPAS register block sizes MxNxK">,
+  ];
 }
 
 #endif // GC_DIALECT_GC_PASSES
