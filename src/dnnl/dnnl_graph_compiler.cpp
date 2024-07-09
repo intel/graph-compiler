@@ -21,13 +21,11 @@
 #include <string_view>
 
 #include "JsonParser.h"
-#include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
-#include "gc/Transforms/Passes.h"
+#include "gc/ExecutionEngine/Driver/Driver.h"
 #include "gc_version.h"
 
+#include "mlir/ExecutionEngine/MemRefUtils.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/InitAllPasses.h"
-#include "mlir/Pass/PassManager.h"
 
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/ThreadPool.h"
@@ -43,54 +41,122 @@
 
 // dnnl_graph_compiler.h interface implementation.
 
+using namespace mlir;
+
+extern "C" {
+extern int gc_runtime_keep_alive;
+}
+
 struct dnnl_graph_compiler_executable {
-  // TODO: Implement
+  dnnl_graph_compiler_executable(MLIRContext &context,
+                                 const std::string_view &json)
+      : inputIds(), outputIds(), jmod() {
+    auto mod = JsonParser::parse(context, json, inputIds, outputIds, strides);
+    auto jmod = gc::JitModule::create(mod);
 
-  void execute(dnnl_graph_compiler_tensor *inputs,
-               dnnl_graph_compiler_tensor *outputs) const;
-};
+    if (!static_cast<bool>(jmod)) {
+      auto err = jmod.takeError();
+      llvm::errs() << err;
+      llvm::consumeError(std::move(err));
+      std::string msg("Failed to create JitModule: ");
+      llvm::raw_string_ostream(msg) << err;
+      throw std::runtime_error(msg);
+    }
 
-struct dnnl_graph_compiler {
-  explicit dnnl_graph_compiler(llvm::ThreadPoolStrategy &tps)
-      : context(RegistryHolder::get(), mlir::MLIRContext::Threading::DISABLED),
-        threadPool(tps) {
-    context.setThreadPool(threadPool);
-    context.loadAllAvailableDialects();
+    this->jmod = *jmod;
   }
 
-  [[nodiscard]] std::unique_ptr<const dnnl_graph_compiler_executable>
-  compile(const std::string_view &json) const {
-    std::vector<size_t> inputIds;
-    std::vector<size_t> outputIds;
-    // mlir::ModuleOp module =
-    JsonParser::parse(context, json, inputIds, outputIds);
+  void execute(dnnl_graph_compiler_tensor *inputs,
+               dnnl_graph_compiler_tensor *outputs) const {
+    std::vector<MemRefWrapper> memRefs;
+    memRefs.reserve(inputIds.size() + outputIds.size());
+    for (auto &pair : {std::make_pair(&inputIds, inputs),
+                       std::make_pair(&outputIds, outputs)}) {
+      auto ids = pair.first;
+      auto tensors = pair.second;
+      for (size_t i = 0, n = ids->size(); i < n; i++) {
+        auto id = (*ids)[i];
+        dnnl_graph_compiler_tensor *tensor;
 
-    // TODO: Compile the module
+        if (tensors[i].id == id) {
+          tensor = &tensors[i];
+        } else {
+          // The order of inputs/outputs may not match the function args order.
+          tensor = nullptr;
+          for (size_t j = 0; j < n; j++) {
+            if (tensors[j].id == id) {
+              tensor = &tensors[j];
+              break;
+            }
+          }
+          if (!tensor) {
+            throw std::invalid_argument("Tensor not found");
+          }
+        }
 
-    return std::unique_ptr<const dnnl_graph_compiler_executable>(
-        new dnnl_graph_compiler_executable());
+        auto s = strides.find((*ids)[i]);
+        memRefs.emplace_back(tensor, s == strides.end() ? nullptr : &s->second);
+      }
+    }
+
+    llvm::SmallVector<void *> ptrs;
+    ptrs.reserve(memRefs.size());
+    for (auto &memRef : memRefs) {
+      ptrs.push_back(&memRef);
+    }
+    jmod->call(ptrs.data(), ptrs.size());
   }
 
 private:
-  mutable mlir::MLIRContext context;
-  llvm::DefaultThreadPool threadPool;
+  llvm::SmallVector<size_t> inputIds;
+  llvm::SmallVector<size_t> outputIds;
+  std::unordered_map<std::size_t, Strides> strides;
+  std::shared_ptr<gc::JitModule> jmod;
 
-  class RegistryHolder {
-    mlir::DialectRegistry registry;
-    RegistryHolder() : registry() {
-      mlir::gc::registerGraphCompilerPasses();
-      registry.insert<mlir::BuiltinDialect>();
-      registry.insert<mlir::func::FuncDialect>();
-      registry.insert<mlir::arith::ArithDialect>();
-      registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
-    }
+  // C-compatible data wrapper -
+  // https://mlir.llvm.org/docs/TargetLLVMIR/#c-compatible-wrapper-emission
+  struct MemRefWrapper {
+    void *basePtr;
+    void *data;
+    int64_t offset = 0;
+    int64_t dimsAndStrides[2 * DNNL_MAX_NDIMS];
 
-  public:
-    static const mlir::DialectRegistry &get() {
-      static RegistryHolder holder;
-      return holder.registry;
+    MemRefWrapper(dnnl_graph_compiler_tensor *tensor, const Strides *strides)
+        // We assume, that the data is aligned, thus basePtr == data.
+        : basePtr(tensor->data), data(tensor->data) {
+      if (tensor->ndims > DNNL_MAX_NDIMS) {
+        throw std::invalid_argument("Number of dimensions > DNNL_MAX_NDIMS");
+      }
+
+      std::copy(tensor->dims, tensor->dims + tensor->ndims, dimsAndStrides);
+      if (strides) {
+        std::copy(strides->begin(), strides->end(),
+                  dimsAndStrides + tensor->ndims);
+      } else {
+        for (int64_t d = tensor->ndims - 1, stride = 1; d >= 0; d--) {
+          dimsAndStrides[tensor->ndims + d] = stride;
+          stride *= tensor->dims[d];
+        }
+      }
     }
   };
+};
+
+struct dnnl_graph_compiler {
+  mutable MLIRContext context;
+
+  explicit dnnl_graph_compiler(llvm::ThreadPoolStrategy &tps)
+      : context(gc::initCompilerAndGetDialects(),
+                MLIRContext::Threading::DISABLED),
+        threadPool(tps) {
+    context.setThreadPool(threadPool);
+    context.loadAllAvailableDialects();
+    // FIXME: keeps GCCPURuntime linked
+    gc_runtime_keep_alive = 0;
+  }
+
+private:
+  llvm::DefaultThreadPool threadPool;
 };
 
 GC_DLL_EXPORT const dnnl_graph_compiler_version *
@@ -130,8 +196,8 @@ GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_compile(
     const dnnl_graph_compiler *gc, const char *graph_json,
     const struct dnnl_graph_compiler_executable **exe) {
   try {
-    auto ptr = gc->compile(std::string_view(graph_json));
-    *exe = ptr.release();
+    *exe = new dnnl_graph_compiler_executable(gc->context,
+                                              std::string_view(graph_json));
     return dnnl_success;
   } catch (const std::invalid_argument &e) {
     return dnnl_invalid_graph;
@@ -162,10 +228,4 @@ GC_DLL_EXPORT dnnl_status_t dnnl_graph_compiler_execute(
     // TODO: Add error handling
     return dnnl_runtime_error;
   }
-}
-
-void dnnl_graph_compiler_executable::execute(
-    dnnl_graph_compiler_tensor *inputs,
-    dnnl_graph_compiler_tensor *outputs) const {
-  // TODO: Implement
 }
