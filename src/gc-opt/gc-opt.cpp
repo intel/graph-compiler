@@ -34,9 +34,11 @@ int main(int argc, char *argv[]) {
   #ifdef GC_USE_GPU
   imex::registerTransformsPasses();
   // Conversion passes
-  imex::registerConversionPasses();
-  // Dialect passes
-  imex::registerXeTilePasses();
+  imex::registerConvertGPUToGPUX();
+  imex::registerConvertGPUXToLLVM();
+  imex::registerConvertGPUXToSPIRV();
+  imex::registerConvertXeGPUToVC();
+  imex::registerConvertXeTileToXeGPU();
   #endif
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();

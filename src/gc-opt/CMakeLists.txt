@@ -21,9 +21,8 @@ set(gc_opt_libs
 if(GC_USE_GPU)
   get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
   include_directories(${IMEX_INCLUDES})
-  list(APPEND gc_opt_libs IMEXXeTileDialect IMEXXeTileTransforms IMEXGPUXDialect
-    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM XeGPUToSPIRV)
-  message(STATUS "AAA ${gc_opt_libs}")
+  list(APPEND gc_opt_libs IMEXGPUXDialect IMEXXeTileDialect IMEXRegionDialect IMEXRegionTransforms
+    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM IMEXXeGPUToVC IMEXXeTileToXeGPU IMEXUtil)
 endif()
 if(GC_MLIR_CXX_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
