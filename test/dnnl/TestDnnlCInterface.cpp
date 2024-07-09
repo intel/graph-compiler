@@ -42,10 +42,9 @@ TEST(TestDnnlCInterface, basicWorkflow) {
   inputs[1] = {.id = 1, .ndims = 1, .dims = dims, .data = &data_buf[40]};
   outputs[0] = {.id = 2, .ndims = 1, .dims = dims, .data = &data_buf[80]};
 
-  ASSERT_EQ(dnnl_graph_compiler_execute(gc, exe, inputs, outputs),
-            dnnl_success);
+  ASSERT_EQ(dnnl_graph_compiler_execute(exe, inputs, outputs), dnnl_success);
 
-  dnnl_graph_compiler_destroy_executable(gc, exe);
+  dnnl_graph_compiler_destroy_executable(exe);
   dnnl_graph_compiler_destroy(gc);
 }
 
