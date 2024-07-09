@@ -31,6 +31,84 @@ namespace mlir::microkernel {
 
 #define DEBUG_TYPE "convert-linalg-to-microkernel"
 
+class BrgemmFusionAnalysis {
+public:
+  struct BrgemmFusible {
+    Operation *transposeA;
+    Operation *transposeB;
+    Operation *zeroInitC;
+    BrgemmFusible(Operation *tA, Operation *tB, Operation *ziC)
+        : transposeA(tA), transposeB(tB), zeroInitC(ziC) {}
+  };
+
+private:
+  // A map for linalg::brmm -> fusible ops
+  DenseMap<Operation *, BrgemmFusible> brgemmFusible;
+  // A set storing all fusible ops
+  DenseSet<Operation *> fusibleSet;
+
+  void addBrgemmFusible(Operation *brmm, BrgemmFusible fusible);
+
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BrgemmFusionAnalysis)
+  explicit BrgemmFusionAnalysis(Operation *);
+  Operation *getBrgemmFusible(Operation *brgemm) {
+    auto iter = brgemmFusible.find(brgemm);
+    if (iter == brgemmFusible.end()) {
+      return nullptr;
+    }
+    return iter->second;
+  }
+  DenseSet<Operation *> getFusibleSet() { return fusibleSet; }
+};
+
+void BrgemmFusionAnalysis::addBrgemmFusible(Operation *brmm,
+                                            BrgemmFusible fusible) {
+  auto iter = brgemmFusible.find(fusible);
+  if (iter == brgemmFusible.end()) {
+    brgemmFusible[brmm] = fusible;
+    if (fusible.transposeA)
+      fusibleSet.insert(fusible.transposeA);
+    if (fusible.transposeB)
+      fusibleSet.insert(fusible.transposeB);
+    if (fusible.zeroInitC)
+      fusibleSet.insert(fusible.zeroInitC);
+  } else {
+    auto &origBrgemmFusible = iter->second;
+    if (!origBrgemmFusible.transposeA && fusible.transposeA) {
+      origBrgemmFusible.transposeA = fusible.transposeA;
+      fusibleSet.insert(fusible.transposeA);
+    }
+    if (!origBrgemmFusible.transposeB && fusible.tranposeB) {
+      origBrgemmFusible.transposeB = fusible.transposeB;
+      fusibleSet.insert(fusible.transposeB);
+    }
+    if (!origBrgemmFusible.zeroInitC && fusible.zeroInitC) {
+      origBrgemmFusible.zeroInitC = fusible.zeroInitC;
+      fusibleSet.insert(fusible.zeroInitC);
+    }
+  }
+}
+
+BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root) {
+  func::FuncOp func = dyn_cast_or_null<func::FuncOp>(root);
+  if (!func)
+    return;
+
+  func->walk<WalkOrder::PreOrder>([this](Operation *op) {
+    // For encountered transpose Op, do the following:
+    // 1. Get all uses of transpose Op output (except alloc Op);
+    // 2. Generate execution sequence of above uses Ops, by first finding lowest
+    // common ancestor of all uses and then walk the ancestor;
+    // 3. If the following conditions are met, then this transpose Op is added
+    // to fusible:
+
+    // 	  i. All uses after transpose Op in sequence are linalg brmm Ops;
+    // 	  ii. This transpose Op could be fused into above all linalg brmm Ops;
+    // 	  iii. No other uses are in between transposeOp and any brmm Ops;
+  });
+}
+
 struct BrgemmInfo {
   enum BrgemmMode { STRIDE_MODE, LIST_MODE };
   int64_t m;
