@@ -56,7 +56,7 @@ void populateVectorPasses(mlir::PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
   arith::ArithEmulateUnsupportedFloatsOptions options;
-  options.sourceTypeStrs = {"bf16"};
+  options.sourceTypeStrs = SmallVector<std::string>{"bf16"};
   options.targetTypeStr = "f32";
   pm.addNestedPass<func::FuncOp>(
       arith::createArithEmulateUnsupportedFloats(options));
