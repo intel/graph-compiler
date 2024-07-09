@@ -60,7 +60,7 @@ TEST(TestApiOps, div) {
   for (auto i = 0; i < 64; i++) {
     for (auto j = 0; j < 32; j++) {
       for (auto k = 0; k < 32; k++) {
-        ASSERT_EQ(arg1[i][j][k] / arg2[i][j][k], arg3[i][j][k]);
+        ASSERT_FLOAT_EQ(arg1[i][j][k] / arg2[i][j][k], arg3[i][j][k]);
       }
     }
   }
@@ -113,7 +113,7 @@ TEST(TestApiOps, matMul) {
   // Compare the results
   for (auto i = 0; i < 512; i++) {
     for (auto j = 0; j < 64; j++) {
-      ASSERT_EQ(expected[i][j], argOut[i][j]);
+      ASSERT_FLOAT_EQ(expected[i][j], argOut[i][j]);
     }
   }
 }
@@ -135,7 +135,7 @@ TEST(TestApiOps, mul) {
   exec("mul.json", inputs, outputs);
 
   for (auto i = 0; i < 128; i++) {
-    ASSERT_EQ(arg3[i], static_cast<std::float32_t>(i * i));
+    ASSERT_FLOAT_EQ(arg3[i], static_cast<std::float32_t>(i * i));
   }
 }
 
@@ -157,7 +157,7 @@ TEST(TestApiOps, sub) {
   exec("sub.json", inputs, outputs);
 
   for (auto i = 0; i < 128; i++) {
-    ASSERT_EQ(arg3[i], arg1[i] - arg2[i]);
+    ASSERT_FLOAT_EQ(arg3[i], arg1[i] - arg2[i]);
   }
 }
 
@@ -176,7 +176,7 @@ TEST(TestApiOps, pow) {
   exec("pow.json", inputs, outputs);
 
   for (auto i = 0; i < 64; i++) {
-    ASSERT_EQ(arg1[i] * arg1[i], arg2[i]);
+    ASSERT_FLOAT_EQ(arg1[i] * arg1[i], arg2[i]);
   }
 }
 
@@ -196,7 +196,7 @@ TEST(TestApiOps, relu) {
   exec("relu.json", inputs, outputs);
 
   for (auto i = 0; i < 128; i++) {
-    ASSERT_EQ(arg1[i] < 0 ? 0 : arg1[i], arg2[i]);
+    ASSERT_FLOAT_EQ(arg1[i] < 0 ? 0 : arg1[i], arg2[i]);
   }
 }
 
@@ -233,7 +233,7 @@ TEST(TestApiOps, reduceMean) {
 
   for (auto x = 0; x < 16; x++) {
     for (auto z = 0; z < 32; z++) {
-      ASSERT_EQ(expected[x][0][z], arg2[x][0][z]);
+      ASSERT_FLOAT_EQ(expected[x][0][z], arg2[x][0][z]);
     }
   }
 }
@@ -270,7 +270,7 @@ TEST(TestApiOps, reduceSum) {
 
   for (auto x = 0; x < 16; x++) {
     for (auto z = 0; z < 32; z++) {
-      ASSERT_EQ(expected[x][0][z], arg2[x][0][z]);
+      ASSERT_FLOAT_EQ(expected[x][0][z], arg2[x][0][z]);
     }
   }
 }
@@ -290,7 +290,7 @@ TEST(TestApiOps, sigmoid) {
   exec("sigmoid.json", inputs, outputs);
 
   for (auto i = 0; i < 128; i++) {
-    ASSERT_EQ(1.f / (1.f + std::exp(-arg1[i])), arg2[i]);
+    ASSERT_FLOAT_EQ(1.f / (1.f + std::exp(-arg1[i])), arg2[i]);
   }
 }
 
