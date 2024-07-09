@@ -99,9 +99,13 @@ def do_tune(args):
             driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
         )
 
-        bench_alg = py_timeit_bench if args.bench_alg == "py" else mlir_wrapper_bench
-        tuner_bench = lambda ir_moudle: bench_alg(
-            ir_moudle,
+        bench_alg = (
+            batch_py_timeit_bench
+            if args.bench_alg == "py"
+            else batch_mlir_wrapper_bench
+        )
+        tuner_bench = lambda ir_moudles: bench_alg(
+            ir_moudles,
             driver.main_entry,
             driver.get_passes(),
             mlir_args,

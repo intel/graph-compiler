@@ -111,13 +111,13 @@ class Tuner(ABC):
 
     def __init__(
         self,
-        executor,
+        batch_executor,
         tunning_space: TuningSpace,
         batch_size=DEFAULT_BATCH_SIZE,
         early_stop=DEFAULT_EARLY_STOP,
         checkpoint="",
     ):
-        self.executor = executor
+        self.batch_executor = batch_executor
         self.batch_size = batch_size
         self.early_stop = early_stop
         self.best_cost = sys.float_info.max
@@ -186,6 +186,7 @@ class Tuner(ABC):
             if need_print:
                 print("config_indices_batch:", config_indices_batch)
             perf_result = []
+            ir_modules = []
             for config_indexes in config_indices_batch:
                 real_config = self.tunning_space.make_config_from_indexes(
                     config_indexes
@@ -196,14 +197,15 @@ class Tuner(ABC):
                     self.tunning_space.initial_ir.context,
                 )
                 utils.attach_configs_to_ir(new_ir, real_config)
-                cost, _ = self.executor(new_ir)
-                perf_result.append(cost)
+                ir_modules.append(new_ir)
+            res = self.batch_executor(ir_modules)
+            perf_result = [item[1] for item in res]
 
             print(
                 "[",
                 self.iter,
                 "/",
-                max_iter,
+                min(max_iter, spaces_size),
                 "] skipped:",
                 self.skipped_num,
                 "best:",
@@ -230,13 +232,15 @@ class Tuner(ABC):
 class GridTuner(Tuner):
     def __init__(
         self,
-        executor,
+        batch_executor,
         tunning_space: TuningSpace,
         batch_size=Tuner.DEFAULT_BATCH_SIZE,
         early_stop=Tuner.DEFAULT_EARLY_STOP,
         checkpoint="",
     ):
-        super().__init__(executor, tunning_space, batch_size, early_stop, checkpoint)
+        super().__init__(
+            batch_executor, tunning_space, batch_size, early_stop, checkpoint
+        )
         self.current_idx = 0
         self.cumulative_size = [1] * len(self.tunning_space.flatten_candidates)
         self.cumulative_size[-1] = 1
@@ -319,7 +323,7 @@ class GATuner(Tuner):
 
     def __init__(
         self,
-        executor,
+        batch_executor,
         tuning_space,
         pop_size=Tuner.DEFAULT_BATCH_SIZE,
         early_stop=Tuner.DEFAULT_EARLY_STOP,
@@ -329,7 +333,7 @@ class GATuner(Tuner):
         random_seed: int = DEFAULT_RANDOM_SEED,
         expected_tune_num: int = DEFAULT_EXPECTED_TUNE_NUM,
     ):
-        super().__init__(executor, tuning_space, pop_size, early_stop, checkpoint)
+        super().__init__(batch_executor, tuning_space, pop_size, early_stop, checkpoint)
         self.elite_num = min(elite_num, pop_size)
         self.mutation_prob = mutation_prob
         self.pop_size = pop_size
