@@ -18,6 +18,13 @@ set(gc_opt_libs
         ${MLIR_LINK_COMPONENTS}
         GCPasses)
 
+if(GC_USE_GPU)
+  get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
+  include_directories(${IMEX_INCLUDES})
+  list(APPEND gc_opt_libs IMEXXeTileDialect IMEXXeTileTransforms IMEXGPUXDialect
+    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM XeGPUToSPIRV)
+  message(STATUS "AAA ${gc_opt_libs}")
+endif()
 if(GC_MLIR_CXX_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
 endif()

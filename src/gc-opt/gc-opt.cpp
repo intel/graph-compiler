@@ -25,7 +25,19 @@
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
+#ifdef GC_USE_GPU
+#include <imex/InitIMEXDialects.h>
+#include <imex/InitIMEXPasses.h>
+#endif
+
 int main(int argc, char *argv[]) {
+  #ifdef GC_USE_GPU
+  imex::registerTransformsPasses();
+  // Conversion passes
+  imex::registerConversionPasses();
+  // Dialect passes
+  imex::registerXeTilePasses();
+  #endif
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
@@ -34,6 +46,10 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   mlir::registerAllDialects(registry);
+  #ifdef GC_USE_GPU
+    registry.insert<::imex::xetile::XeTileDialect,
+                    ::imex::gpux::GPUXDialect>();
+  #endif
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));
