@@ -46,4 +46,21 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "vector::VectorDialect"];
 }
 
+def GCGPUPipeline: Pass<"gc-gpu-pipeline"> {
+  let summary = "All-in-one pipeline for GC for GPU";
+  let dependentDialects = ["onednn_graph::OneDNNGraphDialect",
+      "tensor::TensorDialect",
+      "memref::MemRefDialect",
+      "linalg::LinalgDialect",
+      "linalgx::LinalgxDialect",
+      "LLVM::LLVMDialect",
+      "scf::SCFDialect",
+      "bufferization::BufferizationDialect",
+      "omp::OpenMPDialect",
+      "gpu::GPUDialect",
+      "xegpu::XeGPUDialect",
+      "math::MathDialect",
+      "vector::VectorDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
