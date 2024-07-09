@@ -192,7 +192,7 @@ public:
     populateGPUPipeline(pm, options);
     if (failed(pm.run(op)))
       signalPassFailure();
-#elif
+#else
     op->emitError() << "No TPP passes.\n";
     signalPassFailure();
 #endif
