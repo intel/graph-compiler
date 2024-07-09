@@ -46,4 +46,14 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "vector::VectorDialect"];
 }
 
+def MatmulSpecialTileAndFuse : Pass<"matmul-special-tile-and-fuse"> {
+  let summary = "Find two consecutive matmuls, tile them and fuse them.";
+  let description = [{
+    Find two consecutive matmuls, tile them and fuse them.
+  }];
+
+  let constructor = "createMatmulSpecialTileAndFusePass()";
+  let dependentDialects = ["scf::SCFDialect", "linalg::LinalgDialect", "tensor::TensorDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES

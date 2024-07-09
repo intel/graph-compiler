@@ -43,6 +43,9 @@ namespace gc {
 void populateFrontendPasses(mlir::PassManager &);
 void populateCPUPipeline(mlir::PassManager &);
 
+/// Creates a pass that finds two consecutive matmuls, tiles them and fuses them.
+std::unique_ptr<Pass> createMatmulSpecialTileAndFusePass();
+
 #define GEN_PASS_DECL
 #include "gc/Transforms/Passes.h.inc"
 
