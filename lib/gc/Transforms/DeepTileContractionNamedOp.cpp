@@ -471,7 +471,23 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         else
           tileSizes[d] = getAsIndexOpFoldResult(b.getContext(), tile);
       }
+      llvm::outs() << "====================================\n";
+      llvm::outs() << "tileSize: ";
+      for (auto t : tileSizes) {
+        llvm::outs() << t << ", ";
+      }
+      llvm::outs() << "\n";
+      bool isLastForAllLoop = false;
+      for (auto [idx, tile] : llvm::enumerate(tileSizes)) {
+        if (isConstantIntValue(tile, 0)) {
+          break;
+        }
+        if (idx == tileSizes.size() - 1)
+          isLastForAllLoop = true;
+      }
 
+      llvm::outs() << "isLastForAllLoop: " << isLastForAllLoop << "\n";
+      llvm::outs() << "====================================\n";
       SmallVector<Range> loopRanges =
           cast<TilingInterface>(currentOp.getOperation()).getIterationDomain(b);
       OpBuilder::InsertionGuard guard(b);
@@ -502,6 +518,43 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
               currentOp = *result;
             }
           }
+        }
+        if (isLastForAllLoop) {
+          b.setInsertionPointAfter(currentOp);
+          mlir::easybuild::EasyBuilder eb{b, currentOp.getLoc()};
+          auto cond = eb(true);
+          auto forAllOp = tilingResult->loops;
+          auto ifOp = b.create<mlir::scf::IfOp>(currentOp.getLoc(), cond);
+          b.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          b.setInsertionPointAfter(ifOp);
+          // auto loc = currentOp.getLoc();
+          // auto indexType = b.getIndexType();
+          // auto c1 = b.create<arith::ConstantIndexOp>(loc, 0);
+
+          // Get the argument to compare with
+          // Value arg2 = forAllOp.getRegion().getArgument(
+          //     0); // This assumes %arg2 is the first argument
+          // Value comparison =
+          //     b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq, arg2,
+          //     c1);
+
+          // // Create the scf.if operation
+          // b.setInsertionPointToStart(&forAllOp.getRegion().front());
+          // auto ifOp = b.create<scf::IfOp>(loc, comparison,
+          //                                 /*withElseRegion=*/false);
+
+          // // Move the body of forallOp into the if true region
+          // b.inlineRegionBefore(forAllOp.getRegion(), ifOp.getThenRegion(),
+          //                      ifOp.getThenRegion().begin());
+
+          // // Now the body of forallOp is in the ifOp, we should clean up the
+          // // original region.
+          // forAllOp.getRegion().dropAllReferences();
+          // // forAllOp.getRegion().clear();
+
+          // // Insert a yield operation to the scf.if operation's then region
+          // b.setInsertionPointToEnd(&ifOp.getThenRegion().front());
+          // b.create<scf::YieldOp>(loc);
         }
       } else if (auto tilingInterface =
                      cast<TilingInterface>(currentOp.getOperation())) {

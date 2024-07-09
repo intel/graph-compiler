@@ -987,7 +987,8 @@ FailureOr<linalg::ForallReductionTilingResult> tileAllUsingForall(
           break;
         if (idx > 0 && tileSizes[idx] != iterationDomain[idx].size)
           break;
-        isNumaLoop = true;
+        if (idx == tileSizes.size() - 1)
+          isNumaLoop = true;
       }
     }
     Operation *clonedOp = b.clone(*op.getOperation());
