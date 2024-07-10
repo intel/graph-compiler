@@ -37,6 +37,8 @@ public:
     Operation *transposeA;
     Operation *transposeB;
     Operation *zeroInitC;
+    BrgemmFusible()
+        : transposeA(nullptr), transposeB(nullptr), zeroInitC(nullptr) {}
     BrgemmFusible(Operation *tA, Operation *tB, Operation *ziC)
         : transposeA(tA), transposeB(tB), zeroInitC(ziC) {}
   };
@@ -48,6 +50,7 @@ private:
   DenseSet<Operation *> fusibleSet;
 
   void addBrgemmFusible(Operation *brmm, BrgemmFusible fusible);
+  SmallVector<Operation *> getUseSequence(Value val);
 
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BrgemmFusionAnalysis)
@@ -90,22 +93,108 @@ void BrgemmFusionAnalysis::addBrgemmFusible(Operation *brmm,
   }
 }
 
+template <typename BrmmOp>
+static inline bool isFusibleBrmm(Value buffer, linalg::TransposeOp transOp,
+                                 Operation *op) {
+  BrgmmOp brmmOp = dyn_cast<BrmmOp>(op);
+  if (!brmmOp)
+    return false;
+
+  if (buffer != brmm.getInputs()[0] && buffer != brmm.getInputs()[1])
+    return false;
+
+  using one_t = std::integral_constant<size_t, 1>;
+  using two_t = std::integral_constant<size_t, 2>;
+  size_t lastDimOffset =
+      std::conditional<std::is_same<BrmmOp, linalg::BatchReduceMatmulOp>, one_t,
+                       two_t>::type::value;
+
+  ArrayRef<int64_t> permutation = transOp->getPermutation();
+  bool lastDimContigious = true;
+  // Last dim can't not be permuted if we want to incorporate the
+  // transpose, because BRGEMM requires last dim to be contigious.
+  // For VNNI, it requires the last two dims to be non-permutedi
+  for (size_t idx = permutation.size() - lastDimOffset;
+       idx < permutation.size(); idx++)
+    lastDimContigious = lastDimContigious && (permutation[idx] == idx);
+
+  return lastDimContigious;
+}
+
+static inline BrgemmFusible generateBrgemmFusible(Value buffer,
+                                                  linalg::TransposeOp transOp,
+                                                  Operation *op) {
+  BrgemmFusible fusible;
+  Value inputA, inputB;
+  if (auto brmm = dyn_cast<linalg::BatchReduceMatmulOp>(op)) {
+    inputA = brmm.getInputs()[0];
+    inputB = brmm.getInputs()[1];
+  } else if (auto brmm = dyn_cast<linalgx::BatchReduceMatmulVnniOp>(op)) {
+    inputA = brmm.getInputs()[0];
+    inputB = brmm.getInputs()[1];
+  }
+  if (buffer == inputA)
+    fusible.transposeA = transOp;
+  else if (buffer == inputB)
+    fusible.transposeB = transOp;
+
+  return fusible;
+}
+
+SmallVector<Operation *> getUseSequence(Value val) {
+  // TODO
+}
+
 BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root) {
   func::FuncOp func = dyn_cast_or_null<func::FuncOp>(root);
   if (!func)
     return;
 
   func->walk<WalkOrder::PreOrder>([this](Operation *op) {
+    // For each possible fusible Op (transposeOp/fillOp), determine whether it's
+    // actually fusible, and record them if fusible.
+    // Implementation:
     // For encountered transpose Op, do the following:
     // 1. Get all uses of transpose Op output (except alloc Op);
-    // 2. Generate execution sequence of above uses Ops, by first finding lowest
-    // common ancestor of all uses and then walk the ancestor;
+    // 2. Generate ordered execution sequence of above uses Ops, by firstly
+    // finding lowest common ancestor of all uses and then walk the ancestor;
     // 3. If the following conditions are met, then this transpose Op is added
     // to fusible:
 
     // 	  i. All uses after transpose Op in sequence are linalg brmm Ops;
     // 	  ii. This transpose Op could be fused into above all linalg brmm Ops;
     // 	  iii. No other uses are in between transposeOp and any brmm Ops;
+    auto transposeOp = dyn_cast_or_null<linalg::TransposeOp>(op);
+    if (!transposeOp)
+      return;
+    auto buffer = transposeOp.getInit();
+    auto useSequence = getUseSequence(buffer);
+
+    bool afterTranspose = false;
+    bool isFusible = true;
+    SmallVector<Operation *, 5> fusingBrmmOps;
+    for (auto use : useSequence) {
+      if (use == transposeOp) {
+        afterTranspose = true;
+        continue;
+      }
+      if (!afterTranspose)
+        continue;
+
+      if (isFusibleBrmm<linalg::BatchReduceMatmulOp>(op) ||
+          isFusibleBrmm<linalgx::BatchReduceMatmulVnniOp>(op)) {
+        fusingBrgmmOps.push_back(brmm);
+      } else {
+        isFusible = false;
+        break;
+      }
+    }
+
+    if (isFusible) {
+      for (auto op : fusingBrmmOps) {
+        addBrgemmFusible(op, generateBrgemmFusible(buffer, transposeOp, op));
+      }
+    }
   });
 }
 
