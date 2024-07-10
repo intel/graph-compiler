@@ -323,8 +323,8 @@ static Operation *cloneAndFuseFirstUse(RewriterBase &rewriter,
 }
 
 // Copied from transform.structured.fuse_into_containing_op.
-void fuse(IRRewriter &rewriter, Operation *producerOp,
-          Operation *containingOp) {
+void FuseIntoContainingOp(IRRewriter &rewriter, Operation *producerOp,
+                          Operation *containingOp) {
   SmallVector<Operation *> fusedOps;
   llvm::dbgs() << "Fuse " << *producerOp << " into " << *containingOp << '\n';
 
@@ -374,6 +374,84 @@ struct MatmulSpecialTileAndFuse
   void runOnOperation() override;
 };
 
+void findFusionTarget(IRRewriter &rewriter, Block &block) {
+  auto mmOps = block.getOps<linalg::MatmulOp>();
+  // Find a sequence like mm1 -> elementwise tileable ops -> mm2
+  for (auto mm : mmOps) {
+    Operation *mmOp = mm.getOperation();
+    if (auto attr = mmOp->getAttr("matmul_special_tiling")) {
+      continue;
+    }
+    SmallVector<Operation *> prevOps = {mmOp};
+    Operation *currOp = mm->getOperand(0).getDefiningOp();
+    if (!currOp) {
+      continue;
+    }
+    while (true) {
+      // Finish upward search if meets a matmul
+      if (auto mm1 = dyn_cast<linalg::MatmulOp>(currOp)) {
+        if (auto attr = mm1->getAttr("matmul_special_tiling")) {
+          break;
+        }
+        prevOps.push_back(currOp);
+        break;
+      }
+      // topology constraint
+      if (currOp->getNumOperands() != 1 || currOp->getNumResults() != 1 ||
+          !currOp->hasOneUse()) {
+        break;
+      }
+      // tileable constraint
+      auto tileable = dyn_cast<TilingInterface>(currOp);
+      if (!tileable) {
+        break;
+      }
+      prevOps.push_back(currOp);
+      Value operand = currOp->getOperand(0);
+      if (isa<BlockArgument>(operand)) {
+        break;
+      } else {
+        currOp = operand.getDefiningOp();
+      }
+    }
+    if (prevOps.empty()) {
+      continue;
+    }
+
+    // Last op in prevOps should be a matmul.
+    auto mm1 = dyn_cast<linalg::MatmulOp>(prevOps.back());
+    if (!mm1) {
+      continue;
+    }
+
+    // mm1 lhs shape: (..., A, B), rhs shape: (..., B, C)
+    // mm  lhs shape: (..., A, C), rhs shape: (..., C, D)
+    auto tensor1 =
+        dyn_cast<TensorType>(prevOps.back()->getOperand(0).getType());
+    ArrayRef<int64_t> shape1 = tensor1.getShape();
+    int64_t A = shape1[shape1.size() - 2];
+    int64_t B = shape1[shape1.size() - 1];
+    auto tensor2 =
+        dyn_cast<TensorType>(prevOps.front()->getOperand(1).getType());
+    ArrayRef<int64_t> shape2 = tensor2.getShape();
+    int64_t C = shape1[shape2.size() - 2];
+    int64_t D = shape1[shape2.size() - 1];
+    int64_t l1CacheSize = 48 * 1024 / 4; // 48KB, fp32
+    llvm::dbgs() << A << ' ' << B << ' ' << C << ' ' << D << ' '
+                 << (B * D * 1.0 / l1CacheSize) << '\n';
+    // TODO: set proper condition.
+    // bool goodCase = false;
+    // if (B * D * 1.0 / l1CacheSize < 0.2) {
+    //   goodCase = true;
+    // }
+    bool goodCase = true;
+    if (goodCase) {
+      llvm::dbgs() << "Set matmul_special_tiling to op: " << mm << '\n';
+      mmOp->setAttr("matmul_special_tiling", rewriter.getBoolAttr(true));
+    }
+  }
+}
+
 void MatmulSpecialTileAndFuse::runOnOperation() {
   Operation *topOp = getOperation();
   MLIRContext *context = topOp->getContext();
@@ -382,6 +460,8 @@ void MatmulSpecialTileAndFuse::runOnOperation() {
   Region &region = topFunc.getRegions().front();
   Block &block = region.getBlocks().front();
   IRRewriter rewriter(context);
+
+  findFusionTarget(rewriter, block);
 
   // tile the matmul to a scf::ForallOp
   getOperation()->walk([&](linalg::MatmulOp mm) {
@@ -412,7 +492,7 @@ void MatmulSpecialTileAndFuse::runOnOperation() {
   getOperation()->walk([&](scf::ForallOp forall) {
     Operation *forallOp = forall.getOperation();
     if (auto attr = forallOp->getAttr("matmul_special_tiled_forall")) {
-      // fuse parent ops into the forall
+      // fuse parent ops into the forall iteratively
       while (true) {
         bool canFuse = false;
         for (auto &op : block.getOperations()) {
@@ -426,7 +506,7 @@ void MatmulSpecialTileAndFuse::runOnOperation() {
               // The user of 'op' is an ExtractSliceOp, which is inside of
               // the 'forallOp'. We can fuse 'op' into 'forallOp'.
               canFuse = true;
-              fuse(rewriter, &op, forallOp);
+              FuseIntoContainingOp(rewriter, &op, forallOp);
               // End fusing after the matmul
               if (auto mmParent = dyn_cast<linalg::MatmulOp>(op)) {
                 return WalkResult::interrupt();
