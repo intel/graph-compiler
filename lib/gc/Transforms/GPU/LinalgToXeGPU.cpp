@@ -73,8 +73,10 @@ struct TilesArray {
 
   SmallVector<Value> toFlatVector() {
     SmallVector<Value> flatVector;
+    // NOLINTBEGIN
     for (auto row : tileMatrix)
       flatVector.append(row);
+    // NOLINTEND
     return flatVector;
   }
 
@@ -124,10 +126,12 @@ static bool isDPASCompatible(linalg::LinalgOp linalgOp, int kTile,
   int dpasTileM = dpasTile[0];
   int dpasTileN = dpasTile[1];
   int dpasTileK = dpasTile[2];
+  // NOLINTBEGIN
   if ((mDim % dpasTileM != 0) || (nDim % dpasTileN != 0) ||
       (kDim % dpasTileK != 0) || (kTile % dpasTileK != 0)) {
     return false;
   }
+  // NOLINTEND
 
   return true;
 }
@@ -177,7 +181,8 @@ static std::optional<Value> lowerGenericOp(linalg::GenericOp genericOp,
       return std::nullopt;
   }
 
-  if (structured_match::utils::isTwoDReluOp(genericOp, /*operands=*/nullptr)) {
+  if (structured_match::utils::isTwoDReluOp(genericOp,
+                                            /*operands=*/nullptr)) { // NOLINT
     assert(operands.size() == 1 &&
            "Invalid number of operands for generic 2D ReLU");
 
@@ -203,7 +208,8 @@ static std::optional<Value> lowerGenericOp(linalg::GenericOp genericOp,
         .getResult();
   }
 
-  if (structured_match::utils::isTwoDAddOp(genericOp, /*operands=*/nullptr)) {
+  if (structured_match::utils::isTwoDAddOp(genericOp,
+                                           /*operands=*/nullptr)) { // NOLINT
     assert(operands.size() == 2 &&
            "Invalid number of operands for generic 2D add");
     return rewriter
@@ -690,11 +696,13 @@ static SmallVector<Value> createCoarseDscTiles(PatternRewriter &rewriter,
   int64_t sgLoadCols = std::min(sgTile2D[1], maxWidth);
   int64_t arrayLength = std::min(maxWidth / sgLoadCols, maxArrayLength);
   // In case of partial fit, load only single tile.
+  // NOLINTBEGIN
   if (maxWidth % sgLoadCols != 0 || arrayLength != 4 || arrayLength != 2)
     arrayLength = 1;
 
   // TODO: Add variable array_length support.
   arrayLength = 1;
+  // NOLINTEND
 
   return createDescriptorTiles(rewriter, loc, src, sgTile2D, {0, 0},
                                {sgLoadRows, sgLoadCols}, arrayLength);
@@ -1114,7 +1122,8 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   }
 
   // Create loop terminator and exit the loop.
-  auto terminateLoop = [&](scf::ForOp loopOp, SmallVector<Value> resultValues) {
+  auto terminateLoop = [&](scf::ForOp loopOp,
+                           SmallVector<Value> resultValues) { // NOLINT
     rewriter.setInsertionPointToEnd(loopOp.getBody());
     rewriter.create<scf::YieldOp>(loc, resultValues);
     rewriter.setInsertionPointAfter(loopOp);
@@ -1204,12 +1213,14 @@ LogicalResult createEltwiseKernel(linalg::LinalgOp linalgOp,
   int64_t subTileRows = std::min(loadShape[0], maxSizeSIMD / subTileCols);
 
   SmallVector<SmallVector<Value>> vecSubTiles;
+  // NOLINTBEGIN
   for (auto inputTiles : loadedInputs) {
     TilesArray subTiles =
         extractVecSubTiles(rewriter, loc, inputTiles, outputShape, loadShape,
                            {subTileRows, subTileCols});
     vecSubTiles.push_back(subTiles.toFlatVector());
   }
+  // NOLINTEND
 
   // Perform vectorized computations for each output tile.
   SmallVector<Value> results;

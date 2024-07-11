@@ -328,7 +328,7 @@ namespace {
 // Helper matcher functor for relu detection.
 struct WithReluBody {
   WithReluBody() = delete;
-  WithReluBody(SmallVectorImpl<Value> *captures) : captures(captures) {};
+  WithReluBody(SmallVectorImpl<Value> *captures) : captures(captures){};
 
   bool operator()(Region *region, Operation *op) {
     auto linalgOp = dyn_cast<linalg::LinalgOp>(op);

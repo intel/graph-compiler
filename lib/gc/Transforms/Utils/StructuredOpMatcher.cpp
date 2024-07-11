@@ -20,12 +20,14 @@ bool structured_match::StructuredOpMatcher::match(Operation *op) {
     return false;
   LLVM_DEBUG(llvm::dbgs() << "Running matcher on: " << *op << "\n");
 
+  // NOLINTBEGIN
   for (auto [idx, predicate] : llvm::enumerate(predicates)) {
     if (!predicate(linalgOp)) {
       LLVM_DEBUG(llvm::dbgs() << "Exit on predicate: " << idx << "\n");
       return false;
     }
   }
+  // NOLINTEND
   return true;
 }
 
@@ -35,7 +37,7 @@ bool structured_match::StructuredOpMatcher::match(Operation *op) {
 
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::operation(
-    std::function<bool(Operation *op)> fun) {
+    std::function<bool(Operation *op)> fun) { // NOLINT
   predicates.push_back(
       [=](linalg::LinalgOp linalgOp) -> bool { return fun(linalgOp); });
   return *this;
@@ -48,7 +50,7 @@ structured_match::StructuredOpMatcher::operation(
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::input(
     MatchSelector range,
-    std::function<bool(OpOperand *operand, Operation *op)> fun) {
+    std::function<bool(OpOperand *operand, Operation *op)> fun) { // NOLINT
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     auto operands = linalgOp.getDpsInputOperands();
     size_t upperBound = range.getUpperBound();
@@ -73,7 +75,8 @@ structured_match::StructuredOpMatcher::input(
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::output(
     MatchSelector range,
-    std::function<bool(OpOperand *operand, Operation *operation)> fun) {
+    std::function<bool(OpOperand *operand, Operation *operation)>
+        fun) { // NOLINT
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     auto operands = linalgOp.getDpsInitsMutable();
     size_t upperBound = range.getUpperBound();
@@ -97,7 +100,7 @@ structured_match::StructuredOpMatcher::output(
 
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::dim(
-    MatchSelector range, SmallVector<utils::IteratorType> kinds) {
+    MatchSelector range, SmallVector<utils::IteratorType> kinds) { // NOLINT
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     size_t upperBound = range.getUpperBound();
     size_t lowerBound = range.getLowerBound();
@@ -262,12 +265,14 @@ bool mlir::structured_match::withOpChainImpl(
   }
 
   // Last op must be a chained yield.
+  // NOLINTBEGIN
   Operation *yieldOp = linalgOp.getBlock()->getTerminator();
   assert(isa<linalg::YieldOp>(yieldOp) && "Wrong terminator");
   for (auto op : yieldOp->getOperands()) {
     if (!chainedValues.contains(op))
       return false;
   }
+  // NOLINTEND
 
   return true;
 }
@@ -275,10 +280,10 @@ bool mlir::structured_match::withOpChainImpl(
 structured_match::StructuredOpMatcher &
 structured_match::StructuredOpMatcher::region(
     MatchSelector range,
-    std::function<bool(Region *region, Operation *op)> fun) {
+    std::function<bool(Region *region, Operation *op)> fun) { // NOLINT
   predicates.push_back([=](linalg::LinalgOp linalgOp) -> bool {
     auto regions = linalgOp->getRegions();
-    assert(regions.size() != 0);
+    assert(regions.size() != 0); // NOLINT
     size_t upperBound = range.getUpperBound();
     size_t lowerBound = range.getLowerBound();
     if (upperBound == std::numeric_limits<size_t>::max())
