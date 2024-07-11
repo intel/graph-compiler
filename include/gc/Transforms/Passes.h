@@ -12,6 +12,14 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
+class OpBuilder;
+class SymbolTable;
+class ModuleOp;
+
+namespace func {
+class FuncOp;
+} // namespace func
+
 
 namespace LLVM {
 class LLVMDialect;
@@ -39,6 +47,8 @@ class MemRefDialect;
 class PassManager;
 
 namespace gc {
+
+std::unique_ptr<Pass> createMergeAllocPass();
 
 void populateFrontendPasses(mlir::PassManager &);
 void populateCPUPipeline(mlir::PassManager &);
