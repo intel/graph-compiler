@@ -94,6 +94,7 @@ class LoadMLIR(Driver):
             np.ndarray.fill(np_args[i], 1)
         return np_args
 
+
 class MLP(Driver):
     @staticmethod
     def add_args(parser: argparse.ArgumentParser):

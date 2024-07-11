@@ -21,5 +21,9 @@ import benchgc.util
 
 from typing import Dict
 
+
 def ref_empty(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    var[cache.res[0]] = torch.zeros(size = op.results[0].type.shape, dtype = benchgc.util.get_dtype(str(op.results[0].type.element_type)))
+    var[cache.res[0]] = torch.zeros(
+        size=op.results[0].type.shape,
+        dtype=benchgc.util.get_dtype(str(op.results[0].type.element_type)),
+    )

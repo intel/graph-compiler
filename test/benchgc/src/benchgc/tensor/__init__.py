@@ -22,7 +22,9 @@ import gc_mlir.ir
 from benchgc.arg import Arg
 from typing import Dict, Callable
 
-ref_op: Dict[str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
+ref_op: Dict[
+    str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]
+] = {}
 mlir_op: Dict[
     str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
 ] = {}
@@ -36,4 +38,3 @@ for dri in ["basic", "shape"]:
         if key.startswith("mlir_"):
             op: str = key.removeprefix("mlir_")
             mlir_op[op] = mod.__dict__[key]
-

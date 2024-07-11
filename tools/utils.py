@@ -84,8 +84,6 @@ def emit_benchmark_wrapped_main_func(
     return wrapped_func
 
 
-
-
 def np_args_to_mlir_args(np_args: List[np.ndarray]) -> List:
     mlir_args = []
     for arg in np_args:
@@ -208,7 +206,7 @@ def gen_configs_from_ir(ir_module: ir.Module):
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     configs = []
     for op in tunable_ops:
-        if op.name in OP_TO_CONFIG:    
+        if op.name in OP_TO_CONFIG:
             configs.append(OP_TO_CONFIG[op.name](op))
     return configs
 

@@ -145,7 +145,6 @@ try:
     benchgc.util.set_seed(flags.seed)
 
 
-
 except argparse.ArgumentError:
     sys.stderr.write("Argument parse failed\n")
     sys.exit(1)
@@ -165,6 +164,7 @@ for i in range(len(ins)):
 
 if flags.driver == "linalg":
     from .linalg import mlir_op
+
     mlir_func = mlir_op[flags.case]
     module = mlir_func(flags, ins, outs)
 elif flags.driver == "mlir":
@@ -186,7 +186,9 @@ for i in range(len(ins)):
     gc_args.append(benchgc.util.tensor_to_ndarray(tensor))
 
 for i in range(len(outs)):
-    tensor = torch.zeros(size = outs[i].shape, dtype = benchgc.util.get_dtype(outs[i].dtype))
+    tensor = torch.zeros(
+        size=outs[i].shape, dtype=benchgc.util.get_dtype(outs[i].dtype)
+    )
     gc_args.append(benchgc.util.tensor_to_ndarray(tensor))
     gc_out.append(tensor)
 
@@ -216,6 +218,3 @@ for i in range(len(outs)):
         print("MISTRUST: %s.%s" % (flags.driver, flags.case))
     else:
         print("PASSED: %s.%s" % (flags.driver, flags.case))
-
-
-

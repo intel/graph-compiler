@@ -22,7 +22,9 @@ from benchgc.mlir import MLIRCache
 from benchgc.arg import Arg
 from typing import Dict, Callable, List
 
-ref_op: Dict[str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
+ref_op: Dict[
+    str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]
+] = {}
 mlir_op: Dict[
     str, Callable[[argparse.Namespace, List[Arg], List[Arg]], gc_mlir.ir.Module]
 ] = {}

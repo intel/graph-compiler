@@ -20,7 +20,10 @@ import torch
 
 from typing import Dict, List
 
-def ref_collapse_shape(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+
+def ref_collapse_shape(
+    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+):
     # permute axis and do reshape
     reassociation: gc_mlir.ir.ArrayAttr = op.attributes["reassociation"]
     permutation: List[int] = []
@@ -31,9 +34,14 @@ def ref_collapse_shape(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, t
             permutation.append(int(indim))
             d = d * int(op.operands[0].type.shape[int(indim)])
         shape.append(d)
-    var[cache.res[0]] = torch.permute(var[cache.opr[0]], tuple(permutation)).contiguous().reshape(shape)
+    var[cache.res[0]] = (
+        torch.permute(var[cache.opr[0]], tuple(permutation)).contiguous().reshape(shape)
+    )
 
-def ref_expand_shape(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+
+def ref_expand_shape(
+    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+):
     # permute axis and do reshape
     reassociation: gc_mlir.ir.ArrayAttr = op.attributes["reassociation"]
     permutation: List[int] = [0] * len(op.result.type.shape)
@@ -45,6 +53,6 @@ def ref_expand_shape(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, tor
             shape.append(int(op.result.type.shape[int(outdim)]))
             permutation[int(outdim)] = d
             d = d + 1
-    var[cache.res[0]] = torch.reshape(var[cache.opr[0]], shape).permute(permutation).contiguous()
-
-
+    var[cache.res[0]] = (
+        torch.reshape(var[cache.opr[0]], shape).permute(permutation).contiguous()
+    )

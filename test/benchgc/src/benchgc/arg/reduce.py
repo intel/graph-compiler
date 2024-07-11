@@ -20,6 +20,7 @@ import benchgc.arg
 
 from typing import List, Tuple
 
+
 def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
 
     op, sdtype, ddtype, amp = params
@@ -58,9 +59,7 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
 
     non_neutral_mask = benchgc.util.flip_coin(
         index,
-        torch.full(
-            shape, safe_to_reduce_elems / int(amp), dtype=torch.float32
-        ),
+        torch.full(shape, safe_to_reduce_elems / int(amp), dtype=torch.float32),
     )
     if isinstance(non_neutral_mask, torch.Tensor):
         value = torch.where(non_neutral_mask, value, neutral_value)
@@ -69,7 +68,10 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
     value = value + shift
     return value.to(dtype)
 
-def compare(ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+
+def compare(
+    ref: torch.Tensor, res: torch.Tensor, verbose: int
+) -> Tuple[bool, bool | None]:
     dtype = ref.dtype
     ref = ref.to(torch.float)
     res = res.to(torch.float)

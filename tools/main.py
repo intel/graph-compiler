@@ -81,6 +81,7 @@ def do_bench(args):
         )
         print(json_res)
 
+
 def do_tune(args):
     with ir.Context() as ctx, ir.Location.unknown():
         ctx.allow_unregistered_dialects = True

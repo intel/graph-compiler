@@ -23,6 +23,7 @@ import importlib
 import gc_mlir.ir
 import gc_mlir.dialects.tensor
 
+
 class Arg:
     dtype: str
     shape: List[int]
@@ -87,14 +88,20 @@ class Arg:
             raise Exception("shape is unknown")
         return gc_mlir.dialects.tensor.EmptyOp(self.shape, self.get_mlir_dtype(ctx))
 
-    def set_default_fill_param(self, flags: argparse.Namespace, argin: List[Self], argout: List[Self]):
+    def set_default_fill_param(
+        self, flags: argparse.Namespace, argin: List[Self], argout: List[Self]
+    ):
 
         if self.shape == [] or self.dtype == "" or self.type == "":
-            raise Exception("arg%d filling: shape/dtype/fill_type is not set" % self.index)
+            raise Exception(
+                "arg%d filling: shape/dtype/fill_type is not set" % self.index
+            )
         if self.type == "D" and len(self.param) == 0:
             # need to generate a default param for driver filling here
             if flags.driver not in ["linalg"]:
-                raise Exception("unsupported driver %s for default filling" % flags.driver)
+                raise Exception(
+                    "unsupported driver %s for default filling" % flags.driver
+                )
 
             if flags.case in ["add", "div", "mul"]:
                 self.param = [
@@ -131,7 +138,8 @@ class Arg:
                     or flags.case == "batch_matmul"
                     and self.index == 0
                     or flags.case == "batch_matvec"
-                    or flags.case == "batch_vecmat" and self.index == 0
+                    or flags.case == "batch_vecmat"
+                    and self.index == 0
                 ):
                     self.param.append(str(self.shape[-1]))
 
@@ -150,16 +158,24 @@ class Arg:
                 elif flags.case == "negf":
                     self.param.extend(["-1", "0"])
 
-    def set_default_compare_param(self, flags: argparse.Namespace, argin: List[Self], argout: List[Self]):
+    def set_default_compare_param(
+        self, flags: argparse.Namespace, argin: List[Self], argout: List[Self]
+    ):
         if self.shape == [] or self.dtype == "" or self.type == "":
-            raise Exception("arg%d filling: shape/dtype/fill_type is not set" % self.index)
+            raise Exception(
+                "arg%d filling: shape/dtype/fill_type is not set" % self.index
+            )
         if self.type == "D" and len(self.param) == 0:
             # need to generate a default param for driver filling here
             if flags.driver not in ["linalg"]:
-                raise Exception("unsupported driver %s for default compare strategy" % flags.driver)
+                raise Exception(
+                    "unsupported driver %s for default compare strategy" % flags.driver
+                )
 
             if flags.case in ["add", "div", "mul"]:
-                self.param = ["binary",]
+                self.param = [
+                    "binary",
+                ]
             elif flags.case in [
                 "batch_matmul",
                 "batch_matmul_transpose_a",
@@ -173,6 +189,7 @@ class Arg:
                 self.param = ["matmul"]
             elif flags.case in ["abs", "negf", "exp"]:
                 self.param = ["eltwise"]
+
 
 def fill_tensor(flags: argparse.Namespace, arg: Arg, idx: int) -> torch.Tensor:
     if arg.dtype == "" or arg.type == "":
@@ -233,20 +250,23 @@ def fill_tensor(flags: argparse.Namespace, arg: Arg, idx: int) -> torch.Tensor:
     return tensor
 
 
-def compare_tensor(arg: Arg, ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
-    if arg.type == "P": # p2p check
+def compare_tensor(
+    arg: Arg, ref: torch.Tensor, res: torch.Tensor, verbose: int
+) -> Tuple[bool, bool | None]:
+    if arg.type == "P":  # p2p check
         threshold = float(arg.param[0])
         zero_percent = float(arg.param[1])
         return p2p(threshold, zero_percent, ref, res, verbose)
-    if arg.type == "N": # norm check
+    if arg.type == "N":  # norm check
         threshold = float(arg.param[0])
         return norm(threshold, ref, res, verbose)
-    elif arg.type == "D" and len(arg.param) > 0: # driver check
+    elif arg.type == "D" and len(arg.param) > 0:  # driver check
         driver: str = arg.param[0]
         driver_module = importlib.import_module("benchgc.arg.%s" % driver)
         return driver_module.compare(ref, res, verbose)
     else:
         raise Exception("invalid compare type or compare parameter")
+
 
 def iterate_tensor(tensor: torch.Tensor, fn: Callable[[Tuple[int, ...]], None]):
     index: List[int] = [0] * tensor.ndim
@@ -258,9 +278,13 @@ def iterate_tensor(tensor: torch.Tensor, fn: Callable[[Tuple[int, ...]], None]):
             for i in range(tensor.shape[depth]):
                 index[depth] = i
                 dfs(depth + 1)
+
     dfs(0)
 
-def norm(threshold: float, ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+
+def norm(
+    threshold: float, ref: torch.Tensor, res: torch.Tensor, verbose: int
+) -> Tuple[bool, bool | None]:
 
     f32_ref = ref.to(torch.float32)
     f32_res = res.to(torch.float32)
@@ -272,14 +296,18 @@ def norm(threshold: float, ref: torch.Tensor, res: torch.Tensor, verbose: int) -
 
     l2_diff_norm = torch.sqrt(diff_square_sum / square_sum).item()
     if verbose >= benchgc.util.COMPARE_VERBOSE:
-        print(
-            "norm check: %.10f / threshold: %.10f" % (l2_diff_norm, threshold)
-        )
+        print("norm check: %.10f / threshold: %.10f" % (l2_diff_norm, threshold))
 
     return (l2_diff_norm < threshold, None)
 
 
-def p2p(threshold: float, zero_percent: float, ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+def p2p(
+    threshold: float,
+    zero_percent: float,
+    ref: torch.Tensor,
+    res: torch.Tensor,
+    verbose: int,
+) -> Tuple[bool, bool | None]:
 
     if verbose >= benchgc.util.COMPARE_VERBOSE:
         print("p2p check: threshold: %.7f" % threshold)
@@ -289,12 +317,8 @@ def p2p(threshold: float, zero_percent: float, ref: torch.Tensor, res: torch.Ten
     check = torch.BoolTensor([False])
 
     check = check.bitwise_or(torch.bitwise_and(f32_ref.isnan(), f32_res.isnan()))
-    check = check.bitwise_or(
-        torch.bitwise_and(f32_ref.isneginf(), f32_res.isneginf())
-    )
-    check = check.bitwise_or(
-        torch.bitwise_and(f32_ref.isposinf(), f32_res.isposinf())
-    )
+    check = check.bitwise_or(torch.bitwise_and(f32_ref.isneginf(), f32_res.isneginf()))
+    check = check.bitwise_or(torch.bitwise_and(f32_ref.isposinf(), f32_res.isposinf()))
 
     # choose diff/rel_diff based on value
     abs_diff = (f32_ref - f32_res).abs()
@@ -331,11 +355,13 @@ def p2p(threshold: float, zero_percent: float, ref: torch.Tensor, res: torch.Ten
             mistrust = zero * 100.0 / res.nelement() > zero_percent
         return (True, mistrust)
     else:
-        if verbose < benchgc.util.OUTPUT_VERBOSE:  # skip verbose print if full output tensor is alrady printed
+        if (
+            verbose < benchgc.util.OUTPUT_VERBOSE
+        ):  # skip verbose print if full output tensor is alrady printed
             fail = torch.argwhere(torch.where(check, 0, 1))
             if verbose < benchgc.util.ERROR_OUTPUT_VERBOSE:
                 # only print top 10 failed data points if verbose level does not satisfied
-                fail = fail[:10]  
+                fail = fail[:10]
             for idx in fail:
                 index: Tuple[int, ...] = tuple(idx.tolist())
                 print(

@@ -21,20 +21,27 @@ from gc_mlir.dialects import func
 from benchgc.arg import Arg
 from typing import Callable, List, Self
 
+
 def get_entry_args(module: gc_mlir.ir.Module, entry: str = '"entry"') -> List[str]:
     entry_op: gc_mlir.ir.OpView | None = None
     for op in module.operation.opview.regions[0].blocks[0].operations:
         if str(op.name) == entry:
             entry_op = op
             break
-    
+
     if entry_op is None:
         raise Exception("entry function %s is not found at the top level" % entry)
     else:
         return ["%arg" + str(i) for i in range(len(entry_op.type.inputs))]
 
 
-def init_i1o1_module(argin: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Context, gc_mlir.ir.BlockArgument], gc_mlir.ir.OpResult]) -> gc_mlir.ir.Module:
+def init_i1o1_module(
+    argin: Arg,
+    argout: Arg,
+    op_func: Callable[
+        [gc_mlir.ir.Context, gc_mlir.ir.BlockArgument], gc_mlir.ir.OpResult
+    ],
+) -> gc_mlir.ir.Module:
     with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
         module = gc_mlir.ir.Module.create()
         with gc_mlir.ir.InsertionPoint(module.body):
@@ -52,7 +59,15 @@ def init_i1o1_module(argin: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Cont
         return module
 
 
-def init_i2o1_module(argin0: Arg, argin1: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Context, gc_mlir.ir.BlockArgument, gc_mlir.ir.BlockArgument], gc_mlir.ir.OpResult]) -> gc_mlir.ir.Module:
+def init_i2o1_module(
+    argin0: Arg,
+    argin1: Arg,
+    argout: Arg,
+    op_func: Callable[
+        [gc_mlir.ir.Context, gc_mlir.ir.BlockArgument, gc_mlir.ir.BlockArgument],
+        gc_mlir.ir.OpResult,
+    ],
+) -> gc_mlir.ir.Module:
     with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
         module = gc_mlir.ir.Module.create()
         with gc_mlir.ir.InsertionPoint(module.body):
@@ -73,6 +88,7 @@ def init_i2o1_module(argin0: Arg, argin1: Arg, argout: Arg, op_func: Callable[[g
                 func.ReturnOp([op_func(ctx, arg0, arg1)])
         return module
 
+
 # calling python binding consumes a lot of time e.g. get_name()
 # we need to cache some result to avoid duplicate call
 class MLIRCache:
@@ -81,7 +97,7 @@ class MLIRCache:
     # result name cache
     res: List[str]
     # argument name cache
-    arg: List[str] 
+    arg: List[str]
     # next hierarchy
     next: List[Self]
 

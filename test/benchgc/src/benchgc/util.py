@@ -147,6 +147,7 @@ def tensor_to_ndarray(tensor: torch.Tensor) -> Any:
         return tensor.view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
     return tensor.numpy()
 
+
 def get_eps(dtype: torch.dtype) -> float:
     return torch.finfo(dtype).eps if dtype.is_floating_point else 0.0
 

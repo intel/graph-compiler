@@ -50,9 +50,9 @@ if __name__ == "__main__":
         # torch_arg0 = torch.randn((10, 10), dtype=torch.bfloat16)
         # torch_arg1 = torch.randn((10, 10), dtype=torch.bfloat16)
         ref_res = torch.matmul(torch_arg0, torch_arg1)
-               
+
         np_arg0 = torch_arg0.view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
-        np_arg1 = torch_arg1.view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)      
+        np_arg1 = torch_arg1.view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
         gc_res = np.zeros((10, 10), dtype=ml_dtypes.bfloat16)
 
         entry = "main_entry"
@@ -72,12 +72,12 @@ if __name__ == "__main__":
         #     shared_libs,
         # )
         # print("cost=", cost)
-        
+
         # just run
         compiler = GraphCompiler(passes, shared_libs)
         engine = compiler.compile_and_jit(module)
         engine.invoke(entry, *mlir_args)
-            
+
         print(gc_res)
         assert_allclose(
             gc_res.astype(np.float32),

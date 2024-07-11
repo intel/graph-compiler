@@ -42,8 +42,17 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
         values = torch.where(values == 0.0, 1, values)
     return values.to(dtype=dtype)
 
-def compare(ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+
+def compare(
+    ref: torch.Tensor, res: torch.Tensor, verbose: int
+) -> Tuple[bool, bool | None]:
     dtype = ref.dtype
     ref = ref.to(torch.float)
     res = res.to(torch.float)
-    return benchgc.arg.p2p(benchgc.util.get_eps(dtype), 30.0 if dtype.is_signed else 45.0, ref, res, verbose)
+    return benchgc.arg.p2p(
+        benchgc.util.get_eps(dtype),
+        30.0 if dtype.is_signed else 45.0,
+        ref,
+        res,
+        verbose,
+    )

@@ -40,6 +40,7 @@ class Config:
     def attach_to_ir(self, op: OpView):
         pass
 
+
 class MatMulConfig(Config):
     def __init__(
         self,
@@ -111,6 +112,7 @@ class MatMulConfig(Config):
         }
         for name, value in attr_to_field.items():
             op.attributes[name] = IntegerAttr.get(T.i32(), value)
+
     def __repr__(self) -> str:
         return self.__str__()
 
@@ -131,8 +133,4 @@ class MatMulConfig(Config):
         return json.dumps(obj_dict, indent=4)
 
 
-
-OP_TO_CONFIG = {
-    "linalg.matmul": MatMulConfig,
-    "onednn_graph.matmul": MatMulConfig
-}
+OP_TO_CONFIG = {"linalg.matmul": MatMulConfig, "onednn_graph.matmul": MatMulConfig}

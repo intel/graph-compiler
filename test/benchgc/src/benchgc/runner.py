@@ -25,13 +25,14 @@ from benchgc.arith import ref_op as arith_ref_op
 
 from typing import Tuple
 
+
 def dfs_op(cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
 
     dialect_call: str = str(op.name)
     if dialect_call == "func.return":
         ret: Tuple[torch.Tensor, ...] = tuple()
         for name in cache.opr:
-            ret = ret + (tensors[name], )
+            ret = ret + (tensors[name],)
         return ret
     if dialect_call.startswith("linalg"):
         ref_op = linalg_ref_op
@@ -44,7 +45,7 @@ def dfs_op(cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Ten
         for i in range(len(op.regions)):
             if build_cache:
                 # we do not need to cache things for region
-                # keep an empty cache 
+                # keep an empty cache
                 cache.next.append(MLIRCache())
             ret = dfs_region(cache.next[i], op.regions[i], tensors)
             if ret is not None:
@@ -59,7 +60,9 @@ def dfs_op(cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Ten
     return ref_func(cache, op, tensors)
 
 
-def dfs_region(cache: MLIRCache, region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]):
+def dfs_region(
+    cache: MLIRCache, region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]
+):
     build_cache = len(cache.next) == 0
     for i in range(len(region.blocks)):
         if build_cache:
@@ -73,15 +76,17 @@ def dfs_region(cache: MLIRCache, region: gc_mlir.ir.Region, tensors: Dict[str, t
             return ret
 
 
-def dfs_block(cache: MLIRCache, block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
+def dfs_block(
+    cache: MLIRCache, block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]
+):
     build_cache = len(cache.next) == 0
     for i in range(len(block.operations)):
         if build_cache:
             _cache = MLIRCache()
-            # we need to cache operand name and result name 
+            # we need to cache operand name and result name
             for opr in block.operations[i].operands:
                 _cache.opr.append(opr.get_name())
-            
+
             for res in block.operations[i].results:
                 _cache.res.append(res.get_name())
             cache.next.append(_cache)
@@ -89,6 +94,7 @@ def dfs_block(cache: MLIRCache, block: gc_mlir.ir.Block, tensors: Dict[str, torc
         ret = dfs_op(cache.next[i], block.operations[i], tensors)
         if ret is not None:
             return ret
+
 
 def ref_run(
     module: gc_mlir.ir.Module, tensors: Dict[str, torch.Tensor], entry: str = '"entry"'
@@ -98,9 +104,9 @@ def ref_run(
         if str(op.name) == entry:
             entry_op = op
             break
-    
+
     # cache some information of block & op
-    
+
     cache = MLIRCache()
 
     if entry_op is None:

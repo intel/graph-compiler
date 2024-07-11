@@ -69,7 +69,10 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
 
     return value.to(dtype)
 
-def compare(ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+
+def compare(
+    ref: torch.Tensor, res: torch.Tensor, verbose: int
+) -> Tuple[bool, bool | None]:
     dtype = ref.dtype
     ref = ref.to(torch.float)
     res = res.to(torch.float)

@@ -22,24 +22,29 @@ import benchgc.util
 
 from typing import Dict
 
+
 def ref_constant(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     value = op.attributes["value"]
     if isinstance(value, gc_mlir._mlir_libs._mlir.ir.FloatAttr):
-        var[cache.res[0]] = torch.full(size=tuple(), 
-            fill_value= value.__float__(), 
-            dtype = torch.float)
+        var[cache.res[0]] = torch.full(
+            size=tuple(), fill_value=value.__float__(), dtype=torch.float
+        )
     elif isinstance(value, gc_mlir._mlir_libs._mlir.ir.DenseFPElementsAttr):
         if value.is_splat:
-            var[cache.res[0]] = torch.full(size=tuple(value.type.shape), 
-                fill_value= value.get_splat_value().value,
-                dtype = benchgc.util.get_dtype(str(value.get_splat_value().type)))
+            var[cache.res[0]] = torch.full(
+                size=tuple(value.type.shape),
+                fill_value=value.get_splat_value().value,
+                dtype=benchgc.util.get_dtype(str(value.get_splat_value().type)),
+            )
         else:
             raise Exception("only support splat value now")
     else:
         raise Exception("Not support constant type %s", type(value))
 
+
 def ref_mulf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] = var[cache.opr[0]] * var[cache.opr[1]]
+
 
 def ref_addf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] = var[cache.opr[0]] + var[cache.opr[1]]

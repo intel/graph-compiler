@@ -42,7 +42,7 @@ def py_timeit_bench(
     repeat_time=100,
     warm_up=20,
 ) -> float:
-    
+
     compiler = GraphCompiler(
         pipeline,
         shared_libs,
@@ -94,6 +94,7 @@ def mlir_wrapper_bench(
     )
     total_time = 0
     ns_to_ms_scale = 1e-6
+
     def run(engine_invoke, bench_func_name, *mlir_args):
         engine_invoke(bench_func_name, *mlir_args)
 

@@ -19,6 +19,7 @@ import benchgc.util
 import benchgc.arg
 from typing import List, Tuple
 
+
 # params format: [alg, alpha, beta]
 def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
     alg, alpha, beta = params
@@ -74,12 +75,8 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
         bias = torch.cat(
             (bias, torch.tensor([float_limit.max, float_limit.min])), dim=0
         )
-        rand_int_mask = torch.cat(
-            (rand_int_mask, torch.tensor([False, False])), dim=0
-        )
-        rand_uni_mask = torch.cat(
-            (rand_uni_mask, torch.tensor([False, False])), dim=0
-        )
+        rand_int_mask = torch.cat((rand_int_mask, torch.tensor([False, False])), dim=0)
+        rand_uni_mask = torch.cat((rand_uni_mask, torch.tensor([False, False])), dim=0)
 
     repeats: int = (nelems + coeff.nelement() - 1) // coeff.nelement()
 
@@ -96,8 +93,16 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
     return value.reshape(shape)
 
 
-def compare(ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+def compare(
+    ref: torch.Tensor, res: torch.Tensor, verbose: int
+) -> Tuple[bool, bool | None]:
     dtype = ref.dtype
     ref = ref.to(torch.float)
     res = res.to(torch.float)
-    return benchgc.arg.p2p(4e-6 if dtype == torch.float else benchgc.util.get_eps(dtype), 65 if dtype.is_signed else 99.0, ref, res, verbose)
+    return benchgc.arg.p2p(
+        4e-6 if dtype == torch.float else benchgc.util.get_eps(dtype),
+        65 if dtype.is_signed else 99.0,
+        ref,
+        res,
+        verbose,
+    )
