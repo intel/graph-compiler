@@ -10,7 +10,7 @@ RUN set -ex; \
     curl -sSL https://cli.github.com/packages/githubcli-archive-keyring.gpg > /usr/share/keyrings/githubcli-archive-keyring.gpg; \
     apt-get update -y; \
     apt-get install -y --no-install-recommends --fix-missing \
-      python3-pip \
+      python3-pip python3-dev \
       cmake gcc g++ ninja-build git clang-format \
       gh \
     ; \
