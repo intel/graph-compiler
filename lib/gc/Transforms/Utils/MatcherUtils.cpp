@@ -1,6 +1,6 @@
-//===- MatcherUtils.cpp ------------------------------------------*- C++-*-===//
+//===- MatcherUtils.cpp - Matcher utils -------------------------*- C++ -*-===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -14,109 +14,6 @@
 namespace mlir {
 namespace structured_match {
 namespace utils {
-
-// Return position of 'pure' iterators in `indexingMap` for the specific
-// linalg operation given the iterator type `iter`. 'pure' iterator are
-// only AffineDimExpr.
-// static llvm::SmallVector<int64_t>
-// getIteratorPos(linalg::LinalgOp linalgOp, AffineMap indexingMap,
-//                mlir::utils::IteratorType iter) {
-//   llvm::SmallVector<int64_t> res;
-//   for (AffineExpr e : indexingMap.getResults()) {
-//     if (auto d = dyn_cast<AffineDimExpr>(e)) {
-//       if (linalgOp.getIteratorTypesArray()[d.getPosition()] == iter &&
-//           llvm::count_if(indexingMap.getResults(), [d](AffineExpr e) {
-//             return e.isFunctionOfDim(d.getPosition());
-//           }) == 1)
-//         res.push_back(d.getPosition());
-//     }
-//   }
-//   return res;
-// }
-
-// // Return true if the linalg.generic can be mapped to a brgemm in VNNI
-// // format.
-// std::pair<bool, bool> isBrgemmVnniOp(linalg::GenericOp linalgOp,
-//                                      SmallVectorImpl<Value> *operands) {
-//   bool hasBatch = false;
-//   auto blockingFactor =
-//       vnni::utils::getVnniBlockingFactor(linalgOp->getOperands()[0].getType());
-//   if (!blockingFactor)
-//     return std::make_pair(false, hasBatch);
-
-//   AffineMap mapOperandA, mapOperandB, mapOperandC;
-//   using namespace structured_match;
-//   // clang-format off
-//   auto matmulMatcher =
-//       StructuredOpMatcher::make<linalg::GenericOp>()
-//           .operation(NumDpsInits(EqualsTo(1)))
-//           .operation(NumDpsInputs(EqualsTo(2)))
-//           .operation(NumRegions(EqualsTo(1)))
-//           .operation(NumOfLoops(_OR(EqualsTo(5), EqualsTo(4))))
-//           .input(MatchAll(), HasStaticShape())
-//           .output(MatchAll(), HasStaticShape())
-//           .input(MatchOne(0), HasMap(BroadcastableProjectedPermutation(),
-//           &mapOperandA)) .input(MatchOne(1), HasMap(Any(), &mapOperandB))
-//           .output(MatchOne(0), HasMap(BroadcastableProjectedPermutation(),
-//           &mapOperandC)) .region(MatchOne(0),
-//                   WithOpChain<arith::MulFOp, arith::AddFOp>(operands));
-//   // clang-format on
-//   if (!matmulMatcher.match(linalgOp))
-//     return std::make_pair(false, hasBatch);
-
-//   // Operand C: Two parallel iterators (i and j).
-//   llvm::SmallVector<int64_t> operandCPosIterPar = getIteratorPos(
-//       linalgOp, mapOperandC, mlir::utils::IteratorType::parallel);
-//   if (operandCPosIterPar.size() != 2)
-//     return std::make_pair(false, hasBatch);
-//   int64_t iParIter = operandCPosIterPar[0];
-//   int64_t jParIter = operandCPosIterPar[1];
-
-//   // Operand A: One parallel iterator (i) and two reduction ones (batch and
-//   k).
-//   // The batch dimension is optional.
-//   llvm::SmallVector<int64_t> operandAPosIterPar = getIteratorPos(
-//       linalgOp, mapOperandA, mlir::utils::IteratorType::parallel);
-//   if (operandAPosIterPar.size() != 1 || operandAPosIterPar[0] != iParIter)
-//     return std::make_pair(false, hasBatch);
-
-//   llvm::SmallVector<int64_t> operandAPosIterRed = getIteratorPos(
-//       linalgOp, mapOperandA, mlir::utils::IteratorType::reduction);
-//   if (operandAPosIterRed.size() != 2 && operandAPosIterRed.size() != 1)
-//     return std::make_pair(false, hasBatch);
-
-//   int64_t batchRedIter = std::numeric_limits<int64_t>::max();
-//   int64_t kRedIter = std::numeric_limits<int64_t>::max();
-//   if (operandAPosIterRed.size() == 2) {
-//     batchRedIter = operandAPosIterRed[0];
-//     kRedIter = operandAPosIterRed[1];
-//     hasBatch = true;
-//   } else {
-//     kRedIter = operandAPosIterRed[0];
-//   }
-
-//   // Operand B: One parallel iterator (j) and three reduction ones (batch,
-//   // k/VNNI and VNNI).
-//   // The batch dimension is optional.
-//   llvm::SmallVector<int64_t> operandBPosIterPar = getIteratorPos(
-//       linalgOp, mapOperandB, mlir::utils::IteratorType::parallel);
-//   if (operandBPosIterPar.size() != 1 || operandBPosIterPar[0] != jParIter)
-//     return std::make_pair(false, hasBatch);
-
-//   llvm::SmallVector<int64_t> operandBPosIterRed = getIteratorPos(
-//       linalgOp, mapOperandB, mlir::utils::IteratorType::reduction);
-//   if (operandBPosIterRed.empty())
-//     return std::make_pair(false, hasBatch);
-//   if (batchRedIter != std::numeric_limits<int64_t>::max() &&
-//       operandBPosIterRed[0] != batchRedIter) {
-//     return std::make_pair(false, hasBatch);
-//   }
-
-//   auto vnniDim =
-//       vnni::utils::isInVnniLayout(linalgOp, mapOperandB, *blockingFactor);
-//   bool isBrgemmOp = succeeded(vnniDim) && vnniDim->getPosition() == kRedIter;
-//   return std::make_pair(isBrgemmOp, hasBatch);
-// }
 
 // Return true if all the operand have the same type, i.e., no implicit
 // conversion in the linalgOp.
@@ -207,14 +104,6 @@ static bool isTwoDEltWiseOpOfTypeTy(linalg::LinalgOp linalgOp,
 
 bool isTwoDAddOp(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
   return isTwoDEltWiseOpOfTypeTy<arith::AddFOp>(linalgOp, operands);
-}
-
-bool isTwoDSubOp(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
-  return isTwoDEltWiseOpOfTypeTy<arith::SubFOp>(linalgOp, operands);
-}
-
-bool isTwoDMulOp(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
-  return isTwoDEltWiseOpOfTypeTy<arith::MulFOp>(linalgOp, operands);
 }
 
 static bool hasReluBody(Operation *op, SmallVectorImpl<Value> *captured) {
@@ -353,120 +242,6 @@ bool isTwoDReluOp(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
     .region(MatchOne(0), WithReluBody(operands));
   // clang-format on
   return isTppUnaryOp(linalgOp) && reluMatcher.match(linalgOp);
-}
-
-// // Return true if the linalg.generic can be mapped to a tpp.identity.
-// bool isTwoDIdentityOp(linalg::LinalgOp linalgOp,
-//                       SmallVectorImpl<Value> *operands) {
-//   SmallVector<Value, 2> linalgOperands;
-//   // clang-format off
-//   auto identityMatcher =
-//     StructuredOpMatcher::make<linalg::LinalgOp>()
-//     .output(MatchAll(), HasMap(Identity()))
-//     .input(MatchAll(), HasMap(BroadcastableProjectedPermutation()))
-//     .region(
-//       MatchOne(0), WithSingleOp<linalg::YieldOp>(&linalgOperands));
-//   // clang-format on
-
-//   if (!isTppUnaryOp(linalgOp) || !identityMatcher.match(linalgOp) ||
-//       linalgOperands.size() != 2) {
-//     return false;
-//   }
-
-//   if (operands)
-//     operands->append(linalgOperands.begin(), linalgOperands.end());
-
-//   return true;
-// }
-
-// Return true if the linalg.generic can be mapped to a tpp.zero.
-bool isTwoDZeroOp(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
-  // clang-format off
-  auto zeroMatcher = 
-    StructuredOpMatcher::make<linalg::LinalgOp>()
-    .output(MatchAll(), HasMap(Identity()))
-    .input(MatchAll(), HasMap(BroadcastableProjectedPermutation()))
-    .region(MatchOne(0), WithSingleOp<linalg::YieldOp>());
-  // clang-format on
-
-  if (!isTppUnaryOp(linalgOp) || !zeroMatcher.match(linalgOp))
-    return false;
-
-  Operation *yieldOp = linalgOp.getBlock()->getTerminator();
-  if (!mlir::utils::isZeroTensor(yieldOp->getOperand(0)))
-    return false;
-
-  // Only take the output as tpp.zero is an in-place operation.
-  Value output = linalgOp.getDpsInits()[0];
-  if (!isa<ShapedType>(output.getType()))
-    return false;
-
-  if (operands)
-    operands->push_back(output);
-  return true;
-}
-
-// Return true if the linalg.generic can be mapped to a tpp.add + tpp.max.
-// TODO: This will be done at tpp.group level later on
-bool isTwoDBiasReluOp(linalg::LinalgOp linalgOp,
-                      SmallVectorImpl<Value> *operands) {
-  // clang-format off
-  auto biasReluMatcher = 
-    StructuredOpMatcher::make<linalg::LinalgOp>()
-      .region(MatchOne(0), 
-              WithOpChain<arith::AddFOp, arith::MaximumFOp>(operands));
-  // clang-format on
-
-  if (!isTppBinaryOp(linalgOp) || !biasReluMatcher.match(linalgOp))
-    return false;
-
-  // Only take the output as tpp.add + tpp.relu should be in-place operations.
-  Value output = linalgOp.getDpsInits()[0];
-  if (!isa<ShapedType>(output.getType()))
-    return false;
-
-  if (operands)
-    operands->push_back(output);
-  return true;
-}
-
-bool isTwoDTransposeOp(linalg::LinalgOp linalgOp,
-                       SmallVectorImpl<Value> *operands) {
-  // clang-format off
-  auto isTwoDTransposeMatcher = 
-    StructuredOpMatcher::make<linalg::TransposeOp>()
-    .output(MatchAll(), HasRank({2}))
-    .input(MatchAll(), HasRank({2}));
-  // clang-format on 
-  if (!isTppUnaryOp(linalgOp) || !isTwoDTransposeMatcher.match(linalgOp))
-    return false;
-  if (operands) {
-    operands->push_back(linalgOp.getDpsInputs()[0]);
-    operands->push_back(linalgOp.getDpsInits()[0]);
-  }
-  return true;
-}
-
-bool isTwoDFillOpWithZeros(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
-  struct IsZeroValue {
-      IsZeroValue() = default;
-      bool operator()(OpOperand *operand, Operation *operation) {
-        return mlir::utils::isZeroTensor(operand->get());
-      }
-  };
-  
-  // clang-format off
-  auto isTwoDFillOpWithZerosMatcher =
-    StructuredOpMatcher::make<linalg::FillOp>()
-    .input(MatchAll(), IsZeroValue());
-  // clang-format on
-  if (!isTppUnaryOp(linalgOp) || !isTwoDFillOpWithZerosMatcher.match(linalgOp))
-    return false;
-  if (operands) {
-    operands->push_back(linalgOp.getDpsInputs()[0]);
-    operands->push_back(linalgOp.getDpsInits()[0]);
-  }
-  return true;
 }
 
 } // namespace utils

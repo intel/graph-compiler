@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TPP_TRANSFORMS_UTILS_VALUEUTILS_H
-#define TPP_TRANSFORMS_UTILS_VALUEUTILS_H
+#ifndef GC_TRANSFORMS_UTILS_VALUEUTILS_H
+#define GC_TRANSFORMS_UTILS_VALUEUTILS_H
 
 namespace mlir {
 class Value;
@@ -33,4 +33,4 @@ std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value val,
 } // namespace utils
 } // namespace mlir
 
-#endif // TPP_TRANSFORMS_UTILS_VALUEUTILS_H
+#endif // GC_TRANSFORMS_UTILS_VALUEUTILS_H

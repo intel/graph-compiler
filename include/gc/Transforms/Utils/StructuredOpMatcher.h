@@ -1,13 +1,13 @@
 //===- StructuredOpMatcher.h -------------------------------------*- C++-*-===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TPP_IR_STRUCTUREDOPMATCHER_H
-#define TPP_IR_STRUCTUREDOPMATCHER_H
+#ifndef GC_UTILS_STRUCTUREDOPMATCHER_H
+#define GC_UTILS_STRUCTUREDOPMATCHER_H
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -19,18 +19,6 @@
 namespace mlir {
 class Operation;
 namespace structured_match {
-
-struct KindAdd {
-  static bool classof(const Operation *op) {
-    return isa<arith::AddFOp>(op) || isa<arith::AddIOp>(op);
-  }
-};
-
-struct KindMul {
-  static bool classof(const Operation *op) {
-    return isa<arith::MulFOp>(op) || isa<arith::MulIOp>(op);
-  }
-};
 
 // Base class for the matcher predicates selection tag.
 struct MatchSelector {
@@ -59,14 +47,6 @@ struct MatchAll : public MatchSelector {
 struct MatchOne : public MatchSelector {
   MatchOne() = delete;
   MatchOne(size_t idx) : MatchSelector(idx, idx + 1) {}
-};
-
-// Selector which specifies that predicate should apply only on range of values
-// at positions from `lowerBound` up to - but not including - `upperBound`.
-struct MatchRange : public MatchSelector {
-  MatchRange() = delete;
-  MatchRange(size_t lowerBound, size_t upperBound)
-      : MatchSelector(lowerBound, upperBound) {}
 };
 
 // Callable object to check if the number of loops in `op` satisfies `fun`.
@@ -150,13 +130,6 @@ struct Identity {
   Identity() = default;
 
   bool operator()(AffineMap map) const { return map.isIdentity(); }
-};
-
-// Callable object to capture any map.
-struct Any {
-  Any() = default;
-
-  bool operator()(AffineMap map) const { return true; }
 };
 
 // Callable object to verify if `operand` has static shape.
@@ -244,48 +217,6 @@ template <typename T> struct EqualsTo {
 };
 template <typename T> EqualsTo(T) -> EqualsTo<T>;
 
-// Callable object to check if the input is less than or equal to specified
-// `value`.
-struct LessThanOrEqualTo {
-  LessThanOrEqualTo() = delete;
-  explicit LessThanOrEqualTo(size_t value) : value(value){};
-  const size_t value;
-
-  bool operator()(size_t value) const { return value <= this->value; }
-};
-
-// Callable object to check if the input is greater than or equal to specified
-// `value`.
-struct GreaterThanOrEqualTo {
-  GreaterThanOrEqualTo() = delete;
-  explicit GreaterThanOrEqualTo(size_t value) : value(value){};
-  const size_t value;
-
-  bool operator()(size_t value) const { return value >= this->value; }
-};
-
-// Callable object to check if `op` has tensor semantics.
-struct HasTensorSemantics {
-  HasTensorSemantics() = default;
-
-  bool operator()(Operation *op) const {
-    if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))
-      return linalgOp.hasPureTensorSemantics();
-    return false;
-  }
-};
-
-// Callable object to check if `op` buffer semantics.
-struct HasBufferSemantics {
-  HasBufferSemantics() = default;
-
-  bool operator()(Operation *op) const {
-    if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))
-      return linalgOp.hasPureBufferSemantics();
-    return false;
-  }
-};
-
 // Callable object to validate number of init operands for `op`.
 struct NumDpsInits {
   NumDpsInits() = delete;
@@ -294,20 +225,6 @@ struct NumDpsInits {
   bool operator()(Operation *op) const {
     if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))
       return fun(linalgOp.getNumDpsInits());
-    return false;
-  }
-
-  std::function<bool(size_t)> fun;
-};
-
-// Callable object to check the number of affine map for `op`.
-struct NumAffineMaps {
-  NumAffineMaps() = delete;
-  explicit NumAffineMaps(std::function<bool(size_t)> fun) : fun(std::move(fun)){};
-
-  bool operator()(Operation *op) const {
-    if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))
-      return fun(linalgOp.getIndexingMapsArray().size());
     return false;
   }
 
@@ -458,4 +375,4 @@ private:
 } // namespace structured_match
 } // namespace mlir
 
-#endif // TPP_IR_STRUCTUREDOPMATCHER_H
+#endif // GC_UTILS_STRUCTUREDOPMATCHER_H
