@@ -55,10 +55,10 @@ namespace utils {
 //           .operation(NumOfLoops(_OR(EqualsTo(5), EqualsTo(4))))
 //           .input(MatchAll(), HasStaticShape())
 //           .output(MatchAll(), HasStaticShape())
-//           .input(MatchOne(0), HasMap(BroadcastableProjectedPermutation(), &mapOperandA))
-//           .input(MatchOne(1), HasMap(Any(), &mapOperandB))
-//           .output(MatchOne(0), HasMap(BroadcastableProjectedPermutation(), &mapOperandC))
-//           .region(MatchOne(0),
+//           .input(MatchOne(0), HasMap(BroadcastableProjectedPermutation(),
+//           &mapOperandA)) .input(MatchOne(1), HasMap(Any(), &mapOperandB))
+//           .output(MatchOne(0), HasMap(BroadcastableProjectedPermutation(),
+//           &mapOperandC)) .region(MatchOne(0),
 //                   WithOpChain<arith::MulFOp, arith::AddFOp>(operands));
 //   // clang-format on
 //   if (!matmulMatcher.match(linalgOp))
@@ -72,7 +72,8 @@ namespace utils {
 //   int64_t iParIter = operandCPosIterPar[0];
 //   int64_t jParIter = operandCPosIterPar[1];
 
-//   // Operand A: One parallel iterator (i) and two reduction ones (batch and k).
+//   // Operand A: One parallel iterator (i) and two reduction ones (batch and
+//   k).
 //   // The batch dimension is optional.
 //   llvm::SmallVector<int64_t> operandAPosIterPar = getIteratorPos(
 //       linalgOp, mapOperandA, mlir::utils::IteratorType::parallel);
@@ -296,8 +297,7 @@ static bool hasReluBody(Operation *op, SmallVectorImpl<Value> *captured) {
 
     if (cmpPredicate == arith::CmpFPredicate::UGT ||
         cmpPredicate == arith::CmpFPredicate::UGE) {
-      if (cmpLhs == trueVal &&
-          mlir::utils::isZeroTensor(cmpRhs) &&
+      if (cmpLhs == trueVal && mlir::utils::isZeroTensor(cmpRhs) &&
           mlir::utils::isZeroTensor(falseVal)) {
         // case: %in > 0 ? %in : 0
         return (getOperand(cmpLhs, cmpRhs) || getOperand(cmpRhs, cmpLhs));
@@ -309,8 +309,7 @@ static bool hasReluBody(Operation *op, SmallVectorImpl<Value> *captured) {
       }
     } else if (cmpPredicate == arith::CmpFPredicate::ULT ||
                cmpPredicate == arith::CmpFPredicate::ULE) {
-      if (cmpLhs == falseVal &&
-          mlir::utils::isZeroTensor(cmpRhs) &&
+      if (cmpLhs == falseVal && mlir::utils::isZeroTensor(cmpRhs) &&
           mlir::utils::isZeroTensor(trueVal)) {
         // case: %in < 0 ? 0 : %in
         return (getOperand(cmpLhs, cmpRhs) || getOperand(cmpRhs, cmpLhs));
@@ -329,7 +328,7 @@ namespace {
 // Helper matcher functor for relu detection.
 struct WithReluBody {
   WithReluBody() = delete;
-  WithReluBody(SmallVectorImpl<Value> *captures) : captures(captures){};
+  WithReluBody(SmallVectorImpl<Value> *captures) : captures(captures) {};
 
   bool operator()(Region *region, Operation *op) {
     auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
@@ -361,7 +360,7 @@ bool isTwoDReluOp(linalg::LinalgOp linalgOp, SmallVectorImpl<Value> *operands) {
 //                       SmallVectorImpl<Value> *operands) {
 //   SmallVector<Value, 2> linalgOperands;
 //   // clang-format off
-//   auto identityMatcher = 
+//   auto identityMatcher =
 //     StructuredOpMatcher::make<linalg::LinalgOp>()
 //     .output(MatchAll(), HasMap(Identity()))
 //     .input(MatchAll(), HasMap(BroadcastableProjectedPermutation()))

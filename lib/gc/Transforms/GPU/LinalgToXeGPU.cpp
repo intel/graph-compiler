@@ -12,7 +12,6 @@
 #include "gc/Transforms/Utils/StructuredOpMatcher.h"
 #include "gc/Transforms/Utils/ValueUtils.h"
 
-
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -1008,8 +1007,9 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   tilesA =
       SmallVector<Value>{iterValues.begin() + loadVecC.size(),
                          iterValues.begin() + loadVecC.size() + tilesA.size()};
-  tilesB = SmallVector<Value>{iterValues.begin() + loadVecC.size() + tilesA.size(),
-                              iterValues.begin() + loadVecC.size() + tilesA.size() + tilesB.size()};
+  tilesB = SmallVector<Value>{
+      iterValues.begin() + loadVecC.size() + tilesA.size(),
+      iterValues.begin() + loadVecC.size() + tilesA.size() + tilesB.size()};
   if (isCoopPrefetch) {
     prefetchA = *(iterValues.end() - 2);
     prefetchB = *(iterValues.end() - 1);
