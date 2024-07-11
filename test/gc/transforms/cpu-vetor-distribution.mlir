@@ -141,3 +141,77 @@ func.func @matmul_add(%arg0: tensor<8192x12288xf16>, %arg1: tensor<12288x16384xf
   return %3 : tensor<8192x16384xf32>
 }
 
+#map = affine_map<(d0) -> (d0 * 64)>
+#map1 = affine_map<(d0) -> (d0 * 128)>
+#map2 = affine_map<(d0) -> (d0 floordiv 16)>
+#map3 = affine_map<(d0) -> (d0 floordiv 32)>
+#map4 = affine_map<(d0, d1, d2) -> (d0 + d1 + d2 * 128)>
+#map5 = affine_map<(d0, d1, d2) -> (d0 + d1 + d2 * 64)>
+  func.func @mlp(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32xbf16>, %arg2: tensor<256xbf16>) -> tensor<128x256xbf16> {
+    %c32 = arith.constant 32 : index
+    %c512 = arith.constant 512 : index
+    %c128 = arith.constant 128 : index
+    %c64 = arith.constant 64 : index
+    %c0 = arith.constant 0 : index
+    %cst = arith.constant 0.000000e+00 : bf16
+    %0 = tensor.empty() : tensor<128x256xbf16>
+    %1 = tensor.empty() : tensor<512x256xbf16>
+    %2:3 = scf.forall (%arg3, %arg4) in (2, 2) shared_outs(%arg5 = %0, %arg6 = %0, %arg7 = %0) -> (tensor<128x256xbf16>, tensor<128x256xbf16>, tensor<128x256xbf16>) {
+      %3 = affine.apply #map(%arg3)
+      %4 = affine.apply #map1(%arg4)
+      %extracted_slice = tensor.extract_slice %arg0[%3, 0] [64, 512] [1, 1] : tensor<128x512xbf16> to tensor<64x512xbf16>
+      %extracted_slice_0 = tensor.extract_slice %arg5[%3, %4] [64, 128] [1, 1] : tensor<128x256xbf16> to tensor<64x128xbf16>
+      %5:3 = scf.for %arg8 = %c0 to %c64 step %c64 iter_args(%arg9 = %extracted_slice_0, %arg10 = %extracted_slice_0, %arg11 = %extracted_slice_0) -> (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) {
+        %6:3 = scf.for %arg12 = %c0 to %c128 step %c128 iter_args(%arg13 = %arg9, %arg14 = %arg10, %arg15 = %arg11) -> (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) {
+          %7:3 = scf.for %arg16 = %c0 to %c512 step %c512 iter_args(%arg17 = %arg13, %arg18 = %arg14, %arg19 = %arg15) -> (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) {
+            %extracted_slice_1 = tensor.extract_slice %extracted_slice[%arg8, %arg16] [64, 512] [1, 1] : tensor<64x512xbf16> to tensor<64x512xbf16>
+            %extracted_slice_2 = tensor.extract_slice %arg17[%arg8, %arg12] [64, 128] [1, 1] : tensor<64x128xbf16> to tensor<64x128xbf16>
+            %8:3 = scf.for %arg20 = %c0 to %c64 step %c32 iter_args(%arg21 = %extracted_slice_2, %arg22 = %arg18, %arg23 = %arg19) -> (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) {
+              %9:3 = scf.for %arg24 = %c0 to %c128 step %c32 iter_args(%arg25 = %arg21, %arg26 = %arg22, %arg27 = %arg23) -> (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) {
+                %10:3 = scf.for %arg28 = %c0 to %c512 step %c512 iter_args(%arg29 = %arg25, %arg30 = %arg26, %arg31 = %arg27) -> (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>) {
+                  %extracted_slice_5 = tensor.extract_slice %extracted_slice_1[%arg20, %arg28] [32, 512] [1, 1] : tensor<64x512xbf16> to tensor<32x512xbf16>
+                  %11 = affine.apply #map2(%arg28)
+                  %12 = affine.apply #map3(%arg24)
+                  %extracted_slice_6 = tensor.extract_slice %arg1[%11, %12, 0, 0] [32, 1, 16, 32] [1, 1, 1, 1] : tensor<32x8x16x32xbf16> to tensor<32x1x16x32xbf16>
+                  %extracted_slice_7 = tensor.extract_slice %1[%arg28, %arg24] [512, 32] [1, 1] : tensor<512x256xbf16> to tensor<512x32xbf16>
+                  %unpack = tensor.unpack %extracted_slice_6 inner_dims_pos = [0, 1] inner_tiles = [16, 32] into %extracted_slice_7 : tensor<32x1x16x32xbf16> -> tensor<512x32xbf16>
+                  %extracted_slice_8 = tensor.extract_slice %arg29[%arg20, %arg24] [32, 32] [1, 1] : tensor<64x128xbf16> to tensor<32x32xbf16>
+                  %13 = linalg.fill ins(%cst : bf16) outs(%extracted_slice_8 : tensor<32x32xbf16>) -> tensor<32x32xbf16>
+                  %expanded = tensor.expand_shape %extracted_slice_5 [[0, 1], [2]] output_shape [1, 32, 512] : tensor<32x512xbf16> into tensor<1x32x512xbf16>
+                  %expanded_9 = tensor.expand_shape %unpack [[0, 1], [2]] output_shape [1, 32, 512] : tensor<512x32xbf16> into tensor<1x512x32xbf16>
+                  %14 = linalg.batch_reduce_matmul ins(%expanded, %expanded_9 : tensor<1x32x512xbf16>, tensor<1x512x32xbf16>) outs(%13 : tensor<32x32xbf16>) -> tensor<32x32xbf16>
+                  %15 = affine.apply #map4(%arg12, %arg24, %arg4)
+                  %16 = affine.apply #map5(%arg8, %arg20, %arg3)
+                  %extracted_slice_10 = tensor.extract_slice %arg2[%15] [32] [1] : tensor<256xbf16> to tensor<32xbf16>
+                  %extracted_slice_11 = tensor.extract_slice %0[%16, %15] [32, 32] [1, 1] : tensor<128x256xbf16> to tensor<32x32xbf16>
+                  %broadcasted = linalg.broadcast ins(%extracted_slice_10 : tensor<32xbf16>) outs(%extracted_slice_11 : tensor<32x32xbf16>) dimensions = [0] 
+                  %extracted_slice_12 = tensor.extract_slice %arg30[%arg20, %arg24] [32, 32] [1, 1] : tensor<64x128xbf16> to tensor<32x32xbf16>
+                  %17 = linalg.add ins(%14, %broadcasted : tensor<32x32xbf16>, tensor<32x32xbf16>) outs(%extracted_slice_12 : tensor<32x32xbf16>) -> tensor<32x32xbf16>
+                  %inserted_slice_13 = tensor.insert_slice %14 into %arg29[%arg20, %arg24] [32, 32] [1, 1] : tensor<32x32xbf16> into tensor<64x128xbf16>
+                  %extracted_slice_14 = tensor.extract_slice %arg31[%arg20, %arg24] [32, 32] [1, 1] : tensor<64x128xbf16> to tensor<32x32xbf16>
+                  %18 = linalg.exp ins(%17 : tensor<32x32xbf16>) outs(%extracted_slice_14 : tensor<32x32xbf16>) -> tensor<32x32xbf16>
+                  %inserted_slice_15 = tensor.insert_slice %17 into %arg30[%arg20, %arg24] [32, 32] [1, 1] : tensor<32x32xbf16> into tensor<64x128xbf16>
+                  %inserted_slice_16 = tensor.insert_slice %18 into %arg31[%arg20, %arg24] [32, 32] [1, 1] : tensor<32x32xbf16> into tensor<64x128xbf16>
+                  scf.yield %inserted_slice_13, %inserted_slice_15, %inserted_slice_16 : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
+                }
+                scf.yield %10#0, %10#1, %10#2 : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
+              }
+              scf.yield %9#0, %9#1, %9#2 : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
+            }
+            %inserted_slice = tensor.insert_slice %8#0 into %arg17[%arg8, %arg12] [64, 128] [1, 1] : tensor<64x128xbf16> into tensor<64x128xbf16>
+            %inserted_slice_3 = tensor.insert_slice %8#1 into %arg18[%arg8, %arg12] [64, 128] [1, 1] : tensor<64x128xbf16> into tensor<64x128xbf16>
+            %inserted_slice_4 = tensor.insert_slice %8#2 into %arg19[%arg8, %arg12] [64, 128] [1, 1] : tensor<64x128xbf16> into tensor<64x128xbf16>
+            scf.yield %inserted_slice, %inserted_slice_3, %inserted_slice_4 : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
+          }
+          scf.yield %7#0, %7#1, %7#2 : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
+        }
+        scf.yield %6#0, %6#1, %6#2 : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
+      }
+      scf.forall.in_parallel {
+        tensor.parallel_insert_slice %5#2 into %arg7[%3, %4] [64, 128] [1, 1] : tensor<64x128xbf16> into tensor<128x256xbf16>
+        tensor.parallel_insert_slice %5#1 into %arg6[%3, %4] [64, 128] [1, 1] : tensor<64x128xbf16> into tensor<128x256xbf16>
+        tensor.parallel_insert_slice %5#0 into %arg5[%3, %4] [64, 128] [1, 1] : tensor<64x128xbf16> into tensor<128x256xbf16>
+      }
+    }
+    return %2#2 : tensor<128x256xbf16>
+  }

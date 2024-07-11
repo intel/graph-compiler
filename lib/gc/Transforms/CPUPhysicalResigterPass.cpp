@@ -17,29 +17,30 @@ namespace {
 
 #define DBGS() (llvm::dbgs() << '[' << DEBUG_TYPE << "] ")
 #define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
+
+#define ARITH_CAST_OPERATIONS                                                  \
+  arith::ExtFOp, arith::ExtSIOp, arith::ExtUIOp, arith::BitcastOp,             \
+      arith::FPToSIOp, arith::FPToUIOp, arith::SIToFPOp, arith::UIToFPOp
+
 // TODO: remove it in the future
-bool disableSpecialOp = true;
+bool disableSpecialOp = false;
 
-struct HardwareInfo {
-  bool favx512f = true;
-  bool favx2 = true;
-} HW;
-
-// void printGroupOps(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups) {
-//   for (auto grp : opGroups) {
-//     if (grp.empty()) {
-//       continue;
-//     }
-//     std::cout << "__________________ group start_____________" << std::endl;
-//     std::queue<Operation *> tmpQ(grp);
-//     while (!tmpQ.empty()) {
-//       auto cur = tmpQ.front();
-//       tmpQ.pop();
-//       cur->dump();
-//     }
-//     std::cout << "__________________ group end_____________" << std::endl;
-//   }
-// }
+void printGroupOps(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups) {
+  for (auto grp : opGroups) {
+    if (grp.empty()) {
+      continue;
+    }
+    std::cout << "__________________ group start_____________" << std::endl;
+    std::queue<Operation *> tmpQ(grp);
+    while (!tmpQ.empty()) {
+      auto cur = tmpQ.front();
+      tmpQ.pop();
+      cur->dump();
+    }
+    std::cout << "__________________ group end_____________" << std::endl;
+    std::cout << std::endl;
+  }
+}
 
 bool isSpecialOp(Operation *op) {
   return llvm::isa<vector::TransposeOp>(op) ||
@@ -98,7 +99,7 @@ int get_nearest_vector_step(const int step) {
   return (1 << (nbits - 1)) == step ? step : (1 << nbits);
 }
 
-int generateValidSteps(int steps, VectorType type) {
+int TypeHelper::generateValidSteps(int steps, VectorType type) {
   return type.getShape().back() >= steps
              ? (steps > 16 ? 16 : steps)
              : get_nearest_vector_step(type.getShape().back());
@@ -110,13 +111,13 @@ bool isLastDim(const AffineExpr &expr, const size_t rank) {
          mlir::dyn_cast<AffineDimExpr>(expr).getPosition() == rank - 1;
 }
 
-[[nodiscard]] int getDataTypeValidSteps(const VectorType &type) {
+[[nodiscard]] int TypeHelper::getDataTypeValidSteps(const VectorType &type) {
   auto typebits = type.getElementTypeBitWidth();
   const int favx512bits = 512;
   const int favx2bits = 256;
-  if (HW.favx512f) {
+  if (HWInfo.favx512f) {
     return generateValidSteps(favx512bits / typebits, type);
-  } else if (HW.favx2) {
+  } else if (HWInfo.favx2) {
     return generateValidSteps(favx2bits / typebits, type);
   } else {
     // invalid
@@ -127,15 +128,13 @@ bool isLastDim(const AffineExpr &expr, const size_t rank) {
 }
 
 // Get the maximum number of current data types that a register can hold
-[[nodiscard]] int getDataTypeMAXSIMDLength(const VectorType &type) {
+[[nodiscard]] int TypeHelper::getDataTypeMAXSIMDLength(const VectorType &type) {
   auto typebits = type.getElementTypeBitWidth();
   const int favx512bits = 512;
   const int favx2bits = 256;
-  if (HW.favx512f) {
-    // return generateValidSteps(favx512bits / typebits, type);
+  if (HWInfo.favx512f) {
     return favx512bits / typebits;
-  } else if (HW.favx2) {
-    // return generateValidSteps(favx2bits / typebits, type);
+  } else if (HWInfo.favx2) {
     return favx2bits / typebits;
   } else {
     // invalid
@@ -192,7 +191,7 @@ mlir::FailureOr<VectorType> getOperationVectorType(Operation *op) {
   return ret;
 }
 
-VectorType getVectorzedType(Operation *op, uint32_t loop_step = 0) {
+VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loop_step) {
   // Check that the operation type can be broken
   // down into a loop.
   auto baseType = getOperationVectorType(op);
@@ -732,7 +731,6 @@ void classifySourceRelatedOps(std::queue<Operation *> &accRelatedOps,
   }
 }
 
-enum class MultiReduceOpAxisKind { Reduction, Parallel };
 void updateReduceReadWriteOperationOperand(
     const llvm::SmallVector<Value, 5> &inductionVars,
     const llvm::SmallVector<int64_t, 4> &parallelAxis, Operation *op,
@@ -747,11 +745,11 @@ void updateReduceReadWriteOperationOperand(
   }
 }
 
-vector::TransferReadOp cloneReductionTransferRead(
+vector::TransferReadOp ForLoopGenerator::cloneReductionTransferRead(
     Value &source, OpBuilder &b, IRMapping &readMap,
     const llvm::SmallVector<int64_t, 4> &parallelAxis,
     llvm::SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
-    MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel) {
+    MultiReduceOpAxisKind rdKind) {
   IRRewriter rewriter(b);
   auto readOp = mlir::dyn_cast<vector::TransferReadOp>(source.getDefiningOp());
   assert(readOp && " Not transfer_read operation. Current multireduction "
@@ -806,9 +804,7 @@ void ForLoopGenerator::moveOperationsToCurrentForBody(
     const size_t groupIdx, OpBuilder &b,
     const llvm::SmallVector<Value, 5> &inductionVars,
     const llvm::DenseMap<Value, int> &operandIdxMap,
-    const ValueRange &loopState, const std::queue<Operation *> &queue) {
-  std::queue<Operation *> opQueue =
-      queue.empty() ? getFusionStrategy().getOpGroups()[groupIdx] : queue;
+    const ValueRange &loopState, std::queue<Operation *> &opQueue) {
   auto &opPermuationMap = getOpPermuationMap();
   while (!opQueue.empty()) {
     auto x = opQueue.front();
@@ -819,6 +815,23 @@ void ForLoopGenerator::moveOperationsToCurrentForBody(
                                opPermuationMap);
   }
 }
+
+bool hasOtherOperations(const std::queue<Operation *> &opQ,
+                        const Operation *multiReductionOp) {
+  bool res = false;
+  if (!opQ.empty()) {
+    std::queue<Operation *> tempQ(opQ);
+    while (!tempQ.empty()) {
+      auto cur = tempQ.front();
+      tempQ.pop();
+      if (!isReadOrWriteOperation(cur) and cur != multiReductionOp) {
+        res = true;
+        break;
+      }
+    }
+  }
+  return res;
+};
 
 scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
     OpBuilder &opBuilder, const int groupIdx, const size_t reductionIdx,
@@ -893,8 +906,8 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
                     {cur->getResults()[0], resultArray.size() - 1});
               }
             }
-            moveOperationsToCurrentForBody(groupIdx, b, loopState,
-                                           operandIdxMap, inductionVars);
+            moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
+                                           operandIdxMap, loopState, sourceOps);
 
             auto reductionResult = makeArithReduction(
                 b, loc, multireductionOp.getKind(),
@@ -914,6 +927,8 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
   return forOp;
 }
 
+// Generate for loop for parallel axis of `vector.multi_reduction`.
+// This function also call reduction axis for loop
 scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
     OpBuilder &opBuilder, const int groupIdx, const size_t parallelIdx,
     ValueRange &initArgs, llvm::SmallVector<Value, 5> &inductionVars,
@@ -934,6 +949,7 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
   // last dim reduction need to a generate dim=16 loop
   int dimSize = 0;
   if (parallelIdx == parallelAxis.size()) {
+    // TODO: need to consider data type lanes
     dimSize = 16;
   } else {
     dimSize = vectorType.getShape()[parallelAxis[parallelIdx]];
@@ -1035,6 +1051,7 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
                 loc, DenseElementsAttr::get(accType, {initValueAttr}));
 
             ValueRange newIterArgs(accVal);
+
             auto nxtFor = reductionAxisGenerateForLoop(
                 b, groupIdx, 0, newIterArgs, inductionVars);
 
@@ -1069,66 +1086,69 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
 
             maybeYieldValue(b, loc, newAccWriteOp->getResults());
           } else {
-            auto prevOp = opQueue.front();
-            auto postOp = opQueue.back();
+
             auto &prevOps = getMultiRdCanonicalizers()[groupIdx].getPrevOps();
             auto &postOps = getMultiRdCanonicalizers()[groupIdx].getPostOps();
             auto &accRelatedOps =
                 getMultiRdCanonicalizers()[groupIdx].getAccRelatedOps();
             auto &sourceRelatedOps =
                 getMultiRdCanonicalizers()[groupIdx].getSourceRelatedOps();
+            // prevOp + reduction op + postOp
+            // reduction op + postOp
+            getPrevOps(prevOps, opQueue, multiReductionOp);
+            getPostOps(postOps, opQueue, multiReductionOp);
+            bool hasPrevOps = hasOtherOperations(prevOps, multiReductionOp);
+            bool hasPostOps = hasOtherOperations(postOps, multiReductionOp);
 
-            if (mlir::isa<vector::MultiDimReductionOp>(prevOp)) {
+            if (hasPostOps and !hasPrevOps) {
+              // multi_reduction + postOp
 
             } else {
-              if (mlir::isa<vector::MultiDimReductionOp>(postOp)) {
-                // prevOp + reduction op
-              } else {
-                // prevOp + reduction op + postOp
-                // reduction op + postOp
-                getPrevOps(prevOps, opQueue, multiReductionOp);
-                getPostOps(postOps, opQueue, multiReductionOp);
-                // analysis acc related operation
-                classifySourceRelatedOps(
-                    accRelatedOps, sourceRelatedOps,
-                    multiReductionOp.getSource().getDefiningOp(), prevOps);
+              // analysis acc related operation
+              classifySourceRelatedOps(
+                  accRelatedOps, sourceRelatedOps,
+                  multiReductionOp.getSource().getDefiningOp(), prevOps);
 
-                rewriteOperationAsVectorize(b, groupIdx, accRelatedOps);
-                auto &grpArgs = getGroupOpIterArgs()[groupIdx];
-                llvm::DenseMap<Value, int> operandIdxMap;
-                for (auto [idx, x] : llvm::enumerate(grpArgs)) {
-                  operandIdxMap[x] = idx;
-                }
-                moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
-                                               operandIdxMap, loopState,
-                                               accRelatedOps);
-                auto &grpResults = getGroupOpResults()[groupIdx];
-                // next for loop
-                llvm::SmallVector<Value> iterArgsArray;
-                iterArgsArray.emplace_back(multiReductionAcc);
-                std::queue<Operation *> tmpSourceOps(sourceRelatedOps);
-                while (!tmpSourceOps.empty()) {
-                  auto cur = tmpSourceOps.front();
-                  tmpSourceOps.pop();
-                  auto curResults = cur->getResults();
-                  for (auto x : curResults) {
-                    if (grpResults.contains(x)) {
-                      for (auto y : cur->getOperands()) {
-                        if (grpArgs.contains(y)) {
-                          iterArgsArray.emplace_back(y);
-                        }
+              rewriteOperationAsVectorize(b, groupIdx, accRelatedOps);
+              auto &grpArgs = getGroupOpIterArgs()[groupIdx];
+              llvm::DenseMap<Value, int> operandIdxMap;
+              for (auto [idx, x] : llvm::enumerate(grpArgs)) {
+                operandIdxMap[x] = idx;
+              }
+              moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
+                                             operandIdxMap, loopState,
+                                             accRelatedOps);
+              auto &grpResults = getGroupOpResults()[groupIdx];
+              // next for loop
+              llvm::SmallVector<Value> iterArgsArray;
+              iterArgsArray.emplace_back(multiReductionAcc);
+              std::queue<Operation *> tmpSourceOps(sourceRelatedOps);
+              while (!tmpSourceOps.empty()) {
+                auto cur = tmpSourceOps.front();
+                tmpSourceOps.pop();
+                auto curResults = cur->getResults();
+                for (auto x : curResults) {
+                  if (grpResults.contains(x)) {
+                    for (auto y : cur->getOperands()) {
+                      if (grpArgs.contains(y)) {
+                        iterArgsArray.emplace_back(y);
                       }
                     }
                   }
                 }
-                ValueRange reductionAxisArgs(iterArgsArray);
-                auto nxtFor = parallelAxisGenerateForLoop(
-                    b, groupIdx, parallelIdx + 1, reductionAxisArgs,
-                    inductionVars, originalWriteResult);
+              }
+              ValueRange reductionAxisArgs(iterArgsArray);
+              auto nxtFor = parallelAxisGenerateForLoop(
+                  b, groupIdx, parallelIdx + 1, reductionAxisArgs,
+                  inductionVars, originalWriteResult);
+              if (hasPrevOps and !hasPostOps) {
+                // prevOp + reduction op
+
+              } else {
 
                 rewriteOperationAsVectorize(b, groupIdx, postOps);
-                moveOperationsToCurrentForBody(groupIdx, b, loopState,
-                                               operandIdxMap, inductionVars,
+                moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
+                                               operandIdxMap, loopState,
                                                postOps);
 
                 auto replaceIfFn = [&](OpOperand &use) {
@@ -1362,7 +1382,7 @@ LogicalResult CanonicalizerVectorOperation::canonicalizeReductionOperation() {
       continue;
     }
     // generate MultiReduction for loops
-    // (void)generateMultiReductionForLoop(groupId);
+    (void)generateMultiReductionForLoop(groupId);
   }
   return success();
 }
@@ -1417,6 +1437,7 @@ void CanonicalizerVectorOperation::run() {
     // Query groupResultYeildSet to map operaion result value to scf.yield
     // result value.
     analysisGroupOperaion();
+    printGroupOps(getFusionStrategy().getOpGroups());
     // Speical Operation Canonicalization
     canonicalizeSpecialOperation();
 
@@ -1507,8 +1528,9 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
 
         // inner most body of the loop
         if (forDimIdx == dims.size() - 1) {
-          moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
-                                         operandIdxMap, loopState);
+          moveOperationsToCurrentForBody(
+              groupIdx, b, inductionVars, operandIdxMap, loopState,
+              getFusionStrategy().getOpGroups()[groupIdx]);
           auto &resultSet = getGroupOpResults()[groupIdx];
           maybeYieldValue(b, loc, resultSet.getArrayRef());
         } else {
@@ -1522,6 +1544,28 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
   return forOp;
 }
 
+bool isSameVectorType(Operation *op1, Operation *op2) {
+  auto type1 = getOperationVectorType(op1);
+  auto type2 = getOperationVectorType(op2);
+  if (failed(type1) || failed(type2)) {
+    return false;
+  }
+  auto sp1 = type1.value();
+  auto sp2 = type2.value();
+  if (sp1.getRank() != sp2.getRank()) {
+    return false;
+  }
+  bool isSame = true;
+  // from front to back
+  for (long i = 0; i < sp1.getRank(); i++) {
+    if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
+      isSame = false;
+      break;
+    }
+  }
+  return isSame;
+}
+
 bool isCompatibleVectorType(Operation *op1, Operation *op2) {
   auto type1 = getOperationVectorType(op1);
   auto type2 = getOperationVectorType(op2);
@@ -1530,22 +1574,20 @@ bool isCompatibleVectorType(Operation *op1, Operation *op2) {
   }
   auto sp1 = type1.value();
   auto sp2 = type2.value();
-  if (isReadOrWriteOperation(op1) or isReadOrWriteOperation(op2)) {
-    if (sp1.getRank() != sp2.getRank()) {
-      return false;
-    }
-    for (long i = 0; i < sp1.getRank(); i++) {
-      if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
-        return false;
-      }
-    }
-  }
-  if (sp1.getRank() != sp2.getRank()) {
-    return false;
-  }
+  // if (isReadOrWriteOperation(op1) or isReadOrWriteOperation(op2)) {
+  //   if (sp1.getRank() != sp2.getRank()) {
+  //     return false;
+  //   }
+  //   for (long i = 0; i < sp1.getRank(); i++) {
+  //     if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
+  //       return false;
+  //     }
+  //   }
+  // }
   bool isCompatible = true;
+  auto min_rank = std::min(sp1.getRank(), sp2.getRank());
   // from front to back
-  for (long i = 0; i < sp1.getRank(); i++) {
+  for (long i = 0; i < min_rank; i++) {
     if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
       isCompatible = false;
       break;
@@ -1740,14 +1782,17 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
           })
           .Case<vector::MultiDimReductionOp>(
               [&](vector::MultiDimReductionOp multiReductionOp) {
-                // op1 is special operation, op2 is normal operation
-                // op1 and op2 is both speicial operation
+                // has two cases: op1 is special operation, op2 is normal
+                // operation op1 and op2 is both speicial operation
                 llvm::SmallVector<int64_t> dims2, reductionDims, parallelDims;
                 getOperationDataAxis(op1, reductionDims);
                 getOperationDataAxis(op2, dims2);
                 llvm::DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
-
+                auto op2VectorType = getOperationVectorType(op2);
                 if (!isSpecialOp(op2)) {
+                  if (isSameVectorType(op1, op2)) {
+                    return false;
+                  }
                   // all reduction axis should be op2's data axis
                   bool reduceDependent = false;
                   for (auto x : reductionDims) {
@@ -1771,9 +1816,7 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
                   }
                   checkSet.clear();
                   checkSet.insert(parallelDims.begin(), parallelDims.end());
-                  auto rank =
-                      mlir::dyn_cast<ShapedType>(op2->getResultTypes()[0])
-                          .getRank();
+                  auto rank = op2VectorType->getRank();
                   for (auto i = 0; i < rank; i++) {
                     if (!checkSet.contains(i)) {
                       return true;
@@ -1781,15 +1824,16 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
                   }
 
                   return false;
-                } else {
-                  // TODO: reduce operation fused with other special operation
-                  if (mlir::isa<vector::TransposeOp>(op2)) {
-                    return true;
-                  } else if (mlir::isa<vector::BroadcastOp>(op2)) {
-                    return true;
-                  }
-                  //...
                 }
+                // else {
+                //   // TODO: reduce operation fused with other special
+                //   operation if (mlir::isa<vector::TransposeOp>(op2)) {
+                //     return true;
+                //   } else if (mlir::isa<vector::BroadcastOp>(op2)) {
+                //     return true;
+                //   }
+                //   //...
+                // }
 
                 return true;
               })
@@ -1797,6 +1841,7 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
             llvm::SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
+            return true;
             if (!isSpecialOp(op2)) {
               return hasSameAxis(dims1, dims2);
             } else {
@@ -1807,6 +1852,7 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
             llvm::SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
+            return true;
             if (!isSpecialOp(op2)) {
               return hasSameAxis(dims1, dims2);
             } else {
@@ -1818,8 +1864,7 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
   return res;
 }
 
-bool isNeedNewGroup(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
-                    Operation *op) {
+bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
   // 1. check previous operation
   if (!opGroups.back().empty()) {
     auto prevOp = opGroups.back().back();
@@ -1834,20 +1879,15 @@ bool isNeedNewGroup(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
 
     // previous operation vector type is not compatible with current operation
     if (!isCompatibleVectorType(prevOp, op)) {
-      // TODO: Support partial compatible operation fusion
-      if (isPartialCompatible(prevOp, op)) {
-      }
       return true;
     }
   }
   return false;
 }
 
-void addOperationToGroup(
-    llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
-    llvm::DenseMap<Operation *, size_t> &opGroupIndexMap, Operation *op) {
-  //
-  if (isNeedNewGroup(opGroups, op)) {
+void VectorFusionStrategy::addOperationToGroup(Operation *op) {
+  assert(op);
+  if (isNeedNewGroup(op)) {
     opGroups.emplace_back(std::queue<Operation *>());
   }
   opGroups.back().push(op);
@@ -1864,7 +1904,7 @@ void VectorFusionStrategy::classifyOperations() {
   }
   func->walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (filterOperation(op)) {
-      addOperationToGroup(opGroups, opGroupIndexMap, op);
+      addOperationToGroup(op);
     }
   });
 }
@@ -1977,24 +2017,27 @@ void ForLoopGenerator::createNewConstantOp(
 /// Rewrite the operations in the group to vectorized form.
 void ForLoopGenerator::rewriteOperationAsVectorize(
     OpBuilder &rewriter, size_t groupId, const std::queue<Operation *> &queue) {
-  auto &groupOps =
+  const std::queue<Operation *> groupOps =
       queue.empty() ? getFusionStrategy().getOpGroups()[groupId] : queue;
-  auto &opMap = getFusionStrategy().getOpGroupIndexMap();
-  auto &opPermuationMap = getOpPermuationMap();
+  const llvm::DenseMap<Operation *, size_t> &opMap =
+      getFusionStrategy().getOpGroupIndexMap();
+  llvm::DenseMap<Operation *, AffineMap> &opPermuationMap =
+      getOpPermuationMap();
   std::queue<Operation *> transformQueue(groupOps);
-  auto groupSteps = getFusionStrategy().getGroupMaxSteps()[groupId];
+  size_t groupSteps = getFusionStrategy().getGroupMaxSteps()[groupId];
 
   while (!transformQueue.empty()) {
-    auto op = transformQueue.front();
+    Operation *op = transformQueue.front();
     transformQueue.pop();
+    VectorType newOperandType = getVectorzedType(op, groupSteps);
     auto lowerResult =
         TypeSwitch<Operation *, LogicalResult>(op)
             .Case<vector::TransferWriteOp>(
                 [&](vector::TransferWriteOp transferWriteOp) {
                   IRRewriter rewriter(transferWriteOp);
-                  auto newOperandType =
-                      getVectorzedType(transferWriteOp, groupSteps);
-                  auto srcOp = transferWriteOp->getOperand(0).getDefiningOp();
+
+                  Operation *srcOp =
+                      transferWriteOp->getOperand(0).getDefiningOp();
                   if (mlir::isa<arith::ConstantOp>(srcOp)) {
                     createNewConstantOp(srcOp, &transferWriteOp);
                   } else {
@@ -2013,8 +2056,6 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
                 })
             .Case<vector::TransferReadOp>(
                 [&](vector::TransferReadOp transferReadOp) {
-                  auto newOperandType =
-                      getVectorzedType(transferReadOp, groupSteps);
                   opPermuationMap.insert(
                       {transferReadOp, transferReadOp.getPermutationMap()});
                   transferReadOp->getResult(0).setType(newOperandType);
@@ -2032,8 +2073,7 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
                       "It should not appear this operation.");
                   return failure();
                 })
-            .Case<arith::ExtFOp>([&](arith::ExtFOp extfOp) {
-              auto newOperandType = getVectorzedType(extfOp, groupSteps);
+            .Case<ARITH_CAST_OPERATIONS>([&](Operation *extfOp) {
               extfOp->getResult(0).setType(newOperandType);
               return success();
             })
@@ -2043,8 +2083,7 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
                     "It should not appear this operation.");
                 return failure();
               }
-              setOperationOperandResult(op, getVectorzedType(op, groupSteps),
-                                        opMap);
+              setOperationOperandResult(op, newOperandType, opMap);
               return success();
             });
     if (failed(lowerResult)) {
@@ -2075,7 +2114,7 @@ void updateOpOperandResultInGroups(
     llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
     llvm::DenseMap<Operation *, size_t> &opGroupIndexMap, size_t opGid,
     Operation *op, Value &init, const Value &result = Value()) {
-  auto tmpOpQueue(opGroups[opGid]);
+  std::queue<Operation *> tmpOpQueue(opGroups[opGid]);
   std::queue<Operation *> newOpQueue;
   while (!tmpOpQueue.empty()) {
     auto curOp = tmpOpQueue.front();
@@ -2322,10 +2361,13 @@ struct CPUPhysicalRegisterPass
       return;
     }
     // canonicalize vector operation, default use vector-based fusion strategy.
+    HardWareInfo hwInfo;
+    // default has avx512f instructions
+    // hwInfo.favx512f = false;
     CanonicalizerVectorOperation canonicalizer(
-        func, CanonicalizerKind::OperationsGroup);
+        func, CanonicalizerKind::OperationsGroup, hwInfo);
     canonicalizer.run();
-    // patterns.add<TransferReadWriteOpFolder>(ctx);
+
     (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
   }
 };

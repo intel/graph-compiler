@@ -1,5 +1,4 @@
-//===- TilingVector.h - Graph Compiler passes -------------------------*- C++
-//-*-===//
+//===- TilingVector.h - Tiling large vector to small vector ---*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -28,27 +27,20 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
 #include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <deque>
-#include <functional>
 #include <iostream>
-#include <limits>
-#include <optional>
 #include <queue>
 #include <tuple>
 #include <type_traits>
-#include <utility>
 #include <variant>
 namespace mlir {
 namespace gc {
@@ -61,27 +53,46 @@ void setOperationCorrectOperand(
     const llvm::SmallVector<Value, 5> &inductionVars,
     const llvm::DenseMap<Operation *, AffineMap> &opPermuationMap);
 
-// 1. Classify operaions:
-// classify the operations into :
-//    a. reorder, transpose. Reorder(or transpose) dim may bring data
-//    dependency.
-//    b. elemenwise. Those operations can be fused into a common for loop.
-//    c. broadcast. Need to analysis broadcast dim and the data
-//    dependency.
-//    d. reduction. Need to analysis broadcast dim and the
-//    data dependency.
-// Same group operations have no data dependencies. They can be fused into a
-// common for loop body.
+struct HardWareInfo {
+  bool favx512f = true;
+  bool favx2 = true;
+};
 
-// Using queue to store the operation order. In order to ensure that
-// subsequent moves to the operation will not cause semantic changes.
+/// VectorType conversion helper class
+class TypeHelper {
+private:
+  HardWareInfo HWInfo;
+
+public:
+  void setHardWareInfo(HardWareInfo &info) { HWInfo = info; }
+  int getDataTypeValidSteps(const VectorType &type);
+  int generateValidSteps(int steps, VectorType type);
+  int getDataTypeMAXSIMDLength(const VectorType &type);
+  VectorType getVectorzedType(Operation *op, uint32_t loopStep = 0);
+};
+
+/// Operation fusion strategy class.
+/// 1. Classify operaions:
+/// classify the operations into :
+///    a. reorder, transpose. Reorder(or transpose) dim may bring data
+///    dependency.
+///    b. elemenwise. Those operations can be fused into a common for loop.
+///    c. broadcast. Need to analysis broadcast dim and the data
+///    dependency.
+///    d. reduction. Need to analysis broadcast dim and the
+///    data dependency.
+/// Same group operations have no data dependencies. They can be fused into a
+/// common for loop body.
+
+/// Using queue to store the operation order. In order to ensure that
+/// subsequent moves to the operation will not cause semantic changes.
 class VectorFusionStrategy {
 private:
   llvm::SmallVector<std::queue<Operation *>, 8> opGroups;
   llvm::SmallVector<uint32_t, 8> groupMaxSteps;
-  // query current operation in which group, return group index
+  /// query current operation in which group, return group index
   llvm::DenseMap<Operation *, size_t> opGroupIndexMap;
-  // can fused into prev operation which axis position
+  /// can fused into prev operation which axis position
   llvm::DenseMap<Operation *, int32_t> opAnchorPos;
 
   func::FuncOp func;
@@ -102,7 +113,14 @@ public:
 
   void classifyOperations();
 
-  // run the vector fusion strategy
+  /// Check whether the operation can fuse with previous operation
+  bool isNeedNewGroup(Operation *op);
+
+  /// Add Operation \p op into current last group or a new Group
+  /// \p op must has valid value, can't be nullptr
+  void addOperationToGroup(Operation *op);
+
+  /// run the vector-based fusion strategy
   void run();
 };
 
@@ -116,10 +134,12 @@ public:
   SpecialOperationCanonicalizer() = default;
   SpecialOperationCanonicalizer(const llvm::SmallVector<T, 4> &candidateRdOps)
       : candidateRdOps(candidateRdOps) {}
+  virtual ~SpecialOperationCanonicalizer() {}
   llvm::SmallVector<T, 4> &getCandidateOps();
   virtual void prepareSpecialOperationInfo() = 0;
 };
 
+enum class MultiReduceOpAxisKind { Reduction, Parallel };
 class MultiReductionCanonicalizer
     : public SpecialOperationCanonicalizer<vector::MultiDimReductionOp> {
 private:
@@ -140,6 +160,7 @@ public:
     isStandaloneOp = candidateRdOps.size() == 1;
     prepareSpecialOperationInfo();
   };
+  virtual ~MultiReductionCanonicalizer(){};
   int64_t getTypeRank();
   void getReductionAxisAndParallelAxis();
   bool hasLastDimReduction();
@@ -157,7 +178,7 @@ public:
   VectorType &getAccType() { return accType; };
   llvm::SmallDenseMap<Value, int> &getResultIdxMap() { return resultIdxMap; }
   void setResultIdxMap(const llvm::SmallDenseMap<Value, int> &map) {
-    resultIdxMap = std::move(map);
+    resultIdxMap = map;
   }
   void prepareSpecialOperationInfo() override;
 };
@@ -169,6 +190,7 @@ public:
   BroadcastCanonicalizer(
       const llvm::SmallVector<vector::BroadcastOp, 4> &candidateBcOps)
       : SpecialOperationCanonicalizer<vector::BroadcastOp>(candidateBcOps){};
+  virtual ~BroadcastCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
 };
 
@@ -179,6 +201,7 @@ public:
   TransposeCanonicalizer(
       const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps)
       : SpecialOperationCanonicalizer<vector::TransposeOp>(candidateTpOps){};
+  virtual ~TransposeCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
 };
 
@@ -189,10 +212,11 @@ public:
   ShapeCastCanonicalizer(
       const llvm::SmallVector<vector::ShapeCastOp, 4> &candidateScOps)
       : SpecialOperationCanonicalizer<vector::ShapeCastOp>(candidateScOps){};
+  virtual ~ShapeCastCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
 };
 
-class CanonicalizerCommonUsedData {
+class CanonicalizerCommonUsedData : virtual public TypeHelper {
 private:
   VectorFusionStrategy fusionStrategy;
   // analysis the operation's operands and results
@@ -308,7 +332,7 @@ public:
       const size_t groupIdx, OpBuilder &b,
       const llvm::SmallVector<Value, 5> &inductionVars,
       const llvm::DenseMap<Value, int> &operandIdxMap,
-      const ValueRange &loopState, const std::queue<Operation *> &queue = {});
+      const ValueRange &loopState, std::queue<Operation *> &queue);
 
   // multireduction forloop  methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
@@ -322,6 +346,12 @@ public:
   reductionAxisGenerateForLoop(OpBuilder &opBuilder, const int groupIdx,
                                const size_t reductionIdx, ValueRange &initArgs,
                                llvm::SmallVector<Value, 5> &inductionVars);
+
+  vector::TransferReadOp cloneReductionTransferRead(
+      Value &source, OpBuilder &b, IRMapping &readMap,
+      const llvm::SmallVector<int64_t, 4> &parallelAxis,
+      llvm::SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
+      MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel);
 };
 
 class VectorOperationAnalysizer : virtual public CanonicalizerCommonUsedData {
@@ -349,10 +379,12 @@ private:
 public:
   CanonicalizerVectorOperation(
       func::FuncOp func,
-      CanonicalizerKind kind = CanonicalizerKind::OperationsGroup)
+      CanonicalizerKind kind = CanonicalizerKind::OperationsGroup,
+      HardWareInfo hwInfo = {})
       : func(func), rewriter(func), kind(kind) {
     setAnalysisFunc(func);
     setGeneratorFunc(func);
+    setHardWareInfo(hwInfo);
     // vector operation fusion
     if (kind == CanonicalizerKind::OperationsGroup) {
       auto fusionStrategy = VectorFusionStrategy(func);

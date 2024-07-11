@@ -9,7 +9,6 @@
 #ifndef GC_PASSES_H
 #define GC_PASSES_H
 
-#include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
