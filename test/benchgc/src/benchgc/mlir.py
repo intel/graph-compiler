@@ -21,6 +21,19 @@ from gc_mlir.dialects import func
 from benchgc.arg import Arg
 from typing import Callable, List, Self
 
+def get_entry_args(module: gc_mlir.ir.Module, entry: str = '"entry"') -> List[str]:
+    entry_op: gc_mlir.ir.OpView | None = None
+    for op in module.operation.opview.regions[0].blocks[0].operations:
+        if str(op.name) == entry:
+            entry_op = op
+            break
+    
+    if entry_op is None:
+        raise Exception("entry function %s is not found at the top level" % entry)
+    else:
+        return ["%arg" + str(i) for i in range(len(entry_op.type.inputs))]
+
+
 def init_i1o1_module(argin: Arg, argout: Arg, op_func: Callable[[gc_mlir.ir.Context, gc_mlir.ir.BlockArgument], gc_mlir.ir.OpResult]) -> gc_mlir.ir.Module:
     with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
         module = gc_mlir.ir.Module.create()

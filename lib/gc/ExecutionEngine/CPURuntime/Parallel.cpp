@@ -33,7 +33,7 @@ using barrier_idle_func = uint64_t (*)(std::atomic<int32_t> *remaining,
 } // namespace
 
 extern "C" {
-int gc_runtime_keep_alive = 0;
+int gc_runtime_keep_alive = omp_get_thread_num();
 void gc_arrive_at_barrier(barrier_t *b, barrier_idle_func idle_func,
                           void *idle_args) {
   auto cur_round = b->rounds_.load(std::memory_order_acquire);

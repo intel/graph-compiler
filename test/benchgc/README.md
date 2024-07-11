@@ -45,10 +45,12 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 ### --verbose [int]
 * set the verbose level
 
-### -i name:dtype:shape:fill_type[:fill_parameter]*
-* set or rewrite the variable {shape, dtype} in mlir or single op test
+### -i shapexdtype:fill_type[:fill_parameter]*
+* this flag is order sensitive
+* first setting will be the arg0, the second setting will be the arg1, ..
+* set the variable shape and dtype in single op test
 * set the data filling strategy
-* use the variable name defined in your mlir case if driver = mlir
+
 
 * fill_type & fill_parameter setting
     | description | fill_type | fill_parameter |
@@ -68,12 +70,11 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
     | matmul | src dtype, wei dtype, dst dtype, amplifier |
     | conv | src dtype, wei dtype, dst dtype, amplifier |
 
-### -o name:dtype:shape:check_type[:check_parameter]*
-* set or rewrite the variable {shape, dtype} in mlir or single op test
+### -o shapexdtype:check_type[:check_parameter]*
+* set the variable shape and dtype in single op test
 * set the data compare & check strategy
-
 
 ## Example
 ```
-python3 -m benchgc --verbose 4 --driver linalg --case add -i %arg0:f32:4x5x6:N:0:1 -i %arg1:f32:4x5x6:N:5:2 -o %1:f32:4x5x6::
+python3 -m benchgc --verbose 4 --driver linalg --case add -i 4x5x6xf32:N:0:1 -i 4x5x6xf32:N:5:2 -o 4x5x6xf32::
 ```

@@ -30,10 +30,11 @@ def generic_loop(cache: MLIRCache, op: gc_mlir.ir.OpView, depth: int, iterspace:
         if len(cache.next) == 0:
             # region cache
             cache.next.append(MLIRCache())
+
+        block: gc_mlir.ir.Block = op.regions[0].blocks[0]
         if len(cache.next[0].next) == 0:
             # region->block cache
             cache.next[0].next.append(MLIRCache())
-            block: gc_mlir.ir.Block = op.regions[0].blocks[0]
             for arg in block.arguments:
                 cache.next[0].next[0].arg.append(arg.get_name())
 

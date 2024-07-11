@@ -40,26 +40,26 @@ def ref_broadcast(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.
     var[cache.res[0]] = var[cache.opr[0]].reshape(tmp_shape).broadcast_to(dst_shape)
 
 def mlir_broadcast(
-    flags: argparse.Namespace, args: Dict[str, Arg]
+    flags: argparse.Namespace, ins: List[Arg], outs: List[Arg]
 ) -> gc_mlir.ir.Module:
 
-    return init_i1o1_module(args["%arg0"], args["%broadcasted"], lambda ctx, arg0: linalg.broadcast(arg0, outs=[args["%broadcasted"].get_empty_op(ctx)], dimensions= flags.dimensions))
+    return init_i1o1_module(ins[0], outs[0], lambda ctx, arg0: linalg.broadcast(arg0, outs=[outs[0].get_empty_op(ctx)], dimensions= flags.dimensions))
 
 def ref_fill(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] = torch.full(tuple(op.results[0].type.shape), var[cache.opr[0]])
 
 def mlir_fill(
-    flags: argparse.Namespace, args: Dict[str, Arg]
+    flags: argparse.Namespace, ins: List[Arg], outs: List[Arg]
 ) -> gc_mlir.ir.Module:
-    return init_i1o1_module(args["%arg0"], args["%1"], lambda ctx, arg0: linalg.fill(arg0, outs=[args["%1"].get_empty_op(ctx)], dimensions= flags.dimensions))
+    return init_i1o1_module(ins[0], outs[0], lambda ctx, arg0: linalg.fill(arg0, outs=[outs[0].get_empty_op(ctx)], dimensions= flags.dimensions))
 
 def ref_copy(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] =  var[cache.opr[0]].to(benchgc.util.get_dtype(str(op.result.type.element_type))).clone()
 
 def mlir_copy(
-    flags: argparse.Namespace, args: Dict[str, Arg]
+    flags: argparse.Namespace, ins: List[Arg], outs: List[Arg]
 ) -> gc_mlir.ir.Module:
 
-    return init_i1o1_module(args["%arg0"], args["%1"], lambda ctx, arg0: linalg.copy(arg0, outs=[args["%1"].get_empty_op(ctx)], cast = TypeFnType(flags.cast)))
+    return init_i1o1_module(ins[0], outs[0], lambda ctx, arg0: linalg.copy(arg0, outs=[outs[0].get_empty_op(ctx)], cast = TypeFnType(flags.cast)))
 
 

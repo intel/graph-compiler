@@ -16,6 +16,7 @@
 
 import torch
 import benchgc.util
+import benchgc.arg
 from typing import List, Dict, Tuple
 
 # params format: [src | wei, src dt, wei dt, dst dt, amp]
@@ -67,3 +68,9 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
         value.flatten()[0] = torch.randint(arg_min, arg_max + 1, size=[1])[0].item()
 
     return value.to(dtype)
+
+def compare(ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+    dtype = ref.dtype
+    ref = ref.to(torch.float)
+    res = res.to(torch.float)
+    return benchgc.arg.p2p(benchgc.util.get_eps(dtype), 30.0, ref, res, verbose)

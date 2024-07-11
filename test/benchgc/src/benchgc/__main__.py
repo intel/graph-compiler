@@ -15,18 +15,16 @@
 ################################################################################
 
 
-import imp
 import sys
 import argparse
 
-from numpy import dtype
 import torch
 
-from .arg import Arg
-from typing import Dict
+from benchgc.arg import Arg, fill_tensor, compare_tensor
+from typing import Dict, List, Any
 import runner
-import benchgc.fill
 import benchgc.util
+import benchgc.mlir
 import gc_mlir.ir
 from gc_mlir.graph_compiler import GraphCompiler
 import os
@@ -50,7 +48,7 @@ try:
     parser.add_argument(
         "-i",
         required=False,
-        default=None,
+        default=[],
         action="append",
         help="define the input arg name, data type, shape and filling type, eg. src:bf16:2x3x4:add:src",
         type=str,
@@ -152,27 +150,23 @@ except argparse.ArgumentError:
     sys.stderr.write("Argument parse failed\n")
     sys.exit(1)
 
-ins: Dict[str, Arg] = {}
-outs: Dict[str, Arg] = {}
+ins: List[Arg] = []
+outs: List[Arg] = []
 
-for i in flags.i:
-    a = Arg(i)
-    ins[a.name] = a
+for i in range(len(flags.i)):
+    ins.append(Arg(flags.i[i], i))
 
-for o in flags.o:
-    a = Arg(o)
-    outs[a.name] = a
+for i in range(len(flags.o)):
+    outs.append(Arg(flags.o[i], i))
 
-args = ins | outs
-
-for _, arg in ins.items():
-    if arg.type == "D" and len(arg.param) == 0:
-        benchgc.fill.set_default_fill_param(flags, args, arg)
+for i in range(len(ins)):
+    if ins[i].type == "D" and len(ins[i].param) == 0:
+        ins[i].set_default_fill_param(flags, ins, outs)
 
 if flags.driver == "linalg":
     from .linalg import mlir_op
     mlir_func = mlir_op[flags.case]
-    module = mlir_func(flags, args)
+    module = mlir_func(flags, ins, outs)
 elif flags.driver == "mlir":
     with open(flags.case, "r") as mlir_file:
         with gc_mlir.ir.Context() as ctx:
@@ -182,18 +176,21 @@ else:
 
 print(module)
 
-gc_args = []
+gc_args: List[Any] = []
+gc_out: List[torch.Tensor] = []
 tensors: Dict[str, torch.Tensor] = {}
-for k, v in ins.items():
-    tensors[k] = benchgc.fill.fill_tensor(flags, v)
-    gc_args.append(benchgc.util.tensor_to_ndarray(tensors[k]))
+for i in range(len(ins)):
+    tensor = fill_tensor(flags, ins[i], i)
+    tensors["%arg" + str(i)] = tensor
+    # gc is sharing the same input with reference
+    gc_args.append(benchgc.util.tensor_to_ndarray(tensor))
 
-for k, v in outs.items():
-    tensors[k] = torch.zeros(size=v.shape, dtype=benchgc.util.get_dtype(v.dtype))
-    gc_args.append(benchgc.util.tensor_to_ndarray(tensors[k]))
+for i in range(len(outs)):
+    tensor = torch.zeros(size = outs[i].shape, dtype = benchgc.util.get_dtype(outs[i].dtype))
+    gc_args.append(benchgc.util.tensor_to_ndarray(tensor))
+    gc_out.append(tensor)
 
-gc_out_tensor =  tensors["%1"]
-runner.ref_run(module, tensors)
+ref_out = runner.ref_run(module, tensors)
 
 entry = "entry"
 
@@ -203,23 +200,22 @@ shared_libs = [
     os.environ["MLIR_C_RUNNER_UTILS"],
     os.environ["MLIR_RUNNER_UTILS"],
 ]
-        
+
 with module.context:
     compiler = GraphCompiler(passes, shared_libs)
     engine = compiler.compile_and_jit(module)
     engine.invoke(entry, *mlir_args)
 
-# for k, v in tensors.items():
-#     print(k)
-#     print(v)
+for i in range(len(outs)):
+    out = outs[i]
+    out.set_default_compare_param(flags, ins, outs)
+    res = compare_tensor(out, ref_out[i], gc_out[i], flags.verbose)
+    if not res[0]:
+        print("FAIL: %s.%s" % (flags.driver, flags.case))
+    elif res[1]:
+        print("MISTRUST: %s.%s" % (flags.driver, flags.case))
+    else:
+        print("PASSED: %s.%s" % (flags.driver, flags.case))
 
-res = torch.allclose(
-    tensors["%1"],
-    gc_out_tensor,
-    )
-print("res", res)
 
-print("========ref out=========")
-print(tensors["%1"])
-print("========gc out=========")
-print(gc_out_tensor)
+

@@ -23,10 +23,16 @@ from benchgc.linalg import ref_op as linalg_ref_op
 from benchgc.tensor import ref_op as tensor_ref_op
 from benchgc.arith import ref_op as arith_ref_op
 
+from typing import Tuple
 
 def dfs_op(cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]):
 
     dialect_call: str = str(op.name)
+    if dialect_call == "func.return":
+        ret: Tuple[torch.Tensor, ...] = tuple()
+        for name in cache.opr:
+            ret = ret + (tensors[name], )
+        return ret
     if dialect_call.startswith("linalg"):
         ref_op = linalg_ref_op
     elif dialect_call.startswith("tensor"):
@@ -40,7 +46,9 @@ def dfs_op(cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Ten
                 # we do not need to cache things for region
                 # keep an empty cache 
                 cache.next.append(MLIRCache())
-            dfs_region(cache.next[i], op.regions[i], tensors)
+            ret = dfs_region(cache.next[i], op.regions[i], tensors)
+            if ret is not None:
+                return ret
         return
 
     dialect_op: str = dialect_call.split(".")[1]
@@ -60,7 +68,9 @@ def dfs_region(cache: MLIRCache, region: gc_mlir.ir.Region, tensors: Dict[str, t
             for arg in region.blocks[i].arguments:
                 _cache.arg.append(arg.get_name())
             cache.next.append(_cache)
-        dfs_block(cache.next[i], region.blocks[i], tensors)
+        ret = dfs_block(cache.next[i], region.blocks[i], tensors)
+        if ret is not None:
+            return ret
 
 
 def dfs_block(cache: MLIRCache, block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]):
@@ -96,4 +106,6 @@ def ref_run(
     if entry_op is None:
         raise Exception("entry function %s is not found at the top level" % entry)
     else:
-        dfs_op(cache, entry_op, tensors)
+        ret = dfs_op(cache, entry_op, tensors)
+        if ret is not None:
+            return ret

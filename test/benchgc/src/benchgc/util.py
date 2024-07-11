@@ -26,7 +26,7 @@ NO_VERBOSE = 0
 COMPARE_VERBOSE = 1  # + print threshold for comparison
 ERROR_OUTPUT_VERBOSE = 2  # + print all error data points if failed
 OUTPUT_VERBOSE = 3  # + print all result including passed tensor
-INPUT_VERBOSE = 4  # + print all input data points
+INPUT_VERBOSE = 4  # + print input torch tensors
 
 """
 acc | acc | elems | value_range | worst case
@@ -142,7 +142,7 @@ def get_dtype(dtype: str) -> torch.dtype:
         raise Exception("data type not support: %s" % dtype)
 
 
-def tensor_to_ndarray(tensor):
+def tensor_to_ndarray(tensor: torch.Tensor) -> Any:
     if tensor.dtype == torch.bfloat16:
         return tensor.view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
     return tensor.numpy()

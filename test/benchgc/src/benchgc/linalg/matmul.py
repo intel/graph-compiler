@@ -24,14 +24,14 @@ from benchgc.mlir import MLIRCache, init_i2o1_module
 from gc_mlir.dialects import linalg
 
 from benchgc.arg import Arg
-from typing import Dict
+from typing import Dict, List
 
 def ref_matmul_transpose_b(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] = torch.matmul(var[cache.opr[0]], var[cache.opr[1]].transpose(-1, -2))
 
 
 def mlir_matmul_transpose_b(
-    flags: argparse.Namespace, args: Dict[str, Arg]
+    flags: argparse.Namespace, ins: List[Arg], outs: List[Arg]
 ) -> gc_mlir.ir.Module:
-    return init_i2o1_module(args["%arg0"], args["%arg1"], args["%1"], lambda ctx, arg0, arg1: linalg.matmul_transpose_b(arg0, arg1, outs = [args["%1"].get_empty_op(ctx)], cast = TypeFnType(flags.cast)))
+    return init_i2o1_module(ins[0], ins[1], outs[0], lambda ctx, arg0, arg1: linalg.matmul_transpose_b(arg0, arg1, outs = [outs[0].get_empty_op(ctx)], cast = TypeFnType(flags.cast)))
 

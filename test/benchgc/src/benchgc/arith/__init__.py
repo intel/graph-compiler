@@ -20,11 +20,11 @@ import importlib
 import gc_mlir.ir
 from benchgc.mlir import MLIRCache
 from benchgc.arg import Arg
-from typing import Dict, Callable
+from typing import Dict, Callable, List
 
 ref_op: Dict[str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]] = {}
 mlir_op: Dict[
-    str, Callable[[argparse.Namespace, Dict[str, Arg]], gc_mlir.ir.Module]
+    str, Callable[[argparse.Namespace, List[Arg], List[Arg]], gc_mlir.ir.Module]
 ] = {}
 
 for dri in ["basic"]:

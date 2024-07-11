@@ -16,8 +16,9 @@
 
 import torch
 import benchgc.util
+import benchgc.arg
 
-from typing import List
+from typing import List, Tuple
 
 def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
 
@@ -67,3 +68,9 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
         raise Exception("Flip coin failed when generate the reduce data filling")
     value = value + shift
     return value.to(dtype)
+
+def compare(ref: torch.Tensor, res: torch.Tensor, verbose: int) -> Tuple[bool, bool | None]:
+    dtype = ref.dtype
+    ref = ref.to(torch.float)
+    res = res.to(torch.float)
+    return benchgc.arg.p2p(benchgc.util.get_eps(dtype), 30.0, ref, res, verbose)
