@@ -28,3 +28,9 @@ jobs:
       - name: Test
         run: |
           cmake --build build --target gc-check
+      
+      - name: Correctness Test
+        run: |
+          scripts/correctness.sh
+        env:
+          MLIR_DIR: build/lib/cmake/mlir
