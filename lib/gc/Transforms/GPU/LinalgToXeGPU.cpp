@@ -774,7 +774,7 @@ extractVecSubTiles(PatternRewriter &rewriter, Location loc,
                       }) &&
          "All loaded vectors must have the same type.");
   assert(vecLoadType.getShape().size() == 2 ||
-         vnniConf && "Requires VNNI config for non 2D loaded tiles");
+         (vnniConf && "Requires VNNI config for non 2D loaded tiles"));
 
   // Accumulate all dimensions as the vector might have extra VNNI
   // dimensions.
