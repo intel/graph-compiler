@@ -31,7 +31,7 @@
 #endif
 
 int main(int argc, char *argv[]) {
-  #ifdef GC_USE_GPU
+#ifdef GC_USE_GPU
   imex::registerTransformsPasses();
   // Conversion passes
   imex::registerConvertGPUToGPUX();
@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
   imex::registerConvertGPUXToSPIRV();
   imex::registerConvertXeGPUToVC();
   imex::registerConvertXeTileToXeGPU();
-  #endif
+#endif
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
@@ -48,10 +48,9 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   mlir::registerAllDialects(registry);
-  #ifdef GC_USE_GPU
-    registry.insert<::imex::xetile::XeTileDialect,
-                    ::imex::gpux::GPUXDialect>();
-  #endif
+#ifdef GC_USE_GPU
+  registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
+#endif
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));

@@ -54,7 +54,6 @@ include(AddMLIR)
 include(HandleLLVMOptions)
 
 if(GC_USE_GPU)
-  add_definitions(-DGC_USE_GPU=1)
   include(imex)
   if(GC_DEV_LINK_LLVM_DYLIB)
     message(WARN "GPU backend may not be compatible with dynamic linking to LLVM")

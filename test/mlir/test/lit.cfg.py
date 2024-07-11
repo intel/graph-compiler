@@ -33,7 +33,8 @@ config.substitutions.append(("%gclibdir", config.gc_obj_root + "/lib/"))
 config.substitutions.append(('%mlir_runner_utils', config.mlir_runner_utils))
 config.substitutions.append(('%mlir_c_runner_utils', config.mlir_c_runner_utils))
 
-config.substitutions.append(('%levelzero_runtime', config.levelzero_runtime))
+if config.gc_use_gpu:
+    config.substitutions.append(('%levelzero_runtime', config.levelzero_runtime))
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 
