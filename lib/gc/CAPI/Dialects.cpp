@@ -8,9 +8,9 @@
 
 #include "gc-c/Dialects.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "mlir/CAPI/Registration.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph,
                                       mlir::onednn_graph::OneDNNGraphDialect)
