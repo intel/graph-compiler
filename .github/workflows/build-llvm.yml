@@ -24,6 +24,8 @@ jobs:
 
       - name: Build
         run: |
+          which python3
+          dpkg -l
           python3 -m pip install -r mlir/python/requirements.txt
           mkdir llvm-install
           curl https://raw.githubusercontent.com/yunchih/static-binaries/master/strace -o strace
