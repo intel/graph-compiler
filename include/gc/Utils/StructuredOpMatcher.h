@@ -398,15 +398,15 @@ public:
   bool match(Operation *op);
 
   // Predicates on operation.
-  StructuredOpMatcher &operation(std::function<bool(Operation *)> &);
+  StructuredOpMatcher &operation(std::function<bool(Operation *)>);
 
   // Predicate on OpOperands.
   StructuredOpMatcher &input(MatchSelector range,
-                             std::function<bool(OpOperand *, Operation *)> &);
+                             std::function<bool(OpOperand *, Operation *)>);
 
   // Predicates on OpOperands.
   StructuredOpMatcher &output(MatchSelector range,
-                              std::function<bool(OpOperand *, Operation *)> &);
+                              std::function<bool(OpOperand *, Operation *)>);
 
   // Predicates on Iterators.
   StructuredOpMatcher &dim(MatchSelector range,
@@ -415,7 +415,7 @@ public:
 
   // Predicates on region.
   StructuredOpMatcher &region(MatchSelector range,
-                              std::function<bool(Region *, Operation *op)> &);
+                              std::function<bool(Region *, Operation *op)>);
 
 private:
   llvm::SmallVector<PredicateFn> predicates;

@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -34,13 +35,9 @@ namespace mlir::microkernel {
 class BrgemmFusionAnalysis {
 public:
   struct BrgemmFusible {
-    Operation *transposeA;
-    Operation *transposeB;
-    Operation *zeroInitC;
-    BrgemmFusible()
-        : transposeA(nullptr), transposeB(nullptr), zeroInitC(nullptr) {}
-    BrgemmFusible(Operation *tA, Operation *tB, Operation *ziC)
-        : transposeA(tA), transposeB(tB), zeroInitC(ziC) {}
+    std::optional<linalg::TransposeOp> transposeA;
+    std::optional<linalg::TransposeOp> transposeB;
+    std::optional<linalg::FillOp> zeroInitC;
   };
 
 private:
@@ -50,45 +47,46 @@ private:
   DenseSet<Operation *> fusibleSet;
 
   void addBrgemmFusible(Operation *brmm, BrgemmFusible fusible);
-  SmallVector<Operation *> getUseSequence(Value val);
+  SmallVector<Operation *, 10> getMemRefUseSequence(Value val);
 
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BrgemmFusionAnalysis)
-  explicit BrgemmFusionAnalysis(Operation *);
-  Operation *getBrgemmFusible(Operation *brgemm) {
-    auto iter = brgemmFusible.find(brgemm);
+  explicit BrgemmFusionAnalysis(Operation *root, AnalysisManager &am);
+  BrgemmFusible getBrgemmFusible(Operation *brmm) const {
+    auto iter = brgemmFusible.find(brmm);
     if (iter == brgemmFusible.end()) {
-      return nullptr;
+      return BrgemmFusible();
     }
     return iter->second;
   }
-  DenseSet<Operation *> getFusibleSet() { return fusibleSet; }
+  const DenseSet<Operation *> &getFusibleSet() const { return fusibleSet; }
 };
 
 void BrgemmFusionAnalysis::addBrgemmFusible(Operation *brmm,
                                             BrgemmFusible fusible) {
-  auto iter = brgemmFusible.find(fusible);
+  return;
+  auto iter = brgemmFusible.find(brmm);
   if (iter == brgemmFusible.end()) {
     brgemmFusible[brmm] = fusible;
     if (fusible.transposeA)
-      fusibleSet.insert(fusible.transposeA);
+      fusibleSet.insert(*fusible.transposeA);
     if (fusible.transposeB)
-      fusibleSet.insert(fusible.transposeB);
+      fusibleSet.insert(*fusible.transposeB);
     if (fusible.zeroInitC)
-      fusibleSet.insert(fusible.zeroInitC);
+      fusibleSet.insert(*fusible.zeroInitC);
   } else {
     auto &origBrgemmFusible = iter->second;
     if (!origBrgemmFusible.transposeA && fusible.transposeA) {
       origBrgemmFusible.transposeA = fusible.transposeA;
-      fusibleSet.insert(fusible.transposeA);
+      fusibleSet.insert(*fusible.transposeA);
     }
-    if (!origBrgemmFusible.transposeB && fusible.tranposeB) {
+    if (!origBrgemmFusible.transposeB && fusible.transposeB) {
       origBrgemmFusible.transposeB = fusible.transposeB;
-      fusibleSet.insert(fusible.transposeB);
+      fusibleSet.insert(*fusible.transposeB);
     }
     if (!origBrgemmFusible.zeroInitC && fusible.zeroInitC) {
       origBrgemmFusible.zeroInitC = fusible.zeroInitC;
-      fusibleSet.insert(fusible.zeroInitC);
+      fusibleSet.insert(*fusible.zeroInitC);
     }
   }
 }
@@ -96,20 +94,22 @@ void BrgemmFusionAnalysis::addBrgemmFusible(Operation *brmm,
 template <typename BrmmOp>
 static inline bool isFusibleBrmm(Value buffer, linalg::TransposeOp transOp,
                                  Operation *op) {
-  BrgmmOp brmmOp = dyn_cast<BrmmOp>(op);
-  if (!brmmOp)
+  BrmmOp brmm = dyn_cast<BrmmOp>(op);
+  if (!brmm)
     return false;
-
   if (buffer != brmm.getInputs()[0] && buffer != brmm.getInputs()[1])
     return false;
 
   using one_t = std::integral_constant<size_t, 1>;
   using two_t = std::integral_constant<size_t, 2>;
+  constexpr size_t lastDimOffsetA = 1;
+  constexpr size_t lastDimOffsetB =
+      std::conditional<std::is_same<BrmmOp, linalg::BatchReduceMatmulOp>::value,
+                       one_t, two_t>::type::value;
   size_t lastDimOffset =
-      std::conditional<std::is_same<BrmmOp, linalg::BatchReduceMatmulOp>, one_t,
-                       two_t>::type::value;
+      buffer == brmm.getInputs()[0] ? lastDimOffsetA : lastDimOffsetB;
 
-  ArrayRef<int64_t> permutation = transOp->getPermutation();
+  ArrayRef<int64_t> permutation = transOp.getPermutation();
   bool lastDimContigious = true;
   // Last dim can't not be permuted if we want to incorporate the
   // transpose, because BRGEMM requires last dim to be contigious.
@@ -121,10 +121,10 @@ static inline bool isFusibleBrmm(Value buffer, linalg::TransposeOp transOp,
   return lastDimContigious;
 }
 
-static inline BrgemmFusible generateBrgemmFusible(Value buffer,
-                                                  linalg::TransposeOp transOp,
-                                                  Operation *op) {
-  BrgemmFusible fusible;
+static inline BrgemmFusionAnalysis::BrgemmFusible
+generateBrgemmFusible(Value buffer, linalg::TransposeOp transOp,
+                      Operation *op) {
+  BrgemmFusionAnalysis::BrgemmFusible fusible;
   Value inputA, inputB;
   if (auto brmm = dyn_cast<linalg::BatchReduceMatmulOp>(op)) {
     inputA = brmm.getInputs()[0];
@@ -141,21 +141,44 @@ static inline BrgemmFusible generateBrgemmFusible(Value buffer,
   return fusible;
 }
 
-SmallVector<Operation *> getUseSequence(Value val) {
-  // TODO
+SmallVector<Operation *, 10>
+BrgemmFusionAnalysis::getMemRefUseSequence(Value value) {
+  auto valueType = value.getType();
+  if (!isa<MemRefType>(valueType))
+    return {};
+
+  DenseSet<Operation *> users;
+  Operation *creationOp = value.getDefiningOp();
+  for (Operation *user : value.getUsers()) {
+    users.insert(user);
+  }
+
+  // creationOp should be the first in sequence, and dominates all the others
+  auto commonBlock = creationOp->getBlock();
+
+  SmallVector<Operation *, 10> seq;
+  commonBlock->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    if (users.find(op) != users.end())
+      seq.push_back(op);
+  });
+
+  return seq;
 }
 
-BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root) {
+BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root,
+                                           AnalysisManager &am) {
   func::FuncOp func = dyn_cast_or_null<func::FuncOp>(root);
   if (!func)
     return;
 
-  func->walk<WalkOrder::PreOrder>([this](Operation *op) {
+  auto &domInfo = am.getAnalysis<DominanceInfo>();
+
+  func->walk<WalkOrder::PreOrder>([&](Operation *op) {
     // For each possible fusible Op (transposeOp/fillOp), determine whether it's
     // actually fusible, and record them if fusible.
     // Implementation:
     // For encountered transpose Op, do the following:
-    // 1. Get all uses of transpose Op output (except alloc Op);
+    // 1. Get all uses of transpose Op output;
     // 2. Generate ordered execution sequence of above uses Ops, by firstly
     // finding lowest common ancestor of all uses and then walk the ancestor;
     // 3. If the following conditions are met, then this transpose Op is added
@@ -163,17 +186,23 @@ BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root) {
 
     // 	  i. All uses after transpose Op in sequence are linalg brmm Ops;
     // 	  ii. This transpose Op could be fused into above all linalg brmm Ops;
-    // 	  iii. No other uses are in between transposeOp and any brmm Ops;
+    // 	  iii. This transpose Op must dominate these linalg brmm Ops.
     auto transposeOp = dyn_cast_or_null<linalg::TransposeOp>(op);
     if (!transposeOp)
       return;
+
     auto buffer = transposeOp.getInit();
-    auto useSequence = getUseSequence(buffer);
+    LLVM_DEBUG(llvm::dbgs()
+               << "[BrgemmFusionAnalysis] Encounter `" << transposeOp
+               << "` with output buffer `" << buffer << "`\n");
+    auto useSequence = getMemRefUseSequence(buffer);
 
     bool afterTranspose = false;
     bool isFusible = true;
     SmallVector<Operation *, 5> fusingBrmmOps;
     for (auto use : useSequence) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "[BrgemmFusionAnalysis] Check use: " << *use << "\n");
       if (use == transposeOp) {
         afterTranspose = true;
         continue;
@@ -181,9 +210,16 @@ BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root) {
       if (!afterTranspose)
         continue;
 
-      if (isFusibleBrmm<linalg::BatchReduceMatmulOp>(op) ||
-          isFusibleBrmm<linalgx::BatchReduceMatmulVnniOp>(op)) {
-        fusingBrgmmOps.push_back(brmm);
+      if (!domInfo.properlyDominates(transposeOp, use)) {
+        isFusible = false;
+        break;
+      }
+
+      if (isFusibleBrmm<linalg::BatchReduceMatmulOp>(buffer, transposeOp,
+                                                     use) ||
+          isFusibleBrmm<linalgx::BatchReduceMatmulVnniOp>(buffer, transposeOp,
+                                                          use)) {
+        fusingBrmmOps.push_back(use);
       } else {
         isFusible = false;
         break;
@@ -192,6 +228,8 @@ BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root) {
 
     if (isFusible) {
       for (auto op : fusingBrmmOps) {
+        LLVM_DEBUG(llvm::dbgs() << "[BrgemmFusionAnalysis] `" << transposeOp
+                                << "` could be fused into `" << *op << "`\n");
         addBrgemmFusible(op, generateBrgemmFusible(buffer, transposeOp, op));
       }
     }
@@ -214,10 +252,6 @@ struct BrgemmInfo {
 
   bool isInitOutput;
   BrgemmMode mode;
-
-  // Auxiliary vars for Brgemm info inference result
-  bool skipTransA;
-  bool skipTransB;
 };
 
 FailureOr<linalg::ContractionDimensions>
@@ -369,9 +403,6 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(linalg::LinalgOp linalgOp,
                           << "), strideA(" << strideA << "), strideB("
                           << strideB << ")\n");
 
-  auto origOperandA = linalgOp.getDpsInputOperands()[0];
-  auto origOperandB = linalgOp.getDpsInputOperands()[1];
-
   BrgemmInfo info{loops[loopPos.mPos],
                   loops[loopPos.nPos],
                   kSize,
@@ -383,16 +414,13 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(linalg::LinalgOp linalgOp,
                   strideA,
                   strideB,
                   false,
-                  BrgemmInfo::STRIDE_MODE,
-                  /* skipTransA */ origOperandA != operands.operandA.operand,
-                  /* skipTransB */ origOperandB != operands.operandB.operand};
+                  BrgemmInfo::STRIDE_MODE};
   return info;
 }
 
 static FailureOr<BrgemmOperands>
-inferBrgemmOperands(linalg::LinalgOp linalgOp,
-                    std::optional<linalg::TransposeOp> transOpA,
-                    std::optional<linalg::TransposeOp> transOpB) {
+inferBrgemmOperands(const BrgemmFusionAnalysis &fusionAnalysis,
+                    linalg::LinalgOp linalgOp) {
   auto contractionDims = customInferContractionDims(linalgOp);
   if (failed(contractionDims)) {
     LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Not a valid contraction\n");
@@ -469,7 +497,7 @@ inferBrgemmOperands(linalg::LinalgOp linalgOp,
     return true;
   };
 
-  auto trySkipPrecedingTranspose =
+  auto tryFusePrecedingTranspose =
       [&](std::optional<linalg::TransposeOp> transOp, BrgemmOperand &operand) {
         if (!transOp)
           return;
@@ -483,30 +511,31 @@ inferBrgemmOperands(linalg::LinalgOp linalgOp,
         for (size_t idx = permutation.size() - lastDimOffset;
              idx < permutation.size(); idx++)
           lastDimContigious = lastDimContigious && (permutation[idx] == idx);
-        if (lastDimContigious) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "[inferBrgemmOperands] Skip preceding transpose, dims "
-                        "change from "
-                     << operand.operand->get() << "(" << operand.batchDim
-                     << ", " << operand.minorDim << ", " << operand.majorDim
-                     << ") \n");
-          operand.operand = &(*transOp)->getOpOperand(0);
-          operand.minorDim = permutation[operand.minorDim];
-          operand.majorDim = permutation[operand.majorDim];
-          operand.batchDim = permutation[operand.batchDim];
-          LLVM_DEBUG(llvm::dbgs()
-                     << "[inferBrgemmOperands] To " << operand.operand->get()
-                     << " (" << operand.batchDim << ", " << operand.minorDim
-                     << ", " << operand.majorDim << ") \n");
-        }
+        assert(lastDimContigious &&
+               "Expecting contigious last dims for preceding transpose");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "[inferBrgemmOperands] Fuse preceding transpose, dims "
+                      "change from "
+                   << operand.operand->get() << "(" << operand.batchDim << ", "
+                   << operand.minorDim << ", " << operand.majorDim << ") \n");
+        operand.operand = &(*transOp)->getOpOperand(0);
+        operand.minorDim = permutation[operand.minorDim];
+        operand.majorDim = permutation[operand.majorDim];
+        operand.batchDim = permutation[operand.batchDim];
+        LLVM_DEBUG(llvm::dbgs()
+                   << "[inferBrgemmOperands] To " << operand.operand->get()
+                   << " (" << operand.batchDim << ", " << operand.minorDim
+                   << ", " << operand.majorDim << ") \n");
       };
+
+  auto fusible = fusionAnalysis.getBrgemmFusible(linalgOp);
 
   // A(m, k)
   if (!getAllPosInCodomain(operands.operandA, loopPos.kPos, {loopPos.mPos},
                            loopPos.batchPos))
     return failure();
   operands.operandA.isVnni = false;
-  trySkipPrecedingTranspose(transOpA, operands.operandA);
+  tryFusePrecedingTranspose(fusible.transposeA, operands.operandA);
 
   // B(k, n)
   // note: B does not use VNNI format K affine
@@ -514,7 +543,7 @@ inferBrgemmOperands(linalg::LinalgOp linalgOp,
                            loopPos.batchPos))
     return failure();
   operands.operandB.isVnni = loopPos.kPos.size() == 2;
-  trySkipPrecedingTranspose(transOpB, operands.operandB);
+  tryFusePrecedingTranspose(fusible.transposeB, operands.operandB);
 
   // C(m, n)
   if (!getAllPosInCodomain(operands.operandC, {loopPos.nPos}, {loopPos.mPos}))
@@ -525,9 +554,8 @@ inferBrgemmOperands(linalg::LinalgOp linalgOp,
 }
 
 static FailureOr<BrgemmInfo>
-inferBrgemmInfo(linalg::LinalgOp linalgOp,
-                std::optional<linalg::TransposeOp> transOpA,
-                std::optional<linalg::TransposeOp> transOpB) {
+inferBrgemmInfo(const BrgemmFusionAnalysis &fusionAnalysis,
+                linalg::LinalgOp linalgOp) {
   using namespace mlir::gcext::utils::structured_match;
   auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
                                 .output(MatchAll(), HasStaticShape())
@@ -539,7 +567,7 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
   if (!validBrgemmMatcher.match(linalgOp))
     return failure();
 
-  auto brgemmOperands = inferBrgemmOperands(linalgOp, transOpA, transOpB);
+  auto brgemmOperands = inferBrgemmOperands(fusionAnalysis, linalgOp);
   if (failed(brgemmOperands))
     return failure();
 
@@ -547,10 +575,10 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
 }
 
 // Replace linalgOp with a set of microkernel ops
-static void replaceOpWithMicrokernelOpSet(
-    PatternRewriter &rewriter, linalg::LinalgOp linalgOp,
-    std::optional<linalg::TransposeOp> transOpA,
-    std::optional<linalg::TransposeOp> transOpB, const BrgemmInfo &info) {
+static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
+                                          const BrgemmFusionAnalysis &ana,
+                                          linalg::LinalgOp linalgOp,
+                                          const BrgemmInfo &info) {
   assert(linalgOp.getDpsInputs().size() == 2);
   OpBuilder::InsertionGuard guard(rewriter);
 
@@ -600,15 +628,16 @@ static void replaceOpWithMicrokernelOpSet(
   invokeOperands.push_back(lenDim);
   auto invoke = rewriter.create<microkernel::BrgemmOp>(loc, invokeOperands);
   // replace invoke op operands if preceding transpose could be fused
-  if (transOpA && info.skipTransA)
+  auto fusible = ana.getBrgemmFusible(linalgOp);
+  if (fusible.transposeA)
     rewriter.modifyOpInPlace(invoke, [&]() {
-      invoke->replaceUsesOfWith((*transOpA)->getResult(0),
-                                transOpA->getInput());
+      invoke->replaceUsesOfWith(fusible.transposeA->getInit(),
+                                fusible.transposeA->getInput());
     });
-  if (transOpB && info.skipTransB)
+  if (fusible.transposeB)
     rewriter.modifyOpInPlace(invoke, [&]() {
-      invoke->replaceUsesOfWith((*transOpB)->getResult(0),
-                                transOpB->getInput());
+      invoke->replaceUsesOfWith(fusible.transposeB->getInit(),
+                                fusible.transposeB->getInput());
     });
 
   // create epilogue op & replace original op
@@ -632,29 +661,20 @@ bool isZeroArithConstant(arith::ConstantOp op) {
   return true;
 }
 
-template <typename PrevOpType, typename CurrOpType>
-static inline std::optional<PrevOpType>
-getPrevUserWithType(Value value, CurrOpType currUser) {
-  Operation *prevUser = nullptr;
-  LLVM_DEBUG(llvm::dbgs() << "getPrevUserWithType\n");
-  for (Operation *user : value.getUsers()) {
-    LLVM_DEBUG(llvm::dbgs() << "Check value: " << value
-                            << ", user: " << user->getName() << "\n");
-    if (user == currUser)
-      break;
-    prevUser = user;
-  }
-  if (prevUser && llvm::isa<PrevOpType>(prevUser))
-    return dyn_cast<PrevOpType>(prevUser);
-  return std::nullopt;
-}
-
-template <typename ContractionOp>
+template <typename ContractionOpType>
 class ConvertContractionOpToBrgemmRewriter
-    : public OpRewritePattern<ContractionOp> {
+    : public OpRewritePattern<ContractionOpType> {
+private:
+  const BrgemmFusionAnalysis &fusionAnalysis;
+
 public:
-  using OpRewritePattern<ContractionOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(ContractionOp op,
+  using OpRewritePattern<ContractionOpType>::OpRewritePattern;
+
+  ConvertContractionOpToBrgemmRewriter(MLIRContext *context,
+                                       BrgemmFusionAnalysis &ana)
+      : OpRewritePattern<ContractionOpType>(context), fusionAnalysis(ana) {}
+
+  LogicalResult matchAndRewrite(ContractionOpType op,
                                 PatternRewriter &rewriter) const final {
     // All operands should be MemRef.
     for (auto value : op->getOperands()) {
@@ -665,30 +685,52 @@ public:
         return failure();
       }
     }
-    // Check for preceding linalg::TransposeOp and try to incorporate it into
-    // BRGEMM by adjusting stride & ld.
-    auto operandA = op.getInputs()[0];
-    auto operandB = op.getInputs()[1];
-    auto transOpA = getPrevUserWithType<linalg::TransposeOp>(operandA, op);
-    auto transOpB = getPrevUserWithType<linalg::TransposeOp>(operandB, op);
 
-    auto brgemmInfo = inferBrgemmInfo(op, transOpA, transOpB);
+    auto brgemmInfo = inferBrgemmInfo(fusionAnalysis, op);
     if (failed(brgemmInfo))
       return failure();
 
-    // Check for immediately preceding linalg::FillOp and try to incorporate it
-    auto operandC = op.getOutputs()[0];
-    if (auto fillOp = getPrevUserWithType<linalg::FillOp>(operandC, op)) {
-      auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
-          fillOp->getInputs()[0].getDefiningOp());
-      // auto fillOperand = fillOp->getOutputs()[0];
-      if (isZeroArithConstant(inputCst)) {
-        brgemmInfo->isInitOutput = true;
-        rewriter.eraseOp(*fillOp);
+    // Check for immediately preceding linalg::FillOp
+    Operation *rawOp = op;
+    auto block = rawOp->getBlock();
+    auto opIter = Block::iterator(rawOp);
+    if (block->begin() != opIter) {
+      auto prevOp = &(*(--opIter));
+      if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
+        auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
+            fillOp.getInputs()[0].getDefiningOp());
+        auto fillOperand = fillOp.getOutputs()[0];
+        auto contractionOperand = op.getOutputs()[0];
+        if (isZeroArithConstant(inputCst) &&
+            contractionOperand == fillOperand) {
+          brgemmInfo->isInitOutput = true;
+          rewriter.eraseOp(prevOp);
+        }
       }
     }
-    replaceOpWithMicrokernelOpSet(rewriter, op, transOpA, transOpB,
-                                  *brgemmInfo);
+
+    replaceOpWithMicrokernelOpSet(rewriter, fusionAnalysis, op, *brgemmInfo);
+    return success();
+  }
+};
+
+template <typename FusedOpType>
+class CleanBrgemmFusedOpsRewriter : public OpRewritePattern<FusedOpType> {
+private:
+  const BrgemmFusionAnalysis &fusionAnalysis;
+
+public:
+  using OpRewritePattern<FusedOpType>::OpRewritePattern;
+
+  CleanBrgemmFusedOpsRewriter(MLIRContext *context, BrgemmFusionAnalysis &ana)
+      : OpRewritePattern<FusedOpType>(context), fusionAnalysis(ana) {}
+
+  LogicalResult matchAndRewrite(FusedOpType op,
+                                PatternRewriter &rewriter) const final {
+    const auto &fusibleSet = fusionAnalysis.getFusibleSet();
+    if (fusibleSet.find(op) == fusibleSet.end())
+      return rewriter.notifyMatchFailure(op, "Op not fused.");
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -699,15 +741,24 @@ public:
   using impl::ConvertLinalgToMicrokernelBase<
       ConvertLinalgToMicrokernel>::ConvertLinalgToMicrokernelBase;
   void runOnOperation() final {
+    auto &fusionAnalysis = getAnalysis<BrgemmFusionAnalysis>();
+
     RewritePatternSet patterns(&getContext());
     patterns
         .add<ConvertContractionOpToBrgemmRewriter<linalg::BatchReduceMatmulOp>>(
-            &getContext());
+            &getContext(), fusionAnalysis);
     patterns.add<
         ConvertContractionOpToBrgemmRewriter<linalgx::BatchReduceMatmulVnniOp>>(
-        &getContext());
+        &getContext(), fusionAnalysis);
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+      signalPassFailure();
+
+    RewritePatternSet postPatterns(&getContext());
+    postPatterns.add<CleanBrgemmFusedOpsRewriter<linalg::TransposeOp>>(
+        &getContext(), fusionAnalysis);
+    FrozenRewritePatternSet postPatternSet(std::move(postPatterns));
+    if (failed(applyPatternsAndFoldGreedily(getOperation(), postPatternSet)))
       signalPassFailure();
   }
 };
