@@ -24,6 +24,8 @@ jobs:
 
       - name: Build
         run: |
+          dpkg -l
+          which python3
           mkdir llvm-install
           cmake -G Ninja llvm -B build -DCMAKE_INSTALL_PREFIX=llvm-install \
             -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir" -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLLVM_INSTALL_GTEST=ON
