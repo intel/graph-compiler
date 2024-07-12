@@ -13,16 +13,22 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
+
+#ifdef TPP_ENABLED
+#include "TPP/Passes.h"
+#endif
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
@@ -144,7 +150,19 @@ void populateCPUPipeline(mlir::PassManager &pm) {
   populateLLVMPasses(pm);
 }
 
+#ifdef TPP_ENABLED
+void populateGPUPipeline(mlir::PassManager &pm,
+                         tpp::LinalgToXeGPUOptions options) {
+  // middle-end, arith/math/vector dialects
+  populateVectorPasses(pm);
+  // back-end, arith/math/vector/memref dialects
+  populateBufferizationPasses(pm);
+  pm.addNestedPass<func::FuncOp>(tpp::createLinalgToXeGPU(options));
+}
+#endif
+
 #define GEN_PASS_DEF_GCCPUPIPELINE
+#define GEN_PASS_DEF_GCGPUPIPELINE
 #include "gc/Transforms/Passes.h.inc"
 namespace {
 
@@ -160,6 +178,25 @@ public:
     // disable threading and enable pm.enableIRPrinting();
     if (failed(pm.run(op)))
       signalPassFailure();
+  }
+};
+
+class GCGPUPipeline : public impl::GCGPUPipelineBase<GCGPUPipeline> {
+public:
+  friend struct PassHelper;
+  using impl::GCGPUPipelineBase<GCGPUPipeline>::GCGPUPipelineBase;
+  void runOnOperation() final {
+    auto op = getOperation();
+#ifdef TPP_ENABLED
+    PassManager pm{op->getContext()};
+    tpp::LinalgToXeGPUOptions options{kTile, stages, dpasTile};
+    populateGPUPipeline(pm, options);
+    if (failed(pm.run(op)))
+      signalPassFailure();
+#else
+    op->emitError() << "No TPP passes.\n";
+    signalPassFailure();
+#endif
   }
 };
 

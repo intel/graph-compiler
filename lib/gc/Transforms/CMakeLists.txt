@@ -25,4 +25,8 @@ add_mlir_library(GCPasses
     MLIROneDNNGraph
   )
 
+if(TPP_DIR)
+  target_link_libraries(GCPasses PRIVATE ${TPP_AVAILABLE_LIBS})
+endif()
+
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

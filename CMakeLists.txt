@@ -69,6 +69,20 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/include
 )
 
+if(TPP_DIR)
+  message(STATUS "Using TPP_DIR in: ${TPP_DIR}")
+  add_definitions("-DTPP_ENABLED")
+  include_directories(${TPP_DIR}/include)
+  include_directories(${TPP_DIR}/build/include)
+  link_directories(${TPP_DIR}/build)
+  link_directories(${TPP_DIR}/build/lib)
+  set(TPP_AVAILABLE_LIBS 
+      TPPCheckDialect TPPCheckToLoops TPPGPU TPPIR TPPLinalgToFunc TPPLinalgToXSMM TPPPassBundles 
+      TPPPerfDialect TPPPerfToFunc TPPPerfToLoop TPPPipeline TPPRunner TPPTestLib TPPTransforms 
+      TPPTransformsUtils TPPXsmmDialect tpp_xsmm_runner_utils TPPXsmmToFunc xsmm
+  )
+endif()
+
 # The paths are added in the subfolders using the gc_add_path() function.
 # These lists are also used by tests.
 set(GC_LIB_SOURCES CACHE INTERNAL "The graph_compiler library source paths")
