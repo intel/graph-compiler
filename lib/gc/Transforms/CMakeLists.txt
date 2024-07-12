@@ -10,7 +10,9 @@ get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
-  TileNamed.cpp
+  DeepTileContractionNamedOp.cpp
+  FlashAttentionConversion.cpp
+  Tiling.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include

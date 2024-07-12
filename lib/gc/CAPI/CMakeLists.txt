@@ -6,5 +6,6 @@ add_mlir_public_c_api_library(GcCAPI
   MLIRCPURuntimeDialect
   MLIRLinalgx
   GCPasses
+  GCAnalysis
   MLIRCPURuntimeTransforms
 )
