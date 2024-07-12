@@ -464,30 +464,36 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
           currentOp.getNumLoops(), getAsIndexOpFoldResult(b.getContext(), 0));
       SmallVector<unsigned> reductionDims;
       currentOp.getReductionDims(reductionDims);
+      bool tileOnReduction = false;
       for (auto [d, tile] : llvm::zip(currentDim, currentTileSize)) {
+        if (llvm::find(reductionDims, d) != reductionDims.end()) {
+          tileOnReduction = true;
+        }
         if (llvm::find(reductionDims, d) != reductionDims.end() &&
-            !dyn_cast<PartialReductionOpInterface>(currentOp.getOperation()))
+            !dyn_cast<PartialReductionOpInterface>(currentOp.getOperation())) {
           tileSizes[d] = getAsIndexOpFoldResult(b.getContext(), 0);
-        else
+          tileOnReduction = false;
+        } else
           tileSizes[d] = getAsIndexOpFoldResult(b.getContext(), tile);
       }
       SmallVector<Range> loopRanges =
           cast<TilingInterface>(currentOp.getOperation()).getIterationDomain(b);
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPoint(currentOp);
-      if (auto partialInterface =
-              dyn_cast<PartialReductionOpInterface>(currentOp.getOperation())) {
+      if (tileOnReduction) {
+        auto partialInterface =
+            dyn_cast<PartialReductionOpInterface>(currentOp.getOperation());
         for (auto [idx, tile] : llvm::enumerate(tileSizes)) {
-          if (isConstantIntValue(tile, 0)) {
+          if (isConstantIntValue(tile, 0) &&
+              llvm::find(reductionDims, d) != reductionDims.end()) {
             tileSizes[idx] = loopRanges[idx].size;
           }
         }
-
         SmallVector<OpFoldResult> newParallelDims;
         for (auto i = 0UL; i < reductionDims.size(); i++) {
           newParallelDims.push_back(getAsIndexOpFoldResult(b.getContext(), i));
         }
-        auto tilingResult = linalgX::tileAllUsingForall(
+        auto tilingResult = linalgX::tileReductionUsingForall(
             b, cast<PartialReductionOpInterface>(currentOp.getOperation()), {},
             tileSizes, newParallelDims, std::nullopt);
         if (failed(tilingResult) &&
@@ -503,8 +509,8 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
             }
           }
         }
-      } else if (auto tilingInterface =
-                     cast<TilingInterface>(currentOp.getOperation())) {
+      } else {
+        auto tilingInterface = cast<TilingInterface>(currentOp.getOperation());
         auto tilingResult = linalg::tileToForallOpUsingTileSizes(
             b, tilingInterface, tileSizes, std::nullopt);
         if (failed(tilingResult))
@@ -597,11 +603,15 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
                                : cfg.NBlock;
     // Outer
-    option.nestedTileSizes.emplace_back(SmallVector<size_t>{
-        MParallelBlockSize, NParallelBlockSize, KParallelBlockSize});
-    option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForallOp);
-    option.loopDim.emplace_back(
-        SmallVector<size_t>{MDimPos[0], NDimPos[0], KDimPos[0]});
+    for (auto [tile, dim] :
+         llvm::zip(SmallVector<size_t>{KParallelBlockSize, MParallelBlockSize,
+                                       NParallelBlockSize},
+                   SmallVector<size_t>{KDimPos[0], MDimPos[0], NDimPos[0]})) {
+      option.nestedTileSizes.emplace_back(SmallVector<size_t>{tile});
+      option.loopType.emplace_back(
+          OuterLoopGenerationOption::LoopType::ForallOp);
+      option.loopDim.emplace_back(SmallVector<size_t>{dim});
+    }
     // Middle
     for (auto [tile, dim] :
          llvm::zip(SmallVector<size_t>{MOuterBlockSize, NOuterBlockSize,

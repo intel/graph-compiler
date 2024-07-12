@@ -93,4 +93,17 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
   ];
 }
 
+def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
+  let summary = "Sink operations into inner loops";
+  let description = [{The pass tries to sink operations into inner loops as deep as possible to maximize the chance for outer loop optimization.
+  }];
+  let dependentDialects = [];
+}
+
+def MergeNestedForall : Pass<"merge-nested-forall"> {
+  let summary = "Merge nested scf.forall operations";
+  let description = [{The pass tries to merge nested forall operations.}];
+  let dependentDialects = ["scf::SCFDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES

@@ -17,6 +17,8 @@ gc_add_mlir_library(GcPasses
   VerifyTargetDescription.cpp
   DeepTileContractionNamedOp.cpp
   Tiling.cpp
+  SinkOpIntoInnerLoop.cpp
+  MergeNestedForall.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
