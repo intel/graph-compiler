@@ -56,8 +56,8 @@ void populateVectorPasses(mlir::PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
   arith::ArithEmulateUnsupportedFloatsOptions options;
-  const static std::string strType = "bf16";
-  options.sourceTypeStrs = {&strType, 1};
+  std::array<std::string, 1> typestr = {"bf16"};
+  options.sourceTypeStrs = typestr;
   options.targetTypeStr = "f32";
   pm.addNestedPass<func::FuncOp>(
       arith::createArithEmulateUnsupportedFloats(options));
@@ -84,6 +84,7 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
+  
   pm.addPass(createBufferizationToMemRefPass());
 }
 
@@ -101,6 +102,9 @@ void populateMicroKernelPasses(mlir::PassManager &pm) {
 void populateCPURuntimePasses(mlir::PassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
+
+  // memref->cpuruntime.alloc
+  
   pm.addPass(createConvertSCFToOpenMPPass());
 }
 
