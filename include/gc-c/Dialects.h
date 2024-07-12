@@ -28,6 +28,7 @@ extern "C" {
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph);
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(CPURuntime, cpuruntime);
+MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Linalg, linalgx);
 
 #ifdef __cplusplus
 }

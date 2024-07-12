@@ -56,4 +56,20 @@ PYBIND11_MODULE(_gc_mlir, m) {
         }
       },
       py::arg("context") = py::none(), py::arg("load") = true);
+
+
+  //===----------------------------------------------------------------------===//
+  // linalgx
+  //===----------------------------------------------------------------------===//
+  auto linalgxM = m.def_submodule("linalgx");
+  linalgxM.def(
+      "register_dialect",
+      [](MlirContext context, bool load) {
+        MlirDialectHandle dialect = mlirGetDialectHandle__linalgx__();
+        mlirDialectHandleRegisterDialect(dialect, context);
+        if (load) {
+          mlirDialectHandleLoadDialect(dialect, context);
+        }
+      },
+      py::arg("context") = py::none(), py::arg("load") = true);
 }
