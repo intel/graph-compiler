@@ -18,6 +18,16 @@ SmallVector<LoopLikeOpInterface> getOuterNestLoopsWhile(
     LoopLikeOpInterface loop,
     const std::function<LogicalResult(LoopLikeOpInterface)> &pred);
 
+FailureOr<OpResult> getRealProducerOfExtractSliceOp(
+    Operation *candidateSliceOp,
+    SmallVector<tensor::ExtractSliceOp> &backwardSlice, int curDepth = 0,
+    int maxDepth = 5);
+
+FailureOr<SmallVector<OpOperand *>> getRealConsumersFromInsertSliceOp(
+    Operation *candidateSliceOp,
+    SmallVector<OffsetSizeAndStrideOpInterface> &forwardSlice, int curDepth = 0,
+    int maxDepth = 5);
+
 // Extension for upstream `tileAndFuseProducerOfSlice`
 std::optional<scf::SCFFuseProducerOfSliceResult>
 tileAndFuseProducerOfSlice(RewriterBase &rewriter, Operation *candidateSliceOp);

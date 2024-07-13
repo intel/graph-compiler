@@ -66,8 +66,9 @@ def AnyTilableFusion : Pass<"any-tilable-fusion",
       1. Matmul fusion with element-wise/reduce/broadcast ops.
       2. Pre-op and post-op fusion.
       3. Multi-consumer and multi-producer support.
-      4. Cost-model to determine whether to fuse or not.
-      5. TBC
+      4. Multiple level of nest loops and candidates.
+      5. Flexible option to control the boundary of iterative process.
+      6. Cost-model to determine whether to fuse or not.
 
     It intends to control the granularity of fusion by `fusion-level`, E.g.
     * `0`: disable any fusion.
