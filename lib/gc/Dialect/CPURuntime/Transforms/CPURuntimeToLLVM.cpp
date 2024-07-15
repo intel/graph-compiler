@@ -109,6 +109,59 @@ public:
   }
 };
 
+class AlignedAllocRewriter : public ConvertOpToLLVMPattern<AllocOp> {
+public:
+  using ConvertOpToLLVMPattern<AllocOp>::ConvertOpToLLVMPattern;
+  LogicalResult
+  matchAndRewrite(AllocOp op, AllocOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    MLIRContext *context = &this->getTypeConverter()->getContext();
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    auto loc = op->getLoc();
+    MemRefType memRefType = op.getType();
+    llvm::outs() << "get into alloc op rewrite\n";
+    mlir::Type llvmIntPtr = IntegerType::get(
+        context, this->getTypeConverter()->getPointerBitwidth(0));
+    mlir::Type i8Ptr = LLVM::LLVMPointerType::get(op.getContext());
+    auto allocFunc = getOrDefineFunction(
+        moduleOp, loc, rewriter, "gcAlignedMalloc",
+        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr}, /*isVarArg*/ true));
+
+    auto operands = adaptor.getOperands();
+    // Get shape of the memref as values: static sizes are constant
+    // values and dynamic sizes are passed to 'alloc' as operands.
+    SmallVector<Value, 4> shape;
+    SmallVector<Value, 4> strides;
+    Value sizeBytes;
+    getMemRefDescriptorSizes(loc, memRefType, operands, rewriter, shape,
+                             strides, sizeBytes);
+
+    // Allocate the underlying buffer and store a pointer to it in the
+    // MemRef descriptor.
+    Type elementPtrType = this->getElementPtrType(memRefType);
+    // // auto stream = adaptor.asyncDependencies().front();
+    // Value allocatedPtr =
+    //     allocCallBuilder.create(loc, rewriter, {sizeBytes}).getResult(0);
+    SmallVector<Value, 1> appendFormatArgs = {sizeBytes};
+    // Value allocatedPtr =
+    LLVM::CallOp allocater =
+        rewriter.create<LLVM::CallOp>(loc, allocFunc, appendFormatArgs);
+    Value allocatedPtr = allocater.getResult();
+    allocatedPtr =
+        rewriter.create<LLVM::BitcastOp>(loc, elementPtrType, allocatedPtr);
+
+    // No alignment.
+    Value alignedPtr = allocatedPtr;
+
+    // Create the MemRef descriptor.
+    auto memRefDescriptor = this->createMemRefDescriptor(
+        loc, memRefType, allocatedPtr, alignedPtr, shape, strides, rewriter);
+
+    rewriter.replaceOp(op, {memRefDescriptor});
+    return success();
+  }
+};
+
 class CPURuntimeToLLVM : public impl::CPURuntimeToLLVMBase<CPURuntimeToLLVM> {
 public:
   using Base::Base;
@@ -146,6 +199,7 @@ struct CPURuntimeToDialectInterface : public ConvertToLLVMPatternInterface {
 void populateCPURuntimeToLLVMConversionPatterns(LLVMTypeConverter &converter,
                                                 RewritePatternSet &patterns) {
   patterns.add<PrintfRewriter>(converter);
+  patterns.add<AlignedAllocRewriter>(converter);
 }
 
 void registerConvertCPURuntimeToLLVMInterface(DialectRegistry &registry) {

@@ -16,4 +16,10 @@ module {
     return
   }
 
+  func.func @doalloc() {
+    %m0 = cpuruntime.alloc () : memref<13xf32>
+    cpuruntime.dealloc %m0 : memref<13xf32>
+    return
+  }
+
 }

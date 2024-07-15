@@ -248,7 +248,7 @@ filo_memory_pool_t::~filo_memory_pool_t() { release(); }
 
 } // namespace
 
-extern "C" void *gc_aligned_malloc(size_t sz) noexcept {
+extern "C" void *gcAlignedMalloc(size_t sz) noexcept {
   if (sz == 0) {
     return nullptr;
   }
@@ -256,17 +256,17 @@ extern "C" void *gc_aligned_malloc(size_t sz) noexcept {
   return main_memory_pool_.alloc(sz);
 }
 
-extern "C" void gc_aligned_free(void *p) noexcept {
+extern "C" void gcAlignedFree(void *p) noexcept {
   filo_memory_pool_t main_memory_pool_{main_chunk_size};
   main_memory_pool_.dealloc(p);
 }
 
-extern "C" void *gc_thread_aligned_malloc(size_t sz) noexcept {
+extern "C" void *gcThreadAlignedMalloc(size_t sz) noexcept {
   filo_memory_pool_t thread_memory_pool_{threadlocal_chunk_size};
   return thread_memory_pool_.alloc(sz);
 }
 
-extern "C" void gc_thread_aligned_free(void *p) noexcept {
+extern "C" void gcThreadAlignedFree(void *p) noexcept {
   filo_memory_pool_t thread_memory_pool_{threadlocal_chunk_size};
   thread_memory_pool_.dealloc(p);
 }
