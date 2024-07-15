@@ -24,12 +24,12 @@ from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
 from gc_mlir.ir import BF16Type, FloatAttr
 from utils import (
+    STR_TO_MLIR_TYPE,
     get_default_passes,
     get_kernel_func_from_module,
-    make_tensor,
-    mlir_type,
-    to_bool_vector,
-    to_int_vector,
+    make_mlir_ndarray,
+    to_bool_list,
+    to_int_list,
 )
 
 
@@ -39,10 +39,12 @@ class Driver(ABC):
     @staticmethod
     @abstractmethod
     def add_args(parser: argparse.ArgumentParser):
+        """Add arguments to parser"""
         pass
 
     @abstractmethod
     def handle_args(self, args: argparse.Namespace):
+        """Get and handle the args"""
         pass
 
     def __init__(self, ctx: ir.Context, args: argparse.Namespace):
@@ -52,13 +54,16 @@ class Driver(ABC):
 
     @abstractmethod
     def init_module(self, ctx: ir.Context) -> ir.Module:
+        """Create MLIR moudule by args"""
         pass
 
     @abstractmethod
-    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
+    def prepare_np_args(self) -> List[np.ndarray]:
+        """Create numpy arg for entry function"""
         pass
 
     def get_passes(self) -> str:
+        """Get pass pipeline"""
         return get_default_passes()
 
 
@@ -81,17 +86,11 @@ class LoadMLIR(Driver):
         module = ir.Module.parse(self._get_mlir(), ctx)
         return module
 
-    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
+    def prepare_np_args(self) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_args = []
         for arg in bench_func.arguments:
-            np_args.append(make_tensor(arg.type))
-        if not disable_results_to_params:
-            for res in bench_func.type.results:
-                np_args.append(make_tensor(res))
-        # todo : data filling
-        for i in range(len(np_args)):
-            np.ndarray.fill(np_args[i], 1)
+            np_args.append(make_mlir_ndarray(arg.type))
         return np_args
 
 class MLP(Driver):
@@ -118,12 +117,12 @@ class MLP(Driver):
         self.batch_size = args.batch_size
         assert self.batch_size > 0, "batch size should be greater than 0"
 
-        self.hidden_size_list = to_int_vector(args.hidden_size_list)
+        self.hidden_size_list = to_int_list(args.hidden_size_list)
         layers = len(self.hidden_size_list) - 1
         assert layers >= 1, "hidden_size_list should have at least 2 elements"
 
         self.has_bias = (
-            [False] * layers if args.has_bias == None else to_bool_vector(args.has_bias)
+            [False] * layers if args.has_bias is None else to_bool_list(args.has_bias)
         )
 
         assert (
@@ -131,7 +130,7 @@ class MLP(Driver):
         ), "has_bias should have the same length as hidden_size_list"
 
         # TODO
-        self.has_ln = to_bool_vector(args.has_ln)
+        self.has_ln = to_bool_list(args.has_ln)
         self.act_type = args.act_type
         self.dtype = args.dtype
 
@@ -139,7 +138,7 @@ class MLP(Driver):
         with ctx, ir.Location.unknown():
             layers = len(self.hidden_size_list) - 1
             module = ir.Module.create()
-            dtype = mlir_type(self.dtype, ctx)
+            dtype = STR_TO_MLIR_TYPE(self.dtype, ctx)
             src = ir.RankedTensorType.get(
                 [self.batch_size, self.hidden_size_list[0]], dtype
             )
@@ -217,15 +216,9 @@ class MLP(Driver):
                     func.ReturnOp([data])
         return module
 
-    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
+    def prepare_np_args(self) -> List[np.ndarray]:
         bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
         np_args = []
         for arg in bench_func.arguments:
-            np_args.append(make_tensor(arg.type))
-        if not disable_results_to_params:
-            for res in bench_func.type.results:
-                np_args.append(make_tensor(res))
-        # todo : data filling
-        for i in range(len(np_args)):
-            np.ndarray.fill(np_args[i], 1)
+            np_args.append(make_mlir_ndarray(arg.type))
         return np_args

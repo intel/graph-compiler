@@ -16,9 +16,7 @@
 ################################################################################
 
 import json
-import os
 
-from gc_mlir.dialects import onednn_graph
 from gc_mlir.dialects._ods_common import OpView
 from gc_mlir.extras import types as T
 from gc_mlir.ir import IntegerAttr
@@ -84,9 +82,10 @@ class MatMulConfig(Config):
 
     def init_candidates(self):
         # you can set the candidates by info form matmul op
-        self.field_candidates["M_block"] = [16, 32]
-        self.field_candidates["K_block"] = [16, 32, 64]
-        self.field_candidates["N_block"] = [16]
+        # Here is an example of candidates
+        self.field_candidates["M_block"] = [16, 32, 64, 128, 256]
+        self.field_candidates["K_block"] = [16, 32, 64, 128, 256]
+        self.field_candidates["N_block"] = [16, 32, 64, 128, 256]
 
     def init_constraints(self):
         # example: using lambda to add constraints

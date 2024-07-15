@@ -26,8 +26,8 @@ from enhanced_np_to_memref import (
     make_nd_memref_descriptor,
 )
 from gc_mlir import ir
-from gc_mlir.dialects import arith, func, memref, onednn_graph
-from op_config import *
+from gc_mlir.dialects import arith, func, memref
+from op_config import OP_TO_CONFIG, Config
 
 MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,
@@ -47,7 +47,19 @@ MLIR_TYPE_TO_C_TYPE = {
 }
 
 
+def STR_TO_MLIR_TYPE(type: str, ctx: ir.Context):
+    type_map = {
+        "f32": ir.F32Type.get(ctx),
+        "f64": ir.F64Type.get(ctx),
+        "bf16": ir.BF16Type.get(ctx),
+        "i32": ir.IntegerType.get_signed(32, ctx),
+        "i8": ir.IntegerType.get_signed(8, ctx),
+    }
+    return type_map[type]
+
+
 def emit_nano_time() -> func.FuncOp:
+    """Emit a nanoTime function that returns the current time in nanoseconds."""
     nanoTime = func.FuncOp(
         "nanoTime", ([], [ir.IntegerType.get_signless(64)]), visibility="private"
     )
@@ -58,6 +70,7 @@ def emit_nano_time() -> func.FuncOp:
 def emit_benchmark_wrapped_main_func(
     kernel_func: func.FuncOp, timer_func: func.FuncOp
 ) -> func.FuncOp:
+    """Emit a wrapped main function that calls the kernel function and records the time taken."""
     memref_of_i64_type = ir.MemRefType.get([1], ir.IntegerType.get_signless(64))
     wrapped_func_name = "wrapped_main"
     assert wrapped_func_name != str(
@@ -84,32 +97,16 @@ def emit_benchmark_wrapped_main_func(
     return wrapped_func
 
 
-
-
-def np_args_to_mlir_args(np_args: List[np.ndarray]) -> List:
-    mlir_args = []
-    for arg in np_args:
-        mlir_args.append(
-            ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(arg)))
-        )
-    return mlir_args
-
-
-def get_mlir_args(
-    module: ir.Module,
-    entry: str,
-    np_args: List[np.ndarray],
-    disable_results_to_params=False,
-):
+def get_mlir_args(module: ir.Module, entry: str, np_args: List[np.ndarray]):
+    """Convert numpy arrays to MLIR args and return a list of pointers to them"""
     f = get_kernel_func_from_module(module, entry)
     compiled_func_args = []
-    if disable_results_to_params:
-        assert len(np_args) == len(f.arguments), "input args mismatch"
-        for res in f.type.results:
-            compiled_func_args.append(
+    assert len(np_args) == len(f.arguments), "input args mismatch"
+    for res in f.type.results:
+        compiled_func_args.append(
+            ctypes.pointer(
                 ctypes.pointer(
-                    ctypes.pointer(
-                        make_nd_memref_descriptor(
+                    make_nd_memref_descriptor(
                             len(res.shape), MLIR_TYPE_TO_C_TYPE[str(res.element_type)]
                         )()
                     )
@@ -122,26 +119,18 @@ def get_mlir_args(
     return compiled_func_args
 
 
-def mlir_type(s, ctx):
-    type_mapping = {
-        "f32": ir.F32Type.get(ctx),
-        "f64": ir.F64Type.get(ctx),
-        "bf16": ir.BF16Type.get(ctx),
-        "i32": ir.IntegerType.get_signed(32),
-        "i8": ir.IntegerType.get_signed(8),
-    }
-    return type_mapping[s]
 
-
-def make_tensor(tensor_type):
+def make_mlir_ndarray(mlir_type):
+    """create numpy ndarray from mlir type"""
     return np.zeros(
-        tensor_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
+        mlir_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(mlir_type.element_type)]
     )
 
 
 def get_kernel_func_from_module(
     module: ir.Module, func_name: str = "main_entry"
 ) -> func.FuncOp:
+    """Get the func op by the name from a module"""
     assert (
         len(module.operation.regions) == 1
     ), "Expected kernel module to have only one region"
@@ -161,25 +150,45 @@ def get_default_passes():
     return passes
 
 
-def to_int_vector(s: str) -> List[int]:
+def to_int_list(s: str) -> List[int]:
+    """
+    Parsing the cmd for list of int values
+
+    Args:
+        s (str): int values in cmd, example: 2x3x4
+
+    Returns:
+        List[int]: int values in list, example: [2, 3, 4]
+    """
     if not s or len(s) == 0:
         return []
     return [int(i) for i in s.strip().split("x")]
 
 
-def to_bool_vector(s: str) -> List[bool]:
+def to_bool_list(s: str) -> List[bool]:
+    """
+    Parsing the cmd for list of bool values
+
+    Args:
+        s (str): bools in cmd, example: 1x0x1
+
+    Returns:
+        List[bool]: bools in list, example: [True, False, True]
+    """
     if not s or len(s) == 0:
         return []
     return [bool(int(i)) for i in s.strip().split("x")]
 
 
 def load_mlir_from_path(path: str) -> str:
+    """Load MLIR content from path"""
     with open(path, "r") as file:
         content = file.read()
     return content
 
 
 def walk_operations(op: ir.Operation, callback=None):
+    """Traverse all operations"""
     for region in op.regions:
         for block in region:
             for child_op in block:
@@ -189,6 +198,7 @@ def walk_operations(op: ir.Operation, callback=None):
 
 
 def get_all_tunable_ops(op: ir.Operation):
+    """Get tunable ops from the children op"""
     tunable_ops = []
     for region in op.regions:
         for block in region:
@@ -205,6 +215,7 @@ def get_all_tunable_ops(op: ir.Operation):
 
 
 def gen_configs_from_ir(ir_module: ir.Module):
+    """Genrate configs from ir module"""
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     configs = []
     for op in tunable_ops:
@@ -214,6 +225,7 @@ def gen_configs_from_ir(ir_module: ir.Module):
 
 
 def attach_configs_to_ir(ir_module: ir.Module, configs: List[Config]):
+    """Add configs to ir module"""
     tunable_ops = get_all_tunable_ops(ir_module.operation)
     assert len(tunable_ops) == len(
         configs

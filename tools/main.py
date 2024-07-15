@@ -18,44 +18,48 @@
 import argparse
 import json
 import os
-from timeit import repeat, timeit
 
 import numpy as np
-from bench import *
-from drivers import *
+from bench import (
+    batch_mlir_wrapper_bench,
+    batch_py_timeit_bench,
+    mlir_wrapper_bench,
+    py_timeit_bench,
+)
+from drivers import MLP, LoadMLIR
+from enhanced_np_to_memref import *
 from gc_mlir import ir
-from gc_mlir import runtime as rt
-from gc_mlir.passmanager import *
+from tuner import GATuner, GridTuner, Tuner, TuningSpace
 from utils import get_mlir_args
-from tuner import *
 
 
 def get_driver_clz(diver_str: str):
+    """Function getting driver class by name."""
     clz = {"mlp": MLP, "load_mlir": LoadMLIR}[diver_str]
     return clz
 
 
-def add_driver_args(parser):
-    driver = parser.parse_known_args()[0].driver
-    get_driver_clz(driver).add_args(parser)
+def add_driver_args(arg_parser: argparse.ArgumentParser):
+    """Function adding args for different driver."""
+    driver = arg_parser.parse_known_args()[0].driver
+    get_driver_clz(driver).add_args(arg_parser)
 
 
-def do_bench(args):
+def do_bench(args: argparse.Namespace):
+    """Function benching mlir"""
     with ir.Context() as ctx, ir.Location.unknown():
         driver_clz = get_driver_clz(args.driver)
         driver = driver_clz(ctx, args)
         if args.print_ir:
             ctx.enable_multithreading(False)
-        np_args = driver.prepare_np_args(args.disable_results_to_params)
+        np_args = driver.prepare_np_args()
 
         # TODO need data filling
         # for test, fill all data with 1
-        for i in range(len(np_args)):
-            np.ndarray.fill(np_args[i], 1)
+        for np_arg in np_args:
+            np.ndarray.fill(np_arg, 1)
 
-        mlir_args = get_mlir_args(
-            driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
-        )
+        mlir_args = get_mlir_args(driver.ir_module, driver.main_entry, np_args)
 
         print("===========bench func name: ", driver.main_entry, "===========")
         print(driver.ir_module)
@@ -81,30 +85,32 @@ def do_bench(args):
         )
         print(json_res)
 
-def do_tune(args):
+
+def do_tune(args: argparse.Namespace):
+    """Function tunning mlir"""
     with ir.Context() as ctx, ir.Location.unknown():
         ctx.allow_unregistered_dialects = True
         driver_clz = get_driver_clz(args.driver)
         driver = driver_clz(ctx, args)
         if args.print_ir:
             ctx.enable_multithreading(False)
-        # todo (data filling)
-        np_args = driver.prepare_np_args(args.disable_results_to_params)
+        np_args = driver.prepare_np_args()
+
         # TODO need data filling
         # for test, fill all data with 1
-        for i in range(len(np_args)):
-            np.ndarray.fill(np_args[i], 1)
+        for np_arg in np_args:
+            np.ndarray.fill(np_arg, 1)
 
-        mlir_args = get_mlir_args(
-            driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
-        )
+        mlir_args = get_mlir_args(driver.ir_module, driver.main_entry, np_args)
 
         bench_alg = (
             batch_py_timeit_bench
             if args.bench_alg == "py"
             else batch_mlir_wrapper_bench
         )
-        tuner_bench = lambda ir_moudles: bench_alg(
+
+        def tuner_batch_bench(ir_moudles):
+            return bench_alg(
             ir_moudles,
             driver.main_entry,
             driver.get_passes(),
@@ -114,12 +120,11 @@ def do_tune(args):
             repeat_time=1,
             warm_up=1,
         )
-
         assert args.space_percent > 0 and args.space_percent <= 1.0
         space = TuningSpace(driver.ir_module, args.space_percent)
         if args.search_alg == "grid":
             tuner = GridTuner(
-                tuner_bench,
+                tuner_batch_bench,
                 space,
                 args.tuning_batch,
                 args.early_stop,
@@ -127,7 +132,7 @@ def do_tune(args):
             )
         else:
             tuner = GATuner(
-                tuner_bench,
+                tuner_batch_bench,
                 space,
                 args.tuning_batch,
                 args.early_stop,
@@ -143,9 +148,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--driver", type=str, choices=["load_mlir", "mlp"], required=True
     )
-    parser.add_argument(
-        "--disable_results_to_params", action="store_true", default=False
-    )
     add_driver_args(parser)
     parser.add_argument(
         "--bench_alg", type=str, choices=["py", "wrapper"], default="py"
@@ -155,8 +157,7 @@ if __name__ == "__main__":
     if parser.parse_known_args()[0].type == "bench":
         parser.add_argument("--warm_up", type=int, default=20)
         parser.add_argument("--repeat", type=int, default=100)
-        args = parser.parse_args()
-        do_bench(args)
+        do_bench(parser.parse_args())
     else:
         parser.add_argument(
             "--search_alg", type=str, choices=["grid", "ga"], default="ga"
@@ -189,5 +190,4 @@ if __name__ == "__main__":
                 type=int,
                 default=GATuner.DEFAULT_EXPECTED_TUNE_NUM,
             )
-        args = parser.parse_args()
-        do_tune(args)
+        do_tune(parser.parse_args())

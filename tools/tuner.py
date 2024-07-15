@@ -22,9 +22,7 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from functools import reduce
 from typing import List
-from unittest.mock import DEFAULT
 
 import utils
 from config_filter import *
@@ -35,6 +33,9 @@ need_print = False
 
 
 class TuningSpace:
+    """
+    The class works as a bride between the tuner and the configs in MLIR module.
+    """
 
     DEFAULT_SPACE_PERCENT = 1.0
 
@@ -60,6 +61,9 @@ class TuningSpace:
         self.space_size = int(self.space_size * space_percent)
 
     def make_config_from_indexes(self, indexes: List[int]):
+        """
+        Make a config from a list of indexes of candidates.
+        """
         graph_config = deepcopy(self.graph_config)
         for cid, candidate in enumerate(self.flatten_candidates):
             val = candidate[indexes[cid]]
@@ -68,10 +72,16 @@ class TuningSpace:
             setattr(config, field_name, val)
         return graph_config
 
-    def get_cur_config(self, candidate_ind):
+    def get_cur_config(self, candidate_ind: int):
+        """
+        Get the current config with a incoming candidate index
+        """
         return self.graph_config[self.ind_candidate_to_config[candidate_ind]]
 
     def verify_config(self, candidate_idx, val) -> bool:
+        """
+        Verify the config with constraints
+        """
         config = self.get_cur_config(candidate_idx)
         field_name = self.flatten_field_name[candidate_idx]
         constraint = self.flatten_constraints[candidate_idx]
@@ -82,6 +92,9 @@ class TuningSpace:
         return True
 
     def filter_next_candidates(self, candidate_idx, val) -> List[int]:
+        """
+        Get the next candidates with the incoming candidate index and value
+        """
         field_name = self.flatten_field_name[candidate_idx]
         config = self.get_cur_config(candidate_idx)
         setattr(
@@ -104,6 +117,9 @@ class TuningSpace:
 
 
 class Tuner(ABC):
+    """
+    Class for creating different configs and choose the config with best perf
+    """
     DEFAULT_BATCH_SIZE = 50
     DEFAULT_EARLY_STOP = -1
     DEFAULT_TIMEOUT = -1
@@ -132,6 +148,9 @@ class Tuner(ABC):
         assert len(tunning_space.graph_config), "There are no tunable ops"
 
     def tuner_update(self, config_indices_batch: List[List[int]], costs: List[float]):
+        """
+        Update after each batch of configs was executed
+        """
         if min(costs) < self.best_cost:
             self.best_cost = min(costs)
             self.best = config_indices_batch[costs.index(min(costs))]
@@ -140,28 +159,43 @@ class Tuner(ABC):
 
     @abstractmethod
     def get_next_config_indices_batch(self) -> List[List[int]]:
+        """
+        Get the next batch of config indices
+        """
         pass
 
     @abstractmethod
     def load_status(self):
+        """
+        Load the Tuner status from the checkpoint
+        """
         pass
 
     @abstractmethod
     def save_status(self):
+        """
+        Save the Tuner status to the checkpoint
+        """
         pass
 
     def tuner_finish(self, tuning_time):
+        """
+        Execute when tuning is finished
+        """
         print("Tuning ends in", tuning_time, "s")
         best_config = self.tunning_space.make_config_from_indexes(self.best)
         print("Best cost:", self.best_cost, "ms")
         print("Best config:", best_config)
-        utils.attach_configs_to_ir(self.tunning_space.initial_ir, best_config),
+        utils.attach_configs_to_ir(self.tunning_space.initial_ir, best_config)
         print(
             "mlir:\n",
             self.tunning_space.initial_ir,
         )
 
     def run(self, max_iter: int = DEFAULT_MAX_ITERS, timeout: int = DEFAULT_TIMEOUT):
+        """
+        Start of tuning process
+        """
         if self.early_stop > 0 and self.iter - self.last_update_iter > self.early_stop:
             # in case of resuming from a saved state and it has already
             # early-stopped
@@ -230,6 +264,9 @@ class Tuner(ABC):
 
 
 class GridTuner(Tuner):
+    """
+    Tuner with grid serach
+    """
     def __init__(
         self,
         batch_executor,
@@ -316,6 +353,7 @@ class GridTuner(Tuner):
 
 
 class GATuner(Tuner):
+    """Tuner with Genetic Algorithm"""
     DEFAULT_ELITE_NUM = 9
     DEFAULT_MUTATION_PROB = 0.1
     DEFAULT_RANDOM_SEED = 0
@@ -338,18 +376,20 @@ class GATuner(Tuner):
         self.mutation_prob = mutation_prob
         self.pop_size = pop_size
         self.cur_mutation_prob = mutation_prob
-        self.prev_result = []
+        self.prev_results = []
         self.elites = []
         random.seed(random_seed)
         if expected_tune_num == 0:
             self.filter = HashSetFilter()
         else:
-            self.filter = BloomFilter(expected_tune_num)
+            self.filter = BloomFilter(expected_tune_num, err_rate=0.01)
 
         self.candidate_indices = [[]] * len(self.tunning_space.flatten_candidates)
         self.candidate_indices[0] = list(
             range(len(self.tunning_space.flatten_candidates[0]))
         )
+        if self.checkpoint:
+            self.load_status()
 
     def save_status(self):
         save_dict = {
@@ -359,14 +399,45 @@ class GATuner(Tuner):
             "best_cost": self.best_cost,
             "skipped_num": self.skipped_num,
             "cur_mutation_prob": self.cur_mutation_prob,
-            "prev_result": self.prev_result,
+            "prev_results": self.prev_results,
             "elites": self.elites,
-            "tuned": self.filter.save(),
+            "tuned": list(self.filter.save()),
         }
-        return super().save_status()
+        with open(self.checkpoint, "w") as file:
+            json.dump(save_dict, file, indent=4)
 
     def load_status(self):
-        return super().load_status()
+        print("continue tuning from checkpoint...")
+        with open(
+            self.checkpoint,
+            "r",
+        ) as file:
+            try:
+                data = json.load(file)
+                assert set(
+                    [
+                        "iter",
+                        "last_update_iter",
+                        "best",
+                        "best_cost",
+                        "skipped_num",
+                        "cur_mutation_prob",
+                        "prev_results",
+                        "elites",
+                        "tuned",
+                    ]
+                ) == set(data.keys())
+                self.iter = data["iter"]
+                self.last_update_iter = data["last_update_iter"]
+                self.best = data["best"]
+                self.best_cost = data["best_cost"]
+                self.skipped_num = data["skipped_num"]
+                self.cur_mutation_prob = data["cur_mutation_prob"]
+                self.prev_results = data["prev_results"]
+                self.elites = data["elites"]
+                self.filter.load(data["tuned"])
+            except Exception as e:
+                print("load checkpoint failed", e)
 
     def set_field(self, gene, idx, val):
         gene[idx] = val
@@ -412,10 +483,10 @@ class GATuner(Tuner):
         return True
 
     def get_next_config_indices_batch(self) -> list:
-        prob_range = [0.0] * len(self.prev_result)
+        prob_range = [0.0] * len(self.prev_results)
         total_score = 0
-        for i in range(len(self.prev_result)):
-            total_score += self.prev_result[i][1]
+        for i, prev_result in enumerate(self.prev_results):
+            total_score += prev_result[1]
             prob_range[i] = total_score
         prob_range = [x / total_score for x in prob_range]
         to_tune = []
@@ -424,8 +495,8 @@ class GATuner(Tuner):
 
         if need_print:
             print("to_tune", to_tune)
-            for i in range(len(to_tune)):
-                print(self.tunning_space.make_config_from_indexes(to_tune[i]))
+            for to_tune_config in to_tune:
+                print(self.tunning_space.make_config_from_indexes(to_tune_config))
 
         if len(to_tune) < self.pop_size:
             print(
@@ -460,7 +531,7 @@ class GATuner(Tuner):
                 if self.push_to_tune(to_tune, gene):
                     return
             else:
-                assert len(self.prev_result) > 0
+                assert len(self.prev_results) > 0
                 # print("len(prob_range) = ", len(prob_range))
                 if len(prob_range) == 1:
                     return
@@ -487,8 +558,8 @@ class GATuner(Tuner):
                         )
                     else:
                         #  inherit from parents
-                        left_gene = self.prev_result[first_gene][0][j]
-                        right_gene = self.prev_result[second_gene][0][j]
+                        left_gene = self.prev_results[first_gene][0][j]
+                        right_gene = self.prev_results[second_gene][0][j]
                         if j < joint_point:
                             prefered_gene = left_gene
                             unprefered_gene = right_gene
@@ -514,17 +585,17 @@ class GATuner(Tuner):
     def tuner_update(
         self, config_indices_batch: List[List[int]], perf_result: List[float]
     ):
-        super().tuner_update(config_indices_batch, perf_result)
-        self.prev_result.clear()
-        for i in range(len(config_indices_batch)):
-            self.filter.add(config_indices_batch[i])
-            self.prev_result.append((config_indices_batch[i], 1 / perf_result[i]))
+        self.prev_results.clear()
+        for i, config_indices in enumerate(config_indices_batch):
+            self.filter.add(config_indices)
+            self.prev_results.append((config_indices, 1 / perf_result[i]))
 
         for elite in self.elites:
-            self.prev_result.append(elite)
-        self.elites = sorted(self.prev_result, key=lambda x: x[1], reverse=True)[
+            self.prev_results.append(elite)
+        self.elites = sorted(self.prev_results, key=lambda x: x[1], reverse=True)[
             : self.elite_num
         ]
+        super().tuner_update(config_indices_batch, perf_result)
 
     @staticmethod
     def random_item_from(v: List[int]):

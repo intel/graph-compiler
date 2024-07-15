@@ -18,12 +18,10 @@
 import ctypes
 import random
 import timeit
-from time import sleep
 from typing import List, Sequence, Tuple
 
 import numpy as np
 from gc_mlir import ir, runtime
-from gc_mlir.dialects import arith, func, memref
 from gc_mlir.graph_compiler import GraphCompiler
 from utils import (
     emit_benchmark_wrapped_main_func,
@@ -42,7 +40,7 @@ def py_timeit_bench(
     repeat_time=100,
     warm_up=20,
 ) -> Tuple[float, float]:
-    
+    """benchmark mlir with python timeit."""
     compiler = GraphCompiler(
         pipeline,
         shared_libs,
@@ -75,8 +73,8 @@ def mlir_wrapper_bench(
     repeat_time=100,
     warm_up=20,
 ) -> Tuple[float, float]:
+    """benchmark mlir with a wrapper func."""
     kernel_func = get_kernel_func_from_module(ir_module, entry_name)
-
     wrapper_module = ir_module
     with ir.InsertionPoint(wrapper_module.body):
         emit_benchmark_wrapped_main_func(kernel_func, emit_nano_time())
@@ -116,6 +114,7 @@ def fake_bench(
     repeat_time=100,
     warm_up=20,
 ) -> Tuple[float, float]:
+    """genrate fake benchmark result."""
     execute_cost = float(random.randint(1, 100))
     compile_cost = float(random.randint(1, 100))
     return (execute_cost, compile_cost)
@@ -131,7 +130,7 @@ def batch_py_timeit_bench(
     repeat_time=5,
     warm_up=2,
 ) -> List[Tuple[float, float]]:
-
+    """benchmark a batch of mlir with python timeit."""
     compiler = GraphCompiler(
         pipeline,
         shared_libs,
@@ -175,7 +174,7 @@ def batch_mlir_wrapper_bench(
     repeat_time=5,
     warm_up=2,
 ) -> Tuple[float, float]:
-
+    """benchmark a batch of mlir with wrapper func."""
     compiler = GraphCompiler(
         pipeline,
         shared_libs,
@@ -204,15 +203,17 @@ def batch_mlir_wrapper_bench(
     def run(engine_invoke, bench_func_name, *mlir_args):
         engine_invoke(bench_func_name, *mlir_args)
 
-    for i in range(len(engine_invokes)):
-        for j in range(warm_up):
-            run(engine_invokes[i], "wrapped_main", time_arg, *mlir_args)
+    for engine_invoke in engine_invokes:
+        for _ in range(warm_up):
+            run(engine_invoke, "wrapped_main", time_arg, *mlir_args)
+
     execute_costs = []
-    for i in range(len(engine_invokes)):
+    for engine_invoke in engine_invokes:
         total_time = 0
-        for j in range(repeat_time):
-            run(engine_invokes[i], "wrapped_main", time_arg, *mlir_args)
+        for _ in range(repeat_time):
+            run(engine_invokes, "wrapped_main", time_arg, *mlir_args)
             total_time += int(np_timers_ns[0]) * ns_to_ms_scale
+
         execute_cost = total_time / repeat_time
         execute_costs.append(execute_cost)
 

@@ -62,7 +62,7 @@ class BloomFilter(ConfigFilter):
         return self.bit_array
 
     def load(self, data):
-        self.bit_array == data
+        self.bit_array = data
 
 
 class HashSetFilter(ConfigFilter):
@@ -79,4 +79,6 @@ class HashSetFilter(ConfigFilter):
         return self.data
 
     def load(self, data):
-        self.data = data
+        self.data.clear()
+        for item in data:
+            self.add(item)
