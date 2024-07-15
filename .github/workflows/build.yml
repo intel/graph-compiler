@@ -50,6 +50,7 @@ jobs:
       - name: Build and install benchgc
         working-directory: build
         run: |
+          touch python_packages/gc_mlir_core/gc_mlir/extras/__init__.py
           ninja benchgc
           pip uninstall -y benchgc || true
           pip install test/benchgc/dist/benchgc-*.whl
