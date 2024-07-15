@@ -527,18 +527,18 @@ static void getGenericEffectsImpl(
         &effects,
     ValueRange results, const ValueRange inputOperands,
     ValueRange outputOperands) {
-  for (auto operand : inputOperands) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
-      continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
-                         SideEffects::DefaultResource::get());
-  }
-  for (auto operand : outputOperands) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
-      continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), operand,
-                         SideEffects::DefaultResource::get());
-  }
+  // for (auto operand : inputOperands) {
+  //   if (!llvm::isa<MemRefType>(operand.getType()))
+  //     continue;
+  //   effects.emplace_back(MemoryEffects::Read::get(), operand,
+  //                        SideEffects::DefaultResource::get());
+  // }
+  // for (auto operand : outputOperands) {
+  //   if (!llvm::isa<MemRefType>(operand.getType()))
+  //     continue;
+  //   effects.emplace_back(MemoryEffects::Read::get(), operand,
+  //                        SideEffects::DefaultResource::get());
+  //   effects.emplace_back(MemoryEffects::Write::get(), operand,
+  //                        SideEffects::DefaultResource::get());
+  // }
 }

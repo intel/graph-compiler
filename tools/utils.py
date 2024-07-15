@@ -139,7 +139,7 @@ def get_kernel_func_from_module(
 
 def get_default_passes():
     passes = """
-        any(gc-cpu-pipeline)
+       any(func.func(flash-attention-conversion), gc-cpu-pipeline)
     """
     return passes
 

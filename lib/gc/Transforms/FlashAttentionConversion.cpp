@@ -8,7 +8,7 @@
 
 #include "./Tiling.hpp"
 #include "gc/Dialect/Arith/Utils/EasyBuild.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 #include "gc/IR/EasyBuild.h"
 #include "gc/IR/EasyBuildSCF.h"
 #include "mlir/AsmParser/AsmParser.h"
