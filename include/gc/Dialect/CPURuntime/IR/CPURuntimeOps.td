@@ -11,6 +11,7 @@
 
 include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/InferTypeOpInterface.td"
 
 
 def CPURuntime_PrintfOp : CPURuntime_Op<"printf", [MemoryEffects<[MemWrite]>]>,
@@ -29,5 +30,54 @@ def CPURuntime_PrintfOp : CPURuntime_Op<"printf", [MemoryEffects<[MemWrite]>]>,
   }];
 }
 
+def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
+    AttrSizedOperandSegments,
+    MemoryEffects<[MemAlloc<DefaultResource>]>
+  ]> {
+
+  let summary = "CPURuntime memory allocation operation in a stack way.";
+  let description = [{
+    The `cpuruntime.alloc` operation allocates a region of memory on the CPU. It is
+    similar to the `std.alloc` op.
+
+    Example:
+
+    ```mlir
+    // For dynamic size memref
+    %memref = cpuruntime.alloc (%width) : memref<64x?xf32>
+    
+    // For static size memref
+    %memref = cpuruntime.alloc () : memref<64x32xf32>
+    
+    // For memref with symbolic operand in affine map
+    %memref = cpuruntime.alloc [%symbol_value] (%width) : memref<64x?xf32, affine_map<(d0, d1)[s0] -> (d0 + s0, d1)>
+    ```
+  }];
+
+  let arguments = (ins Variadic<Index>:$dynamicSizes, Variadic<Index>:$symbolOperands);
+  let results = (outs Res<AnyMemRef, "", [MemAlloc<DefaultResource, 0, FullEffect>]>:$memref);
+
+  let assemblyFormat = [{
+    `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
+  }];
+}
+
+def CPURuntime_DeallocOp : CPURuntime_Op<"dealloc", [
+    MemoryEffects<[MemFree]>
+  ]> {
+
+  let summary = "CPU memory deallocation operation";
+
+  let description = [{
+    The `cpuruntime.dealloc` operation frees the region of memory referenced by a
+    memref which was originally created by the `cpuruntime.alloc` operation.
+    It is similar to the `std.dealloc` op.
+  }];
+
+  let arguments = (ins Arg<AnyMemRef, "", [MemFree]>:$memref);
+
+
+  let assemblyFormat = [{ $memref attr-dict `:` type($memref) }];
+}
 
 #endif // CPURUNTIME_OPS
