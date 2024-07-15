@@ -19,7 +19,10 @@ import gc_mlir.ir
 from gc_mlir.dialects import func
 
 from benchgc.arg import Arg
-from typing import Callable, List, Self
+from typing import Callable, List
+
+# only python 3.11 support
+# from typing import Self
 
 
 def get_entry_args(module: gc_mlir.ir.Module, entry: str = '"entry"') -> List[str]:
@@ -99,7 +102,7 @@ class MLIRCache:
     # argument name cache
     arg: List[str]
     # next hierarchy
-    next: List[Self]
+    next = [] # List[Self]
 
     def __init__(self):
         self.opr = []
