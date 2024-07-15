@@ -21,7 +21,21 @@
 #include <sstream>
 #include <string>
 
-static std::string read_str_resource(const std::string &name) {
+#if __cplusplus > 202002L
+#include <stdfloat>
+#else
+namespace std {
+#if defined(__SIZEOF_FLOAT__) && __SIZEOF_FLOAT__ == 4
+using float32_t = float;
+#elif defined(__SIZEOF_DOUBLE__) && __SIZEOF_DOUBLE__ == 4
+using float32_t = double;
+#else
+static_assert(false, "No 32-bit floating point type available");
+#endif
+} // namespace std
+#endif
+
+static std::string readStrResource(const std::string &name) {
   std::filesystem::path res_dir{"resources"};
   auto path = std::filesystem::absolute(res_dir / name);
   std::ifstream file(path);

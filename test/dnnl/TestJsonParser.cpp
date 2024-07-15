@@ -46,7 +46,7 @@ static mlir::ModuleOp parse(const char *fileName,
 #endif
   }();
 
-  auto json = read_str_resource(fileName);
+  auto json = readStrResource(fileName);
   mlir::ModuleOp module =
       JsonParser::parse(context, json, inputIds, outputIds, strides);
 

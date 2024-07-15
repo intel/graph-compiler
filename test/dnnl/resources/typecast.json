@@ -1,0 +1,35 @@
+{
+  "version": "3.5.0",
+  "engine_kind": "cpu",
+  "fpmath_mode": "any",
+  "input_ports": [
+    0
+  ],
+  "output_ports": [
+    1
+  ],
+  "graph": [
+    {
+      "id": 0,
+      "kind": "Typecast",
+      "inputs": [
+        {
+          "id": 0,
+          "dtype": "f32",
+          "shape": [
+            128
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 1,
+          "dtype": "f16",
+          "shape": [
+            128
+          ]
+        }
+      ]
+    }
+  ]
+}
