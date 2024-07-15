@@ -1,7 +1,7 @@
 #! /bin/bash
 
 pip uninstall -y benchgc || true
-pip install -y build/test/benchgc/dist/benchgc-*.whl
+pip install build/test/benchgc/dist/benchgc-*.whl
 
 # need to import tools as a package 
 export PYTHONPATH=$(pwd)
