@@ -23,9 +23,6 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
 
-class Linalgx_Op<string mnemonic, list<Trait> traits = []> :
-    Op<LinalgxDialect, mnemonic, traits>;
-
 // Base Tablegen class for Linalg ops.
 // Linalg ops that correspond to library calls operate on ShapedType as their
 // first operands. These may be optionally followed by non-view operands
@@ -312,29 +309,6 @@ def Linalgx_MultiBatchMatmulOp : LinalgxStructuredBase_Op<"multi_batch_matmul",
     getRegionBuilder() {
       return regionBuilder;
     }
-  }];
-}
-
-def Linalgx_ScaledDotProductAttentionOp
- : Linalgx_Op<"scaled_dot_product_attention", 
-      [AttrSizedOperandSegments,
-      DeclareOpInterfaceMethods<AggregatedOpInterface, ["decomposeOperation"]>]> {
-  let summary = "Attention structure.";
-  let description = [{
-    Q, K, V, attention_mask.
-    Output = SoftMax(Q @ K.transpose(-2, -1) + attention_mask) @ V.
-  }];
-  let arguments = (ins
-      Variadic<TensorOrMemref>:$inputs,
-      Variadic<TensorOrMemref>:$outputs);
-  let results = (outs Variadic<TensorOrMemref>:$results);
-
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    attr-dict
-    `ins` `(` $inputs `:` type($inputs) `)`
-    `outs` `(` $outputs `:` type($outputs) `)`
-    (`->` type($results)^)?
   }];
 }
 
