@@ -26,5 +26,5 @@ setuptools.setup(
     packages=setuptools.find_packages("src")
     + setuptools.find_packages("../../python_packages/gc_mlir_core"),
     package_data={"gc_mlir": ["_mlir_libs/*.so"]},
-    install_requires=["torch", "numpy"],
+    install_requires=["torch", "numpy", "ml_dtypes"],
 )
