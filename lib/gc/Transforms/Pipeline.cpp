@@ -75,12 +75,9 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
-
-  // The pass can lead to parameter mismatch during benching in some scenarios.
-  // bufferization::BufferResultsToOutParamsOpts opt{};
-  // opt.hoistStaticAllocs = true;
-  // pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
-
+  bufferization::BufferResultsToOutParamsOpts opt{};
+  opt.hoistStaticAllocs = true;
+  pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   // todo: buffer schedule pass
   // todo: Need to improve this pass to support nested parallel.
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());

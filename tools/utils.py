@@ -97,16 +97,22 @@ def emit_benchmark_wrapped_main_func(
     return wrapped_func
 
 
-def get_mlir_args(module: ir.Module, entry: str, np_args: List[np.ndarray]):
+def get_mlir_args(
+    module: ir.Module,
+    entry: str,
+    np_args: List[np.ndarray],
+    disable_results_to_params=False,
+):
     """Convert numpy arrays to MLIR args and return a list of pointers to them"""
     f = get_kernel_func_from_module(module, entry)
     compiled_func_args = []
-    assert len(np_args) == len(f.arguments), "input args mismatch"
-    for res in f.type.results:
-        compiled_func_args.append(
-            ctypes.pointer(
+    if disable_results_to_params:
+        assert len(np_args) == len(f.arguments), "input args mismatch"
+        for res in f.type.results:
+            compiled_func_args.append(
                 ctypes.pointer(
-                    make_nd_memref_descriptor(
+                    ctypes.pointer(
+                        make_nd_memref_descriptor(
                             len(res.shape), MLIR_TYPE_TO_C_TYPE[str(res.element_type)]
                         )()
                     )
@@ -117,7 +123,6 @@ def get_mlir_args(module: ir.Module, entry: str, np_args: List[np.ndarray]):
             ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(arg)))
         )
     return compiled_func_args
-
 
 
 def make_mlir_ndarray(mlir_type):

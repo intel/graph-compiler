@@ -18,6 +18,7 @@
 import argparse
 import json
 import os
+from ast import arg
 
 import numpy as np
 from bench import (
@@ -52,14 +53,16 @@ def do_bench(args: argparse.Namespace):
         driver = driver_clz(ctx, args)
         if args.print_ir:
             ctx.enable_multithreading(False)
-        np_args = driver.prepare_np_args()
+        np_args = driver.prepare_np_args(args.disable_results_to_params)
 
         # TODO need data filling
         # for test, fill all data with 1
         for np_arg in np_args:
             np.ndarray.fill(np_arg, 1)
 
-        mlir_args = get_mlir_args(driver.ir_module, driver.main_entry, np_args)
+        mlir_args = get_mlir_args(
+            driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
+        )
 
         print("===========bench func name: ", driver.main_entry, "===========")
         print(driver.ir_module)
@@ -94,14 +97,16 @@ def do_tune(args: argparse.Namespace):
         driver = driver_clz(ctx, args)
         if args.print_ir:
             ctx.enable_multithreading(False)
-        np_args = driver.prepare_np_args()
+        np_args = driver.prepare_np_args(args.disable_results_to_params)
 
         # TODO need data filling
         # for test, fill all data with 1
         for np_arg in np_args:
             np.ndarray.fill(np_arg, 1)
 
-        mlir_args = get_mlir_args(driver.ir_module, driver.main_entry, np_args)
+        mlir_args = get_mlir_args(
+            driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
+        )
 
         bench_alg = (
             batch_py_timeit_bench
@@ -111,15 +116,16 @@ def do_tune(args: argparse.Namespace):
 
         def tuner_batch_bench(ir_moudles):
             return bench_alg(
-            ir_moudles,
-            driver.main_entry,
-            driver.get_passes(),
-            mlir_args,
-            [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]],
-            args.print_ir,
-            repeat_time=1,
-            warm_up=1,
-        )
+                ir_moudles,
+                driver.main_entry,
+                driver.get_passes(),
+                mlir_args,
+                [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]],
+                args.print_ir,
+                repeat_time=args.repeat,
+                warm_up=args.warm_up,
+            )
+
         assert args.space_percent > 0 and args.space_percent <= 1.0
         space = TuningSpace(driver.ir_module, args.space_percent)
         if args.search_alg == "grid":
@@ -153,10 +159,14 @@ if __name__ == "__main__":
         "--bench_alg", type=str, choices=["py", "wrapper"], default="py"
     )
     parser.add_argument("-p", "--print_ir", action="store_true")
+    parser.add_argument(
+        "--disable_results_to_params", action="store_true", default=False
+    )
+
+    parser.add_argument("--warm_up", type=int, default=100)
+    parser.add_argument("--repeat", type=int, default=100)
 
     if parser.parse_known_args()[0].type == "bench":
-        parser.add_argument("--warm_up", type=int, default=20)
-        parser.add_argument("--repeat", type=int, default=100)
         do_bench(parser.parse_args())
     else:
         parser.add_argument(

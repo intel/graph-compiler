@@ -211,7 +211,7 @@ def batch_mlir_wrapper_bench(
     for engine_invoke in engine_invokes:
         total_time = 0
         for _ in range(repeat_time):
-            run(engine_invokes, "wrapped_main", time_arg, *mlir_args)
+            run(engine_invoke, "wrapped_main", time_arg, *mlir_args)
             total_time += int(np_timers_ns[0]) * ns_to_ms_scale
 
         execute_cost = total_time / repeat_time
