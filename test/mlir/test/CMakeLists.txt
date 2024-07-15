@@ -1,3 +1,9 @@
+if(WIN32)
+    set(MLIR_RUNNER_UTILS_DIR ${LLVM_BINARY_DIR}/bin)
+else()
+    set(MLIR_RUNNER_UTILS_DIR ${LLVM_LIBRARY_DIR})
+endif()
+
 llvm_canonicalize_cmake_booleans(
         GC_ENABLE_BINDINGS_PYTHON
 )
@@ -16,6 +22,11 @@ set(GC_OPT_TEST_DEPENDS
         gc-cpu-runner
         GCUnitTests
 )
+
+if(GC_USE_GPU)
+        include(imex)
+        list(APPEND GC_OPT_TEST_DEPENDS level-zero-runtime)
+endif()
 
 if(GC_ENABLE_BINDINGS_PYTHON)
         list(APPEND GC_OPT_TEST_DEPENDS GcPythonModules)

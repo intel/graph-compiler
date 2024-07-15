@@ -31,7 +31,7 @@ function(gc_fetch_content
         FetchContent_Declare(
                 ${name}
                 SOURCE_DIR ${GC_${uname}_SRC_DIR}
-                CMAKE_ARGS ${${uname}_CMAKE_ARGS}
+                CMAKE_ARGS ${GC_${uname}_CMAKE_ARGS}
         )
     else ()
         if (DEFINED GC_${uname}_VERSION)

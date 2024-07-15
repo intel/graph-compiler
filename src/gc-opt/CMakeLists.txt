@@ -36,6 +36,13 @@ set(gc_opt_libs
         GCPasses
         GCGPUPasses)
 
+if(GC_USE_GPU)
+  add_definitions(-DGC_USE_GPU=1)
+  get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
+  include_directories(${IMEX_INCLUDES})
+  list(APPEND gc_opt_libs IMEXGPUXDialect IMEXXeTileDialect IMEXRegionDialect IMEXRegionTransforms
+    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM IMEXXeGPUToVC IMEXXeTileToXeGPU IMEXUtil)
+endif()
 if(GC_MLIR_CXX_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
 endif()
