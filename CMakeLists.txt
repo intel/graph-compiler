@@ -60,7 +60,7 @@ endif()
 
 if(GC_ENABLE_BINDINGS_PYTHON)
   include(MLIRDetectPythonEnv)
-  find_package(Python 3.11 REQUIRED COMPONENTS Interpreter NumPy REQUIRED)
+  find_package(Python 3.10 REQUIRED COMPONENTS Interpreter NumPy REQUIRED)
   mlir_configure_python_dev_packages()
 endif()
 
