@@ -13,6 +13,7 @@ RUN set -ex; \
       python3-pip python3-dev \
       cmake gcc g++ ninja-build git clang-format \
       gh \
+      libomp-dev \
     ; \
     rm -rf /var/lib/apt/lists/*
 
