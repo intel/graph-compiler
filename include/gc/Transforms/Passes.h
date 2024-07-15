@@ -36,6 +36,10 @@ namespace MemRef {
 class MemRefDialect;
 }
 
+namespace xegpu {
+class XeGPUDialect;
+}
+
 class PassManager;
 
 namespace gc {
