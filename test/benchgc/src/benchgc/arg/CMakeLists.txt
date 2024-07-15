@@ -18,5 +18,5 @@
 
 file(GLOB PYTHON_SCRIPTS "*.py")
 foreach(PY_SCRIPT ${PYTHON_SCRIPTS})
-  configure_file(${PY_SCRIPT} ${CMAKE_BINARY_DIR}/test/benchgc/src/benchgc/fill/ COPYONLY)
+  configure_file(${PY_SCRIPT} ${CMAKE_BINARY_DIR}/test/benchgc/src/benchgc/arg/ COPYONLY)
 endforeach()
