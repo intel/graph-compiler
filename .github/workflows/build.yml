@@ -46,6 +46,14 @@ jobs:
         run: |
           cmake --build build --target gc-check
       
+
+      - name: Build and install benchgc
+        working-directory: build
+        run: |
+          ninja benchgc
+          pip uninstall -y benchgc || true
+          pip install test/benchgc/dist/benchgc-*.whl
+
       - name: Correctness Test
         run: |
           scripts/correctness.sh
