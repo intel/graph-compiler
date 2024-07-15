@@ -12,6 +12,7 @@
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
@@ -47,7 +48,8 @@ private:
   DenseSet<Operation *> fusibleSet;
 
   void addBrgemmFusible(Operation *brmm, BrgemmFusible fusible);
-  SmallVector<Operation *, 10> getMemRefUseSequence(Value val);
+  SmallVector<Operation *, 10>
+  getMemRefUseSequence(Value buffer, const SmallPtrSet<Value, 16> &aliases);
 
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BrgemmFusionAnalysis)
@@ -64,7 +66,6 @@ public:
 
 void BrgemmFusionAnalysis::addBrgemmFusible(Operation *brmm,
                                             BrgemmFusible fusible) {
-  return;
   auto iter = brgemmFusible.find(brmm);
   if (iter == brgemmFusible.end()) {
     brgemmFusible[brmm] = fusible;
@@ -141,20 +142,19 @@ generateBrgemmFusible(Value buffer, linalg::TransposeOp transOp,
   return fusible;
 }
 
-SmallVector<Operation *, 10>
-BrgemmFusionAnalysis::getMemRefUseSequence(Value value) {
-  auto valueType = value.getType();
-  if (!isa<MemRefType>(valueType))
-    return {};
-
+SmallVector<Operation *, 10> BrgemmFusionAnalysis::getMemRefUseSequence(
+    Value buffer, const SmallPtrSet<Value, 16> &aliases) {
   DenseSet<Operation *> users;
-  Operation *creationOp = value.getDefiningOp();
-  for (Operation *user : value.getUsers()) {
-    users.insert(user);
+  for (auto value : aliases) {
+    for (Operation *user : value.getUsers()) {
+      users.insert(user);
+    }
   }
 
-  // creationOp should be the first in sequence, and dominates all the others
-  auto commonBlock = creationOp->getBlock();
+  auto commonBlock = buffer.getParentBlock();
+  LLVM_DEBUG(llvm::dbgs() << "[BrgemmFusionAnalysis] buffer: " << buffer << "\n"
+                          << "[BrgemmFusionAnalysis] commonBlock: "
+                          << *commonBlock << "\n");
 
   SmallVector<Operation *, 10> seq;
   commonBlock->walk<WalkOrder::PreOrder>([&](Operation *op) {
@@ -172,6 +172,7 @@ BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root,
     return;
 
   auto &domInfo = am.getAnalysis<DominanceInfo>();
+  auto &bufferView = am.getAnalysis<BufferViewFlowAnalysis>();
 
   func->walk<WalkOrder::PreOrder>([&](Operation *op) {
     // For each possible fusible Op (transposeOp/fillOp), determine whether it's
@@ -195,7 +196,31 @@ BrgemmFusionAnalysis::BrgemmFusionAnalysis(Operation *root,
     LLVM_DEBUG(llvm::dbgs()
                << "[BrgemmFusionAnalysis] Encounter `" << transposeOp
                << "` with output buffer `" << buffer << "`\n");
-    auto useSequence = getMemRefUseSequence(buffer);
+
+    SmallPtrSet<Value, 16> bufferAliasing = bufferView.resolveReverse(buffer);
+    std::optional<Value> ancestorBuffer = std::nullopt;
+    for (auto alias : bufferAliasing) {
+      auto defOp = alias.getDefiningOp();
+      if (!defOp || llvm::isa<memref::AllocOp>(defOp) ||
+          llvm::isa<memref::ReallocOp>(defOp)) {
+        if (ancestorBuffer) {
+          LLVM_DEBUG(llvm::dbgs() << "[BrgemmFusionAnalysis] Duplicated "
+                                     "ancestor buffer found, skip: "
+                                  << transposeOp << "\n");
+          return;
+        }
+        ancestorBuffer = alias;
+      }
+    }
+    if (!ancestorBuffer) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "[BrgemmFusionAnalysis] No ancestor buffer found, skip: "
+                 << transposeOp << "\n");
+      return;
+    }
+
+    SmallPtrSet<Value, 16> bufferAliases = bufferView.resolve(*ancestorBuffer);
+    auto useSequence = getMemRefUseSequence(*ancestorBuffer, bufferAliases);
 
     bool afterTranspose = false;
     bool isFusible = true;
