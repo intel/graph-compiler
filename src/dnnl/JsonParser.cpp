@@ -245,11 +245,11 @@ inline mlir::Attribute JsonParser::readAttr() {
   } else if (_str == "s64[]") {
     _ia64.clear();
     readNumArray(_ia64);
-    attr = _builder.getI64ArrayAttr(_ia64);
+    attr = _builder.getDenseI64ArrayAttr(_ia64);
   } else if (_str == "f32[]") {
     _fa32.clear();
     readNumArray(_fa32);
-    attr = _builder.getF32ArrayAttr(_fa32);
+    attr = _builder.getDenseF32ArrayAttr(_fa32);
   } else if (_str == "string") {
     _reader.read_string(&_str);
     attr = _builder.getStringAttr(_str);
