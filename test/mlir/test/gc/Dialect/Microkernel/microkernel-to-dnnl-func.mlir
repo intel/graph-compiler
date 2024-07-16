@@ -1,4 +1,5 @@
 // RUN: gc-opt %s -convert-microkernel-to-dnnl-func -cse -split-input-file | FileCheck %s
+// COM: regular lowering pattern
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
