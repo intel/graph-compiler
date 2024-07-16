@@ -73,8 +73,6 @@ struct MHAToFlashAttention
     FlashAttentionConfig cfg = getDefaultFlashAttentionConfig(sdpaOp);
     Location loc = sdpaOp.getLoc();
     OpBuilder::InsertionGuard guard(rewriter);
-    SmallVector<LoopLikeOpInterface> loops;
-    SmallVector<Value> ivs;
     auto shape =
         dyn_cast<RankedTensorType>(sdpaOp.getOperand(0).getType()).getShape();
     auto dtype = dyn_cast<RankedTensorType>(sdpaOp.getOperand(0).getType())
@@ -82,55 +80,26 @@ struct MHAToFlashAttention
     int64_t seqLen = shape[2], headDim = shape[3];
     auto Q = sdpaOp.getOperand(0), K = sdpaOp.getOperand(1),
          V = sdpaOp.getOperand(2), mask = sdpaOp.getOperand(3);
-    // construct 2 parallel outermost loops for batchSize and numHeads
-    SmallVector<Range> loopRanges;
-    for (size_t i = 0; i < 2; ++i) {
-      Range curRange;
-      curRange.offset = getAsIndexOpFoldResult(rewriter.getContext(), 0UL);
-      curRange.size = getAsIndexOpFoldResult(rewriter.getContext(), shape[i]);
-      curRange.stride = getAsIndexOpFoldResult(rewriter.getContext(), 1UL);
-      loopRanges.push_back(curRange);
-    }
-    SmallVector<OpFoldResult> tileSizes(
-        2, getAsIndexOpFoldResult(rewriter.getContext(), 1UL));
+    // construct 3 parallel outermost loops for
+    // batchSize/numHeads/(seqLen/rowBlockSize)
     SmallVector<Value> destinationTensors;
     tensor::getOrCreateDestinations(rewriter, sdpaOp.getLoc(), sdpaOp,
                                     destinationTensors);
-    for (auto [loopRange, tileSize] : llvm::zip_equal(loopRanges, tileSizes)) {
-      Value lb =
-          getValueOrCreateConstantIndexOp(rewriter, loc, loopRange.offset);
-      Value ub = getValueOrCreateConstantIndexOp(rewriter, loc, loopRange.size);
-      Value step = getValueOrCreateConstantIndexOp(rewriter, loc, tileSize);
-      auto loop = rewriter.create<scf::ForOp>(
-          loc, lb, ub, step, destinationTensors,
-          [](OpBuilder &bodyBuilder, Location bodyLoc, Value iv,
-             ValueRange /*iterArgs*/) {});
-      loops.push_back(loop);
-      rewriter.setInsertionPointToEnd(loop.getBody());
-      ivs.push_back(loop.getInductionVar());
-      destinationTensors.clear();
-      destinationTensors.insert(destinationTensors.begin(),
-                                loop.getRegionIterArgs().begin(),
-                                loop.getRegionIterArgs().end());
+    SmallVector<OpFoldResult> lbs, ubs, tileSizes;
+    for (size_t i = 0; i < 3; ++i) {
+      lbs.push_back(getAsIndexOpFoldResult(rewriter.getContext(), 0));
+      ubs.push_back(getAsIndexOpFoldResult(rewriter.getContext(), shape[i]));
+      tileSizes.push_back(getAsIndexOpFoldResult(
+          rewriter.getContext(), i == 2 ? cfg.RowBlockSize : 1));
     }
-    // create rowBlockLoop
-    auto rowBlockLoop = rewriter.create<scf::ForOp>(
-        loc,
-        getValueOrCreateConstantIndexOp(
-            rewriter, loc, getAsIndexOpFoldResult(rewriter.getContext(), 0UL)),
-        getValueOrCreateConstantIndexOp(
-            rewriter, loc,
-            getAsIndexOpFoldResult(rewriter.getContext(), seqLen)),
-        getValueOrCreateConstantIndexOp(
-            rewriter, loc,
-            getAsIndexOpFoldResult(rewriter.getContext(), cfg.RowBlockSize)),
-        destinationTensors,
-        [](OpBuilder &bodyBuilder, Location bodyLoc, Value iv,
-           ValueRange /*iterArgs*/) {});
-    loops.push_back(rowBlockLoop);
-    ivs.push_back(rowBlockLoop.getInductionVar());
-    rewriter.setInsertionPointToEnd(rowBlockLoop.getBody());
-    // inserting body for rowBlockLoop
+    // create forall loop
+    auto forallOp = rewriter.create<scf::ForallOp>(
+        loc, lbs, ubs, tileSizes, destinationTensors,
+        /*mapping=*/std::nullopt,
+        /*bodyBuilderFn =*/[](OpBuilder &, Location, ValueRange) {});
+    rewriter.setInsertionPointToEnd(forallOp.getBody());
+    SmallVector<Value> ivs = forallOp.getInductionVars();
+    // inserting body for forall loop
     SmallVector<OpFoldResult> offsets;
     offsets.push_back(getAsOpFoldResult(ivs[0]));
     offsets.push_back(getAsOpFoldResult(ivs[1]));
@@ -182,7 +151,7 @@ struct MHAToFlashAttention
         [](OpBuilder &bodyBuilder, Location bodyLoc, Value iv,
            ValueRange /*iterArgs*/) {});
     ivs.push_back(columnBlockLoop.getInductionVar());
-    rewriter.setInsertionPointToEnd(columnBlockLoop.getBody());
+    rewriter.setInsertionPointToStart(columnBlockLoop.getBody());
     // innermost computations
     Value prevOSlice = columnBlockLoop.getRegionIterArgs()[0],
           prevMaxSlice = columnBlockLoop.getRegionIterArgs()[1],
@@ -386,8 +355,7 @@ struct MHAToFlashAttention
     // yield all the results of the innermost loop.
     rewriter.create<scf::YieldOp>(
         loc, ValueRange{newOSlice, newMaxSlice, newSumSlice});
-    // yield rowBlockLoop results
-    rewriter.setInsertionPointToEnd(rowBlockLoop.getBody());
+    // yield parallel loop results
     auto innermostLoopResults = columnBlockLoop->getResults();
     Value OSliceFinal = innermostLoopResults[0];
     SmallVector<OpFoldResult> outputOffsets;
@@ -398,20 +366,14 @@ struct MHAToFlashAttention
     SmallVector<OpFoldResult> outputSizes(4, rewriter.getIndexAttr(1));
     outputSizes[2] = rewriter.getIndexAttr(cfg.RowBlockSize);
     outputSizes[3] = rewriter.getIndexAttr(headDim);
-    Value insertedRescaledOSlice = rewriter.create<tensor::InsertSliceOp>(
-        loc, OSliceFinal, rowBlockLoop.getRegionIterArgs()[0], outputOffsets,
+    // Add the scf.forall.in_parallel operations for the forall op
+    rewriter.setInsertionPointToEnd(forallOp.getBody());
+    auto term = rewriter.create<scf::InParallelOp>(loc);
+    rewriter.setInsertionPointToStart(term.getBody());
+    rewriter.create<tensor::ParallelInsertSliceOp>(
+        loc, OSliceFinal, forallOp.getRegionIterArgs()[0], outputOffsets,
         outputSizes, strides);
-    rewriter.create<scf::YieldOp>(loc, ValueRange{insertedRescaledOSlice});
-    // Add the scf.yield operations for all the outer loops.
-    for (auto [outerLoop, innerLoop] :
-         llvm::zip_equal(MutableArrayRef(loops).drop_back(),
-                         MutableArrayRef(loops).drop_front())) {
-      rewriter.setInsertionPointToEnd(
-          cast<scf::ForOp>(outerLoop.getOperation()).getBody());
-      rewriter.create<scf::YieldOp>(outerLoop.getLoc(),
-                                    innerLoop->getResults());
-    }
-    rewriter.replaceOp(sdpaOp, loops.front()->getResults());
+    rewriter.replaceOp(sdpaOp, forallOp->getResults());
     return success();
   }
 };
