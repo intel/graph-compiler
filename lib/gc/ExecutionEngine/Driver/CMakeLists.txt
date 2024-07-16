@@ -37,5 +37,6 @@ add_mlir_library(GCJitWrapper
     ${dialect_libs}
     ${conversion_libs} 
     GCPasses
+    GCGPUPasses
   )
 

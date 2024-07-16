@@ -1,0 +1,43 @@
+{
+  "version": "3.5.0",
+  "engine_kind": "cpu",
+  "fpmath_mode": "any",
+  "input_ports": [
+    0,
+    1
+  ],
+  "output_ports": [
+    2
+  ],
+  "graph": [
+    {
+      "id": 0,
+      "kind": "Multiply",
+      "inputs": [
+        {
+          "id": 0,
+          "dtype": "f32",
+          "shape": [
+            128
+          ]
+        },
+        {
+          "id": 1,
+          "dtype": "f32",
+          "shape": [
+            128
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "id": 2,
+          "dtype": "f32",
+          "shape": [
+            128
+          ]
+        }
+      ]
+    }
+  ]
+}
