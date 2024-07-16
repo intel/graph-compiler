@@ -76,7 +76,6 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCSEPass());
-
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));

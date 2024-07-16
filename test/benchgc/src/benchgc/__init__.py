@@ -17,5 +17,4 @@
 import sys
 import pathlib
 
-# add the path to $PYTHONPATH where pysc shared object is located
 sys.path.append(pathlib.Path(__file__).parent.resolve().__str__())

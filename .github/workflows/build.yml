@@ -17,7 +17,6 @@ jobs:
 
     env:
       GH_TOKEN: ${{ github.token }}    
-      GLIBC_TUNABLES: "glibc.cpu.x86_shstk=permissive"
 
     steps:
       - uses: actions/checkout@v4

@@ -76,5 +76,5 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 
 ## Example
 ```
-python3 -m benchgc --verbose 4 --driver linalg --case add -i 4x5x6xf32:N:0:1 -i 4x5x6xf32:N:5:2 -o 4x5x6xf32::
+python3 -m benchgc --verbose 4 --driver linalg --case add -i 4x5x6xf32:N:0:1 -i 4x5x6xf32:N:5:2 -o 4x5x6xf32:D
 ```
