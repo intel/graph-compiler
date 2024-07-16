@@ -22,4 +22,10 @@ module {
     return
   }
 
+  func.func @do_thread_alloc() {
+    %m0 = cpuruntime.threadAlloc () : memref<13xf32>
+    cpuruntime.threadDealloc %m0 : memref<13xf32>
+    return
+  }
+
 }
