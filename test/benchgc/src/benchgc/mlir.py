@@ -102,7 +102,7 @@ class MLIRCache:
     # argument name cache
     arg: List[str]
     # next hierarchy
-    next = [] # List[Self]
+    next = []  # List[Self]
 
     def __init__(self):
         self.opr = []

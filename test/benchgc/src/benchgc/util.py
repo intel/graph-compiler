@@ -23,7 +23,7 @@ import ml_dtypes
 
 # verbose level
 NO_VERBOSE = 0
-MODULE_VERBOSE = 1 # print the module will be executed
+MODULE_VERBOSE = 1  # print the module will be executed
 COMPARE_VERBOSE = 2  # + print threshold for comparison
 ERROR_OUTPUT_VERBOSE = 3  # + print all error data points if failed
 OUTPUT_VERBOSE = 4  # + print all result including passed tensor

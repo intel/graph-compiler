@@ -18,6 +18,7 @@ import argparse
 import torch
 import numpy
 from typing import List, Tuple, Callable
+
 # only python 3.11 support
 # from typing import Self
 import benchgc.util
@@ -91,9 +92,10 @@ class Arg:
         return gc_mlir.dialects.tensor.EmptyOp(self.shape, self.get_mlir_dtype(ctx))
 
     def set_default_fill_param(
-        self, flags: argparse.Namespace, 
-        argin, # List[Self]
-        argout, # List[Self]
+        self,
+        flags: argparse.Namespace,
+        argin,  # List[Self]
+        argout,  # List[Self]
     ):
 
         if self.shape == [] or self.dtype == "" or self.type == "":
@@ -163,9 +165,10 @@ class Arg:
                     self.param.extend(["-1", "0"])
 
     def set_default_compare_param(
-        self, flags: argparse.Namespace, 
-        argin, # List[Self], 
-        argout, # List[Self]
+        self,
+        flags: argparse.Namespace,
+        argin,  # List[Self],
+        argout,  # List[Self]
     ):
         if self.shape == [] or self.dtype == "" or self.type == "":
             raise Exception(
