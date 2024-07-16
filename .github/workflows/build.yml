@@ -56,5 +56,9 @@ jobs:
           pip install test/benchgc/dist/benchgc-*.whl
 
       - name: Correctness Test
+        env:
+          MLIR_RUNNER_UTILS: ../install/llvm/lib/libmlir_runner_utils.so
+          MLIR_C_RUNNER_UTILS: ../install/llvm/lib/libmlir_c_runner_utils.so
+          LD_PRELOAD: /lib/x86_64-linux-gnu/libomp5.so
         run: |
           scripts/correctness.sh

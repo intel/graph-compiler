@@ -75,6 +75,7 @@ try:
         help="verbose level",
         choices=[
             benchgc.util.NO_VERBOSE,
+            benchgc.util.MODULE_VERBOSE,
             benchgc.util.COMPARE_VERBOSE,
             benchgc.util.ERROR_OUTPUT_VERBOSE,
             benchgc.util.OUTPUT_VERBOSE,
@@ -97,50 +98,6 @@ try:
         help="define the dimensions attribute in linalg op",
         type=int,
     )
-    parser.add_argument(
-        "--stride_w",
-        required=False,
-        default=1,
-        help="define the stride attribute",
-        type=int,
-    )
-    parser.add_argument(
-        "--stride_h",
-        required=False,
-        default=1,
-        help="define the stride attribute",
-        type=int,
-    )
-    parser.add_argument(
-        "--stride_d",
-        required=False,
-        default=1,
-        help="define the stride attribute",
-        type=int,
-    )
-
-    parser.add_argument(
-        "--dilation_w",
-        required=False,
-        default=1,
-        help="define the dilation attribute",
-        type=int,
-    )
-    parser.add_argument(
-        "--dilation_h",
-        required=False,
-        default=1,
-        help="define the dilation attribute",
-        type=int,
-    )
-    parser.add_argument(
-        "--dilation_d",
-        required=False,
-        default=1,
-        help="define the dilation attribute",
-        type=int,
-    )
-
     flags = parser.parse_args()
     benchgc.util.set_seed(flags.seed)
 
@@ -174,7 +131,8 @@ elif flags.driver == "mlir":
 else:
     raise Exception("unsupported driver %s" % flags.driver)
 
-print(module)
+if flags.verbose >= benchgc.util.MODULE_VERBOSE:
+    print(module)
 
 gc_args: List[Any] = []
 gc_out: List[torch.Tensor] = []
@@ -208,13 +166,18 @@ with module.context:
     engine = compiler.compile_and_jit(module)
     engine.invoke(entry, *mlir_args)
 
+fail, mistrust = False, False
 for i in range(len(outs)):
     out = outs[i]
     out.set_default_compare_param(flags, ins, outs)
     res = compare_tensor(out, ref_out[i], gc_out[i], flags.verbose)
-    if not res[0]:
-        print("FAIL: %s.%s" % (flags.driver, flags.case))
-    elif res[1]:
-        print("MISTRUST: %s.%s" % (flags.driver, flags.case))
-    else:
-        print("PASSED: %s.%s" % (flags.driver, flags.case))
+    fail = fail or (not res[0])
+    if res[1] is not None:
+        mistrust = mistrust | res[1]
+if fail:
+    print("FAIL: %s.%s" % (flags.driver, flags.case))
+    sys.exit(1)
+elif mistrust:
+    print("MISTRUST: %s.%s" % (flags.driver, flags.case))
+else:
+    print("PASSED: %s.%s" % (flags.driver, flags.case))
