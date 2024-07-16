@@ -148,7 +148,13 @@ def do_tune(args: argparse.Namespace):
         tuner.run(args.max_tuning_iters, args.timeout)
 
 
+def check_env():
+    """Function checking environment."""
+    assert "MLIR_C_RUNNER_UTILS" in os.environ
+    assert "MLIR_RUNNER_UTILS" in os.environ
+
 if __name__ == "__main__":
+    check_env()
     parser = argparse.ArgumentParser()
     parser.add_argument("--type", type=str, choices=["bench", "tune"], default="bench")
     parser.add_argument(

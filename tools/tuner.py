@@ -234,7 +234,8 @@ class Tuner(ABC):
                 ir_modules.append(new_ir)
             res = self.batch_executor(ir_modules)
             perf_result = [item[1] for item in res]
-
+            old_best = self.best_cost
+            self.tuner_update(config_indices_batch, perf_result)
             print(
                 "[",
                 self.iter,
@@ -246,8 +247,6 @@ class Tuner(ABC):
                 self.best_cost,
                 "ms",
             )
-            old_best = self.best_cost
-            self.tuner_update(config_indices_batch, perf_result)
             if self.best_cost != old_best:
                 self.last_update_iter = old_iter
             else:

@@ -106,7 +106,6 @@ class MLP(Driver):
         parser.add_argument("--batch_size", type=int, default=1)
         parser.add_argument("--hidden_size_list", type=str, default="")
         parser.add_argument("--has_bias", required=False, type=str)
-        parser.add_argument("--has_ln", type=str, default="")
         parser.add_argument(
             "--act_type", type=str, choices=["noop", "relu", "sigmoid"], default="noop"
         )
@@ -136,8 +135,6 @@ class MLP(Driver):
             len(self.has_bias) == layers
         ), "has_bias should have the same length as hidden_size_list"
 
-        # TODO
-        self.has_ln = to_bool_list(args.has_ln)
         self.act_type = args.act_type
         self.dtype = args.dtype
 
