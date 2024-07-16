@@ -1,4 +1,5 @@
 // RUN: gc-opt %s -convert-linalg-to-microkernel -split-input-file | FileCheck %s
+// COM: regular non-VNNI lowering
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -41,6 +42,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
+// COM: regular VNNI lowering
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -83,6 +85,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
+// COM: linalg.fill + linalg.batch_reduce_matmul lowering
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -127,6 +130,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
+// COM: linalg.fill + linalgx.batch_reduce_matmul_vnni lowering
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -171,6 +175,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
+// COM: linalg.transpose + linalgx.batch_reduce_matmul_vnni lowering regular pattern
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -225,6 +230,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
+// COM: linalg.transpose + linalgx.batch_reduce_matmul_vnni lowering branch pattern
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -290,6 +296,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS2]]) : (i64) -> ()
 
 // -----
+// COM: linalg.transpose + linalgx.batch_reduce_matmul_vnni no lowering pattern caused by un-dominated matmul
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
@@ -355,6 +362,7 @@ func.func @simple_brgemm() {
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS2]]) : (i64) -> ()
 
 // -----
+// COM: linalg.transpose + linalgx.batch_reduce_matmul_vnni no lowering pattern caused by other use
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @simple_brgemm() {
