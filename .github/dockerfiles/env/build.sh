@@ -1,7 +1,7 @@
 #!/bin/bash
 
 REGISTRY=localhost:5000
-TAG=graph-compiler-env:0.0.11
+TAG=graph-compiler-env:0.0.13
 
 set -e
 
