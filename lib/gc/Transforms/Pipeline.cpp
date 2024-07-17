@@ -34,6 +34,8 @@ namespace mlir::gc {
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::PassManager &pm) {
   pm.addPass(createConvertOneDNNGraphToLinalg());
+  PrintIRPassOptions option{"after front end pass"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
@@ -48,6 +50,8 @@ void populateTensorPasses(mlir::PassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  PrintIRPassOptions option{"after tensor pass"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
@@ -66,6 +70,8 @@ void populateVectorPasses(mlir::PassManager &pm) {
   // oneDNN graph spec
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
+  PrintIRPassOptions option{"after vectorize pass"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + linalg.brgemm
@@ -75,17 +81,31 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
+  PrintIRPassOptions option1{"after OneShotBufferize pass"};
+  pm.addPass(createPrintIRPass(option1));
   pm.addPass(createCSEPass());
+  PrintIRPassOptions option2{"after cse pass"};
+  pm.addPass(createPrintIRPass(option2));
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
+  PrintIRPassOptions option3{"after BufferResultsToOutParams pass"};
+  pm.addPass(createPrintIRPass(option3));
   // todo: buffer schedule pass
   // todo: Need to improve this pass to support nested parallel.
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
+  PrintIRPassOptions option4{"after BufferHoisting pass"};
+  pm.addPass(createPrintIRPass(option4));
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
+  PrintIRPassOptions option5{"after BufferLoopHoisting pass"};
+  pm.addPass(createPrintIRPass(option5));
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
-  
+  PrintIRPassOptions option6{"after BufferDeallocation pass"};
+  pm.addPass(createPrintIRPass(option6));
+
   pm.addPass(createBufferizationToMemRefPass());
+  PrintIRPassOptions option7{"after BufferizationToMemRef pass"};
+  pm.addPass(createPrintIRPass(option7));
 }
 
 // scf + arith + math + vector + memref + func/microkernel
@@ -103,15 +123,23 @@ void populateCPURuntimePasses(mlir::PassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
 
-  // memref->cpuruntime.alloc
-  
+  pm.addPass(createConvertMemRefToCPURuntime());
+  PrintIRPassOptions option1{"after ConvertMemRefToCPURuntime pass"};
+  pm.addPass(createPrintIRPass(option1));
+
   pm.addPass(createConvertSCFToOpenMPPass());
+  PrintIRPassOptions option2{"after ConvertSCFToOpenMP pass"};
+  pm.addPass(createPrintIRPass(option2));
 }
 
 void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
+  PrintIRPassOptions option1{"after FinalizeMemRefToLLVMConversion pass"};
+  pm.addPass(createPrintIRPass(option1));
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
+  PrintIRPassOptions option2{"after CPURuntimeToLLVM pass"};
+  pm.addPass(createPrintIRPass(option2));
   pm.addPass(createConvertOpenMPToLLVMPass());
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
@@ -122,6 +150,8 @@ void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
   pm.addPass(createSymbolDCEPass());
+  PrintIRPassOptions option3{"after lowering to llvm pass"};
+  pm.addPass(createPrintIRPass(option3));
 }
 
 void populateLLVMPasses(mlir::PassManager &pm) {
@@ -132,6 +162,8 @@ void populateLLVMPasses(mlir::PassManager &pm) {
 
 void populateCPUPipeline(mlir::PassManager &pm) {
   // front-end, oneDNN graph dialect
+  PrintIRPassOptions option{"The initial IR"};
+  pm.addPass(createPrintIRPass(option));
   populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects
   populateTensorPasses(pm);

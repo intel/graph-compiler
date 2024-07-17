@@ -32,6 +32,18 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   ];
 }
 
+def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime"> {
+  let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
+  let description = [{
+    Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
+  }];
+  let dependentDialects = [
+      "func::FuncDialect",
+      "memref::MemRefDialect",
+      "cpuruntime::CPURuntimeDialect"
+  ];
+}
+
 def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
   let summary = "All-in-one pipeline for GC for CPU";
   let dependentDialects = ["onednn_graph::OneDNNGraphDialect",
@@ -43,7 +55,8 @@ def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
       "scf::SCFDialect",
       "bufferization::BufferizationDialect",
       "omp::OpenMPDialect",
-      "vector::VectorDialect"];
+      "vector::VectorDialect",
+      "cpuruntime::CPURuntimeDialect"];
 }
 
 #endif // GC_DIALECT_GC_PASSES
