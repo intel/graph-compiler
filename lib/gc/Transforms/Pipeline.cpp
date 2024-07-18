@@ -147,7 +147,7 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
 
 void registerCPUPipeline() {
   PassPipelineRegistration<>("gc-cpu-pipeline",
-                             "All-in-one pipeline for GC for CPU",
+                             "The CPU pipeline for Graph Compiler",
                              populateCPUPipeline);
 }
 
