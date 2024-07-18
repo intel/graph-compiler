@@ -15,36 +15,15 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
+import torch
 import ctypes
-from typing import List
+from typing import List, Any
 
-import ml_dtypes
-import numpy as np
-from .enhanced_np_to_memref import (
-    BF16,
-    get_ranked_memref_descriptor,
-    make_nd_memref_descriptor,
-)
+import torch.types
+from .memref import get_ranked_memref_descriptor
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref, onednn_graph
 from .op_config import *
-
-MLIR_TYPE_TO_NUMPY_TYPE = {
-    "bf16": ml_dtypes.bfloat16,
-    "f32": np.float32,
-    "f64": np.float64,
-    "i8": np.int8,
-    "i32": np.int32,
-    "i64": np.int64,
-}
-
-MLIR_TYPE_TO_C_TYPE = {
-    "f32": ctypes.c_float,
-    "f64": ctypes.c_double,
-    "i32": ctypes.c_int,
-    "i8": ctypes.c_byte,
-    "bf16": BF16,
-}
 
 
 def emit_nano_time() -> func.FuncOp:
@@ -84,39 +63,22 @@ def emit_benchmark_wrapped_main_func(
     return wrapped_func
 
 
-def np_args_to_mlir_args(np_args: List[np.ndarray]) -> List:
-    mlir_args = []
-    for arg in np_args:
-        mlir_args.append(
-            ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(arg)))
-        )
-    return mlir_args
-
-
 def get_mlir_args(
     module: ir.Module,
     entry: str,
-    np_args: List[np.ndarray],
-    disable_results_to_params=False,
+    # scalar should give a address
+    args: List[torch.Tensor | int],
 ):
-    f = get_kernel_func_from_module(module, entry)
-    compiled_func_args = []
-    if disable_results_to_params:
-        assert len(np_args) == len(f.arguments), "input args mismatch"
-        for res in f.type.results:
+    compiled_func_args: List[Any] = []
+
+    for arg in args:
+        if isinstance(arg, torch.Tensor):
             compiled_func_args.append(
-                ctypes.pointer(
-                    ctypes.pointer(
-                        make_nd_memref_descriptor(
-                            len(res.shape), MLIR_TYPE_TO_C_TYPE[str(res.element_type)]
-                        )()
-                    )
-                )
+                ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(arg)))
             )
-    for arg in np_args:
-        compiled_func_args.append(
-            ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(arg)))
-        )
+        else:
+            compiled_func_args.append(ctypes.c_void_p(arg))
+
     return compiled_func_args
 
 
@@ -129,12 +91,6 @@ def mlir_type(s, ctx):
         "i8": ir.IntegerType.get_signed(8),
     }
     return type_mapping[s]
-
-
-def make_tensor(tensor_type):
-    return np.zeros(
-        tensor_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
-    )
 
 
 def get_kernel_func_from_module(

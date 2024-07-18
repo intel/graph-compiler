@@ -50,6 +50,9 @@ python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
 * first setting will be the arg0, the second setting will be the arg1, ..
 * set the variable shape and dtype in single op test
 * set the data filling strategy
+* use prefix `0x` (e.g. `0xbf16`) to represent 0d memref or tensor input
+* use `f32` to represent a normal scalar
+
 
 
 * fill_type & fill_parameter setting

@@ -37,6 +37,7 @@ class Arg:
 
     param: List[str]
     index: int
+    scalar: bool
 
     def __init__(self, cfg: str, index: int):
         cfgs = cfg.split(":")
@@ -46,6 +47,16 @@ class Arg:
         self.shape = []
         for dim in tensor_type[:-1]:
             self.shape.append(int(dim))
+
+        # use 0xf32 to represent memref<f32>
+        # use f32 to represent f32
+        if self.shape == [0]:
+            self.shape = []
+            self.scalar = False
+        elif self.shape == []:
+            self.scalar = True
+        else:
+            self.scalar = False
 
         self.type = cfgs[1]
         self.param = cfgs[2:]
@@ -98,10 +109,8 @@ class Arg:
         argout,  # List[Self]
     ):
 
-        if self.shape == [] or self.dtype == "" or self.type == "":
-            raise Exception(
-                "arg%d filling: shape/dtype/fill_type is not set" % self.index
-            )
+        if self.dtype == "" or self.type == "":
+            raise Exception("arg%d filling: dtype/fill_type is not set" % self.index)
         if self.type == "D" and len(self.param) == 0:
             # need to generate a default param for driver filling here
             if flags.driver not in ["linalg"]:

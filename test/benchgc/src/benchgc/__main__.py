@@ -134,20 +134,23 @@ else:
 if flags.verbose >= benchgc.util.MODULE_VERBOSE:
     print(module)
 
-gc_args: List[Any] = []
+gc_args: List[torch.Tensor | int] = []
 gc_out: List[torch.Tensor] = []
 tensors: Dict[str, torch.Tensor] = {}
 for i in range(len(ins)):
     tensor = fill_tensor(flags, ins[i], i)
     tensors["%arg" + str(i)] = tensor
     # gc is sharing the same input with reference
-    gc_args.append(benchgc.util.tensor_to_ndarray(tensor))
+    if ins[i].scalar:
+        gc_args.append(tensor.data_ptr())
+    else:
+        gc_args.append(tensor)
 
 for i in range(len(outs)):
     tensor = torch.zeros(
         size=outs[i].shape, dtype=benchgc.util.get_dtype(outs[i].dtype)
     )
-    gc_args.append(benchgc.util.tensor_to_ndarray(tensor))
+    gc_args.append(tensor)
     gc_out.append(tensor)
 
 ref_out = runner.ref_run(module, tensors)
