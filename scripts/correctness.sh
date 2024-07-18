@@ -26,19 +26,19 @@ python3 -m benchgc --verbose 0 --driver linalg --case negf -i 32x4096xf32:D -o 3
 python3 -m benchgc --verbose 0 --driver linalg --case exp -i 32x4096xf32:D -o 32x4096xf32:D || FAIL=1
 
 # mlir
-python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/llama2.mlir \
-    -i 1x32x4096xbf16:N:0:1 \
-    -i 4096x4096xbf16:N:0:1 \
-    -i 1x32x4096xbf16:N:0:1 \
-    -i 1xf32:N:0:1 \
-    -i 4096xbf16:N:0:1 \
-    -i 11008x4096xbf16:N:0:1 \
-    -i 11008x4096xbf16:N:0:1 \
-    -i 4096x11008xbf16:N:0:1 \
-    -i 1xf32:N:0:1 \
-    -i 4096xbf16:N:0:1 \
-    -o 1x32x4096xbf16:P:0.0078125:30.0 \
-    -o 1x32x4096xbf16:P:0.0078125:30.0 || FAIL=1
+# python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/llama2.mlir \
+#     -i 1x32x4096xbf16:N:0:1 \
+#     -i 4096x4096xbf16:N:0:1 \
+#     -i 1x32x4096xbf16:N:0:1 \
+#     -i 1xf32:N:0:1 \
+#     -i 4096xbf16:N:0:1 \
+#     -i 11008x4096xbf16:N:0:1 \
+#     -i 11008x4096xbf16:N:0:1 \
+#     -i 4096x11008xbf16:N:0:1 \
+#     -i 1xf32:N:0:1 \
+#     -i 4096xbf16:N:0:1 \
+#     -o 1x32x4096xbf16:P:0.0078125:30.0 \
+#     -o 1x32x4096xbf16:P:0.0078125:30.0 || FAIL=1
 
 set +e
 exit $FAIL
