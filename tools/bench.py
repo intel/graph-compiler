@@ -49,6 +49,7 @@ def py_timeit_bench(
     engine = compiler.compile_and_jit(ir_module, ir_printing=ir_printing)
     compile_cost = (timeit.default_timer() - compile_begin) * 1000
 
+    # Copied from execution_engine.py so that the cost of cast does not affect perf result.
     func = engine.lookup(entry_name)
     packed_args = (ctypes.c_void_p * len(mlir_args))()
     for argNum in range(len(mlir_args)):
@@ -144,6 +145,7 @@ def batch_py_timeit_bench(
         compile_costs.append(compile_cost)
         funcs.append(engine.lookup(entry_name))
 
+    # Copied from execution_engine.py so that the cost of cast does not affect perf result.
     packed_args = (ctypes.c_void_p * len(mlir_args))()
     for argNum in range(len(mlir_args)):
         packed_args[argNum] = ctypes.cast(mlir_args[argNum], ctypes.c_void_p)

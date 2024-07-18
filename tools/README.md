@@ -34,7 +34,7 @@ The tool has two different ways to calculate the time cost, and more experiments
 python3 ./tools/main.py --driver=load_mlir --path=./tools/workloads/test.mlir
 
 # complex version
-python3 ./tools/main.py --type=bench --bench_alg=py --driver=load_mlir --path=./tools/workloads/test.mlir --warm_up=200 --repeat=200 --print_ir --entry=main_entry
+python3 ./tools/main.py --type=bench --bench_kind=py --driver=load_mlir --path=./tools/workloads/test.mlir --warm_up=200 --repeat=200 --print_ir --entry=main_entry
 ```
 
 ```
@@ -46,7 +46,7 @@ python3 ./tools/main.py --type=bench --bench_alg=py --driver=load_mlir --path=./
         "driver": "load_mlir",
         "path": "./tools/workloads/test.mlir",
         "entry": "main_entry",
-        "bench_alg": "py",
+        "bench_kind": "py",
         "print_ir": false,
         "warm_up": 20,
         "repeat": 100
@@ -58,7 +58,7 @@ python3 ./tools/main.py --type=bench --bench_alg=py --driver=load_mlir --path=./
 
 ### Common Options
 *  `--driver`: the pattern to bench, currently support `mlp` and `load_mlir`
-*  `--bench_alg`: `py` or `wrapper`, different evaluation implementation of the benchmark
+*  `--bench_kind`: `py` or `wrapper`, different evaluation implementation of the benchmark
 *  `--warm_up`: warm-up times of the execution
 *  `--repeat`: repeat times of the execution
 *  `--print_ir`: print the ir before execution
@@ -98,7 +98,7 @@ module {
 The logic of tuner is consistent with that of graph compiler v1 version, which can generate different config based on user set candidates and constraints
 ### Examples
 ```
-python3 /home/xurui/gc_v2/graph-compiler/tools/main.py  --driver=load_mlir --type=tune --path=./tools/workloads/test.mlir --bench_alg=wrapper  --search_alg=grid --batch_size=50
+python3 /home/xurui/gc_v2/graph-compiler/tools/main.py  --driver=load_mlir --type=tune --path=./tools/workloads/test.mlir --bench_kind=wrapper  --search_alg=grid --batch_size=50
 ```
 
 ```

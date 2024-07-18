@@ -492,8 +492,6 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outBias);
     }
 
-    // Passing mutmal configs to linalg.matmul
-    newOp->setAttrs(op->getAttrs());
     rewriter.replaceOp(op, newOp);
     return success();
   }

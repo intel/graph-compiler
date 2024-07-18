@@ -66,8 +66,8 @@ def do_bench(args: argparse.Namespace):
 
         print("===========bench func name: ", driver.main_entry, "===========")
         print(driver.ir_module)
-        bench_alg = py_timeit_bench if args.bench_alg == "py" else mlir_wrapper_bench
-        execute_cost, compile_cost = bench_alg(
+        bench_kind = py_timeit_bench if args.bench_kind == "py" else mlir_wrapper_bench
+        execute_cost, compile_cost = bench_kind(
             driver.ir_module,
             driver.main_entry,
             driver.get_passes(),
@@ -108,14 +108,14 @@ def do_tune(args: argparse.Namespace):
             driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
         )
 
-        bench_alg = (
+        batch_bench = (
             batch_py_timeit_bench
-            if args.bench_alg == "py"
+            if args.bench_kind == "py"
             else batch_mlir_wrapper_bench
         )
 
         def tuner_batch_bench(ir_moudles):
-            return bench_alg(
+            return batch_bench(
                 ir_moudles,
                 driver.main_entry,
                 driver.get_passes(),
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     )
     add_driver_args(parser)
     parser.add_argument(
-        "--bench_alg", type=str, choices=["py", "wrapper"], default="py"
+        "--bench_kind", type=str, choices=["py", "wrapper"], default="py"
     )
     parser.add_argument("-p", "--print_ir", action="store_true")
     parser.add_argument(

@@ -34,7 +34,7 @@ need_print = False
 
 class TuningSpace:
     """
-    The class works as a bride between the tuner and the configs in MLIR module.
+    The class works as a bridge between the tuner and the configs in MLIR module.
     """
 
     DEFAULT_SPACE_PERCENT = 1.0
