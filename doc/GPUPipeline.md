@@ -54,3 +54,8 @@ This includes:
 - Going through XeGPU dialect
 - Using IMEX's XeGPU lowering
 - Adapting TPP's linalg-to-xegpu
+
+## Decisions
+
+### Compilation
+* Generate the code with kernel outlining. The motivation is that the compiler can take over some of the scheduling-related tasks. The implies the interface with a framework needs to expose synchronization mechanism (e.g., pass a GPU queue). This also affects kernel caching. JITed or non-JITed execution (GPU module converted to serialized SPIR-V or to an actual target-specific binary) are similar cases from that point of view. Both will need to retrieve the artifact and pass it to the lowered from `gpu.launch` runtime call.
