@@ -25,7 +25,7 @@ namespace {
 // TODO: remove it in the future
 bool disableSpecialOp = false;
 
-void printGroupOps(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups) {
+void printGroupOps(SmallVector<std::queue<Operation *>, 8> &opGroups) {
   for (auto grp : opGroups) {
     if (grp.empty()) {
       continue;
@@ -42,13 +42,25 @@ void printGroupOps(llvm::SmallVector<std::queue<Operation *>, 8> &opGroups) {
   }
 }
 
+void printQueue(const std::queue<Operation *> &opQueue) {
+  std::cout << "________________________________ op Queue "
+               "__________________"
+            << std::endl;
+  auto tempQ(opQueue);
+  while (!tempQ.empty()) {
+    auto cur = tempQ.front();
+    cur->dump();
+    tempQ.pop();
+  }
+  std::cout << "________________________________ op queue end "
+               "__________________"
+            << std::endl;
+}
+
 bool isSpecialOp(Operation *op) {
-  return llvm::isa<vector::TransposeOp>(op) ||
-         llvm::isa<vector::BroadcastOp>(op) ||
-         llvm::isa<vector::ReductionOp>(op) ||
-         llvm::isa<vector::ShapeCastOp>(op) ||
-         llvm::isa<vector::MultiDimReductionOp>(op) ||
-         llvm::isa<func::CallOp>(op);
+  return isa<vector::TransposeOp>(op) || isa<vector::BroadcastOp>(op) ||
+         isa<vector::ReductionOp>(op) || isa<vector::ShapeCastOp>(op) ||
+         isa<vector::MultiDimReductionOp>(op) || isa<func::CallOp>(op);
 }
 
 bool is_innermost_operation(Operation *op) {
@@ -64,16 +76,13 @@ bool is_innermost_operation(Operation *op) {
 }
 
 bool isNotSupportOperation(Operation *op) {
-  return llvm::isa<vector::MaskOp>(op) ||
-         llvm::isa<vector::ConstantMaskOp>(op) ||
-         llvm::isa<vector::MaskedLoadOp>(op) ||
-         llvm::isa<vector::MaskedStoreOp>(op) ||
-         llvm::isa<vector::CreateMaskOp>(op);
+  return isa<vector::MaskOp>(op) || isa<vector::ConstantMaskOp>(op) ||
+         isa<vector::MaskedLoadOp>(op) || isa<vector::MaskedStoreOp>(op) ||
+         isa<vector::CreateMaskOp>(op);
 }
 
 bool isReadOrWriteOperation(Operation *op) {
-  return llvm::isa<vector::TransferReadOp>(op) ||
-         llvm::isa<vector::TransferWriteOp>(op);
+  return isa<vector::TransferReadOp>(op) || isa<vector::TransferWriteOp>(op);
 }
 
 // TODO: Need to support these operations in the future
@@ -88,7 +97,7 @@ bool hasNotSupportOperation(func::FuncOp *func) {
 }
 
 // select nearest even step
-int get_nearest_vector_step(const int step) {
+int getNearestVectorStep(const int step) {
   assert(step > 0);
   int nbits = 0, n = step;
   while (n) {
@@ -102,7 +111,7 @@ int get_nearest_vector_step(const int step) {
 int TypeHelper::generateValidSteps(int steps, VectorType type) {
   return type.getShape().back() >= steps
              ? (steps > 16 ? 16 : steps)
-             : get_nearest_vector_step(type.getShape().back());
+             : getNearestVectorStep(type.getShape().back());
 }
 
 // expr equals `vector rank` - 1
@@ -111,7 +120,7 @@ bool isLastDim(const AffineExpr &expr, const size_t rank) {
          mlir::dyn_cast<AffineDimExpr>(expr).getPosition() == rank - 1;
 }
 
-[[nodiscard]] int TypeHelper::getDataTypeValidSteps(const VectorType &type) {
+[[nodiscard]] int TypeHelper::getDataTypeValidSteps(VectorType type) {
   auto typebits = type.getElementTypeBitWidth();
   const int favx512bits = 512;
   const int favx2bits = 256;
@@ -128,7 +137,7 @@ bool isLastDim(const AffineExpr &expr, const size_t rank) {
 }
 
 // Get the maximum number of current data types that a register can hold
-[[nodiscard]] int TypeHelper::getDataTypeMAXSIMDLength(const VectorType &type) {
+[[nodiscard]] int TypeHelper::getDataTypeMAXSIMDLength(VectorType type) {
   auto typebits = type.getElementTypeBitWidth();
   const int favx512bits = 512;
   const int favx2bits = 256;
@@ -207,6 +216,15 @@ VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loop_step) {
   return VectorType::get({loop_step}, vectorizedType.getElementType());
 }
 
+/// whether the operation result need to be returned
+/// \param anchorIdx resuilt produce operation anchor position
+/// \param retType resuilt return type
+bool needReturnResult(std::pair<ReturnTypeKind, size_t> &retType,
+                      size_t anchorIdx) {
+  return !(retType.first == ReturnTypeKind::RT_InGroup and
+           retType.second >= anchorIdx);
+}
+
 union Float32Bits {
   uint32_t u;
   float f;
@@ -219,8 +237,8 @@ const Float32Bits kF32Magic = {113 << kF32MantiBits};
 const uint32_t kF32HalfExpAdjust = (127 - 15) << kF32MantiBits;
 const uint32_t kF32BfMantiBitDiff = 16;
 
-// Constructs the 16 bit representation for a half precision value from a float
-// value. This implementation is adapted from Eigen.
+/// Constructs the 16 bit representation for a half precision value from a float
+/// value. This implementation is adapted from Eigen.
 uint16_t float2half(float floatValue) {
   const Float32Bits inf = {255 << kF32MantiBits};
   const Float32Bits f16max = {(127 + 16) << kF32MantiBits};
@@ -266,8 +284,8 @@ uint16_t float2half(float floatValue) {
   return halfValue;
 }
 
-// Converts the 16 bit representation of a half precision value to a float
-// value. This implementation is adapted from Eigen.
+/// Converts the 16 bit representation of a half precision value to a float
+/// value. This implementation is adapted from Eigen.
 float half2float(uint16_t halfValue) {
   const uint32_t shiftedExp =
       0x7c00 << kF32HalfMantiBitDiff; // Exponent mask after shift.
@@ -440,19 +458,19 @@ T getInitValForReduce(vector::CombiningKind kind, Type t) {
   case vector::CombiningKind::ADD:
     if (t1.isIntOrIndex())
       result = 0;
-    else if (llvm::isa<FloatType>(t1))
+    else if (isa<FloatType>(t1))
       result = 0.0f;
     else
       llvm_unreachable("invalid value types for ADD reduction");
     break;
   case vector::CombiningKind::MAXNUMF:
   case vector::CombiningKind::MAXIMUMF:
-    assert(llvm::isa<FloatType>(t1) && "expected float values");
+    assert(isa<FloatType>(t1) && "expected float values");
     result = std::get<T>(numeric_limits_minimum(t));
     break;
   case vector::CombiningKind::MINNUMF:
   case vector::CombiningKind::MINIMUMF:
-    assert(llvm::isa<FloatType>(t1) && "expected float values");
+    assert(isa<FloatType>(t1) && "expected float values");
     result = std::get<T>(numericLimitsMaximum(t));
     break;
   case vector::CombiningKind::MAXSI:
@@ -468,7 +486,7 @@ T getInitValForReduce(vector::CombiningKind kind, Type t) {
   case vector::CombiningKind::MUL:
     if (t1.isIntOrIndex())
       result = 1;
-    else if (llvm::isa<FloatType>(t1))
+    else if (isa<FloatType>(t1))
       result = 1.f;
     else
       llvm_unreachable("invalid value types for MUL reduction");
@@ -506,12 +524,13 @@ void setOpVectorizationPermutationMap(Operation *op, OpBuilder &rewriter,
 }
 
 // scf.for yield helper function
-void maybeYieldValue(OpBuilder &b, Location loc, ValueRange value) {
+scf::YieldOp maybeYieldValue(OpBuilder &b, Location loc,
+                             const ValueRange &value) {
   bool hasRetVal = !value.empty();
   if (hasRetVal) {
-    b.create<scf::YieldOp>(loc, value);
+    return b.create<scf::YieldOp>(loc, value);
   } else {
-    b.create<scf::YieldOp>(loc);
+    return b.create<scf::YieldOp>(loc);
   }
 }
 
@@ -586,10 +605,9 @@ Operation *createTransferWriteOpAfter(Operation *op, const Value &dest) {
       /*inBounds=*/inBoundsVal);
 }
 
-Operation *
-createTransferReadOpBefore(Operation *op, const Value &operand,
-                           vector::TransferReadOp *srcReadOp = nullptr) {
-  auto operandType = mlir::dyn_cast<ShapedType>(operand.getType());
+Operation *VectorOperationAnalysizer::createTransferReadOpBefore(
+    Operation *op, const Value &operand, vector::TransferReadOp *srcReadOp) {
+  auto operandType = cast<ShapedType>(operand.getType());
 
   IRRewriter rewriter(op);
   auto zero =
@@ -599,7 +617,7 @@ createTransferReadOpBefore(Operation *op, const Value &operand,
       rewriter.getZeroAttr(operandType.getElementType()));
 
   if (srcReadOp) {
-    auto resultType = mlir::dyn_cast<ShapedType>(srcReadOp->getType());
+    auto resultType = cast<ShapedType>(srcReadOp->getType());
     SmallVector<bool> inBoundsVal(resultType.getRank(), true);
     auto srcReadOpAffineMap = srcReadOp->getPermutationMap();
     // result of read operation should be same as operand
@@ -611,6 +629,9 @@ createTransferReadOpBefore(Operation *op, const Value &operand,
         /*indices=*/SmallVector<Value>(operandType.getRank(), zero),
         /**affinemap*/ srcReadOpAffineMap,
         /*inBounds=*/inBoundsVal);
+    DenseMap<Operation *, AffineMap> &permutationMap = getOpPermuationMap();
+    permutationMap[t] = srcReadOpAffineMap;
+    getFusionStrategy().getOpAnchorPos()[t] = t.getVectorType().getRank() - 1;
 
     return t;
   } else {
@@ -623,6 +644,10 @@ createTransferReadOpBefore(Operation *op, const Value &operand,
         /*indices=*/SmallVector<Value>(operandType.getRank(), zero),
         /**affinemap*/ padValue,
         /*inBounds=*/inBoundsVal);
+    DenseMap<Operation *, AffineMap> &permutationMap = getOpPermuationMap();
+    permutationMap[t] = t.getPermutationMap();
+    getFusionStrategy().getOpAnchorPos()[t] = t.getVectorType().getRank() - 1;
+
     return t;
   }
 }
@@ -631,18 +656,17 @@ createTransferReadOpBefore(Operation *op, const Value &operand,
 // result into the empty tensor
 [[nodiscard]] std::pair<Value, Value>
 canonicalizeSourceOperation(Operation *op) {
-  // auto emtpyOp = createTensorEmptyBefore(op);
   auto resultTensor = getOperationResultTensor(op);
   auto writeOp = createTransferWriteOpAfter(op, resultTensor);
   return std::make_pair(resultTensor, writeOp->getResults()[0]);
 }
 
-[[nodiscard]] Value
-canonicalizeCurrentOperation(Operation *op, const Value &transferReadOperand,
-                             size_t operandIdx,
-                             vector::TransferReadOp *srcReadOp = nullptr) {
+[[nodiscard]] Value VectorOperationAnalysizer::canonicalizeCurrentOperation(
+    Operation *op, const Value &transferReadOperand, size_t operandIdx,
+    vector::TransferReadOp *srcReadOp) {
   // transfer_read operation
   auto readOp = createTransferReadOpBefore(op, transferReadOperand, srcReadOp);
+
   op->setOperand(operandIdx, readOp->getResults()[0]);
   return readOp->getResults()[0];
 }
@@ -655,10 +679,10 @@ canonicalizeCurrentOperation(Operation *op, const Value &transferReadOperand,
 // MultiReduce Operation
 //===----------------------------------------------------------------------===//
 
-void getOpSourceOps(Operation *op, llvm::DenseSet<Operation *> &srcOps) {
-  llvm::SmallVector<Value> srcOperands = op->getOperands();
+void getOpSourceOps(Operation *op, DenseSet<Operation *> &srcOps) {
+  SmallVector<Value> srcOperands = op->getOperands();
   std::deque<Value> srcOperandsQueue(srcOperands.begin(), srcOperands.end());
-  llvm::DenseSet<Operation *> visited;
+  DenseSet<Operation *> visited;
   visited.insert(op);
   while (!srcOperandsQueue.empty()) {
     auto accOperand = srcOperandsQueue.front();
@@ -675,7 +699,7 @@ void getOpSourceOps(Operation *op, llvm::DenseSet<Operation *> &srcOps) {
   }
 }
 
-bool isSrcRelated(const llvm::DenseSet<Operation *> &srcOps, Operation *op) {
+bool isSrcRelated(const DenseSet<Operation *> &srcOps, Operation *op) {
   return srcOps.count(op);
 }
 
@@ -718,7 +742,7 @@ void classifySourceRelatedOps(std::queue<Operation *> &accRelatedOps,
                               std::queue<Operation *> &sourceRelatedOps,
                               Operation *srcOp,
                               std::queue<Operation *> &prevOps) {
-  llvm::DenseSet<Operation *> srcOps;
+  DenseSet<Operation *> srcOps;
   getOpSourceOps(srcOp, srcOps);
   while (!prevOps.empty()) {
     auto op = prevOps.front();
@@ -732,8 +756,8 @@ void classifySourceRelatedOps(std::queue<Operation *> &accRelatedOps,
 }
 
 void updateReduceReadWriteOperationOperand(
-    const llvm::SmallVector<Value, 5> &inductionVars,
-    const llvm::SmallVector<int64_t, 4> &parallelAxis, Operation *op,
+    const SmallVector<Value, 5> &inductionVars,
+    const SmallVector<int64_t, 4> &parallelAxis, Operation *op,
     MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel) {
   int indiceOffset = mlir::isa<vector::TransferReadOp>(op) ? 1 : 2;
   for (auto [idx, inductionVar] : llvm::enumerate(inductionVars)) {
@@ -747,8 +771,8 @@ void updateReduceReadWriteOperationOperand(
 
 vector::TransferReadOp ForLoopGenerator::cloneReductionTransferRead(
     Value &source, OpBuilder &b, IRMapping &readMap,
-    const llvm::SmallVector<int64_t, 4> &parallelAxis,
-    llvm::SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
+    const SmallVector<int64_t, 4> &parallelAxis,
+    SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
     MultiReduceOpAxisKind rdKind) {
   IRRewriter rewriter(b);
   auto readOp = mlir::dyn_cast<vector::TransferReadOp>(source.getDefiningOp());
@@ -777,8 +801,8 @@ vector::TransferReadOp ForLoopGenerator::cloneReductionTransferRead(
 
 vector::TransferWriteOp
 makeNewTransferWriteOp(Value source, IRMapping &writeMap, OpBuilder &b,
-                       const llvm::SmallVector<int64_t, 4> &parallelAxis,
-                       llvm::SmallVector<Value, 5> &inductionVars) {
+                       const SmallVector<int64_t, 4> &parallelAxis,
+                       SmallVector<Value, 5> &inductionVars) {
   IRRewriter bodyRewriter(b);
   auto writeOp = source.getDefiningOp();
   auto newWriteOp =
@@ -801,14 +825,14 @@ Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
 }
 
 void ForLoopGenerator::moveOperationsToCurrentForBody(
-    const size_t groupIdx, OpBuilder &b,
-    const llvm::SmallVector<Value, 5> &inductionVars,
-    const llvm::DenseMap<Value, int> &operandIdxMap,
-    const ValueRange &loopState, std::queue<Operation *> &opQueue) {
+    const size_t groupIdx, const OpBuilder &b, ArrayRef<Value> inductionVars,
+    const DenseMap<Value, int> &operandIdxMap, const ValueRange &loopState,
+    std::queue<Operation *> &opQueue) {
   auto &opPermuationMap = getOpPermuationMap();
-  while (!opQueue.empty()) {
-    auto x = opQueue.front();
-    opQueue.pop();
+  auto tmpQ(opQueue);
+  while (!tmpQ.empty()) {
+    auto x = tmpQ.front();
+    tmpQ.pop();
     x->moveBefore(b.getBlock(), b.getBlock()->end());
     // check operation type to set correct operand
     setOperationCorrectOperand(x, loopState, operandIdxMap, inductionVars,
@@ -833,94 +857,318 @@ bool hasOtherOperations(const std::queue<Operation *> &opQ,
   return res;
 };
 
+void ForLoopGenerator::getResultInCurrentOps(
+    const size_t anchorIdx, const size_t groupId,
+    const std::queue<Operation *> ops, SmallVector<Value, 4> &results,
+    DenseMap<Value, Value> &forResultOrignalResultMap) {
+  auto tmpQ(ops);
+  llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>> &groupResults =
+      getGroupOpResults()[groupId];
+  while (!tmpQ.empty()) {
+    Operation *cur = tmpQ.front();
+    tmpQ.pop();
+    auto curResult = cur->getResults()[0];
+    if (groupResults.contains(curResult)) {
+      std::pair<ReturnTypeKind, size_t> retType = groupResults[curResult];
+      if (needReturnResult(retType, anchorIdx)) {
+        results.emplace_back(curResult);
+        forResultOrignalResultMap[curResult] = curResult;
+      }
+    }
+  }
+}
+void ForLoopGenerator::getInitArgsToNextAnchor(
+    const size_t anchorIdx, const size_t groupId,
+    const std::queue<Operation *> &nextOperations, const ValueRange &loopState,
+    DenseMap<Value, int> &currentLoopStateIdxMap,
+    DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs,
+    DenseMap<Value, Value> &originalOperandLoopArgsMap) {
+  DenseMap<Operation *, size_t> &opAnchorPos =
+      getFusionStrategy().getOpAnchorPos();
+  SetVector<Value> &opInitArgs = getGroupOpInitArgs()[groupId];
+  DenseSet<Value> visited;
+  // find the next anchor arguments
+  std::queue<Operation *> tmpQ(nextOperations);
+  DenseMap<Value, Value> nextOperandArgsMap;
+  while (!tmpQ.empty()) {
+    Operation *cur = tmpQ.front();
+    tmpQ.pop();
+    auto curOperands = cur->getOperands();
+    for (auto x : curOperands) {
+      if (!visited.contains(x) and opInitArgs.contains(x) and
+          opAnchorPos[cur] > anchorIdx) {
+        int loopStateIdx =
+            currentLoopStateIdxMap[originalOperandLoopArgsMap[x]];
+        nextAnchorArgs.emplace_back(loopState[loopStateIdx]);
+        nextOperandArgsMap[x] = loopState[loopStateIdx];
+        nextAnchorArgsIdxMap[loopState[loopStateIdx]] =
+            nextAnchorArgs.size() - 1;
+        visited.insert(x);
+      }
+    }
+  }
+  originalOperandLoopArgsMap = nextOperandArgsMap;
+}
+
+void ForLoopGenerator::getOperationInCurrentAnchor(
+    const size_t anchorIdx, std::queue<Operation *> &fromQueue,
+    std::queue<Operation *> &toQueue) {
+  while (!fromQueue.empty()) {
+    Operation *curOp = fromQueue.front();
+    if (anchorIdx == getFusionStrategy().getOpAnchorPos()[curOp]) {
+      toQueue.push(curOp);
+      fromQueue.pop();
+      continue;
+    }
+    break;
+  }
+}
+
+void ForLoopGenerator::replaceOperationsWithForLoopResult(
+    IRRewriter &rewrite, const ValueRange &forResults, const Block *forBlock,
+    const llvm::SmallVector<Value, 4> &nextAnchorResults,
+    const std::queue<Operation *> movingOperations,
+    DenseMap<Value, Value> &forResultOrignalResultMap) {
+  auto tmpQ(movingOperations);
+  DenseSet<Value> operationOperands;
+  while (!tmpQ.empty()) {
+    auto curOp = tmpQ.front();
+    tmpQ.pop();
+    for (auto x : curOp->getOperands()) {
+      operationOperands.insert(x);
+    }
+  }
+  auto replaceIfFn = [&](OpOperand &use) {
+    return operationOperands.contains(use.get());
+  };
+  for (auto [nxtForResult, nextLoopResult] :
+       zip(forResults, nextAnchorResults)) {
+    Value originalResult = forResultOrignalResultMap[nextLoopResult];
+    rewrite.replaceOpUsesWithIf(originalResult.getDefiningOp(), nxtForResult,
+                                replaceIfFn);
+  }
+}
+
+/// \param [out] nextLoopStateidxMap
+/// \param [out] nextAnchorArgs
+/// \param [out] movingQueue
+void ForLoopGenerator::movePreOpToCurrentAnchor(
+    const size_t anchorIdx, const size_t groupIdx, OpBuilder &b,
+    ArrayRef<Value> inductionVars, const ValueRange &loopState,
+    DenseMap<Value, int> &currentLoopStateIdxMap,
+    DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs,
+    std::queue<Operation *> &candidateQueue,
+    std::queue<Operation *> &movedQueue,
+    DenseMap<Value, Value> &originalOperandLoopArgsMap) {
+
+  // 1. get operations in current anchor position
+  std::queue<Operation *> movingOperation;
+  getOperationInCurrentAnchor(anchorIdx, candidateQueue, movingOperation);
+
+  // 2. get next anchor args
+  getInitArgsToNextAnchor(anchorIdx, groupIdx, candidateQueue, loopState,
+                          currentLoopStateIdxMap, nextAnchorArgsIdxMap,
+                          nextAnchorArgs, originalOperandLoopArgsMap);
+
+  // 3. rewrite operation as vectorize IR
+  rewriteOperationAsVectorize(b, groupIdx, &movingOperation);
+
+  // 4. move opeartions to current for block
+  moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
+                                 currentLoopStateIdxMap, loopState,
+                                 movingOperation);
+
+  // 5. move operations to moved queue
+  while (!movingOperation.empty()) {
+    movedQueue.push(movingOperation.front());
+    movingOperation.pop();
+  }
+}
+
+void ForLoopGenerator::movePostOpToCurrentAnchor(
+    OpBuilder &b, const int anchorIdx, const int groupIdx,
+    const ValueRange &forResults, const Block *forBlock,
+    std::queue<Operation *> &candidateOps, std::queue<Operation *> &movedOps,
+    ArrayRef<Value> inductionVars, const DenseMap<Value, int> &operandIdxMap,
+    const ValueRange &loopState, const SmallVector<Value, 4> &nextAnchorResults,
+    DenseMap<Value, Value> &forResultOrignalResultMap) {
+
+  // 1. move post-op to current loop body
+  std::queue<Operation *> movingOperations;
+  getOperationInCurrentAnchor(anchorIdx, candidateOps, movingOperations);
+
+  rewriteOperationAsVectorize(b, groupIdx, &movingOperations);
+
+  moveOperationsToCurrentForBody(anchorIdx, b, inductionVars, operandIdxMap,
+                                 loopState, movingOperations);
+
+  // 2. replace correct for loop result to post-op
+  IRRewriter rewriter(b);
+  replaceOperationsWithForLoopResult(rewriter, forResults, forBlock,
+                                     nextAnchorResults, movingOperations,
+                                     forResultOrignalResultMap);
+
+  // 3. move operations to moved queue
+  while (!movingOperations.empty()) {
+    movedOps.push(movingOperations.front());
+    movingOperations.pop();
+  }
+}
+
+void ForLoopGenerator::generateLoopResults(
+    OpBuilder &b, const Location &loc, const size_t anchorIdx,
+    const size_t groupIdx, SmallVector<Value, 4> &nextAnchorResults,
+    DenseMap<Value, int> &nextAnchorResultsIdxMap, const ValueRange &forResults,
+    const std::queue<Operation *> &movedOperation,
+    DenseMap<Value, Value> &forResultOrignalResultMap) {
+  SmallVector<Value, 4> results;
+  DenseMap<Value, Value> currentResultMap;
+  getResultInCurrentOps(anchorIdx, groupIdx, movedOperation, results,
+                        currentResultMap);
+
+  llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>> &groupResults =
+      getGroupOpResults()[groupIdx];
+  // check for yield results whether need to return to next anchor
+  for (auto [idx, forResult] : llvm::enumerate(nextAnchorResults)) {
+    Value originalResult = forResultOrignalResultMap[forResult];
+
+    if (groupResults.contains(originalResult)) {
+      std::pair<ReturnTypeKind, size_t> resultType =
+          groupResults[originalResult];
+      if (needReturnResult(resultType, anchorIdx)) {
+        results.emplace_back(forResults[idx]);
+        currentResultMap[forResults[idx]] = originalResult;
+      }
+    }
+  }
+
+  nextAnchorResults.clear();
+  nextAnchorResultsIdxMap.clear();
+  for (Value &result : results) {
+    nextAnchorResults.emplace_back(result);
+    nextAnchorResultsIdxMap[result] = nextAnchorResults.size() - 1;
+  }
+  forResultOrignalResultMap = std::move(currentResultMap);
+
+  maybeYieldValue(b, loc, nextAnchorResults);
+}
+
 scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
     OpBuilder &opBuilder, const int groupIdx, const size_t reductionIdx,
-    ValueRange &initArgs, llvm::SmallVector<Value, 5> &inductionVars) {
+    const int anchorIdx, DenseMap<Value, int> &currentLoopStateIdxMap,
+    const ValueRange &initArgs, SmallVector<Value, 4> &nextAnchorResults,
+    DenseMap<Value, int> &nextAnchorResultsIdxMap,
+    SmallVector<Value, 5> &inductionVars,
+    DenseMap<Value, Value> &forResultOrignalResultMap) {
+
   MultiReductionCanonicalizer rdCanonicalizer =
       getMultiRdCanonicalizers()[groupIdx];
   auto &multireductionOp = rdCanonicalizer.getCandidateOps()[0];
-  const auto loc = multireductionOp->getLoc();
-  auto &reductionAxis = rdCanonicalizer.getReductionAxis();
-  auto lastDimReduction = rdCanonicalizer.hasLastDimReduction();
-  auto vectorType = rdCanonicalizer.getSourceType();
-  const int loopStep = getDataTypeValidSteps(vectorType);
-  auto isStandaloneOp = rdCanonicalizer.getIsStandAloneOp();
+  VectorFusionStrategy &fusionStrategy = getFusionStrategy();
 
-  auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
-  auto forSteps = makeIndexArithConstantOp(
+  SmallVector<std::queue<Operation *>, 8> &opGroups =
+      fusionStrategy.getOpGroups();
+  std::queue<Operation *> &opQueue = opGroups[groupIdx];
+
+  const auto loc = multireductionOp->getLoc();
+  SmallVector<int64_t, 4> &reductionAxis = rdCanonicalizer.getReductionAxis();
+  bool lastDimReduction = rdCanonicalizer.hasLastDimReduction();
+  VectorType vectorType = rdCanonicalizer.getSourceType();
+  const int loopStep = getDataTypeValidSteps(vectorType);
+
+  IRRewriter rewriterOfFunc(func);
+
+  Value zero = makeIndexArithConstantOp(opBuilder, loc, 0);
+  Value forSteps = makeIndexArithConstantOp(
       opBuilder, loc,
       (reductionIdx == reductionAxis.size() - 1 && lastDimReduction) ? loopStep
                                                                      : 1);
-  auto numIter = makeIndexArithConstantOp(
+  Value numIter = makeIndexArithConstantOp(
       opBuilder, loc, vectorType.getShape()[reductionAxis[reductionIdx]]);
-  auto forOp = opBuilder.create<scf::ForOp>(
+  scf::ForOp forOp = opBuilder.create<scf::ForOp>(
       loc, zero, numIter, forSteps, initArgs,
       [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
         inductionVars.emplace_back(iv);
 
-        if (reductionIdx == reductionAxis.size() - 1) {
+        if (reductionIdx < reductionAxis.size() - 1) {
 
-          if (isStandaloneOp) {
-            IRRewriter rewriter(b);
-            IRMapping readMap;
-            Value reductionTarget = multireductionOp.getSource();
-            llvm::SmallVector<int64_t, 4> parallelAxis;
-            auto newReadOp = cloneReductionTransferRead(
-                reductionTarget, b, readMap, parallelAxis, inductionVars,
-                lastDimReduction, MultiReduceOpAxisKind::Reduction);
-            auto reductionResult =
-                makeArithReduction(b, loc, multireductionOp.getKind(),
-                                   newReadOp->getResult(0), loopState.back());
-            maybeYieldValue(b, loc, reductionResult);
-          } else {
-            auto &analysisResults = getGroupOpResults()[groupIdx];
+          // 1. move pre-Op to current body
+          DenseMap<Value, int> nextAnchorArgsIdxMap;
+          SmallVector<Value, 4> nextAnchorArgs;
+          std::queue<Operation *> movedOperation;
+          DenseMap<Value, Value> operandArgsMap;
+          movePreOpToCurrentAnchor(anchorIdx, groupIdx, b, inductionVars,
+                                   loopState, currentLoopStateIdxMap,
+                                   nextAnchorArgsIdxMap, nextAnchorArgs,
+                                   opQueue, movedOperation, operandArgsMap);
 
-            auto &sourceOps =
-                getMultiRdCanonicalizers()[groupIdx].getSourceRelatedOps();
-            auto &grpArgs = getGroupOpIterArgs()[groupIdx];
+          // 2. generate next for loop
+          scf::ForOp nxtFor = reductionAxisGenerateForLoop(
+              b, groupIdx, reductionIdx + 1, anchorIdx + 1,
+              nextAnchorArgsIdxMap, nextAnchorArgs, nextAnchorResults,
+              nextAnchorResultsIdxMap, inductionVars,
+              forResultOrignalResultMap);
 
-            rewriteOperationAsVectorize(b, groupIdx, sourceOps);
-            llvm::DenseMap<Value, int> operandIdxMap;
-            llvm::SmallVector<Value> resultArray;
-            // dummy
-            resultArray.emplace_back(Value());
-            std::queue<Operation *> tmpSourceOps(sourceOps);
-            // move operation into current for loop body
-            // accVal is first loopstate
-            int start = 1;
-            while (!tmpSourceOps.empty()) {
-              auto cur = tmpSourceOps.front();
-              tmpSourceOps.pop();
-              auto curOperands = cur->getOperands();
-              for (auto x : curOperands) {
-                if (grpArgs.contains(x)) {
-                  operandIdxMap[x] = start++;
-                }
-              }
-              if (analysisResults.contains(cur->getResults()[0])) {
-                resultArray.emplace_back(cur->getResults()[0]);
-                getMultiRdCanonicalizers()[groupIdx]
-                    .getOriginalOpResults()
-                    .insert(cur->getResults()[0]);
-                getMultiRdCanonicalizers()[groupIdx].getResultIdxMap().insert(
-                    {cur->getResults()[0], resultArray.size() - 1});
-              }
+          // 3. move postOp to current body
+          movePostOpToCurrentAnchor(
+              rewriterOfFunc, anchorIdx, groupIdx, nxtFor->getResults(),
+              nxtFor->getBlock(), opQueue, movedOperation, inductionVars,
+              currentLoopStateIdxMap, loopState, nextAnchorResults,
+              forResultOrignalResultMap);
+
+          // 4. rewrite operations as vectorized IR
+          rewriteOperationAsVectorize(b, groupIdx, &movedOperation);
+
+          // 5. generate loop results
+          generateLoopResults(b, loc, anchorIdx, groupIdx, nextAnchorResults,
+                              nextAnchorResultsIdxMap, nxtFor->getResults(),
+                              movedOperation, forResultOrignalResultMap);
+
+        } else if (reductionIdx == reductionAxis.size() - 1) {
+          std::queue<Operation *> movingOperation;
+
+          while (!opQueue.empty()) {
+            Operation *curOp = opQueue.front();
+            opQueue.pop();
+            if (isa<vector::MultiDimReductionOp>(curOp)) {
+              break;
             }
-            moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
-                                           operandIdxMap, loopState, sourceOps);
-
-            auto reductionResult = makeArithReduction(
-                b, loc, multireductionOp.getKind(),
-                multireductionOp.getSource(), loopState.back());
-            resultArray[0] = reductionResult;
-
-            maybeYieldValue(b, loc, resultArray);
+            movingOperation.push(curOp);
           }
-        } else {
-          // outter loop
-          auto nxtFor = reductionAxisGenerateForLoop(
-              b, groupIdx, reductionIdx + 1, loopState, inductionVars);
-          maybeYieldValue(b, loc, nxtFor->getResults());
+          while (!opQueue.empty()) {
+            Operation *curOp = opQueue.front();
+            if (isa<vector::MultiDimReductionOp>(curOp)) {
+              opQueue.pop();
+              continue;
+            }
+            break;
+          }
+          rewriteOperationAsVectorize(b, groupIdx, &movingOperation);
+
+          moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
+                                         currentLoopStateIdxMap, loopState,
+                                         movingOperation);
+
+          auto reductionResult = makeArithReduction(
+              b, loc, multireductionOp.getKind(), multireductionOp.getSource(),
+              loopState.back());
+
+          movePostOpToCurrentAnchor(
+              rewriterOfFunc, anchorIdx, groupIdx, ValueRange(),
+              reductionResult.getParentBlock(), opQueue, movingOperation,
+              inductionVars, currentLoopStateIdxMap, loopState,
+              nextAnchorResults, forResultOrignalResultMap);
+
+          nextAnchorResults.clear();
+          nextAnchorResults.emplace_back(reductionResult);
+          nextAnchorResultsIdxMap[reductionResult] = 0;
+          forResultOrignalResultMap[reductionResult] =
+              multireductionOp->getResults()[0];
+          getResultInCurrentOps(anchorIdx, groupIdx, movingOperation,
+                                nextAnchorResults, forResultOrignalResultMap);
+          maybeYieldValue(b, loc, nextAnchorResults);
         }
       });
 
@@ -931,347 +1179,282 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
 // This function also call reduction axis for loop
 scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
     OpBuilder &opBuilder, const int groupIdx, const size_t parallelIdx,
-    ValueRange &initArgs, llvm::SmallVector<Value, 5> &inductionVars,
-    Value &originalWriteResult) {
+    DenseMap<Value, int> &currentLoopStateIdxMap, const ValueRange &initArgs,
+    SmallVector<Value, 4> &nextAnchorResults,
+    DenseMap<Value, int> &nextAnchorResultsIdxMap,
+    SmallVector<Value, 5> &inductionVars,
+    DenseMap<Value, Value> &originalOperandLoopArgsMap,
+    DenseMap<Value, Value> &forResultOrignalResultMap) {
   auto &rdCanonicalizer = getMultiRdCanonicalizers()[groupIdx];
-  auto &multiReductionOp = rdCanonicalizer.getCandidateOps()[0];
-  auto &vectorType = rdCanonicalizer.getSourceType();
-  auto &accType = rdCanonicalizer.getAccType();
+  vector::MultiDimReductionOp &multiReductionOp =
+      rdCanonicalizer.getCandidateOps()[0];
+  VectorType vectorType = rdCanonicalizer.getSourceType();
   IRRewriter rewriterOfFunc(func);
 
-  auto &parallelAxis = rdCanonicalizer.getParallelAxis();
-  auto isStandaloneOp = rdCanonicalizer.getIsStandAloneOp();
-  auto lastDimReduction = rdCanonicalizer.hasLastDimReduction();
-  const auto &loc = multiReductionOp.getLoc();
-  auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
-  auto forSteps = makeIndexArithConstantOp(opBuilder, loc, 1);
+  SmallVector<int64_t, 4> &parallelAxis = rdCanonicalizer.getParallelAxis();
+  const Location &loc = multiReductionOp.getLoc();
+  Value zero = makeIndexArithConstantOp(opBuilder, loc, 0);
+  Value forSteps = makeIndexArithConstantOp(opBuilder, loc, 1);
 
-  // last dim reduction need to a generate dim=16 loop
+  // last dim reduction need to a generate dim=16 loop for fused with pre-op
   int dimSize = 0;
   if (parallelIdx == parallelAxis.size()) {
-    // TODO: need to consider data type lanes
-    dimSize = 16;
+    dimSize = getDataTypeMAXSIMDLength(vectorType);
   } else {
     dimSize = vectorType.getShape()[parallelAxis[parallelIdx]];
   }
-  auto numIter = makeIndexArithConstantOp(opBuilder, loc, dimSize);
+  Value numIter = makeIndexArithConstantOp(opBuilder, loc, dimSize);
   // Create a loop and move vectorized operation into loops.
-  auto forOp = opBuilder.create<scf::ForOp>(
+  return opBuilder.create<scf::ForOp>(
       loc, zero, numIter, forSteps, initArgs,
       [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
         inductionVars.emplace_back(iv);
-        auto &fusionStrategy = getFusionStrategy();
-        auto &opIndexMap = fusionStrategy.getOpGroupIndexMap();
+        VectorFusionStrategy &fusionStrategy = getFusionStrategy();
+        DenseMap<Operation *, size_t> &opIndexMap =
+            fusionStrategy.getOpGroupIndexMap();
 
         assert(opIndexMap.contains(multiReductionOp) &&
                " Must constains multireduction operation.");
 
-        auto opIndex = opIndexMap[multiReductionOp];
-        auto &opGroups = fusionStrategy.getOpGroups();
-        auto opQueue = opGroups[opIndex];
-        auto multiReductionAcc = multiReductionOp.getAcc();
+        size_t opIndex = opIndexMap[multiReductionOp];
+        SmallVector<std::queue<Operation *>, 8> &opGroups =
+            fusionStrategy.getOpGroups();
+        std::queue<Operation *> &opQueue = opGroups[opIndex];
+        Value multiReductionAcc = multiReductionOp.getAcc();
 
-        if (parallelIdx == parallelAxis.size() - 1) {
-          // four kinds of group operations
-          // If fused a operation, it means  multirection must just
-          // constains last dim to do the reduction.
-          // 1. just multireduction
-          //    two cases:
-          //    1. constaints last dims
-          //     for ... parallel axis:
-          //         transfer_read from accSource tensor
-          //         arith.constant : vector<16xf32>
-          //         for ... 16:
-          //             for ... reduction axis:
-          //                add
-          //             scalar = reduction vector
-          //             scalar insert into accVector
-          //         transfer_write accVector into emtpy tensor
-          //    2. not last dims
-          //      for ... generate axis:
-          //             transfer_read from accSource tensor
-          //             transfer_read from source tensor
-          //             accVector = add
-          //             transfer_write accVector into emtpy tensor
-          // 2. prev-op + multireduction
-          //     In this case, there will be no tensor.empty + transfer_read
-          //     operation, but the multireduction should write in an empty
-          //     tensor
-          //     for ... parallel axis:
-          //        accVector and related accVector operation should be here
-          //        extract from accVector scalar
-          //        airth.constant : vector<16xf32>
-          //          for ... reduction axis:
-          //             prevop source op
-          //             add
-          //        scalar = reduction vector
-          //        scalar insert into accVector
-          //        transfer_write accVector into empty tensor
-          //
-          // 3. post-op + multireduction
-          //     for ... parallel axis:
-          //         transferread from accSource tensor
-          //         arith.constant : vector<16xf32>
-          //         for ... reduction axis:
-          //             add
-          //             postOp
-          //             post Op transferWrite emtpy tensor
-          //         scalar = reduction vector
-          //         scalar insert into accVector
-          //         transfer_write accVector into emtpy tensor
-          // 4. prev-op + multireduction + post-op
-          //     for ... parallel axis:
-          //         accVector operation
-          //         extract from accVector a scalar
-          //         arith.constant : vector<16xf32>
-          //         for ... reduction axis:
-          //             prev-op source op and related source operation
-          //             add
-          //             postOp
-          //             post Op transferWrite emtpy tensor
-          //         scalar = reduction vector
-          //         scalar insert into accVector
-          //         transfer_write accVector into emtpy tensor
+        // if (parallelIdx == parallelAxis.size() - 1) {
+        // four kinds of group operations
+        // If fused a operation, it means  multirection must just
+        // constains last dim to do the reduction.
+        // 1. just multireduction
+        //    two cases:
+        //    1. constaints last dims
+        //     for ... parallel axis:
+        //         transfer_read from accSource tensor
+        //         arith.constant : vector<16xf32>
+        //         for ... 16:
+        //             for ... reduction axis:
+        //                add
+        //             scalar = reduction vector
+        //             scalar insert into accVector
+        //         transfer_write accVector into emtpy tensor
+        //    2. not last dims
+        //      for ... generate axis:
+        //             transfer_read from accSource tensor
+        //             transfer_read from source tensor
+        //             accVector = add
+        //             transfer_write accVector into emtpy tensor
+        // 2. prev-op + multireduction
+        //     In this case, there will be no tensor.empty + transfer_read
+        //     operation, but the multireduction should write in an empty
+        //     tensor
+        //     for ... parallel axis:
+        //        accVector and related accVector operation should be here
+        //        extract from accVector scalar
+        //        airth.constant : vector<16xf32>
+        //          for ... reduction axis:
+        //             prevop source op
+        //             add
+        //        scalar = reduction vector
+        //        scalar insert into accVector
+        //        transfer_write accVector into empty tensor
+        //
+        // 3. post-op + multireduction
+        //     for ... parallel axis:
+        //         transferread from accSource tensor
+        //         arith.constant : vector<16xf32>
+        //         for ... reduction axis:
+        //             add
+        //             postOp
+        //             post Op transferWrite emtpy tensor
+        //         scalar = reduction vector
+        //         scalar insert into accVector
+        //         transfer_write accVector into emtpy tensor
+        // 4. prev-op + multireduction + post-op
+        //     for ... parallel axis:
+        //         accVector operation
+        //         extract from accVector a scalar
+        //         arith.constant : vector<16xf32>
+        //         for ... reduction axis:
+        //             prev-op source op and related source operation
+        //             add
+        //             postOp
+        //             post Op transferWrite emtpy tensor
+        //         scalar = reduction vector
+        //         scalar insert into accVector
+        //         transfer_write accVector into emtpy tensor
 
-          if (isStandaloneOp) {
-            // read operation
-            IRMapping accReadMap;
-            auto accReadOp = multiReductionAcc.getDefiningOp();
-            assert(mlir::isa<vector::TransferReadOp>(accReadOp));
-            accReadMap.map(accReadOp->getOperand(0), loopState.back());
+        if (parallelIdx < parallelAxis.size()) {
+          // 1. move pre-Op to current body
+          DenseMap<Value, int> nextAnchorArgsIdxMap;
+          SmallVector<Value, 4> nextAnchorArgs;
+          std::queue<Operation *> movedQueue;
+          movePreOpToCurrentAnchor(
+              parallelIdx, groupIdx, b, inductionVars, loopState,
+              currentLoopStateIdxMap, nextAnchorArgsIdxMap, nextAnchorArgs,
+              opQueue, movedQueue, originalOperandLoopArgsMap);
 
-            auto newAccReadOp = cloneReductionTransferRead(
-                multiReductionAcc, b, accReadMap, parallelAxis, inductionVars,
-                lastDimReduction, MultiReduceOpAxisKind::Parallel);
-            // constructe next for loop
-            Attribute initValueAttr;
-            getReductionInitAttr(multiReductionOp, initValueAttr);
-
-            auto accVal = b.create<arith::ConstantOp>(
-                loc, DenseElementsAttr::get(accType, {initValueAttr}));
-
-            ValueRange newIterArgs(accVal);
-
-            auto nxtFor = reductionAxisGenerateForLoop(
-                b, groupIdx, 0, newIterArgs, inductionVars);
-
-            // insert accumulate value to original vector
-            auto accRes = nxtFor->getResults()[0];
-
-            Operation *reductionOp = b.create<vector::ReductionOp>(
-                loc, multiReductionOp.getKind(), accRes);
-            auto insertOp =
-                b.create<vector::InsertOp>(loc, reductionOp->getResult(0),
-                                           newAccReadOp->getResults()[0], 0);
-
-            // write vector back to tensor
-            vector::TransferWriteOp accWriteOp = nullptr;
-            for (auto [idx, x] : llvm::enumerate(
-                     multiReductionOp->getResults()[0].getUsers())) {
-              if (idx == 0 && mlir::isa<vector::TransferWriteOp>(x)) {
-                accWriteOp = mlir::dyn_cast<vector::TransferWriteOp>(x);
+          if (parallelIdx == parallelAxis.size() - 1) {
+            std::queue<Operation *> checkAccQueue(movedQueue);
+            Value accInitVal;
+            while (!checkAccQueue.empty()) {
+              Operation *cur = checkAccQueue.front();
+              checkAccQueue.pop();
+              bool ok = false;
+              for (auto x : cur->getResults()) {
+                if (x == multiReductionAcc) {
+                  accInitVal = x;
+                  ok = true;
+                  break;
+                }
+              }
+              if (ok)
                 break;
-              }
             }
-            assert(accWriteOp &&
-                   " Not transfer_write operation. Current multireduction "
-                   "operation may have wrong analysis IR.");
-            IRMapping accWriteindiceMap;
-            accWriteindiceMap.map(accWriteOp.getOperand(0),
-                                  insertOp->getResults()[0]);
-            auto writeResult = accWriteOp->getResults()[0];
-            auto newAccWriteOp = makeNewTransferWriteOp(
-                writeResult, accWriteindiceMap, b, parallelAxis, inductionVars);
-            originalWriteResult = newAccWriteOp->getResult(0);
-
-            maybeYieldValue(b, loc, newAccWriteOp->getResults());
-          } else {
-
-            auto &prevOps = getMultiRdCanonicalizers()[groupIdx].getPrevOps();
-            auto &postOps = getMultiRdCanonicalizers()[groupIdx].getPostOps();
-            auto &accRelatedOps =
-                getMultiRdCanonicalizers()[groupIdx].getAccRelatedOps();
-            auto &sourceRelatedOps =
-                getMultiRdCanonicalizers()[groupIdx].getSourceRelatedOps();
-            // prevOp + reduction op + postOp
-            // reduction op + postOp
-            getPrevOps(prevOps, opQueue, multiReductionOp);
-            getPostOps(postOps, opQueue, multiReductionOp);
-            bool hasPrevOps = hasOtherOperations(prevOps, multiReductionOp);
-            bool hasPostOps = hasOtherOperations(postOps, multiReductionOp);
-
-            if (hasPostOps and !hasPrevOps) {
-              // multi_reduction + postOp
-
-            } else {
-              // analysis acc related operation
-              classifySourceRelatedOps(
-                  accRelatedOps, sourceRelatedOps,
-                  multiReductionOp.getSource().getDefiningOp(), prevOps);
-
-              rewriteOperationAsVectorize(b, groupIdx, accRelatedOps);
-              auto &grpArgs = getGroupOpIterArgs()[groupIdx];
-              llvm::DenseMap<Value, int> operandIdxMap;
-              for (auto [idx, x] : llvm::enumerate(grpArgs)) {
-                operandIdxMap[x] = idx;
-              }
-              moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
-                                             operandIdxMap, loopState,
-                                             accRelatedOps);
-              auto &grpResults = getGroupOpResults()[groupIdx];
-              // next for loop
-              llvm::SmallVector<Value> iterArgsArray;
-              iterArgsArray.emplace_back(multiReductionAcc);
-              std::queue<Operation *> tmpSourceOps(sourceRelatedOps);
-              while (!tmpSourceOps.empty()) {
-                auto cur = tmpSourceOps.front();
-                tmpSourceOps.pop();
-                auto curResults = cur->getResults();
-                for (auto x : curResults) {
-                  if (grpResults.contains(x)) {
-                    for (auto y : cur->getOperands()) {
-                      if (grpArgs.contains(y)) {
-                        iterArgsArray.emplace_back(y);
-                      }
-                    }
-                  }
-                }
-              }
-              ValueRange reductionAxisArgs(iterArgsArray);
-              auto nxtFor = parallelAxisGenerateForLoop(
-                  b, groupIdx, parallelIdx + 1, reductionAxisArgs,
-                  inductionVars, originalWriteResult);
-              if (hasPrevOps and !hasPostOps) {
-                // prevOp + reduction op
-
-              } else {
-
-                rewriteOperationAsVectorize(b, groupIdx, postOps);
-                moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
-                                               operandIdxMap, loopState,
-                                               postOps);
-
-                auto replaceIfFn = [&](OpOperand &use) {
-                  return use.getOwner()->getBlock() == nxtFor->getBlock();
-                };
-                rewriterOfFunc.replaceOpUsesWithIf(
-                    multiReductionOp, nxtFor->getResults()[0], replaceIfFn);
-                auto &originalResults =
-                    getMultiRdCanonicalizers()[groupIdx].getOriginalOpResults();
-                for (auto [idx, x] : llvm::enumerate(originalResults)) {
-                  rewriterOfFunc.replaceOpUsesWithIf(
-                      x.getDefiningOp(), nxtFor->getResults()[idx + 1],
-                      replaceIfFn);
-                }
-                llvm::SmallVector<Value> resultsArray;
-                llvm::SmallDenseMap<Value, int> parallelIdxMap;
-                for (auto &x : grpResults) {
-                  if (originalResults.contains(x)) {
-                    auto &idxMap = rdCanonicalizer.getResultIdxMap();
-                    resultsArray.emplace_back(nxtFor->getResults()[idxMap[x]]);
-                  } else {
-                    resultsArray.emplace_back(x);
-                  }
-                  parallelIdxMap.insert({x, resultsArray.size() - 1});
-                }
-                rdCanonicalizer.setResultIdxMap(parallelIdxMap);
-                maybeYieldValue(b, loc, resultsArray);
-
-                // prepare iterArgs
-              }
-            }
+            assert(accInitVal && " Can't find accInit Value");
+            nextAnchorArgs.emplace_back(accInitVal);
+            nextAnchorArgsIdxMap[accInitVal] = nextAnchorArgs.size() - 1;
+            originalOperandLoopArgsMap[multiReductionAcc] = accInitVal;
           }
 
-        } else {
-          if (parallelIdx == parallelAxis.size() && !isStandaloneOp) {
+          // 2. generate next for loop
+          scf::ForOp nxtFor = parallelAxisGenerateForLoop(
+              b, groupIdx, parallelIdx + 1, nextAnchorArgsIdxMap,
+              nextAnchorArgs, nextAnchorResults, nextAnchorResultsIdxMap,
+              inductionVars, originalOperandLoopArgsMap,
+              forResultOrignalResultMap);
 
-            Attribute initValueAttr;
-            getReductionInitAttr(multiReductionOp, initValueAttr);
+          // 3. move postOp to current body
+          movePostOpToCurrentAnchor(
+              b, parallelIdx, groupIdx, nxtFor->getResults(),
+              nxtFor->getBlock(), opQueue, movedQueue, inductionVars,
+              currentLoopStateIdxMap, loopState, nextAnchorResults,
+              forResultOrignalResultMap);
 
-            auto accVal = b.create<arith::ConstantOp>(
-                loc, DenseElementsAttr::get(getVectorzedType(multiReductionOp),
-                                            {initValueAttr}));
-            llvm::SmallVector<Value> argsArray;
-            argsArray.emplace_back(accVal);
-            for (auto [idx, x] : llvm::enumerate(loopState)) {
-              if (idx == 0)
-                continue;
-              argsArray.emplace_back(x);
+          // 4. generate loop results
+          generateLoopResults(b, loc, parallelIdx, groupIdx, nextAnchorResults,
+                              nextAnchorResultsIdxMap, nxtFor->getResults(),
+                              movedQueue, forResultOrignalResultMap);
+
+        } else if (parallelIdx == parallelAxis.size()) {
+
+          // get accumualte value
+          Attribute initValueAttr;
+          getReductionInitAttr(multiReductionOp, initValueAttr);
+          auto accVal = b.create<arith::ConstantOp>(
+              loc, DenseElementsAttr::get(getVectorzedType(multiReductionOp),
+                                          {initValueAttr}));
+
+          DenseMap<Value, int> localAnchorResultsIdxMap;
+          SmallVector<Value> argsArray;
+          argsArray.emplace_back(accVal);
+          localAnchorResultsIdxMap[accVal] = 0;
+          size_t accLoopStateIdx = currentLoopStateIdxMap
+              [originalOperandLoopArgsMap[multiReductionAcc]];
+
+          for (auto [idx, x] : llvm::enumerate(loopState)) {
+            if (idx == accLoopStateIdx) {
+              continue;
             }
-            ValueRange newIterArgs(argsArray);
-            auto nxtFor = reductionAxisGenerateForLoop(
-                b, groupIdx, 0, newIterArgs, inductionVars);
-            // insert accumulate value to original vector
-            auto accRes = nxtFor->getResults()[0];
-
-            Operation *reductionOp = b.create<vector::ReductionOp>(
-                loc, multiReductionOp.getKind(), accRes);
-            auto insertOp = b.create<vector::InsertOp>(
-                loc, reductionOp->getResult(0), initArgs[0], iv);
-            auto insertResult = insertOp->getResults()[0];
-
-            // result
-            llvm::SmallVector<Value> retResults;
-            retResults.emplace_back(insertResult);
-            for (auto [idx, x] : llvm::enumerate(nxtFor->getResults())) {
-              if (idx == 0) {
-                continue;
-              }
-              retResults.emplace_back(x);
-            }
-            ValueRange retResultsArray(retResults);
-            maybeYieldValue(b, loc, retResultsArray);
-
-          } else {
-            auto nxtFor = parallelAxisGenerateForLoop(
-                b, groupIdx, parallelIdx + 1, loopState, inductionVars,
-                originalWriteResult);
-            maybeYieldValue(b, loc, nxtFor->getResults());
+            argsArray.emplace_back(x);
+            localAnchorResultsIdxMap[accVal] = argsArray.size() - 1;
           }
+          ValueRange reductionInitArgs(argsArray);
+          auto nxtFor = reductionAxisGenerateForLoop(
+              b, groupIdx, 0, parallelIdx, localAnchorResultsIdxMap,
+              reductionInitArgs, nextAnchorResults, nextAnchorResultsIdxMap,
+              inductionVars, forResultOrignalResultMap);
+
+          // insert accumulate value to original vector
+          auto accRes = nxtFor->getResults()[0];
+
+          Operation *reductionOp = b.create<vector::ReductionOp>(
+              loc, multiReductionOp.getKind(), accRes);
+          auto insertOp = b.create<vector::InsertOp>(
+              loc, reductionOp->getResult(0), accVal, iv);
+
+          // generate loop result
+          SmallVector<Value> currentAnchorResults;
+          DenseMap<Value, Value> currentResultMap;
+          DenseMap<Value, int> currentResultIdxMap;
+
+          currentAnchorResults.emplace_back(insertOp->getResults()[0]);
+          // reduce axis for loop first result we has already processed above
+          currentResultMap[insertOp->getResults()[0]] =
+              multiReductionOp->getResults()[0];
+          currentResultIdxMap[insertOp->getResults()[0]] = 0;
+
+          for (auto [idx, x] : llvm::enumerate(nextAnchorResults)) {
+            if (idx == 0) {
+              continue;
+            }
+            Value originalResult = forResultOrignalResultMap[x];
+            size_t forResultIdx = nextAnchorResultsIdxMap[x];
+            currentAnchorResults.emplace_back(
+                nxtFor->getResults()[forResultIdx]);
+            currentResultIdxMap[nxtFor->getResults()[forResultIdx]] = idx;
+            currentResultMap[nxtFor->getResults()[forResultIdx]] =
+                originalResult;
+          }
+          nextAnchorResults.clear();
+          nextAnchorResults = std::move(currentAnchorResults);
+          forResultOrignalResultMap = std::move(currentResultMap);
+          nextAnchorResultsIdxMap = std::move(currentResultIdxMap);
+          maybeYieldValue(b, loc, nextAnchorResults);
         }
       });
-  return forOp;
 }
 
 scf::ForOp
 ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
-  auto &grpArgs = getGroupOpIterArgs()[grpIdx];
-  llvm::SmallVector<Value> forLoopArgs(grpArgs.begin(), grpArgs.end());
-  llvm::SmallVector<Value, 5> inductionVars;
-  ValueRange initArgs(forLoopArgs);
-  Value originalWriteResult;
   auto &rdCanonicalizer = getMultiRdCanonicalizers()[grpIdx];
-  auto &rdResultMap = rdCanonicalizer.getResultIdxMap();
-  IRRewriter rewriter(func);
+  // get current loop init args
+  SetVector<Value> &grpArgs = getGroupOpInitArgs()[grpIdx];
+  SmallVector<Value> forLoopArgs(grpArgs.begin(), grpArgs.end());
+  ValueRange initArgs(forLoopArgs);
+  DenseMap<Value, int> currentLoopStateIdxMap;
+  DenseMap<Value, int> nextAnchorResultsIdxMap;
+  // map original operation operand with loop args
+  DenseMap<Value, Value> originalOperandLoopArgsMap, forResultOrignalResultMap;
+  for (auto [idx, val] : llvm::enumerate(initArgs)) {
+    currentLoopStateIdxMap[val] = idx;
+    originalOperandLoopArgsMap[val] = val;
+  }
 
+  SmallVector<Value, 5> inductionVars;
+  IRRewriter rewriter(func);
   OpBuilder opBuilder(rdCanonicalizer.getCandidateOps()[0]);
+  SmallVector<Value, 4> nextAnchorResults;
 
   scf::ForOp forOp = parallelAxisGenerateForLoop(
-      opBuilder, grpIdx, 0, initArgs, inductionVars, originalWriteResult);
+      opBuilder, grpIdx, 0, currentLoopStateIdxMap, initArgs, nextAnchorResults,
+      nextAnchorResultsIdxMap, inductionVars, originalOperandLoopArgsMap,
+      forResultOrignalResultMap);
 
   auto replaceIfFn = [&](OpOperand &use) {
     return use.getOwner()->getBlock() == forOp->getBlock();
   };
-  for (auto &grpResult : getGroupOpResults()[grpIdx]) {
-    rewriter.replaceOpUsesWithIf(grpResult.getDefiningOp(),
-                                 forOp->getResults()[rdResultMap[grpResult]],
-                                 replaceIfFn);
+  for (auto x : nextAnchorResults) {
+    auto originalResult = forResultOrignalResultMap[x];
+    rewriter.replaceOpUsesWithIf(
+        originalResult.getDefiningOp(),
+        forOp->getResults()[nextAnchorResultsIdxMap[x]], replaceIfFn);
   }
-
   rewriter.replaceOp(getMultiRdCanonicalizers()[grpIdx].getCandidateOps()[0],
                      forOp);
+
   return forOp;
 }
 
 template <class T>
-llvm::SmallVector<T, 4> &SpecialOperationCanonicalizer<T>::getCandidateOps() {
+SmallVector<T, 4> &SpecialOperationCanonicalizer<T>::getCandidateOps() {
   return candidateRdOps;
 };
 
 void MultiReductionCanonicalizer::initReductionAxis() {
   auto reductionAxisRange =
       getCandidateOps()[0].getReductionDims().getAsValueRange<IntegerAttr>();
-  auto reductionRange = llvm::to_vector<4>(llvm::map_range(
+  auto reductionRange = llvm::to_vector<4>(map_range(
       reductionAxisRange, [](const APInt &a) { return a.getZExtValue(); }));
   reductionAxis.assign(reductionRange.begin(), reductionRange.end());
 }
@@ -1320,7 +1503,7 @@ void MultiReductionCanonicalizer::prepareSpecialOperationInfo() {
   hasLastDimReduction();
 };
 
-template <class T> void addDummyInit(llvm::SmallVector<T, 8> &canonicalizer) {
+template <class T> void addDummyInit(SmallVector<T, 8> &canonicalizer) {
   canonicalizer.emplace_back(T({}));
 };
 
@@ -1339,9 +1522,9 @@ void CanonicalizerVectorOperation::dummyInitSpecialOperation() {
 }
 
 void CanonicalizerVectorOperation::initSpeicalOperationCanonicalizers() {
-
   clearSpecialOperationCanonicalizers();
-  auto &opGroups = getFusionStrategy().getOpGroups();
+  SmallVector<std::queue<Operation *>, 8> &opGroups =
+      getFusionStrategy().getOpGroups();
   for (auto &grp : opGroups) {
     dummyInitSpecialOperation();
     if (grp.empty()) {
@@ -1369,30 +1552,29 @@ void CanonicalizerVectorOperation::initSpeicalOperationCanonicalizers() {
   }
 }
 
-LogicalResult CanonicalizerVectorOperation::canonicalizeReductionOperation() {
+void CanonicalizerVectorOperation::canonicalizeSpecialOperation() {
+  // multireduction operation
   OpBuilder::InsertionGuard guard(rewriter);
 
   initSpeicalOperationCanonicalizers();
   // traverse all groups
-  auto &multiRdCanonicalizers = getMultiRdCanonicalizers();
+  llvm::SmallVector<MultiReductionCanonicalizer, 8> &multiRdCanonicalizers =
+      getMultiRdCanonicalizers();
+  llvm::SmallVector<TransposeCanonicalizer, 8> &transposeCanonicalizers =
+      getTransposeCanonicalizers();
   for (auto [groupId, rdCanonicalizer] :
        llvm::enumerate(multiRdCanonicalizers)) {
-    auto &candidateOps = rdCanonicalizer.getCandidateOps();
-    if (candidateOps.empty()) {
-      continue;
+    SmallVector<vector::MultiDimReductionOp, 4> &rdOps =
+        rdCanonicalizer.getCandidateOps();
+    if (!rdOps.empty()) {
+      // generate MultiReduction for loops
+      (void)generateMultiReductionForLoop(groupId);
     }
-    // generate MultiReduction for loops
-    (void)generateMultiReductionForLoop(groupId);
-  }
-  return success();
-}
-
-void CanonicalizerVectorOperation::canonicalizeSpecialOperation() {
-  // multireduction operation
-  auto result = canonicalizeReductionOperation();
-  if (failed(result)) {
-    LDBG("Failed to canonicalize reduction operation\n");
-    assert(0 && "Failed to canonicalize reduction operation");
+    SmallVector<vector::TransposeOp, 4> &transposeOps =
+        transposeCanonicalizers[groupId].getCandidateOps();
+    if (!transposeOps.empty()) {
+      // (void) generateTransposeForLoop(groupId);
+    }
   }
 }
 
@@ -1402,17 +1584,17 @@ void CanonicalizerVectorOperation::run() {
     // 1. Analysis the operation's operands and results
     // We need to analyze which operation results are needed by other
     // operations, and we need to pass these results correctly. Mapping the
-    // operation result value to forloop yeild result value. We can replace the
-    // operation operand as: map(operand, forloop yield result) -> operand =
-    // loop yield result We put all the operation result into this map.
+    // operation result value to forloop yeild result value. We can replace
+    // the operation operand as: map(operand, forloop yield result) -> operand
+    // = loop yield result We put all the operation result into this map.
 
     // 1.a. Find results which should be generated by current group for
     // using as operands to other operations?
 
-    // Traverse all operations. If the operand of operations in other groups or
-    // outside the group is the result of the current group operation, then the
-    // current operation needs to generate a result. We use `setvector` to save
-    // the results that need to be generated by the current group.
+    // Traverse all operations. If the operand of operations in other groups
+    // or outside the group is the result of the current group operation, then
+    // the current operation needs to generate a result. We use `setvector` to
+    // save the results that need to be generated by the current group.
 
     //  1.b. What operands are needed to find in the current group, and where
     //  can they be obtained ?
@@ -1420,24 +1602,23 @@ void CanonicalizerVectorOperation::run() {
     //  Thanks to 1.a, we get the result generated by the operations of
     //  each group, and this result will use `for loop yield` to generate a
     //  new result. Since the scope of the parent block of mlir is covered
-    //  the current operation, the current operation does not need to pass these
-    //  `for loop results` to the `iterArgs` of the required `for loop`. It
-    //  only needs to replace the operand of the current operation with the
+    //  the current operation, the current operation does not need to pass
+    //  these `for loop results` to the `iterArgs` of the required `for loop`.
+    //  It only needs to replace the operand of the current operation with the
     //  corresponding `for loop yield result`.
 
     // However, for some operations that are not DPS, we need to canonicalize
     // them. Canonicalization means that the operand of this operation is a
     // vector but we can't get this vector due to it locates in another block
     // which has a different scope. Therefore, it is necessary to write the
-    // vector results into a temporary tensor to save it. Then the vector needs
-    // to be read from the tensor before the current operation operate on it.
-    // Therefore,  `empty tensor`, `transfer_write` and `transfer_read` need to
-    // be inserted at target place.
+    // vector results into a temporary tensor to save it. Then the vector
+    // needs to be read from the tensor before the current operation operate
+    // on it. Therefore,  `empty tensor`, `transfer_write` and `transfer_read`
+    // need to be inserted at target place.
 
     // Query groupResultYeildSet to map operaion result value to scf.yield
     // result value.
     analysisGroupOperaion();
-    printGroupOps(getFusionStrategy().getOpGroups());
     // Speical Operation Canonicalization
     canonicalizeSpecialOperation();
 
@@ -1483,17 +1664,17 @@ void CanonicalizerVectorOperation::run() {
 //
 void setOperationCorrectOperand(
     Operation *op, const ValueRange &iterArgs,
-    const llvm::DenseMap<Value, int> &operandIdxMap,
-    const llvm::SmallVector<Value, 5> &inductionVars,
-    const llvm::DenseMap<Operation *, AffineMap> &opPermuationMap) {
+    const DenseMap<Value, int> &operandIdxMap, ArrayRef<Value> inductionVars,
+    const DenseMap<Operation *, AffineMap> &opPermuationMap) {
   for (auto [idx, opd] : llvm::enumerate(op->getOperands())) {
     if (operandIdxMap.contains(opd)) {
       op->setOperand(idx, iterArgs[operandIdxMap.at(opd)]);
     }
   }
   int offset = isa<vector::TransferWriteOp>(op) ? 2 : 1;
-  if (llvm::dyn_cast<vector::TransferWriteOp>(op) ||
-      llvm::dyn_cast<vector::TransferReadOp>(op)) {
+  if (dyn_cast<vector::TransferWriteOp>(op) ||
+      dyn_cast<vector::TransferReadOp>(op)) {
+
     assert(opPermuationMap.contains(op));
     auto permutationMap = opPermuationMap.at(op);
 
@@ -1509,10 +1690,9 @@ void setOperationCorrectOperand(
 
 scf::ForOp ForLoopGenerator::constructNestedForOp(
     const size_t forDimIdx, const size_t groupIdx, OpBuilder &b,
-    const Location &loc, const ValueRange &iterArgs, const VectorType &type,
-    const llvm::ArrayRef<int64_t> &dims,
-    llvm::SmallVector<Value, 5> &inductionVars,
-    const llvm::DenseMap<Value, int> &operandIdxMap) {
+    const Location &loc, const ValueRange &iterArgs, VectorType type,
+    const ArrayRef<int64_t> &dims, SmallVector<Value, 5> &inductionVars,
+    const DenseMap<Value, int> &operandIdxMap) {
   const int loop_step = getDataTypeValidSteps(type);
   // loop initialization variable
   auto zero = makeIndexArithConstantOp(b, loc, 0);
@@ -1531,8 +1711,14 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
           moveOperationsToCurrentForBody(
               groupIdx, b, inductionVars, operandIdxMap, loopState,
               getFusionStrategy().getOpGroups()[groupIdx]);
-          auto &resultSet = getGroupOpResults()[groupIdx];
-          maybeYieldValue(b, loc, resultSet.getArrayRef());
+          llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>> &resultSet =
+              getGroupOpResults()[groupIdx];
+          SmallVector<Value> results(resultSet.size());
+          size_t idx = 0;
+          for (auto itr = resultSet.begin(); itr != resultSet.end(); itr++) {
+            results[idx++] = itr->first;
+          }
+          maybeYieldValue(b, loc, results);
         } else {
           // outter loop
           auto nxtFor =
@@ -1566,7 +1752,8 @@ bool isSameVectorType(Operation *op1, Operation *op2) {
   return isSame;
 }
 
-bool isCompatibleVectorType(Operation *op1, Operation *op2) {
+bool VectorFusionStrategy::isCompatibleVectorType(Operation *op1,
+                                                  Operation *op2) {
   auto type1 = getOperationVectorType(op1);
   auto type2 = getOperationVectorType(op2);
   if (failed(type1) || failed(type2)) {
@@ -1597,34 +1784,9 @@ bool isCompatibleVectorType(Operation *op1, Operation *op2) {
   return isCompatible;
 }
 
-bool isPartialCompatible(Operation *op1, Operation *op2) {
-  auto type1 = getOperationVectorType(op1);
-  auto type2 = getOperationVectorType(op2);
-  if (failed(type1) || failed(type2)) {
-    return false;
-  }
-  auto sp1 = type1.value();
-  auto sp2 = type2.value();
-  // must be total same
-  if (isReadOrWriteOperation(op1) or isReadOrWriteOperation(op2)) {
-    return false;
-  }
-  bool isCompatible = true;
-  auto min_rank = std::min(sp1.getRank(), sp2.getRank());
-  // from front to back
-  for (long i = 0; i < min_rank; i++) {
-    if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
-      isCompatible = false;
-      break;
-    }
-  }
-
-  return isCompatible;
-}
-
 ///  which axis do the shape cast in source shape a
 void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
-                         llvm::SmallVector<int64_t> &res) {
+                         SmallVector<int64_t> &res) {
   unsigned rankA = a.size();
   unsigned rankB = b.size();
   assert(rankA < rankB && "May be invalid shape cast operation.");
@@ -1633,7 +1795,7 @@ void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
 
   // Special-case for n-D to 0-d shape cast. 'b' must be all ones to be shape
   // casted to a 0-d vector.
-  if (rankA == 0 && llvm::all_of(b, isOne)) {
+  if (rankA == 0 && all_of(b, isOne)) {
     for (size_t i = 0; i < a.size(); i++) {
       res.emplace_back(i);
     }
@@ -1659,9 +1821,9 @@ void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
 
     // Handle the case when trailing dimensions are of size 1.
     // Include them into the contiguous sequence.
-    if (i < rankA && llvm::all_of(a.slice(i), isOne))
+    if (i < rankA && all_of(a.slice(i), isOne))
       i = rankA;
-    if (j < rankB && llvm::all_of(b.slice(j), isOne))
+    if (j < rankB && all_of(b.slice(j), isOne))
       j = rankB;
   }
 
@@ -1678,7 +1840,7 @@ bool isScalar(Type type) {
 }
 
 void getSrcBroadcastDim(const ShapedType &input, const ShapedType &output,
-                        llvm::SmallVector<int64_t> &bcAxis) {
+                        SmallVector<int64_t> &bcAxis) {
   auto inputShape = input.getShape();
   auto outputShape = output.getShape();
   // following auto_broadcast semantics
@@ -1699,13 +1861,13 @@ void getSrcBroadcastDim(const ShapedType &input, const ShapedType &output,
   }
 }
 
-void getOperationDataAxis(Operation *op, llvm::SmallVector<int64_t> &dataAxis) {
+void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
   return TypeSwitch<Operation *>(op)
       .Case<vector::MultiDimReductionOp>(
           [&](vector::MultiDimReductionOp multiReductionOp) {
             auto rdDimsRange = multiReductionOp.getReductionDims()
                                    .getAsValueRange<IntegerAttr>();
-            auto reductionDims = llvm::to_vector<4>(llvm::map_range(
+            auto reductionDims = llvm::to_vector<4>(map_range(
                 rdDimsRange, [](const APInt &a) { return a.getZExtValue(); }));
             dataAxis.assign(reductionDims.begin(), reductionDims.end());
           })
@@ -1762,9 +1924,9 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
   if (disableSpecialOp) {
     return true;
   }
-  auto hasSameAxis = [](const llvm::SmallVector<int64_t> &dims1,
-                        const llvm::SmallVector<int64_t> &dims2) {
-    llvm::DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
+  auto hasSameAxis = [](const SmallVector<int64_t> &dims1,
+                        const SmallVector<int64_t> &dims2) {
+    DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
     for (auto x : dims1) {
       if (checkSet.contains(x)) {
         return true;
@@ -1775,7 +1937,7 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
   auto res =
       TypeSwitch<Operation *, bool>(op1)
           .Case<vector::ShapeCastOp>([&](vector::ShapeCastOp shapeCastOp) {
-            llvm::SmallVector<int64_t> dims1, dims2;
+            SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
             return hasSameAxis(dims1, dims2);
@@ -1784,10 +1946,10 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
               [&](vector::MultiDimReductionOp multiReductionOp) {
                 // has two cases: op1 is special operation, op2 is normal
                 // operation op1 and op2 is both speicial operation
-                llvm::SmallVector<int64_t> dims2, reductionDims, parallelDims;
+                SmallVector<int64_t> dims2, reductionDims, parallelDims;
                 getOperationDataAxis(op1, reductionDims);
                 getOperationDataAxis(op2, dims2);
-                llvm::DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
+                DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
                 auto op2VectorType = getOperationVectorType(op2);
                 if (!isSpecialOp(op2)) {
                   if (isSameVectorType(op1, op2)) {
@@ -1825,20 +1987,11 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
 
                   return false;
                 }
-                // else {
-                //   // TODO: reduce operation fused with other special
-                //   operation if (mlir::isa<vector::TransposeOp>(op2)) {
-                //     return true;
-                //   } else if (mlir::isa<vector::BroadcastOp>(op2)) {
-                //     return true;
-                //   }
-                //   //...
-                // }
 
                 return true;
               })
           .Case<vector::BroadcastOp>([&](vector::BroadcastOp broadcastOp) {
-            llvm::SmallVector<int64_t> dims1, dims2;
+            SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
             return true;
@@ -1849,7 +2002,7 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
             return true;
           })
           .Case<vector::TransposeOp>([&](vector::TransposeOp transposeOp) {
-            llvm::SmallVector<int64_t> dims1, dims2;
+            SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
             return true;
@@ -1885,13 +2038,33 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
   return false;
 }
 
+void VectorFusionStrategy::updateGroupBitgestVectorType(VectorType vectorType) {
+  int64_t rank = vectorType.getRank();
+  llvm::SmallDenseMap<size_t, VectorType> &groupVectorType =
+      getGroupBiggestRankVectorType();
+
+  if (groupVectorType.contains(opGroups.size() - 1)) {
+    VectorType bigestType = groupVectorType[opGroups.size() - 1];
+    if (bigestType.getRank() < rank) {
+      groupVectorType[opGroups.size() - 1] = vectorType;
+    }
+    return;
+  }
+
+  groupVectorType[opGroups.size() - 1] = vectorType;
+}
+
 void VectorFusionStrategy::addOperationToGroup(Operation *op) {
   assert(op);
+  VectorType vectorType = getOperationVectorType(op).value();
   if (isNeedNewGroup(op)) {
     opGroups.emplace_back(std::queue<Operation *>());
+  } else {
+    updateGroupBitgestVectorType(vectorType);
   }
   opGroups.back().push(op);
   opGroupIndexMap[op] = opGroups.size() - 1;
+  opAnchorPos[op] = getOperationVectorType(op)->getRank() - 1;
 }
 
 // We classify the operations we are interested in after filtering. Operations
@@ -1939,11 +2112,10 @@ Value setOutGroupOperationOperandResult(Operation *op,
               }
             } else if (isa<FloatType>(resultElementType)) {
               initValueAttr = FloatAttr::get(
-                  resultElementType,
-                  llvm::cast<FloatAttr>(value).getValueAsDouble());
+                  resultElementType, cast<FloatAttr>(value).getValueAsDouble());
             } else {
               initValueAttr = IntegerAttr::get(
-                  resultElementType, llvm::cast<IntegerAttr>(value).getInt());
+                  resultElementType, cast<IntegerAttr>(value).getInt());
             }
 
             auto cntOp = rewriter.create<arith::ConstantOp>(
@@ -1955,9 +2127,8 @@ Value setOutGroupOperationOperandResult(Operation *op,
   return ret;
 }
 
-void setOperationOperandResult(
-    Operation *op, const VectorType &newOperandType,
-    const llvm::DenseMap<Operation *, size_t> &opMap) {
+void setOperationOperandResult(Operation *op, const VectorType &newOperandType,
+                               const DenseMap<Operation *, size_t> &opMap) {
   for (auto [idx, x] : llvm::enumerate(op->getOperands())) {
     if (mlir::dyn_cast<VectorType>(x.getType())) {
       if (!opMap.contains(x.getDefiningOp())) {
@@ -2016,13 +2187,13 @@ void ForLoopGenerator::createNewConstantOp(
 
 /// Rewrite the operations in the group to vectorized form.
 void ForLoopGenerator::rewriteOperationAsVectorize(
-    OpBuilder &rewriter, size_t groupId, const std::queue<Operation *> &queue) {
+    OpBuilder &rewriter, size_t groupId, const std::queue<Operation *> *queue) {
   const std::queue<Operation *> groupOps =
-      queue.empty() ? getFusionStrategy().getOpGroups()[groupId] : queue;
-  const llvm::DenseMap<Operation *, size_t> &opMap =
+      !queue ? getFusionStrategy().getOpGroups()[groupId] : *queue;
+
+  const DenseMap<Operation *, size_t> &opMap =
       getFusionStrategy().getOpGroupIndexMap();
-  llvm::DenseMap<Operation *, AffineMap> &opPermuationMap =
-      getOpPermuationMap();
+  DenseMap<Operation *, AffineMap> &opPermuationMap = getOpPermuationMap();
   std::queue<Operation *> transformQueue(groupOps);
   size_t groupSteps = getFusionStrategy().getGroupMaxSteps()[groupId];
 
@@ -2069,6 +2240,7 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
                 })
             .Case<vector::MultiDimReductionOp>(
                 [&](vector::MultiDimReductionOp multiReductionOp) {
+                  multiReductionOp.dump();
                   llvm::llvm_unreachable_internal(
                       "It should not appear this operation.");
                   return failure();
@@ -2094,7 +2266,7 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
 }
 
 mlir::FailureOr<Value> getOperationOperateTensor(Operation *op) {
-  return llvm::TypeSwitch<Operation *, mlir::FailureOr<Value>>(op)
+  return TypeSwitch<Operation *, mlir::FailureOr<Value>>(op)
       .Case<vector::TransferWriteOp>(
           [&](vector::TransferWriteOp transferWriteOp) {
             LDBG(" DPS operation : " << *op << "\n");
@@ -2110,11 +2282,9 @@ mlir::FailureOr<Value> getOperationOperateTensor(Operation *op) {
       });
 }
 
-void updateOpOperandResultInGroups(
-    llvm::SmallVector<std::queue<Operation *>, 8> &opGroups,
-    llvm::DenseMap<Operation *, size_t> &opGroupIndexMap, size_t opGid,
-    Operation *op, Value &init, const Value &result = Value()) {
-  std::queue<Operation *> tmpOpQueue(opGroups[opGid]);
+void VectorOperationAnalysizer::updateOpOperandResultInGroups(
+    size_t opGid, Operation *op, Value &init, const Value &result) {
+  std::queue<Operation *> tmpOpQueue(getFusionStrategy().getOpGroups()[opGid]);
   std::queue<Operation *> newOpQueue;
   while (!tmpOpQueue.empty()) {
     auto curOp = tmpOpQueue.front();
@@ -2122,39 +2292,50 @@ void updateOpOperandResultInGroups(
     if (curOp == op) {
       if (!failed(getOperationVectorType(init.getDefiningOp()))) {
         newOpQueue.push(init.getDefiningOp());
-        opGroupIndexMap[init.getDefiningOp()] = opGid;
+        getFusionStrategy().getOpGroupIndexMap()[init.getDefiningOp()] = opGid;
+        getFusionStrategy().getOpAnchorPos()[init.getDefiningOp()] =
+            getFusionStrategy().getOpAnchorPos()[op];
       }
 
       newOpQueue.push(op);
 
       if (result && !failed(getOperationVectorType(result.getDefiningOp()))) {
         newOpQueue.push(result.getDefiningOp());
-        opGroupIndexMap[result.getDefiningOp()] = opGid;
+        getFusionStrategy().getOpGroupIndexMap()[result.getDefiningOp()] =
+            opGid;
+        getFusionStrategy().getOpAnchorPos()[result.getDefiningOp()] =
+            getFusionStrategy().getOpGroupIndexMap()[op];
       }
     } else {
       newOpQueue.push(curOp);
     }
   }
-  opGroups[opGid] = newOpQueue;
+  getFusionStrategy().getOpGroups()[opGid] = newOpQueue;
 }
 
 void VectorFusionStrategy::run() { classifyOperations(); }
 
 void VectorOperationAnalysizer::generateEmptyTensorAndWrite(
-    Operation *sourceOp, llvm::DenseMap<Operation *, std::pair<Value, Value>>
-                             &srcOpCanoniclizedMap) {
-  auto &opGroups = getFusionStrategy().getOpGroups();
-  auto &opGroupIndexMap = getFusionStrategy().getOpGroupIndexMap();
-  auto &groupOpIterArgs = getGroupOpIterArgs();
-  auto &groupOpResults = getGroupOpResults();
-  auto sourceOpGid = opGroupIndexMap[sourceOp];
+    Operation *sourceOp,
+    DenseMap<Operation *, std::pair<Value, Value>> &srcOpCanoniclizedMap,
+    size_t anchorPos, ReturnTypeKind retKind) {
+  DenseMap<Operation *, size_t> &opGroupIndexMap =
+      getFusionStrategy().getOpGroupIndexMap();
+  SmallVector<SetVector<Value>, 8> &groupOpInitArgs = getGroupOpInitArgs();
+  SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
+      &groupOpResults = getGroupOpResults();
+  size_t sourceOpGid = opGroupIndexMap[sourceOp];
 
   auto [resultTensor, result] = canonicalizeSourceOperation(sourceOp);
+  auto writeOp = result.getDefiningOp<vector::TransferWriteOp>();
   srcOpCanoniclizedMap.insert({sourceOp, {resultTensor, result}});
-  updateOpOperandResultInGroups(opGroups, opGroupIndexMap, sourceOpGid,
-                                sourceOp, resultTensor, result);
-  groupOpIterArgs[sourceOpGid].insert(resultTensor);
-  groupOpResults[sourceOpGid].insert(result);
+  updateOpOperandResultInGroups(sourceOpGid, sourceOp, resultTensor, result);
+  groupOpInitArgs[sourceOpGid].insert(resultTensor);
+  groupOpResults[sourceOpGid].insert({result, {retKind, anchorPos}});
+  groupOpResults[sourceOpGid].back().first.dump();
+  getFusionStrategy().getOpAnchorPos()[writeOp] =
+      cast<vector::TransferWriteOp>(writeOp).getVectorType().getRank() - 1;
+  getOpPermuationMap()[writeOp] = writeOp.getPermutationMap();
 }
 
 void VectorOperationAnalysizer::analysisEmptyGroupAndMaxSteps() {
@@ -2163,7 +2344,7 @@ void VectorOperationAnalysizer::analysisEmptyGroupAndMaxSteps() {
 
   // If the group operations do not have result need to be returned, these are
   // useless code.
-  for (auto [idx, grp] : enumerate(opGroups)) {
+  for (auto [idx, grp] : llvm::enumerate(opGroups)) {
     if (groupOpResults[idx].empty()) {
       std::queue<Operation *>().swap(grp);
     }
@@ -2194,53 +2375,91 @@ void VectorOperationAnalysizer::analysisEmptyGroupAndMaxSteps() {
 // analysis operation result of current group whether needed by other
 // operation which out of current group
 void VectorOperationAnalysizer::analysisGroupOperationResults() {
-  llvm::DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
-  llvm::DenseSet<Operation *> movedOperationSet;
-  auto &opGroups = getFusionStrategy().getOpGroups();
-  auto &opGroupIndexMap = getFusionStrategy().getOpGroupIndexMap();
-  auto &groupOpIterArgs = getGroupOpIterArgs();
-  auto &groupOpResults = getGroupOpResults();
+  DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
+  DenseSet<Operation *> movedOperationSet;
+  DenseMap<Operation *, size_t> &opGroupIndexMap =
+      getFusionStrategy().getOpGroupIndexMap();
+  SmallVector<SetVector<Value>, 8> &groupOpInitArgs = getGroupOpInitArgs();
+  SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
+      &groupOpResults = getGroupOpResults();
+  DenseMap<Operation *, size_t> &OpAnchorPos =
+      getFusionStrategy().getOpAnchorPos();
+
+  auto updateReturnResultKind = [&](Operation *sourceOp, size_t sourceOpGid,
+                                    ReturnTypeKind rtKind) {
+    Value sourceResult;
+    if (srcOpCanoniclizedMap.contains(sourceOp)) {
+      sourceResult = srcOpCanoniclizedMap[sourceOp].second;
+    } else {
+      sourceResult = sourceOp->getResults()[0];
+    }
+    size_t srcOpAnchor = groupOpResults[sourceOpGid][sourceResult].second;
+    ReturnTypeKind prevRtKind = groupOpResults[sourceOpGid][sourceResult].first;
+    srcOpAnchor = std::min(srcOpAnchor, OpAnchorPos[sourceOp]);
+    if (prevRtKind != rtKind) {
+      groupOpResults[sourceOpGid][sourceResult] =
+          std::make_pair(ReturnTypeKind::RT_Both, srcOpAnchor);
+    } else {
+      groupOpResults[sourceOpGid][sourceResult] =
+          std::make_pair(rtKind, srcOpAnchor);
+    }
+    groupOpResults[sourceOpGid].back().first.dump();
+  };
+
   func.walk<WalkOrder::PreOrder>([&](Operation *op) {
     for (auto [idx, opd] : llvm::enumerate(op->getOperands())) {
-      auto sourceOp = opd.getDefiningOp();
+      Operation *sourceOp = opd.getDefiningOp();
 
       if (opGroupIndexMap.contains(sourceOp)) {
         auto sourceOpGid = opGroupIndexMap[sourceOp];
         bool notInSameGroup =
             opGroupIndexMap.contains(op) && sourceOpGid != opGroupIndexMap[op];
-        bool outOfGroup = !opGroupIndexMap.contains(op);
 
-        if (notInSameGroup or outOfGroup) {
+        bool outOfGroup = !opGroupIndexMap.contains(op);
+        // Different anchor in same group and source operation is in inner loop,
+        // we need to get source operation's result
+        bool inSameGroupNeedReturn =
+            !notInSameGroup and OpAnchorPos[sourceOp] > OpAnchorPos[op];
+        ReturnTypeKind rtKind = inSameGroupNeedReturn
+                                    ? ReturnTypeKind::RT_InGroup
+                                    : ReturnTypeKind::RT_OutGroup;
+
+        if (notInSameGroup or outOfGroup or inSameGroupNeedReturn) {
           // update init iterargs
           auto dstRet = getOperationOperateTensor(sourceOp);
           // need to generate tensor.emtpy and vector.transfer_write, write
           // operand to tensor and read operand from the tensor, generate
           // vector.transfer_read
           if (failed(dstRet)) {
-            // already generate result tensor
+            // already generate result tensor, special operation do the
+            // transformation by itself
+            if (isSpecialOp(sourceOp) and inSameGroupNeedReturn) {
+              continue;
+            }
             if (!srcOpCanoniclizedMap.contains(sourceOp)) {
-              generateEmptyTensorAndWrite(sourceOp, srcOpCanoniclizedMap);
+              generateEmptyTensorAndWrite(sourceOp, srcOpCanoniclizedMap,
+                                          OpAnchorPos[sourceOp], rtKind);
+            } else {
+              // udpate result return type
+              updateReturnResultKind(sourceOp, sourceOpGid, rtKind);
             }
 
             auto opInit = canonicalizeCurrentOperation(
                 op, srcOpCanoniclizedMap[sourceOp].second, idx);
-            updateOpOperandResultInGroups(opGroups, opGroupIndexMap,
-                                          opGroupIndexMap[op], op, opInit);
+            updateOpOperandResultInGroups(opGroupIndexMap[op], op, opInit);
 
           } else {
             // if source operation is transfer_read, we need to generate a
             // same transfer_read operation like source operation.
             if (mlir::isa<vector::TransferReadOp>(sourceOp)) {
-              auto transferReadOp =
-                  mlir::dyn_cast<vector::TransferReadOp>(sourceOp);
+              auto transferReadOp = cast<vector::TransferReadOp>(sourceOp);
               auto opInit = canonicalizeCurrentOperation(op, dstRet.value(),
                                                          idx, &transferReadOp);
-              updateOpOperandResultInGroups(opGroups, opGroupIndexMap,
-                                            opGroupIndexMap[op], op, opInit);
+              updateOpOperandResultInGroups(opGroupIndexMap[op], op, opInit);
 
             } else {
-              groupOpIterArgs[sourceOpGid].insert(dstRet.value());
-              groupOpResults[sourceOpGid].insert(opd);
+              groupOpInitArgs[sourceOpGid].insert(dstRet.value());
+              updateReturnResultKind(sourceOp, sourceOpGid, rtKind);
             }
           }
         }
@@ -2253,6 +2472,7 @@ void VectorOperationAnalysizer::analysisGroupOperationResults() {
     }
   });
   analysisEmptyGroupAndMaxSteps();
+#undef RESULT_RETURN_TYPE
   LDBG("Complete analysis group operation results\n");
 }
 
@@ -2262,29 +2482,30 @@ void VectorOperationAnalysizer::analysisGroupOperaion() {
 }
 
 mlir::FailureOr<scf::ForOp> ForLoopGenerator::generateVectorizedForLoop(
-    const size_t groupId, IRRewriter &rewriter, const VectorType &vectorType) {
+    const size_t groupId, IRRewriter &rewriter, VectorType vectorType) {
   auto &resultSet = getGroupOpResults();
-  auto &dstOperandSet = getGroupOpIterArgs()[groupId];
+  auto &initArgs = getGroupOpInitArgs()[groupId];
   assert(!resultSet.empty() && "Expected non-empty value");
   // prepare for loop iterargs
-  llvm::SmallVector<Value, 4> operands;
-  llvm::DenseMap<Value, int> operandIdxMap;
-  for (auto [idx, x] : llvm::enumerate(dstOperandSet)) {
+  SmallVector<Value, 4> operands;
+  DenseMap<Value, int> operandIdxMap;
+  for (auto [idx, x] : llvm::enumerate(initArgs)) {
     operands.emplace_back(x);
     operandIdxMap[x] = operands.size() - 1;
   }
-  ValueRange iterArgs(operands);
+  ValueRange forIterArgs(operands);
   auto shapes = vectorType.getShape();
-  llvm::SmallVector<Value, 5> inductionVars;
+  SmallVector<Value, 5> inductionVars;
   // generate for loop
   auto forOp = constructNestedForOp(
-      0, groupId, rewriter, rewriter.getUnknownLoc(), iterArgs, vectorType,
+      0, groupId, rewriter, rewriter.getUnknownLoc(), forIterArgs, vectorType,
       shapes, inductionVars, operandIdxMap);
   return forOp;
 }
 
-void updateLoopResultUses(llvm::SetVector<Value> &opResults,
-                          scf::ForOp *forOp) {
+void updateLoopResultUses(
+    llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>> &opResults,
+    scf::ForOp *forOp) {
   if (opResults.empty()) {
     return;
   }
@@ -2292,14 +2513,15 @@ void updateLoopResultUses(llvm::SetVector<Value> &opResults,
   OpBuilder::InsertionGuard g(rewriter);
   // Only different group operation operand need to be replaced due to same
   // group operation should directly use original operand.
-  auto producerOp = opResults.front().getDefiningOp();
+
+  Operation *producerOp = opResults.begin()->first.getDefiningOp();
   auto needToReplaced = [&](OpOperand &operand) {
     return producerOp->getBlock() != operand.getOwner()->getBlock();
   };
   // update loop result uses
   for (auto [retIdx, rt] : llvm::enumerate(opResults)) {
-    producerOp = rt.getDefiningOp();
-    rewriter.replaceUsesWithIf(rt, forOp->getResult(retIdx), needToReplaced);
+    rewriter.replaceUsesWithIf(rt.first, forOp->getResult(retIdx),
+                               needToReplaced);
   }
 }
 
@@ -2326,18 +2548,14 @@ void ForLoopGenerator::generateGroupOpVectorizedIR(const int idx) {
     return;
   }
   auto &groupOpResults = getGroupOpResults();
-  auto getType = getOperationVectorType(grp.front());
-  if (failed(getType)) {
-    LDBG("Failed to get vector type for operation: " << *grp.front() << "\n");
-    return;
-  }
-  auto opShapes = getType.value();
+  VectorType groupType =
+      getFusionStrategy().getGroupBiggestRankVectorType()[idx];
   IRRewriter rewriter(grp.back());
   rewriter.setInsertionPointAfter(grp.back());
   // 1. Rewrite operation as vectorized form
   // 2. Generate loop
   rewriteOperationAsVectorize(rewriter, idx);
-  auto forOp = generateVectorizedForLoop(idx, rewriter, opShapes);
+  auto forOp = generateVectorizedForLoop(idx, rewriter, groupType);
   // special operation do not need to change anything
   if (failed(forOp)) {
     return;
