@@ -27,7 +27,6 @@ from enhanced_np_to_memref import (
 )
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
-from op_config import OP_TO_CONFIG, Config
 
 MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,
@@ -190,51 +189,3 @@ def load_mlir_from_path(path: str) -> str:
     with open(path, "r") as file:
         content = file.read()
     return content
-
-
-def walk_operations(op: ir.Operation, callback=None):
-    """Traverse all operations"""
-    for region in op.regions:
-        for block in region:
-            for child_op in block:
-                if callback:
-                    callback(child_op)
-                walk_operations(child_op, callback)
-
-
-def get_all_tunable_ops(op: ir.Operation):
-    """Get tunable ops from the children op"""
-    tunable_ops = []
-    for region in op.regions:
-        for block in region:
-            for child_op in block:
-                if (
-                    "skipTuner" in child_op.attributes
-                    and child_op.attributes["skipTuner"]
-                ):
-                    continue
-                if child_op.name in OP_TO_CONFIG:
-                    tunable_ops.append(child_op)
-                tunable_ops = tunable_ops + get_all_tunable_ops(child_op)
-    return tunable_ops
-
-
-def gen_configs_from_ir(ir_module: ir.Module):
-    """Genrate configs from ir module"""
-    tunable_ops = get_all_tunable_ops(ir_module.operation)
-    configs = []
-    for op in tunable_ops:
-        if op.name in OP_TO_CONFIG:    
-            configs.append(OP_TO_CONFIG[op.name](op))
-    return configs
-
-
-def attach_configs_to_ir(ir_module: ir.Module, configs: List[Config]):
-    """Add configs to ir module"""
-    tunable_ops = get_all_tunable_ops(ir_module.operation)
-    assert len(tunable_ops) == len(
-        configs
-    ), "tunable ops and configs should have the same length"
-    for i, op in enumerate(tunable_ops):
-        if op.name in OP_TO_CONFIG:
-            configs[i].attach_to_ir(op)

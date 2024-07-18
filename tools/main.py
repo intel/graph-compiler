@@ -18,19 +18,13 @@
 import argparse
 import json
 import os
-from ast import arg
-
 import numpy as np
 from bench import (
-    batch_mlir_wrapper_bench,
-    batch_py_timeit_bench,
     mlir_wrapper_bench,
     py_timeit_bench,
 )
 from drivers import MLP, LoadMLIR
-from enhanced_np_to_memref import *
 from gc_mlir import ir
-from tuner import GATuner, GridTuner, Tuner, TuningSpace
 from utils import get_mlir_args
 
 
@@ -89,65 +83,6 @@ def do_bench(args: argparse.Namespace):
         print(json_res)
 
 
-def do_tune(args: argparse.Namespace):
-    """Function tunning mlir"""
-    with ir.Context() as ctx, ir.Location.unknown():
-        ctx.allow_unregistered_dialects = True
-        driver_clz = get_driver_clz(args.driver)
-        driver = driver_clz(ctx, args)
-        if args.print_ir:
-            ctx.enable_multithreading(False)
-        np_args = driver.prepare_np_args(args.disable_results_to_params)
-
-        # TODO need data filling
-        # for test, fill all data with 1
-        for np_arg in np_args:
-            np.ndarray.fill(np_arg, 1)
-
-        mlir_args = get_mlir_args(
-            driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params
-        )
-
-        batch_bench = (
-            batch_py_timeit_bench
-            if args.bench_kind == "py"
-            else batch_mlir_wrapper_bench
-        )
-
-        def tuner_batch_bench(ir_moudles):
-            return batch_bench(
-                ir_moudles,
-                driver.main_entry,
-                driver.get_passes(),
-                mlir_args,
-                [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]],
-                args.print_ir,
-                repeat_time=args.repeat,
-                warm_up=args.warm_up,
-            )
-
-        assert args.space_percent > 0 and args.space_percent <= 1.0
-        space = TuningSpace(driver.ir_module, args.space_percent)
-        if args.search_alg == "grid":
-            tuner = GridTuner(
-                tuner_batch_bench,
-                space,
-                args.tuning_batch,
-                args.early_stop,
-                args.checkpoint_path,
-            )
-        else:
-            tuner = GATuner(
-                tuner_batch_bench,
-                space,
-                args.tuning_batch,
-                args.early_stop,
-                args.checkpoint_path,
-                random_seed=args.random_seed,
-            )
-        tuner.run(args.max_tuning_iters, args.timeout)
-
-
 def check_env():
     """Function checking environment."""
     assert "MLIR_C_RUNNER_UTILS" in os.environ
@@ -156,7 +91,7 @@ def check_env():
 if __name__ == "__main__":
     check_env()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--type", type=str, choices=["bench", "tune"], default="bench")
+    parser.add_argument("--type", type=str, choices=["bench"], default="bench")
     parser.add_argument(
         "--driver", type=str, choices=["load_mlir", "mlp"], required=True
     )
@@ -172,38 +107,4 @@ if __name__ == "__main__":
     parser.add_argument("--warm_up", type=int, default=100)
     parser.add_argument("--repeat", type=int, default=100)
 
-    if parser.parse_known_args()[0].type == "bench":
-        do_bench(parser.parse_args())
-    else:
-        parser.add_argument(
-            "--search_alg", type=str, choices=["grid", "ga"], default="ga"
-        )
-        parser.add_argument(
-            "--tuning_batch", type=int, default=Tuner.DEFAULT_BATCH_SIZE
-        )
-        parser.add_argument("--early_stop", type=int, default=Tuner.DEFAULT_EARLY_STOP)
-        parser.add_argument(
-            "--max_tuning_iters", type=int, default=Tuner.DEFAULT_MAX_ITERS
-        )
-        parser.add_argument("--timeout", type=int, default=Tuner.DEFAULT_TIMEOUT)
-        parser.add_argument(
-            "--space_percent", type=float, default=TuningSpace.DEFAULT_SPACE_PERCENT
-        )
-        parser.add_argument("--checkpoint_path", type=str, default="")
-
-        if parser.parse_known_args()[0].search_alg == "ga":
-            parser.add_argument(
-                "--random_seed", type=int, default=GATuner.DEFAULT_RANDOM_SEED
-            )
-            parser.add_argument(
-                "--elite_num", type=int, default=GATuner.DEFAULT_ELITE_NUM
-            )
-            parser.add_argument(
-                "--mutation_prob", type=float, default=GATuner.DEFAULT_MUTATION_PROB
-            )
-            parser.add_argument(
-                "--expected_tune_num",
-                type=int,
-                default=GATuner.DEFAULT_EXPECTED_TUNE_NUM,
-            )
-        do_tune(parser.parse_args())
+    do_bench(parser.parse_args())
