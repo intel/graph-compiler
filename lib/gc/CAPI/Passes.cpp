@@ -16,6 +16,10 @@
 using namespace mlir::gc;
 using namespace mlir::cpuruntime;
 
+namespace mlir::gc {
+void registerCPUPipeline();
+} // namespace mlir::gc
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -23,6 +27,11 @@ extern "C" {
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.capi.cpp.inc"
 #include "gc/Transforms/Passes.capi.cpp.inc"
 
+MLIR_CAPI_EXPORTED void mlirRegisterAllGCPassesAndPipelines() {
+  registerCPUPipeline();
+  mlirRegisterCPURuntimePasses();
+  mlirRegisterGraphCompilerPasses();
+}
 #ifdef __cplusplus
 }
 #endif
