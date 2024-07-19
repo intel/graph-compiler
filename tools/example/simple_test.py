@@ -30,7 +30,7 @@ if project_dir not in sys.path:
 import ml_dtypes
 import torch
 from bench import py_timeit_bench
-from tools.memref import ranked_memref_to_numpy
+from enhanced_np_to_memref import ranked_memref_to_numpy
 from utils import get_mlir_args
 
 if __name__ == "__main__":
