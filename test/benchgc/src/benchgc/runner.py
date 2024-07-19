@@ -17,7 +17,7 @@
 import gc_mlir._mlir_libs
 import gc_mlir.ir
 import torch
-from benchgc.mlir import MLIRCache
+from benchgc.mlir.util import MLIRCache
 from typing import Dict
 from benchgc.linalg import ref_op as linalg_ref_op
 from benchgc.tensor import ref_op as tensor_ref_op

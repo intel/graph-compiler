@@ -21,14 +21,14 @@ import argparse
 import torch
 
 from benchgc.arg import Arg, fill_tensor, compare_tensor
-from typing import Dict, List, Any
+from typing import Dict, List
 import runner
 import benchgc.util
-import benchgc.mlir
+import benchgc.mlir.util
 import gc_mlir.ir
 from gc_mlir.graph_compiler import GraphCompiler
 import os
-from tools.utils import get_mlir_args
+from benchgc.mlir.arg import get_mlir_args
 
 try:
     parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
@@ -157,7 +157,7 @@ ref_out = runner.ref_run(module, tensors)
 
 entry = "entry"
 
-mlir_args = get_mlir_args(module, entry, gc_args)
+mlir_args = get_mlir_args(gc_args)
 passes = "any(gc-cpu-pipeline)"
 shared_libs = [
     os.environ["MLIR_C_RUNNER_UTILS"],

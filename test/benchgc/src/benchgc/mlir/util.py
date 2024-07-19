@@ -15,9 +15,10 @@
 ################################################################################
 
 import gc_mlir.ir
+import ctypes
+import torch
 
 from gc_mlir.dialects import func
-
 from benchgc.arg import Arg
 from typing import Callable, List
 
@@ -109,3 +110,23 @@ class MLIRCache:
         self.res = []
         self.arg = []
         self.next = []
+
+def dtype_to_ctype(dtype: torch.dtype):
+    if dtype == torch.float32:
+        return ctypes.c_float
+    elif dtype == torch.float64:
+        return ctypes.c_double
+    elif dtype == torch.int32:
+        return ctypes.c_int
+    elif dtype == torch.int64:
+        return ctypes.c_longlong
+    elif dtype == torch.uint8:
+        return ctypes.c_ubyte
+    elif dtype == torch.int8:
+        return ctypes.c_byte
+    elif dtype == torch.int16 or dtype == torch.bfloat16 or torch.float16:
+        return ctypes.c_short
+    elif dtype == torch.bool:
+        return ctypes.c_bool
+    else:
+        raise ValueError(f"Unsupported torch dtype: {dtype}")

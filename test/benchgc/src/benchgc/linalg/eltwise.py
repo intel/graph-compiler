@@ -18,7 +18,7 @@ import torch
 import argparse
 import gc_mlir.ir
 
-from benchgc.mlir import MLIRCache, init_i1o1_module
+from benchgc.mlir.util import MLIRCache, init_i1o1_module
 
 from gc_mlir.dialects import linalg
 

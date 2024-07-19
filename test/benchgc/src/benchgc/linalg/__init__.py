@@ -18,7 +18,7 @@ import torch
 import argparse
 import importlib
 import gc_mlir.ir
-from benchgc.mlir import MLIRCache
+from benchgc.mlir.util import MLIRCache
 from benchgc.arg import Arg
 from typing import Dict, Callable, List
 

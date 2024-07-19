@@ -15,7 +15,7 @@
 ################################################################################
 
 import torch
-from benchgc.mlir import MLIRCache
+from benchgc.mlir.util import MLIRCache
 import gc_mlir.ir
 import benchgc.runner
 import benchgc.util

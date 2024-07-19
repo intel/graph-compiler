@@ -14,7 +14,7 @@
 # limitations under the License.
 ################################################################################
 
-from benchgc.mlir import MLIRCache
+from benchgc.mlir.util import MLIRCache
 import gc_mlir.ir
 import gc_mlir._mlir_libs._mlir.ir
 import torch
