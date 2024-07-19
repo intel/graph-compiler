@@ -59,3 +59,14 @@ This includes:
 
 ### Compilation
 * Generate the code with kernel outlining. The motivation is that the compiler can take over some of the scheduling-related tasks. The implies the interface with a framework needs to expose synchronization mechanism (e.g., pass a GPU queue). This also affects kernel caching. JITed or non-JITed execution (GPU module converted to serialized SPIR-V or to an actual target-specific binary) are similar cases from that point of view. Both will need to retrieve the artifact and pass it to the lowered from `gpu.launch` runtime call.
+* To align with the future pipelines, the target representation for the gpu module is LLVM. The actual path to the binary will be hidden inside `gpu-module-to-binary` implementation. From the kernel lowering perspective, the outlook of the target pipeline looks like:
+
+```
+builtin.module(
+    gpu-kernel-outlining,
+    xe-attach-target{chip=xe_3 O=3},
+    gpu.module(convert-gpu-to-llvm-spv),
+    gpu-to-llvm,
+    gpu-module-to-binary
+)
+```
