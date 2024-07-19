@@ -1,9 +1,6 @@
 #! /bin/bash
 
-# need to import tools as a package 
-export PYTHONPATH=$(pwd)
 export CASE_DIR=$(pwd)/test/benchgc/cases
-
 
 FAIL=0
 set -e
