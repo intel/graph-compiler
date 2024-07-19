@@ -21,6 +21,7 @@
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 
 #include "llvm/Support/InitLLVM.h"
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTargetAsmParser();
 
   mlir::DialectRegistry registry;
+  mlir::registerAllDialects(registry);
   mlir::registerAllToLLVMIRTranslations(registry);
 
   return mlir::JitRunnerMain(argc, argv, registry);
