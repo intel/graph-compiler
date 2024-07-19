@@ -111,6 +111,7 @@ class MLIRCache:
         self.arg = []
         self.next = []
 
+
 def dtype_to_ctype(dtype: torch.dtype):
     if dtype == torch.float32:
         return ctypes.c_float
