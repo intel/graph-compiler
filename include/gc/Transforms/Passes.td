@@ -38,7 +38,6 @@ def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime"> {
     Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
   }];
   let dependentDialects = [
-      "func::FuncDialect",
       "memref::MemRefDialect",
       "cpuruntime::CPURuntimeDialect"
   ];

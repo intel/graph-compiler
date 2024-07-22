@@ -11,8 +11,6 @@
 
 include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
-include "mlir/Interfaces/InferTypeOpInterface.td"
-
 
 def CPURuntime_PrintfOp : CPURuntime_Op<"printf", [MemoryEffects<[MemWrite]>]>,
   Arguments<(ins StrAttr:$format,

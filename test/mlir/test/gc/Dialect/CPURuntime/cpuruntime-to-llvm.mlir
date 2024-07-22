@@ -65,5 +65,4 @@ module {
     cpuruntime.threadDealloc %m0 : memref<13xf32>
     return
   }
-
 }
