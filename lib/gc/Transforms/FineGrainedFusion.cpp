@@ -1,4 +1,4 @@
-//===-- AnyTilableFusion.cpp - Fusion For Any Tilable Op --------*- C++ -*-===//
+//===-- FineGrainedFusion.cpp - Fine-Grained Fusion -------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Transforms/Passes.h"
+#include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Dialect/DLTI/Traits.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -34,7 +35,7 @@
 
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_ANYTILABLEFUSION
+#define GEN_PASS_DEF_FINEGRAINEDFUSION
 #include "gc/Transforms/Passes.h.inc"
 
 static FailureOr<tensor::ExtractSliceOp>
@@ -266,14 +267,14 @@ template <typename T1, typename T2> struct CandidateSliceProcessPipeLine {
       : CandidateSliceProcessPipeLine() {
     append(newFn);
   }
-  CandidateSliceProcessPipeLine(const SmallVector<T1> &newFns)
+  CandidateSliceProcessPipeLine(ArrayRef<T1> newFns)
       : CandidateSliceProcessPipeLine() {
     append(newFns);
   }
 
   void append(const T1 &newFn) { candidateProcessFn.push_back(newFn); }
-  void append(const SmallVector<T1> &newFns) {
-    candidateProcessFn.append(newFns);
+  void append(ArrayRef<T1> newFns) {
+    llvm::append_range(candidateProcessFn, newFns);
   }
 
   SmallVector<T1> getDefaultPipeLine() { return {}; }
@@ -282,6 +283,7 @@ template <typename T1, typename T2> struct CandidateSliceProcessPipeLine {
 struct CandidateSliceFilterPipeLine
     : public CandidateSliceProcessPipeLine<CandidateSliceFilter,
                                            CandidateSliceFilterPipeLine> {
+  CandidateSliceFilterPipeLine() : CandidateSliceProcessPipeLine() {}
   CandidateSliceFilterPipeLine(const CandidateSliceFilter &filter)
       : CandidateSliceProcessPipeLine(filter) {}
   CandidateSliceFilterPipeLine(const SmallVector<CandidateSliceFilter> &filters)
@@ -362,9 +364,31 @@ struct CandidateSliceComparerPipeLine
   }
 };
 
-std::optional<scf::SCFFuseProducerOfSliceResult> tileAndFuseProducerOfOpOperand(
-    RewriterBase &rewriter, OpOperand &operand,
-    const CandidateSliceFilterPipeLine &filterPipeLine) {
+struct CandidateSliceOptions {
+  // Use for validity
+  CandidateSliceFilterPipeLine filterPipeLine;
+  // Use for performance
+  CandidateSliceComparerPipeLine comparerPipeLine;
+
+  CandidateSliceOptions() = default;
+
+  void addFilter(const CandidateSliceFilter &filter) {
+    filterPipeLine.append(filter);
+  }
+  void addFilter(ArrayRef<CandidateSliceFilter> filters) {
+    filterPipeLine.append(filters);
+  }
+  void addComparer(const CandidateSliceComparer &comparer) {
+    comparerPipeLine.append(comparer);
+  }
+  void addFilter(ArrayRef<CandidateSliceComparer> comparers) {
+    comparerPipeLine.append(comparers);
+  }
+};
+
+std::optional<scf::SCFFuseProducerOfSliceResult>
+tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
+                               const CandidateSliceOptions &options) {
   // a. Find the closest sliceOp
   FailureOr<tensor::ExtractSliceOp> closestSliceOp =
       getClosestExtractSliceOfOperand(operand);
@@ -388,9 +412,9 @@ std::optional<scf::SCFFuseProducerOfSliceResult> tileAndFuseProducerOfOpOperand(
   // d. Filter out invalid candidates
   SmallVector<tensor::ExtractSliceOp> validCandidates =
       llvm::to_vector(llvm::make_filter_range(
-          backwardSlice, [&rewriter, &filterPipeLine,
-                          &defOrUse](tensor::ExtractSliceOp &candidate) {
-            return succeeded(filterPipeLine.filter(
+          backwardSlice,
+          [&rewriter, &options, &defOrUse](tensor::ExtractSliceOp &candidate) {
+            return succeeded(options.filterPipeLine.filter(
                 rewriter,
                 cast<OffsetSizeAndStrideOpInterface>(candidate.getOperation()),
                 defOrUse));
@@ -398,12 +422,11 @@ std::optional<scf::SCFFuseProducerOfSliceResult> tileAndFuseProducerOfOpOperand(
   if (validCandidates.empty())
     return std::nullopt;
   // e. Select best candidates by Cost Model
-  CandidateSliceComparerPipeLine comparePipeLine;
   tensor::ExtractSliceOp bestCandidate = *llvm::min_element(
-      validCandidates, [&rewriter, &comparePipeLine,
-                        &defOrUse](tensor::ExtractSliceOp &candidateA,
-                                   tensor::ExtractSliceOp &candidateB) {
-        return comparePipeLine.compare(
+      validCandidates,
+      [&rewriter, &options, &defOrUse](tensor::ExtractSliceOp &candidateA,
+                                       tensor::ExtractSliceOp &candidateB) {
+        return options.comparerPipeLine.compare(
             rewriter,
             cast<OffsetSizeAndStrideOpInterface>(candidateA.getOperation()),
             cast<OffsetSizeAndStrideOpInterface>(candidateB.getOperation()),
@@ -414,9 +437,8 @@ std::optional<scf::SCFFuseProducerOfSliceResult> tileAndFuseProducerOfOpOperand(
 }
 
 std::optional<SmallVector<scf::SCFFuseConsumerOfSliceResult>>
-tileAndFuseConsumerOfOpResult(
-    RewriterBase &rewriter, OpResult result,
-    const CandidateSliceFilterPipeLine &filterPipeLine) {
+tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
+                              const CandidateSliceOptions &options) {
   // a. Find the closest sliceOp
   FailureOr<tensor::ExtractSliceOp> closestSliceOp =
       getClosestInsertSliceOfResult(result);
@@ -443,22 +465,21 @@ tileAndFuseConsumerOfOpResult(
     // d. Filter out invalid candidates
     SmallVector<OffsetSizeAndStrideOpInterface> validCandidates =
         llvm::to_vector(llvm::make_filter_range(
-            forwardSlice, [&rewriter, &filterPipeLine, &defOrUse](
+            forwardSlice, [&rewriter, &options, &defOrUse](
                               const OffsetSizeAndStrideOpInterface &candidate) {
               return succeeded(
-                  filterPipeLine.filter(rewriter, candidate, defOrUse));
+                  options.filterPipeLine.filter(rewriter, candidate, defOrUse));
             }));
     if (validCandidates.empty())
       continue;
 
     // e. Select best candidates by Cost Model
-    CandidateSliceComparerPipeLine comparePipeLine;
     OffsetSizeAndStrideOpInterface bestCandidate = *llvm::min_element(
-        validCandidates, [&rewriter, &comparePipeLine, &defOrUse](
+        validCandidates, [&rewriter, &options, &defOrUse](
                              const OffsetSizeAndStrideOpInterface &candidateA,
                              const OffsetSizeAndStrideOpInterface &candidateB) {
-          return comparePipeLine.compare(rewriter, candidateA, candidateB,
-                                         defOrUse);
+          return options.comparerPipeLine.compare(rewriter, candidateA,
+                                                  candidateB, defOrUse);
         });
     // f. call tiling interface
     FailureOr<scf::SCFFuseConsumerOfSliceResult> fusedResult =
@@ -496,49 +517,52 @@ tileAndFuseConsumerOfOpResult(
  *
  * producer1   producer2
  *    \         /
- *      tiledOp
+ *        Op
  *    /         \
  * consumer1  consumer2
  *
  * where:
  *
- * 1. tiled op is responsible for providing scheduled parallel loops and
- * several candidate sliceOp including both Producer and Consumer.
- * 2. support both pre-op and post-op fusion: try to fuse all of producers and
- * consumers of tiled op.
- * 3. recursively call forward and backward Fusion on either fused producer or
- * consumer op based on BFS.
+ * Support iterative producer and consumer fusion in BFS fashion.
  */
-void IterativelyFuseProducerAndConsumerOfTiledOp(
+void iterativelyFuseProducerAndConsumerOfTiledOp(
     RewriterBase &rewriter, Operation *tiledOp,
     TargetSystemSpecInterface targetSpec) {
-
-  // User-defined filter to control whether to fuse or not. If more than one
-  // filters need given, please use filter list instead.
-  // E.g.
-  // SmallVector<CandidateSliceFilter> customizedFilterList
-  //        = {customizedFilter1, customizedFilter2, customizedFilter3, ...};
+  // Flexible options to control which candidate slice would be selected from
+  // the view of both validity and performance.
+  CandidateSliceOptions options;
+  // User-defined filter to control whether to fuse or not. For instance, the
+  // maximum amount of fused ops is limited to 20(only used for example).
+  int64_t numTiledOps = 0;
   CandidateSliceFilter customizedFilter =
-      [](RewriterBase &rewriter, OffsetSizeAndStrideOpInterface candidate,
-         CandidateDefOrUse defOrUse) -> LogicalResult { return success(); };
+      [&numTiledOps](RewriterBase &rewriter,
+                     OffsetSizeAndStrideOpInterface candidate,
+                     CandidateDefOrUse defOrUse) -> LogicalResult {
+    return success(numTiledOps < 20);
+  };
+  // If more than one filters need given, please use filter list instead. E.g.
+  //
+  // SmallVector<CandidateSliceFilter> customizedFilterList
+  //        = {customizedFilter1, customizedFilter2, ...};
+  options.addFilter(customizedFilter);
 
   std::deque<Operation *> tiledOpList = {tiledOp};
   while (!tiledOpList.empty()) {
     tiledOp = tiledOpList.front();
     tiledOpList.pop_front();
+    numTiledOps++;
     // fuse producer
     for (OpOperand &operand : tiledOp->getOpOperands()) {
       if (std::optional<scf::SCFFuseProducerOfSliceResult> fuseProducerResult =
-              tileAndFuseProducerOfOpOperand(rewriter, operand,
-                                             customizedFilter)) {
+              tileAndFuseProducerOfOpOperand(rewriter, operand, options)) {
         tiledOpList.push_back(fuseProducerResult.value().tiledOps[0]);
       }
     }
     // fuse consumer(s)
     for (OpResult result : tiledOp->getResults()) {
       if (std::optional<SmallVector<scf::SCFFuseConsumerOfSliceResult>>
-              fuseConsumerResults = tileAndFuseConsumerOfOpResult(
-                  rewriter, result, customizedFilter)) {
+              fuseConsumerResults =
+                  tileAndFuseConsumerOfOpResult(rewriter, result, options)) {
         for (auto &fuseConsumerResult : *fuseConsumerResults) {
           tiledOpList.push_back(fuseConsumerResult.tiledOps[0]);
         }
@@ -548,10 +572,7 @@ void IterativelyFuseProducerAndConsumerOfTiledOp(
 }
 
 /**
- * What is Tiled Op?
- * 1. located in a for loop
- * 2. it is the only one TilingInterface op in for loop
- * 3. has extract/insert slice
+ * What is single tiled op in loop?
  *
  * E.g.
  * %1 = scf.for(){
@@ -564,7 +585,7 @@ void IterativelyFuseProducerAndConsumerOfTiledOp(
  * }
  *
  * */
-static LogicalResult isTiledOp(Operation *targetOp) {
+static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
   // 0. check tilable
   if (!isa<TilingInterface>(targetOp)) {
     return failure();
@@ -595,37 +616,40 @@ static LogicalResult isTiledOp(Operation *targetOp) {
   return success(walkResult.wasInterrupted());
 }
 
-static void FineGrainedFusion(RewriterBase &rewriter, func::FuncOp f,
-                              TargetSystemSpecInterface targetSpec) {
-  SmallVector<Operation *> tiledOpList;
-  // Walk through func operation.
-  f->walk([&tiledOpList](Operation *op) {
-    // Target at tiled op, like matmul/conv
-    if (succeeded(isTiledOp(op))) {
-      tiledOpList.push_back(op);
-    }
-  });
-  // Fuse all tilable ops around tiled op in forward and backward fashion.
-  for (auto &tiledOp : tiledOpList) {
-    IterativelyFuseProducerAndConsumerOfTiledOp(rewriter, tiledOp, targetSpec);
-  }
-}
-
-struct AnyTilableFusion : public impl::AnyTilableFusionBase<AnyTilableFusion> {
+struct FineGrainedFusion
+    : public impl::FineGrainedFusionBase<FineGrainedFusion> {
 
 public:
   void runOnOperation() final {
     auto &ctx = getContext();
-    // Get funcOp
-    func::FuncOp func = getOperation();
-    // Get target descriptor
-    TargetSystemSpecInterface targetSpec =
-        mlir::impl::getTargetSystemSpec(func);
-    // Get rewriter
-    IRRewriter rewriter(&ctx);
-    // Do fine-grained fusion
-    FineGrainedFusion(rewriter, func, targetSpec);
-    // Perhaps coarse-grained fusion here
+    {
+      // Get funcOp
+      func::FuncOp func = getOperation();
+      // Get target descriptor
+      TargetSystemSpecInterface targetSpec =
+          mlir::impl::getTargetSystemSpec(func);
+      // Get rewriter
+      IRRewriter rewriter(&ctx);
+
+      // Collect tiled ops before fusion
+      llvm::SetVector<Operation *> tiledOps;
+      // Walk through funcOp
+      func->walk([&tiledOps](Operation *op) {
+        // Target at certain kind of tiled op, such as matmul/conv implemented
+        // by multiple level of nest loops and candidate slices for better
+        // utilization of parallelism and memory hierarchy.
+        if (succeeded(isSingleTiledOpInLoop(op))) {
+          tiledOps.insert(op);
+        }
+      });
+      // Sort by topology
+      mlir::topologicalSort(tiledOps);
+      // Iteratively fuse in forward and backward fashion.
+      for (auto &tiledOp : tiledOps) {
+        iterativelyFuseProducerAndConsumerOfTiledOp(rewriter, tiledOp,
+                                                    targetSpec);
+      }
+    }
 
     {
       RewritePatternSet patternSet(&ctx);

@@ -1,4 +1,4 @@
-// RUN: gc-opt --split-input-file -any-tilable-fusion %s
+// RUN: gc-opt --split-input-file -fine-grained-fusion %s
 
 module {
   func.func @mlp(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32xbf16>, %arg2: tensor<256xbf16>) -> tensor<128x256xbf16> {
