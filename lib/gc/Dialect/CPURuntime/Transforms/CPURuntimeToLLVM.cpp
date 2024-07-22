@@ -128,7 +128,7 @@ public:
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
     auto allocFunc = getOrDefineFunction(
         moduleOp, loc, rewriter, allocFuncName,
-        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr}, /*isVarArg*/ true));
+        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr}, /*isVarArg*/ false));
 
     auto operands = adaptor.getOperands();
     SmallVector<Value, 4> shape;
@@ -170,7 +170,7 @@ public:
     mlir::Type llvmVoidType = LLVM::LLVMVoidType::get(context);
     auto deallocFunc = getOrDefineFunction(
         moduleOp, loc, rewriter, deallocFuncName,
-        LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ true));
+        LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ false));
     Value pointer =
         MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);
     auto casted = rewriter.create<LLVM::BitcastOp>(loc, i8Ptr, pointer);

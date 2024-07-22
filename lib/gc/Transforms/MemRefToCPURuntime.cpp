@@ -108,7 +108,6 @@ struct ConvertMemRefToCPURuntime
     : public impl::ConvertMemRefToCPURuntimeBase<ConvertMemRefToCPURuntime> {
 
   void runOnOperation() final {
-    llvm::outs() << "get into memreftocpuruntime conversoin\n";
     auto *ctx = &getContext();
     // add lowering target
     ConversionTarget target(getContext());

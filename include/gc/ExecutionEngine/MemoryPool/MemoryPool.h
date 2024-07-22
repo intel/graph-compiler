@@ -91,8 +91,8 @@ extern "C" void *gcAlignedMalloc(size_t sz) noexcept;
 
 extern "C" void gcAlignedFree(void *p) noexcept;
 
-extern "C" void *gcThreadAlignedMalloc(size_t sz);
+extern "C" void *gcThreadAlignedMalloc(size_t sz) noexcept;
 
-extern "C" void gcThreadAlignedFree(void *p);
+extern "C" void gcThreadAlignedFree(void *p) noexcept;
 
 #endif
