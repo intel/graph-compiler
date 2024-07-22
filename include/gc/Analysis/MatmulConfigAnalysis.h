@@ -1,4 +1,4 @@
-//===-- MatmulConfigAnalysis.h - DESC ---------------------------*- C++ -*-===//
+//===-- MatmulConfigAnalysis.h - the analysis for matmul config -*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,66 +11,70 @@
 
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Support/LLVM.h"
-#include "llvm/ADT/DenseMap.h"
-#include <llvm/Support/Debug.h>
-#include <memory>
-#include <numeric>
+#include <cstring>
 
 namespace mlir {
 namespace gc {
 
 using namespace mlir;
 
+// A mock for the taget information
+// TODO: replace it with upstream hardware description model
 struct SystemDesc {
+
+  static int getPositiveIntFromStr(char *str, int defaultValue = 1) {
+    if (!str || strlen(str) == 0 || str[0] > '9' || str[0] < '0') {
+      return defaultValue;
+    }
+    auto val = std::stoi(str);
+    return val > 0 ? val : defaultValue;
+  }
+
   // get runtime OMP_NUM_THREADS
   uint32_t getNumThreads() {
     char *numThreads = getenv("OMP_NUM_THREADS");
-    if (numThreads) {
-      return std::stoi(numThreads);
-    }
-    return 1;
+    return getPositiveIntFromStr(numThreads, 1);
   }
   // get cache size by cacheLevel
   size_t getCacheSize(uint8_t cacheLevel) {
     if (cacheLevel == 1) {
       char *cacheSize = getenv("L1_CACHE_SIZE");
-      if (cacheSize) {
-        return std::stoi(cacheSize);
-      }
+      return getPositiveIntFromStr(cacheSize, 0);
     } else if (cacheLevel == 2) {
       char *cacheSize = getenv("L2_CACHE_SIZE");
-      if (cacheSize) {
-        return std::stoi(cacheSize);
-      }
+      return getPositiveIntFromStr(cacheSize, 0);
     } else if (cacheLevel == 3) {
       char *cacheSize = getenv("L3_CACHE_SIZE");
-      if (cacheSize) {
-        return std::stoi(cacheSize);
-      }
+      return getPositiveIntFromStr(cacheSize, 0);
     }
     return 0;
   }
 
-  SmallVector<size_t> getContractionOperationMaxVectorLength() {
-    return {512UL, 512UL};
+  // get the maximum vector length in bits
+  size_t getMaxVectorLength() {
+    char *maxVectorLanes = getenv("MAX_VECTOR_LENGTH");
+    return getPositiveIntFromStr(maxVectorLanes, 512);
   }
 };
 
+// The configuration for matmul tiling
+// TODO: support batch matmul
 struct MatmulConfig {
-  uint32_t MBlock, NBlock, KBlock;
+  // The number of threads distributed to M, N, K
   uint32_t MThreads, NThreads, KThreads;
+  // The innermost block size for M, N, K which will be directly converted to
+  // brgemm.
   uint32_t innerMostMBlock, innerMostNBlock, innerMostKBlock;
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
-                                       const MatmulConfig &config);
+  // The outer block size for M, N, K which will be used to decide the loop tile
+  // size in single thread
+  uint32_t MBlock, NBlock, KBlock;
 };
 
 enum DimType { Batch, M, N, K };
 
-[[maybe_unused]] static SmallVector<unsigned>
-extractDimTypeIdx(ArrayRef<DimType> tyList, DimType ty) {
+// Extract the index of the given DimType in the DimType list
+inline SmallVector<unsigned> extractDimTypeIdx(ArrayRef<DimType> tyList,
+                                               DimType ty) {
   SmallVector<unsigned> idxList;
   for (auto [idx, type] : llvm::enumerate(tyList)) {
     if (type == ty) {
@@ -80,9 +84,11 @@ extractDimTypeIdx(ArrayRef<DimType> tyList, DimType ty) {
   return idxList;
 }
 
-static FailureOr<SmallVector<SmallVector<DimType>>>
+// Get the operand dim type for every operand for the given linalg op
+inline FailureOr<SmallVector<SmallVector<DimType>>>
 getOprandDimType(linalg::LinalgOp &linalgOp) {
-  if (isa<linalg::MatmulOp>(linalgOp)) {
+  // TODO: replace the linalgx op with generic op
+  if (llvm::isa<linalg::MatmulOp>(linalgOp)) {
     return SmallVector<SmallVector<DimType>>{
         SmallVector<DimType>{DimType::M, DimType::K},
         SmallVector<DimType>{DimType::K, DimType::N},
@@ -104,10 +110,31 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
         SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
         SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
         SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
+  } else if (llvm::isa<linalg::MatmulTransposeAOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::K, DimType::M},
+        SmallVector<DimType>{DimType::K, DimType::N},
+        SmallVector<DimType>{DimType::M, DimType::N}};
+  } else if (llvm::isa<linalg::MatmulTransposeBOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::N, DimType::K},
+        SmallVector<DimType>{DimType::M, DimType::N}};
+  } else if (llvm::isa<linalg::BatchMatmulTransposeAOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::M},
+        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
+        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
+  } else if (llvm::isa<linalg::BatchMatmulTransposeBOp>(linalgOp)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::Batch, DimType::N, DimType::K},
+        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
   }
   return failure();
 }
 
+// The analysis to extract the matmul configuration from the given linalg op
 struct MatmulConfigAnalysis {
 public:
   explicit MatmulConfigAnalysis(Operation *root);
