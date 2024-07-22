@@ -5,13 +5,18 @@ BenchGC is a testing tool for the Graph Compiler project, focusing on tuning per
 BenchGC will also be part of the CI test and checking the regular correctness check for each PR. 
 
 ### What can BenchGC provide?
-* Single MLIR Op validation
-* User-provided MLIR Module validation
-* Specified Pattern (MLP, MHA, ...) validation
+* Working modes
+  - Correctness
+  - Performance
+  - Tuning
+* Validation scope
+  - Single MLIR linalg op
+  - Predefined pattern (such as MLP)
+  - MLIR Module provided by user
 * Data filling strategy
   - Benchdnn filling strategy (mainly for single op validation)
   - Common distribution filling
-  - Load a pytorch tensor dump file
+  - Load from pytorch dump
 * Result comparison strategy
   - Benchdnn compare strategy (mainly for single op validation)
   - User defined threshold
