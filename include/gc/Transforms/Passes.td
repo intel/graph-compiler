@@ -44,19 +44,29 @@ def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime"> {
   ];
 }
 
-def GCCPUPipeline: Pass<"gc-cpu-pipeline"> {
-  let summary = "All-in-one pipeline for GC for CPU";
-  let dependentDialects = ["onednn_graph::OneDNNGraphDialect",
-      "tensor::TensorDialect",
-      "memref::MemRefDialect",
-      "linalg::LinalgDialect",
-      "linalgx::LinalgxDialect",
-      "LLVM::LLVMDialect",
-      "scf::SCFDialect",
-      "bufferization::BufferizationDialect",
-      "omp::OpenMPDialect",
-      "vector::VectorDialect",
-      "cpuruntime::CPURuntimeDialect"];
+def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
+  let summary = "Convert linalg dialect to XeGPU dialect.";
+  let description = [{
+    Lower linalg ops to XeGPU dialect.
+  }];
+  let dependentDialects = ["linalg::LinalgDialect",
+                           "gpu::GPUDialect",
+                           "xegpu::XeGPUDialect",
+                           "scf::SCFDialect",
+                           "memref::MemRefDialect",
+                           "arith::ArithDialect",
+                           "math::MathDialect",
+                           "vector::VectorDialect"];
+  let options = [
+    Option<"kTile", "k-tile", "int64_t",
+           /*default=*/"32",
+           "GEMM tile size for reduction dimension.">,
+    Option<"stages", "stages", "int64_t",
+           /*default=*/"1",
+           "Number of cooperative prefetch stages.">,
+    ListOption<"dpasTile", "dpas-tile", "int64_t",
+               "DPAS register block sizes MxNxK">,
+  ];
 }
 
 #endif // GC_DIALECT_GC_PASSES

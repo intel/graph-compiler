@@ -1,7 +1,10 @@
 @LIT_SITE_CFG_IN_HEADER@
 
 import sys
-
+if sys.platform.startswith('win32'):
+    config.shlib_prefix = ""
+else:
+    config.shlib_prefix = "lib"
 config.llvm_src_root = "@LLVM_SOURCE_DIR@"
 config.llvm_obj_root = "@LLVM_BINARY_DIR@"
 config.llvm_tools_dir = "@LLVM_TOOLS_DIR@"
@@ -29,8 +32,17 @@ config.llvm_host_triple = '@LLVM_HOST_TRIPLE@'
 config.host_arch = "@HOST_ARCH@"
 config.gc_src_root = "@CMAKE_SOURCE_DIR@"
 config.gc_obj_root = "@CMAKE_BINARY_DIR@"
+config.gc_lib_dir = os.path.join(config.gc_obj_root, "lib")
 config.mlir_obj_dir = "@MLIR_BINARY_DIR@"
+config.gc_use_gpu = "@GC_USE_GPU@" in ["ON", "1"]
 config.enable_bindings_python = @GC_ENABLE_BINDINGS_PYTHON@
+config.llvm_shlib_dir = "@SHLIBDIR@"
+config.llvm_shlib_ext = "@SHLIBEXT@"
+config.mlir_runner_utils_dir = "@MLIR_RUNNER_UTILS_DIR@"
+config.mlir_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_utils_dir, config.shlib_prefix + "mlir_runner_utils" + config.llvm_shlib_ext))
+config.mlir_c_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_utils_dir, config.shlib_prefix + "mlir_c_runner_utils" + config.llvm_shlib_ext))
+
+config.levelzero_runtime = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "level-zero-runtime" + config.llvm_shlib_ext))
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)

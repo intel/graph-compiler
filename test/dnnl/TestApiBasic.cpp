@@ -23,7 +23,7 @@
 #include "graph/backend/elyzor/include/dnnl_graph_compiler.h"
 
 TEST(TestApiBasic, basicWorkflow) {
-  auto json = read_str_resource("add.json");
+  auto json = readStrResource("add.json");
 
   const struct dnnl_graph_compiler_context ctx = {.num_threads = 4};
   const struct dnnl_graph_compiler *gc;

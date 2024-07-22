@@ -26,6 +26,9 @@ extern "C" {
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.capi.h.inc"
 #include "gc/Transforms/Passes.capi.h.inc"
+
+MLIR_CAPI_EXPORTED void mlirRegisterAllGCPassesAndPipelines(void);
+
 #ifdef __cplusplus
 }
 #endif

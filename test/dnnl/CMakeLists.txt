@@ -12,7 +12,7 @@ foreach (TEST_SOURCE ${TEST_SOURCES})
     target_include_directories(${TEST_NAME} PRIVATE ${GC_LIB_INCLUDES})
     if (${TEST_NAME} MATCHES "^TestApi.*")
         # The API tests are linked with the shared lib
-        target_link_libraries(${TEST_NAME} PRIVATE graph_compiler)
+        target_link_libraries(${TEST_NAME} PRIVATE LLVMSupport graph_compiler)
     else ()
         # The other tests are linked with the static lib and have non-public includes
         target_link_libraries(${TEST_NAME} PRIVATE graph_compiler_static)
