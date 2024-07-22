@@ -1,4 +1,4 @@
-//===-- DeepTileContractionNamedOp.cpp - DESC -------------------*- C++ -*-===//
+//===-- DeepTileContractionNamedOp.cpp - tile named op deeply ---*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,31 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "./Tiling.hpp"
+#include "./TilingUtil.hpp"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
-#include "gc/Dialect/Arith/Utils/EasyBuild.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
-#include "gc/IR/EasyBuild.h"
-#include "gc/IR/EasyBuildSCF.h"
-#include "mlir/AsmParser/AsmParser.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
-#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
-#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
-#include "mlir/Dialect/Tensor/Transforms/Transforms.h"
-#include "mlir/Dialect/Utils/StaticValueUtils.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Region.h"
-#include "mlir/IR/Visitors.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/TilingInterface.h"
-#include "mlir/Parser/Parser.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "gc/Transforms/Passes.h"
@@ -46,38 +29,23 @@ namespace gc {
 
 namespace {
 
+// Util function to tensor view a ranked tensor to another ranked tensor without
+// change the data layout
 static Value
 tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
                        Value value,
                        ArrayRef<int64_t> permutation = SmallVector<int64_t>{}) {
-  // TODO: add support for plain layout transpose
   Value result, currentValue = value;
-  auto loc = currentValue.getLoc();
-  auto inTensorType = cast<RankedTensorType>(currentValue.getType());
-  auto inShape = inTensorType.getShape();
-  auto outShape = outTensorType.getShape();
-  auto tensorElementType = inTensorType.getElementType();
+  Location loc = currentValue.getLoc();
+  RankedTensorType inTensorType =
+      cast<RankedTensorType>(currentValue.getType());
+  ArrayRef<int64_t> inShape = inTensorType.getShape();
+  ArrayRef<int64_t> outShape = outTensorType.getShape();
+  mlir::Type tensorElementType = inTensorType.getElementType();
 
+  // Check if the input and output tensor have the same shape
   if (inShape == outShape) {
     return currentValue;
-  }
-
-  if (outTensorType.getNumDynamicDims() != inTensorType.getNumDynamicDims()) {
-    SmallVector<int64_t> alignOutShape(outShape.begin(), outShape.end());
-    if (outShape.size() < inShape.size()) {
-      SmallVector<int64_t> oneVector(inShape.size() - outShape.size(), 1);
-      alignOutShape.insert(alignOutShape.begin(), oneVector.begin(),
-                           oneVector.end());
-    } else {
-      alignOutShape.erase(alignOutShape.begin(),
-                          alignOutShape.begin() +
-                              (outShape.size() - inShape.size()));
-    }
-    auto type = RankedTensorType::get(alignOutShape, tensorElementType);
-    currentValue = rewriter.create<tensor::CastOp>(loc, type, currentValue);
-    if (type == outTensorType) {
-      return currentValue;
-    }
   }
 
   if (outShape.size() < inShape.size()) {
@@ -85,7 +53,7 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
     uint64_t outIdx = 0UL, inIdx = 0UL;
     while (inIdx < inShape.size() && outIdx < outShape.size()) {
       ReassociationIndices firstEntry;
-      auto remaining = outShape[outIdx++];
+      int64_t remaining = outShape[outIdx++];
       if (remaining == 1) {
         firstEntry.push_back(inIdx++);
         reassocIndices.push_back(firstEntry);
@@ -104,7 +72,7 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
     uint64_t outIdx = 0UL, inIdx = 0UL;
     while (outIdx < outShape.size() && inIdx < inShape.size()) {
       ReassociationIndices firstEntry;
-      auto remaining = inShape[inIdx++];
+      int64_t remaining = inShape[inIdx++];
       if (remaining == 1) {
         firstEntry.push_back(outIdx++);
         reassocIndices.push_back(firstEntry);
@@ -122,20 +90,22 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
     result = rewriter.create<tensor::CastOp>(loc, outTensorType, currentValue);
   }
 
+  // Transpose the tensor if permutation is not empty
   if (!permutation.empty()) {
     SmallVector<int64_t> transposeShape;
-    for (auto idx : permutation) {
+    for (int64_t idx : permutation) {
       transposeShape.push_back(outShape[idx]);
     }
-    auto initOp = rewriter.create<tensor::EmptyOp>(loc, transposeShape,
-                                                   tensorElementType);
-    auto transposeOp = rewriter.create<linalg::TransposeOp>(
+    Operation *initOp = rewriter.create<tensor::EmptyOp>(loc, transposeShape,
+                                                         tensorElementType);
+    Operation *transposeOp = rewriter.create<linalg::TransposeOp>(
         loc, result, initOp->getResult(0), permutation);
     result = transposeOp->getResult(0);
   }
   return result;
 }
 
+// Check if the loop is dummy loop(has only one iteration)
 bool isDummyLoop(LoopLikeOpInterface loop) {
   std::optional<int64_t> tripCount = mlir::constantTripCount(
       *loop.getSingleLowerBound(), *loop.getSingleUpperBound(),
@@ -146,6 +116,7 @@ bool isDummyLoop(LoopLikeOpInterface loop) {
   return false;
 }
 
+// Build the linalg region for a linalg op
 static void buildLinalgRegion(Operation *op, bool createTemporaryOp = false) {
   SmallVector<Type> argTypes;
   SmallVector<Location> argLocs;
@@ -153,15 +124,15 @@ static void buildLinalgRegion(Operation *op, bool createTemporaryOp = false) {
     argTypes.push_back(getElementTypeOrSelf(opOperand.getType()));
     argLocs.push_back(opOperand.getLoc());
   }
-  auto initSize = op->getResults().size();
+  size_t initSize = op->getResults().size();
   ImplicitLocOpBuilder b(op->getLoc(), op->getContext());
   Region &region = op->getRegion(0);
   Block *body = b.createBlock(&region, /*insertPt=*/{}, argTypes, argLocs);
   b.setInsertionPointToStart(body);
   if (createTemporaryOp) {
-    auto argNum = body->getNumArguments();
+    unsigned argNum = body->getNumArguments();
     SmallVector<Value> vals;
-    for (auto i = initSize; i > 0; i--) {
+    for (size_t i = initSize; i > 0; i--) {
       vals.push_back(body->getArgument(argNum - i));
     }
     OpBuilder::InsertionGuard g(b);
@@ -169,27 +140,29 @@ static void buildLinalgRegion(Operation *op, bool createTemporaryOp = false) {
     Location loc = b.getUnknownLoc();
     b.create<linalg::YieldOp>(loc, ValueRange(vals));
   } else {
-    auto *dialect = static_cast<linalg::LinalgDialect *>(op->getDialect());
+    linalg::LinalgDialect *dialect =
+        static_cast<linalg::LinalgDialect *>(op->getDialect());
     linalg::LinalgDialect::RegionBuilderFunType fun =
         dialect->getRegionBuilder("linalg.matmul");
     fun(b, *body, op->getAttrs());
   }
 }
 
-struct DtypeLegalizeResult {
-  Operation *linalgOp = nullptr;
-  Operation *castOp = nullptr;
-};
-
-bool needToLegalizeDtype(linalg::LinalgOp linalgOp) {
-  auto dataType =
+// Check if the linalgOp need to be legalized to f32 accumulation type
+static bool needToLegalizeDtype(linalg::LinalgOp linalgOp) {
+  mlir::Type dataType =
       dyn_cast<mlir::RankedTensorType>(linalgOp.getDpsInputs()[0].getType())
           .getElementType();
-  auto resultType =
+  mlir::Type resultType =
       dyn_cast<mlir::RankedTensorType>(linalgOp.getDpsInits()[0].getType())
           .getElementType();
   return (dataType.isBF16() || dataType.isF16()) && dataType == resultType;
 }
+
+struct DtypeLegalizeResult {
+  Operation *linalgOp = nullptr;
+  Operation *castOp = nullptr;
+};
 
 // Split a low precision matmul(bf16xbf16->bf16) to a combination
 // matmul(bf16xbf16->f32) + cast(f32->bf16)
@@ -198,7 +171,8 @@ bool needToLegalizeDtype(linalg::LinalgOp linalgOp) {
 static FailureOr<DtypeLegalizeResult>
 matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
                     bool needCopyInit = true, bool needFurtherFuse = false) {
-  auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+  linalg::LinalgOp linalgOp = dyn_cast<linalg::LinalgOp>(op);
+  Location loc = linalgOp->getLoc();
   DtypeLegalizeResult result;
   if (!linalgOp)
     return failure();
@@ -206,15 +180,14 @@ matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
   if (needToLegalizeDtype(linalgOp)) {
     rewriter.setInsertionPoint(linalgOp);
     IRMapping mapping;
-    auto initOp = linalgOp.getDpsInits()[0].getDefiningOp();
-    auto initValue = initOp->getResult(0);
-    auto initType = cast<ShapedType>(initValue.getType());
-    auto tensorShape = initType.getShape();
+    Operation *initOp = linalgOp.getDpsInits()[0].getDefiningOp();
+    Value initValue = initOp->getResult(0);
+    ShapedType initType = cast<ShapedType>(initValue.getType());
+    ArrayRef<int64_t> tensorShape = initType.getShape();
     SmallVector<OpFoldResult> mixedShape;
-    for (auto i = 0UL; i < tensorShape.size(); i++) {
+    for (size_t i = 0UL; i < tensorShape.size(); i++) {
       if (initType.isDynamicDim(i)) {
-        Value val =
-            rewriter.create<tensor::DimOp>(linalgOp.getLoc(), initValue, i);
+        Value val = rewriter.create<tensor::DimOp>(loc, initValue, i);
         mixedShape.push_back(val);
       } else {
         mixedShape.push_back(
@@ -224,21 +197,21 @@ matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
     Operation *currentOp;
 
     currentOp = rewriter.create<tensor::EmptyOp>(
-        linalgOp.getLoc(), mixedShape, Float32Type::get(op->getContext()));
+        loc, mixedShape, Float32Type::get(op->getContext()));
     if (needCopyInit) {
-      currentOp = rewriter.create<linalg::CopyOp>(
-          linalgOp.getLoc(), initOp->getResult(0), currentOp->getResult(0));
+      currentOp = rewriter.create<linalg::CopyOp>(loc, initOp->getResult(0),
+                                                  currentOp->getResult(0));
     }
     SmallVector<Value> newOperands = linalgOp->getOperands();
-    auto oldInit = newOperands.back();
+    Value oldInit = newOperands.back();
     newOperands.back() = currentOp->getResult(0);
 
-    auto indexingMaps = linalgOp.getIndexingMapsArray();
+    SmallVector<AffineMap> indexingMaps = linalgOp.getIndexingMapsArray();
     indexingMaps.push_back(indexingMaps.back());
     SmallVector<NamedAttribute> attrs(linalgOp->getAttrs());
     SmallVector<Type> types = {currentOp->getResult(0).getType()};
     if (needFurtherFuse) {
-      auto segmentSize = rewriter.getNamedAttr(
+      NamedAttribute segmentSize = rewriter.getNamedAttr(
           "operandSegmentSizes", rewriter.getDenseI32ArrayAttr({2, 2}));
       for (auto &attr : attrs) {
         if (attr.getName() == "indexing_maps")
@@ -249,13 +222,12 @@ matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
       types.push_back(oldInit.getType());
       newOperands.push_back(oldInit);
     }
-    OperationState state(linalgOp->getLoc(), linalgOp->getName(), newOperands,
-                         types, attrs);
+    OperationState state(loc, linalgOp->getName(), newOperands, types, attrs);
     state.addRegion();
     currentOp = rewriter.create(state);
     buildLinalgRegion(currentOp, needFurtherFuse);
-    auto castOp = rewriter.create<linalg::CopyOp>(
-        linalgOp.getLoc(), currentOp->getResult(0), initOp->getResult(0));
+    linalg::CopyOp castOp = rewriter.create<linalg::CopyOp>(
+        loc, currentOp->getResult(0), initOp->getResult(0));
     result.linalgOp = currentOp;
     result.castOp = castOp;
   }
@@ -263,9 +235,10 @@ matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
   return result;
 }
 
+// Find the parent fill op of a value and will penetrate pack/pad ops
 static Operation *findParentFillOp(Value val) {
   SmallVector<StringRef> skipOpList = {"tensor.pack", "tensor.pad"};
-  auto currentOp = val.getDefiningOp();
+  Operation *currentOp = val.getDefiningOp();
   while (currentOp &&
          llvm::find(skipOpList, currentOp->getName().getStringRef()) !=
              skipOpList.end() &&
@@ -279,22 +252,7 @@ static Operation *findParentFillOp(Value val) {
   return nullptr;
 }
 
-[[maybe_unused]] static LogicalResult
-indexRolling(RewriterBase &b, Block *insertBlock, Location loc, Value v,
-             Value rollingIdx, Value maximumRange, Value step) {
-  OpBuilder::InsertionGuard guard(b);
-  b.setInsertionPointToStart(insertBlock);
-  mlir::easybuild::EasyBuilder eb{b, loc};
-  auto vWraped = eb.wrap<mlir::easybuild::EBUnsigned>(v);
-  auto rollingIdxWraped = eb.wrap<mlir::easybuild::EBUnsigned>(rollingIdx);
-  auto stepWraped = eb.wrap<mlir::easybuild::EBUnsigned>(step);
-  auto maximumRangeWraped = eb.wrap<mlir::easybuild::EBUnsigned>(step);
-  auto newV = (vWraped + rollingIdxWraped) * stepWraped %
-              (maximumRangeWraped / stepWraped * stepWraped);
-  v.replaceAllUsesWith(newV);
-  return failure();
-}
-
+// Get the parallel dims of a matmul op
 static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
                                   unsigned operandIdx,
                                   SmallVectorImpl<unsigned> &dims) {
@@ -304,8 +262,8 @@ static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
       linalgOp.getIteratorTypesArray();
 
   ArrayRef<AffineExpr> results = map.getResults();
-  for (auto dim : results) {
-    auto dimExpr = dyn_cast<AffineDimExpr>(dim);
+  for (AffineExpr dim : results) {
+    AffineDimExpr dimExpr = dyn_cast<AffineDimExpr>(dim);
     if (dimExpr && iteratorTypes[dimExpr.getPosition()] ==
                        mlir::utils::IteratorType::parallel) {
       dims.push_back(dimExpr.getPosition());
@@ -313,15 +271,8 @@ static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
   }
 }
 
-static unsigned getOprandDim(linalg::LinalgOp &linalgOp, unsigned iteratorPos,
-                             unsigned operandIdx) {
-  Value Operand;
-  unsigned dimPos;
-  [[maybe_unused]] auto result =
-      linalgOp.mapIterationSpaceDimToOperandDim(iteratorPos, Operand, dimPos);
-  return linalgOp.getShape(linalgOp.getDpsInputOperand(operandIdx))[dimPos];
-}
-
+// set the dynamic size to static size for ExtractSliceOp according to the tile
+// config
 static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
                                            Operation *op, bool isExtract,
                                            SmallVector<int64_t> size,
@@ -332,7 +283,7 @@ static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
     SmallVector<OpFoldResult> mixedOffsets = extractSlice.getMixedOffsets();
     SmallVector<OpFoldResult> mixedSizes = extractSlice.getMixedSizes();
     SmallVector<OpFoldResult> mixedStrides = extractSlice.getMixedStrides();
-    for (auto i = 0UL; i < mixedSizes.size(); i++) {
+    for (size_t i = 0UL; i < mixedSizes.size(); i++) {
       mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), size[i]);
     }
     if (shrinDimNum > 0) {
@@ -350,6 +301,8 @@ static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
   }
 }
 
+// set the dynamic size to static size for InsertSliceOp according to the tile
+// config
 static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
                                           Value source,
                                           SmallVector<int64_t> size) {
@@ -359,7 +312,7 @@ static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
     SmallVector<OpFoldResult> mixedOffsets = insertSlice.getMixedOffsets();
     SmallVector<OpFoldResult> mixedSizes = insertSlice.getMixedSizes();
     SmallVector<OpFoldResult> mixedStrides = insertSlice.getMixedStrides();
-    for (auto i = 0UL; i < mixedSizes.size(); i++) {
+    for (size_t i = 0UL; i < mixedSizes.size(); i++) {
       mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), size[i]);
     }
     rewriter.replaceOpWithNewOp<tensor::InsertSliceOp>(
@@ -395,14 +348,14 @@ struct OuterLoopGenerationResult {
   SmallVector<LoopLikeOpInterface> reductionLoops;
 };
 
+// Generate outer loop for a linalg op
 static FailureOr<OuterLoopGenerationResult>
 generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
                   const OuterLoopGenerationOption &option) {
-  // TODO: handle the return value
   OuterLoopGenerationResult result;
-  auto nestedTileSizes = option.nestedTileSizes;
-  auto loopType = option.loopType;
-  auto loopDim = option.loopDim;
+  SmallVector<SmallVector<size_t>> nestedTileSizes = option.nestedTileSizes;
+  SmallVector<OuterLoopGenerationOption::LoopType> loopType = option.loopType;
+  SmallVector<SmallVector<size_t>> loopDim = option.loopDim;
   SmallVector<mlir::utils::IteratorType> iteratorTypes =
       linalgOp.getIteratorTypesArray();
 
@@ -419,10 +372,9 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
   linalg::LinalgOp currentOp = linalgOp;
 
   bool hasFullResult = !option.isPartialResult;
-  for (auto loopTypeIter : llvm::enumerate(loopType)) {
-    auto [i, loopType] = loopTypeIter;
-    auto currentDim = loopDim[i];
-    auto currentTileSize = nestedTileSizes[i];
+  for (auto [i, loopType] : llvm::enumerate(loopType)) {
+    ArrayRef<size_t> currentDim = loopDim[i];
+    ArrayRef<size_t> currentTileSize = nestedTileSizes[i];
     if (loopType == OuterLoopGenerationOption::LoopType::ForOp) {
       for (auto [d, tile] : llvm::zip(currentDim, currentTileSize)) {
         scf::SCFTilingOptions tileOption;
@@ -436,14 +388,15 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         if (iteratorTypes[d] == mlir::utils::IteratorType::reduction &&
             tile != 0 && hasFullResult) {
           for (const auto &fn : option.innermostFullResultCallBacks) {
-            auto result = fn(b, currentOp.getLoc(), currentOp);
+            FailureOr<linalg::LinalgOp> result =
+                fn(b, currentOp->getLoc(), currentOp);
             if (succeeded(result)) {
               currentOp = *result;
             }
           }
           hasFullResult = false;
         }
-        auto tilingResult = scf::tileUsingSCF(
+        FailureOr<scf::SCFTilingResult> tilingResult = scf::tileUsingSCF(
             b, cast<TilingInterface>(currentOp.getOperation()), tileOption);
         if (failed(tilingResult))
           return failure();
@@ -463,10 +416,15 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
       SmallVector<OpFoldResult> threads(
           currentOp.getNumLoops(), getAsIndexOpFoldResult(b.getContext(), 0));
       SmallVector<unsigned> reductionDims;
+      SmallVector<Range> loopRanges =
+          cast<TilingInterface>(currentOp.getOperation()).getIterationDomain(b);
       currentOp.getReductionDims(reductionDims);
       bool tileOnReduction = false;
       for (auto [d, tile] : llvm::zip(currentDim, currentTileSize)) {
-        if (llvm::find(reductionDims, d) != reductionDims.end()) {
+        if (llvm::find(reductionDims, d) != reductionDims.end() && tile != 0 &&
+            (!getConstantIntValue(loopRanges[d].size) ||
+             tile != static_cast<size_t>(
+                         *getConstantIntValue(loopRanges[d].size)))) {
           tileOnReduction = true;
         }
         if (llvm::find(reductionDims, d) != reductionDims.end() &&
@@ -476,26 +434,24 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         } else
           tileSizes[d] = getAsIndexOpFoldResult(b.getContext(), tile);
       }
-      SmallVector<Range> loopRanges =
-          cast<TilingInterface>(currentOp.getOperation()).getIterationDomain(b);
+
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPoint(currentOp);
       if (tileOnReduction) {
-        auto partialInterface =
-            dyn_cast<PartialReductionOpInterface>(currentOp.getOperation());
         for (auto [idx, tile] : llvm::enumerate(tileSizes)) {
           if (isConstantIntValue(tile, 0) &&
-              llvm::find(reductionDims, d) != reductionDims.end()) {
+              llvm::find(reductionDims, idx) != reductionDims.end()) {
             tileSizes[idx] = loopRanges[idx].size;
           }
         }
         SmallVector<OpFoldResult> newParallelDims;
-        for (auto i = 0UL; i < reductionDims.size(); i++) {
+        for (size_t i = 0UL; i < reductionDims.size(); i++) {
           newParallelDims.push_back(getAsIndexOpFoldResult(b.getContext(), i));
         }
-        auto tilingResult = linalgX::tileReductionUsingForall(
-            b, cast<PartialReductionOpInterface>(currentOp.getOperation()), {},
-            tileSizes, newParallelDims, std::nullopt);
+        FailureOr<linalg::ForallReductionTilingResult> tilingResult =
+            linalgX::tileReductionUsingForall(
+                b, cast<PartialReductionOpInterface>(currentOp.getOperation()),
+                {}, tileSizes, newParallelDims, std::nullopt);
         if (failed(tilingResult) &&
             tilingResult->parallelTiledOps.size() == 1UL)
           return failure();
@@ -503,16 +459,19 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
             dyn_cast<linalg::LinalgOp>(tilingResult->parallelTiledOps.back());
         if (!tilingResult->mergeOps.empty()) {
           for (const auto &fn : option.finalReduceCallBacks) {
-            auto result = fn(b, currentOp.getLoc(), *tilingResult);
+            FailureOr<linalg::LinalgOp> result =
+                fn(b, currentOp->getLoc(), *tilingResult);
             if (succeeded(result)) {
               currentOp = *result;
             }
           }
         }
       } else {
-        auto tilingInterface = cast<TilingInterface>(currentOp.getOperation());
-        auto tilingResult = linalg::tileToForallOpUsingTileSizes(
-            b, tilingInterface, tileSizes, std::nullopt);
+        TilingInterface tilingInterface =
+            cast<TilingInterface>(currentOp.getOperation());
+        FailureOr<linalg::ForallTilingResult> tilingResult =
+            linalg::tileToForallOpUsingTileSizes(b, tilingInterface, tileSizes,
+                                                 std::nullopt);
         if (failed(tilingResult))
           return failure();
         b.replaceOp(currentOp, tilingResult->tileOp);
@@ -522,6 +481,23 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
   }
   result.tiledOps.emplace_back(currentOp);
   return result;
+}
+
+// Turn a OpFoldResult into a Value
+static Value turnOpFoldResultIntoValue(RewriterBase &rewriter, Location loc,
+                                       OpFoldResult result) {
+  if (auto value = dyn_cast<Value>(result))
+    return value;
+  if (auto attr = dyn_cast<Attribute>(result)) {
+    if (auto val = dyn_cast<IntegerAttr>(attr)) {
+      if (val.getType().isIndex())
+        return rewriter.create<arith::ConstantIndexOp>(loc, val.getInt());
+      else
+        return rewriter.create<arith::ConstantIntOp>(loc, val.getInt(),
+                                                     val.getType());
+    }
+  }
+  return Value();
 }
 
 /*
@@ -559,50 +535,56 @@ A=ASlice3, B=BSlice3, C=CSlice4, onlyUpdate=(ok!=0));
 }
 C = final_reduce(CSlice)
 */
-struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
+struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   using OpInterfaceRewritePattern<linalg::LinalgOp>::OpInterfaceRewritePattern;
 
-  FailureOr<OuterLoopGenerationResult>
+  static FailureOr<OuterLoopGenerationResult>
   outerLoopGeneration(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
-                      gc::MatmulConfig cfg, bool hasFillOp) const {
+                      gc::MatmulConfig cfg, bool hasFillOp) {
     SmallVector<unsigned> KDimPos, MDimPos, NDimPos;
     linalgOp.getReductionDims(KDimPos);
     getMatmulParallelDims(linalgOp, 0, MDimPos);
     getMatmulParallelDims(linalgOp, 1, NDimPos);
-
     OuterLoopGenerationOption option;
-    auto iteratorTypes = linalgOp.getIteratorTypesArray();
-    auto KFirstDim = getOprandDim(linalgOp, KDimPos[0], 1);
-    auto MFirstDim = getOprandDim(linalgOp, MDimPos[0], 0);
-    auto NFirstDim = getOprandDim(linalgOp, NDimPos[0], 1);
-    auto KParallelBlockSize =
+
+    SmallVector<utils::IteratorType> iteratorTypes =
+        linalgOp.getIteratorTypesArray();
+    SmallVector<Range> loopRange =
+        cast<TilingInterface>(linalgOp.getOperation())
+            .getIterationDomain(rewriter);
+    size_t KFirstDim = *getConstantIntValue(loopRange[KDimPos[0]].size);
+    size_t MFirstDim = *getConstantIntValue(loopRange[MDimPos[0]].size);
+    size_t NFirstDim = *getConstantIntValue(loopRange[NDimPos[0]].size);
+
+    size_t KParallelBlockSize =
         KDimPos.size() > 1
             ? llvm::divideCeil(KFirstDim, cfg.KThreads)
             : llvm::divideCeil(llvm::divideCeil(KFirstDim, cfg.KBlock),
                                cfg.KThreads) *
                   cfg.KBlock;
-    auto MParallelBlockSize =
+    size_t MParallelBlockSize =
         MDimPos.size() > 1
             ? llvm::divideCeil(MFirstDim, cfg.MThreads)
             : llvm::divideCeil(llvm::divideCeil(MFirstDim, cfg.MBlock),
                                cfg.MThreads) *
                   cfg.MBlock;
-    auto NParallelBlockSize =
+    size_t NParallelBlockSize =
         NDimPos.size() > 1
             ? llvm::divideCeil(NFirstDim, cfg.NThreads)
             : llvm::divideCeil(llvm::divideCeil(NFirstDim, cfg.NBlock),
                                cfg.NThreads) *
                   cfg.NBlock;
-    auto KOuterBlockSize = KDimPos.size() > 1
-                               ? (cfg.KBlock - 1) / cfg.innerMostKBlock + 1
-                               : cfg.KBlock;
-    auto MOuterBlockSize = MDimPos.size() > 1
-                               ? (cfg.MBlock - 1) / cfg.innerMostMBlock + 1
-                               : cfg.MBlock;
-    auto NOuterBlockSize = NDimPos.size() > 1
-                               ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
-                               : cfg.NBlock;
-    // Outer
+    size_t KOuterBlockSize = KDimPos.size() > 1
+                                 ? (cfg.KBlock - 1) / cfg.innerMostKBlock + 1
+                                 : cfg.KBlock;
+    size_t MOuterBlockSize = MDimPos.size() > 1
+                                 ? (cfg.MBlock - 1) / cfg.innerMostMBlock + 1
+                                 : cfg.MBlock;
+    size_t NOuterBlockSize = NDimPos.size() > 1
+                                 ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
+                                 : cfg.NBlock;
+
+    // Outer loop tile size
     for (auto [tile, dim] :
          llvm::zip(SmallVector<size_t>{KParallelBlockSize, MParallelBlockSize,
                                        NParallelBlockSize},
@@ -612,7 +594,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
           OuterLoopGenerationOption::LoopType::ForallOp);
       option.loopDim.emplace_back(SmallVector<size_t>{dim});
     }
-    // Middle
+
+    // Middle loop tile size
     for (auto [tile, dim] :
          llvm::zip(SmallVector<size_t>{MOuterBlockSize, NOuterBlockSize,
                                        KOuterBlockSize},
@@ -621,12 +604,12 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
       option.loopDim.emplace_back(SmallVector<size_t>{dim});
     }
-    // Inner
     if (KDimPos.size() == 1) {
       option.nestedTileSizes.emplace_back(SmallVector<size_t>{cfg.KBlock});
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
       option.loopDim.emplace_back(SmallVector<size_t>{KDimPos.back()});
     }
+    // Inner loop tile size
     if (MDimPos.size() == 1) {
       option.nestedTileSizes.emplace_back(
           SmallVector<size_t>{cfg.innerMostMBlock});
@@ -639,7 +622,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForOp);
       option.loopDim.emplace_back(SmallVector<size_t>{NDimPos.back()});
     }
-    for (auto dim = 0UL; dim < linalgOp.getNumLoops(); dim++) {
+    for (size_t dim = 0UL; dim < linalgOp.getNumLoops(); dim++) {
       if (dim != MDimPos.back() && dim != NDimPos.back() &&
           iteratorTypes[dim] != mlir::utils::IteratorType::reduction) {
         option.nestedTileSizes.emplace_back(SmallVector<size_t>{1});
@@ -649,13 +632,16 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       }
     }
 
+    // cast the low precision matmul to f32 when partial accumulation(result not
+    // full) is needed
     auto lowPrecisionCast =
         [&](RewriterBase &rewriter, Location loc,
             linalg::LinalgOp linalgop) -> FailureOr<linalg::LinalgOp> {
-      auto legalizedResult = matmulDtypeLegalize(
+      FailureOr<DtypeLegalizeResult> legalizedResult = matmulDtypeLegalize(
           rewriter, linalgop.getOperation(), !hasFillOp, true);
-      if (legalizedResult->castOp && legalizedResult->linalgOp) {
-        auto linalgOp = legalizedResult->linalgOp;
+      if (succeeded(legalizedResult) && legalizedResult->castOp &&
+          legalizedResult->linalgOp) {
+        Operation *linalgOp = legalizedResult->linalgOp;
         rewriter.replaceOp(linalgop,
                            linalgOp->getResult(linalgOp->getNumResults() - 1));
         return dyn_cast<linalg::LinalgOp>(linalgOp);
@@ -669,7 +655,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
           [&](RewriterBase &rewriter, Location loc,
               const linalg::ForallReductionTilingResult &result)
           -> FailureOr<linalg::LinalgOp> {
-        auto initValue = result.initialValues;
+        ArrayRef<Value> initValue = result.initialValues;
         if (initValue.size() == 1 &&
             isa<linalg::FillOp>(initValue[0].getDefiningOp())) {
           rewriter.replaceOp(initValue[0].getDefiningOp(),
@@ -681,6 +667,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       };
       option.finalReduceCallBacks.push_back(removeReduncantFill);
     }
+
     return generateOuterLoop(rewriter, linalgOp, option);
   }
 
@@ -694,20 +681,28 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                     linalg::LinalgOp originOp,
                                     linalg::LinalgOp currentOp,
                                     innerBodyGenerationOption &option) const {
-    mlir::easybuild::EasyBuilder eb{rewriter, originOp.getLoc()};
-    auto operandDimTypes = getOprandDimType(originOp);
-    auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
-    auto AShape = originOp.getShape(originOp.getDpsInputOperand(0));
-    auto BShape = originOp.getShape(originOp.getDpsInputOperand(1));
-    auto CShape = originOp.getShape(originOp.getDpsInitOperand(0));
+    Location loc = currentOp->getLoc();
+    FailureOr<SmallVector<SmallVector<DimType>>> operandDimTypes =
+        getOprandDimType(originOp);
+    MatmulConfig cfg =
+        MatmulConfigAnalysis(originOp.getOperation()).getConfig();
+    ArrayRef<int64_t> AShape =
+        originOp.getShape(originOp.getDpsInputOperand(0));
+    ArrayRef<int64_t> BShape =
+        originOp.getShape(originOp.getDpsInputOperand(1));
+    ArrayRef<int64_t> CShape = originOp.getShape(originOp.getDpsInitOperand(0));
 
-    auto MDimNum = std::count_if((*operandDimTypes)[0].begin(),
-                                 (*operandDimTypes)[0].end(),
-                                 [](DimType d) { return d == DimType::M; });
-    auto NDimNum = std::count_if((*operandDimTypes)[1].begin(),
-                                 (*operandDimTypes)[1].end(),
-                                 [](DimType d) { return d == DimType::N; });
+    if (failed(operandDimTypes))
+      return failure();
+
+    size_t MDimNum = std::count_if((*operandDimTypes)[0].begin(),
+                                   (*operandDimTypes)[0].end(),
+                                   [](DimType d) { return d == DimType::M; });
+    size_t NDimNum = std::count_if((*operandDimTypes)[1].begin(),
+                                   (*operandDimTypes)[1].end(),
+                                   [](DimType d) { return d == DimType::N; });
     // TODO: support plain in/block out format
+    // Calculate the innermost block size according to the config
     SmallVector<int64_t> AInnermostDims, BInnermostDims, CInnermostDims;
     bool firstM = true, firstK = true, firstN = true;
     if (MDimNum > 1) {
@@ -769,15 +764,16 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                             cfg.innerMostNBlock};
     }
 
+    // Get the data/wei/dst data type
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(currentOp);
-    auto dataType =
+    mlir::Type dataType =
         dyn_cast<mlir::RankedTensorType>(currentOp.getDpsInputs()[0].getType())
             .getElementType();
-    auto weightType =
+    mlir::Type weightType =
         dyn_cast<mlir::RankedTensorType>(currentOp.getDpsInputs()[1].getType())
             .getElementType();
-    auto resultType =
+    mlir::Type resultType =
         dyn_cast<mlir::RankedTensorType>(currentOp.getDpsInits()[0].getType())
             .getElementType();
 
@@ -789,7 +785,7 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     setStaticSizeForExtractSliceOp(rewriter,
                                    currentOp.getDpsInputs()[0].getDefiningOp(),
                                    true, AInnermostDims, MDimNum > 1);
-    for (auto init : currentOp.getDpsInits()) {
+    for (Value init : currentOp.getDpsInits()) {
       setStaticSizeForExtractSliceOp(rewriter, init.getDefiningOp(), true,
                                      CInnermostDims, MDimNum > 1 ? 2 : 0);
     }
@@ -829,12 +825,12 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
             .getShape()
             .size() == 3) {
       matmul = rewriter.create<linalg::BatchReduceMatmulOp>(
-          resultOprand.getLoc(), resultOprand.getType(),
-          ValueRange{dataOprand, weightOprand}, resultOprand);
+          loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
+          resultOprand);
     } else {
       matmul = rewriter.create<linalgx::BatchReduceMatmulVnniOp>(
-          resultOprand.getLoc(), resultOprand.getType(),
-          ValueRange{dataOprand, weightOprand}, resultOprand);
+          loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
+          resultOprand);
     }
     Value result = matmul.getOperation()->getResult(0);
 
@@ -844,25 +840,41 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     }
 
     if (option.needLowPrecisionCast) {
+      // fuse the low precision cast to the innermost body
       rewriter.setInsertionPointAfter(currentOp);
-      auto cond = eb(true);
-      for (auto loop : option.KLoopHandles) {
-        auto induceVar =
-            eb.wrap<mlir::easybuild::EBUnsigned>(*loop.getSingleInductionVar());
-        auto upBound =
-            eb.wrap<mlir::easybuild::EBUnsigned>(*loop.getSingleUpperBound());
-        auto step = eb.wrap<mlir::easybuild::EBUnsigned>(*loop.getSingleStep());
-        auto currentCond = (induceVar + step) >= upBound;
-        cond = cond & currentCond;
+      Value cond;
+      for (LoopLikeOpInterface loop : option.KLoopHandles) {
+        Value induceVar = turnOpFoldResultIntoValue(
+            rewriter, loc, *loop.getSingleInductionVar());
+        Value upBound = turnOpFoldResultIntoValue(rewriter, loc,
+                                                  *loop.getSingleUpperBound());
+        Value step =
+            turnOpFoldResultIntoValue(rewriter, loc, *loop.getSingleStep());
+        Value currentCond =
+            rewriter.create<arith::AddIOp>(loc, induceVar, step);
+        currentCond = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::sge, currentCond, upBound);
+        cond = cond ? rewriter.create<arith::AndIOp>(loc, cond, currentCond)
+                    : currentCond;
       }
-      EB_scf_if(cond, {currentOp.getDpsInits().back().getType()}) {
-        auto castOp = rewriter.create<linalg::CopyOp>(
-            matmul.getLoc(), matmul->getResult(0),
-            currentOp.getDpsInits().back());
-        eb.yield(castOp->getResult(0));
+      scf::IfOp ifOp = rewriter.create<scf::IfOp>(
+          loc, TypeRange{currentOp.getDpsInits().back().getType()},
+          cond ? cond : rewriter.create<arith::ConstantIntOp>(loc, true, 1),
+          true);
+      {
+        OpBuilder::InsertionGuard guard(rewriter);
+        Region &region = ifOp.getThenRegion();
+        rewriter.setInsertionPointToStart(&region.back());
+        linalg::CopyOp castOp = rewriter.create<linalg::CopyOp>(
+            loc, matmul->getResult(0), currentOp.getDpsInits().back());
+        rewriter.create<scf::YieldOp>(loc, castOp->getResult(0));
       }
-      EB_else { eb.yield(currentOp.getDpsInits().back()); }
-      auto ifOp = eb.getLastOperaion();
+      {
+        OpBuilder::InsertionGuard guard(rewriter);
+        Region &region = ifOp.getElseRegion();
+        rewriter.setInsertionPointToStart(&region.back());
+        rewriter.create<scf::YieldOp>(loc, currentOp.getDpsInits().back());
+      }
       // set static size for the insertSliceOp of copyOp
       for (Operation *user : currentOp->getResult(1).getUsers()) {
         setStaticSizeForInsertSliceOp(rewriter, user, ifOp->getResult(0),
@@ -873,9 +885,10 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       rewriter.replaceOp(currentOp, matmul->getResult(0));
     }
     currentOp = matmul;
+
     // Fuse the fill op to the innermost body
     if (auto fillOp = llvm::dyn_cast_or_null<linalg::FillOp>(option.fillOp)) {
-      auto fillValue = fillOp.getDpsInputs()[0];
+      Value fillValue = fillOp.getDpsInputs()[0];
       if (cfg.KThreads <= 1) {
         // if use k slicing, the fill op is still need to be kept for the reduce
         // init
@@ -887,26 +900,38 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       }
 
       rewriter.setInsertionPointAfter(currentOp);
-      auto cond = eb(true);
-      for (auto loop : option.KLoopHandles) {
-        auto induceVar = eb.wrap<mlir::easybuild::EBUnsigned>(
-            loop.getLoopRegions().front()->front().getArgument(0));
-        auto currentCond = induceVar == eb.toIndex(0);
-        cond = cond & currentCond;
+      Value cond;
+      arith::ConstantIndexOp zeroConst =
+          rewriter.create<arith::ConstantIndexOp>(loc, 0);
+      for (LoopLikeOpInterface loop : option.KLoopHandles) {
+        Value induceVar = loop.getLoopRegions().front()->front().getArgument(0);
+        Value currentCond = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::eq, induceVar, zeroConst);
+        cond = cond ? rewriter.create<arith::AndIOp>(loc, cond, currentCond)
+                    : currentCond;
       }
-      EB_scf_if(cond, {currentOp.getDpsInits()[0].getType()}) {
-        auto fillOp = rewriter.create<linalg::FillOp>(
-            currentOp->getLoc(), fillValue, currentOp.getDpsInits()[0]);
+      scf::IfOp ifOp = rewriter.create<scf::IfOp>(
+          loc, TypeRange{currentOp.getDpsInits()[0].getType()},
+          cond ? cond : rewriter.create<arith::ConstantIntOp>(loc, true, 1),
+          true);
+      {
+        OpBuilder::InsertionGuard guard(rewriter);
+        Region &region = ifOp.getThenRegion();
+        rewriter.setInsertionPointToStart(&region.back());
+        linalg::FillOp fillOp = rewriter.create<linalg::FillOp>(
+            loc, fillValue, currentOp.getDpsInits()[0]);
         IRMapping mapping;
         mapping.map(currentOp.getDpsInits()[0], fillOp.getResult(0));
-        auto res = rewriter.clone(*(currentOp.getOperation()), mapping);
-        eb.yield(res->getResult(0));
+        Operation *res = rewriter.clone(*(currentOp.getOperation()), mapping);
+        rewriter.create<scf::YieldOp>(loc, res->getResult(0));
       }
-      EB_else {
-        auto res = rewriter.clone(*(currentOp.getOperation()));
-        eb.yield(res->getResult(0));
+      {
+        OpBuilder::InsertionGuard guard(rewriter);
+        Region &region = ifOp.getElseRegion();
+        rewriter.setInsertionPointToStart(&region.back());
+        Operation *res = rewriter.clone(*(currentOp.getOperation()));
+        rewriter.create<scf::YieldOp>(loc, res->getResult(0));
       }
-      auto ifOp = eb.getLastOperaion();
       rewriter.replaceOp(currentOp, ifOp);
     }
     return success();
@@ -939,20 +964,24 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
-    auto cfg = MatmulConfigAnalysis(originOp.getOperation()).getConfig();
+    MatmulConfig cfg =
+        MatmulConfigAnalysis(originOp.getOperation()).getConfig();
     linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
     bool needLowPrecisionCast = needToLegalizeDtype(linalgOp);
     if (cfg.KThreads > 1) {
-      auto result = matmulDtypeLegalize(rewriter, linalgOp.getOperation());
-      if (result->castOp && result->linalgOp) {
+      FailureOr<DtypeLegalizeResult> result =
+          matmulDtypeLegalize(rewriter, linalgOp.getOperation());
+      if (succeeded(result) && result->castOp && result->linalgOp) {
         rewriter.replaceOp(linalgOp, result->castOp);
         linalgOp = dyn_cast<linalg::LinalgOp>(result->linalgOp);
+      } else {
+        return failure();
       }
       needLowPrecisionCast = false;
     }
 
     // Step 2. Outer loop generation
-    auto outerLoopResult = outerLoopGeneration(
+    FailureOr<OuterLoopGenerationResult> outerLoopResult = outerLoopGeneration(
         rewriter, linalgOp, cfg, fillOp && isa<linalg::FillOp>(fillOp));
     if (failed(outerLoopResult)) {
       return failure();
@@ -960,8 +989,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     linalgOp = dyn_cast<linalg::LinalgOp>(outerLoopResult->tiledOps.back());
 
     // Step 3 generate inner loop body, convert the linalg.generic to brgemm
-    auto option = innerBodyGenerationOption{fillOp, needLowPrecisionCast,
-                                            outerLoopResult->reductionLoops};
+    innerBodyGenerationOption option = innerBodyGenerationOption{
+        fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops};
 
     if (failed(innerBodyGeneration(rewriter, originOp, linalgOp, option))) {
       return failure();
@@ -975,11 +1004,11 @@ struct DeepTileContractionNamedOp
     : public impl::DeepTileContractionNamedOpBase<DeepTileContractionNamedOp> {
 public:
   void runOnOperation() final {
-    auto &ctx = getContext();
+    MLIRContext &ctx = getContext();
     IRRewriter rewriter(&ctx);
     RewritePatternSet patterns(&ctx);
 
-    patterns.add<deepTileMatmul>(patterns.getContext());
+    patterns.add<DeepTileMatmul>(patterns.getContext());
     linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
     linalg::ControlDropUnitDims options;
     options.rankReductionStrategy =
@@ -987,7 +1016,7 @@ public:
     linalg::populateFoldUnitExtentDimsPatterns(patterns, options);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
 
-    for (auto *dialect : ctx.getLoadedDialects())
+    for (Dialect *dialect : ctx.getLoadedDialects())
       dialect->getCanonicalizationPatterns(patterns);
     for (RegisteredOperationName op : ctx.getRegisteredOperations())
       op.getCanonicalizationPatterns(patterns, &ctx);

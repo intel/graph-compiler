@@ -34,15 +34,9 @@
 
 namespace mlir::gc {
 
-void populateCleanUpPasses(mlir::PassManager &pm) {
+void populateCleanUpPasses(mlir::OpPassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
-  pm.addPass(createLoopInvariantCodeMotionPass());
-  pm.addPass(createControlFlowSinkPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(createSCCPPass());
-  pm.addPass(createMem2Reg());
-  pm.addPass(createTopologicalSortPass());
 }
 
 // linalg + linalgX + tensor
@@ -67,6 +61,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createControlFlowSinkPass());
   populateCleanUpPasses(pm);
 }
 
@@ -125,11 +121,13 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createSinkOpIntoInnerLoop());
   pm.addPass(createMergeNestedForall());
-  populateCleanUpPasses(pm);
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createControlFlowSinkPass());
   pm.addPass(createForallToParallelLoopPass());
   pm.addPass(createParallelLoopFusionPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createConvertSCFToOpenMPPass());
+  populateCleanUpPasses(pm);
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {

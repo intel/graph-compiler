@@ -1,4 +1,4 @@
-//===-- MergeNestedForall.cpp - DESC -------------------*- C++ -*-===//
+//===-- MergeNestedForall.cpp - Merge nested scf.forall op ------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,14 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Transforms/Passes.h"
-
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Dominance.h"
-#include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Interfaces/LoopLikeInterface.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
-#include "mlir/Transforms/ControlFlowSinkUtils.h"
+#include "mlir/Transforms/Passes.h"
 
 namespace mlir {
 namespace gc {
@@ -31,7 +25,7 @@ struct MergeNestedForallLoops : public OpRewritePattern<scf::ForallOp> {
     if (!llvm::hasSingleElement(outerBody.without_terminator()))
       return failure();
 
-    auto innerOp = dyn_cast<scf::ForallOp>(outerBody.front());
+    scf::ForallOp innerOp = dyn_cast<scf::ForallOp>(outerBody.front());
     if (!innerOp)
       return failure();
 
