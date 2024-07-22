@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -38,6 +39,7 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTargetAsmParser();
 
   mlir::DialectRegistry registry;
+  registry.insert<mlir::arith::ArithDialect>();
   mlir::registerAllToLLVMIRTranslations(registry);
 
   return mlir::JitRunnerMain(argc, argv, registry);
