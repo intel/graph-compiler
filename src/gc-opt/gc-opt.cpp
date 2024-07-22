@@ -30,6 +30,10 @@
 #include <imex/InitIMEXPasses.h>
 #endif
 
+namespace mlir::gc {
+void registerCPUPipeline();
+} // namespace mlir::gc
+
 int main(int argc, char *argv[]) {
 #ifdef GC_USE_GPU
   imex::registerTransformsPasses();
@@ -41,6 +45,7 @@ int main(int argc, char *argv[]) {
   imex::registerConvertXeTileToXeGPU();
 #endif
   mlir::registerAllPasses();
+  mlir::gc::registerCPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
