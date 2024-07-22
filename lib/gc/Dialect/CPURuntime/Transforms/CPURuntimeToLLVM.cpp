@@ -155,7 +155,7 @@ public:
   }
 };
 
-template <typename OpType, typename OpAdaptor, const char *allocFuncName>
+template <typename OpType, typename OpAdaptor, const char *deallocFuncName>
 class AlignedFreeRewriterBase : public ConvertOpToLLVMPattern<OpType> {
 public:
   using ConvertOpToLLVMPattern<OpType>::ConvertOpToLLVMPattern;
@@ -169,7 +169,7 @@ public:
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
     mlir::Type llvmVoidType = LLVM::LLVMVoidType::get(context);
     auto deallocFunc = getOrDefineFunction(
-        moduleOp, loc, rewriter, "gcThreadAlignedFree",
+        moduleOp, loc, rewriter, deallocFuncName,
         LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ true));
     Value pointer =
         MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);
