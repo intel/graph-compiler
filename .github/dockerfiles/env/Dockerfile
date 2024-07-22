@@ -74,7 +74,7 @@ RUN echo "conda prefix after installing jupyterhub: $(du --human-readable --summ
 # install infractl, lit
 RUN set -e; \
     . ${CONDA_PREFIX}/etc/profile.d/conda.sh; \
-    conda create --name python-3.9 python=3.9 ipykernel s3cmd dvc; \
+    conda create --name python-3.9 python=3.9 ipykernel s3cmd dvc numpy; \
     conda activate python-3.9; \
     pip --no-cache-dir install infractl lit
 
