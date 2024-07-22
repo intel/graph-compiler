@@ -7,6 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "gc/ExecutionEngine/MemoryPool/MemoryPool.h"
+#include "gc/ExecutionEngine/MemoryPool/ThreadLocals.h"
 #include <cassert>
 #include <iostream>
 #include <memory.h>
@@ -28,17 +30,14 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-namespace {
-// 4MB
-constexpr size_t threadlocal_chunk_size = 4 * 1024 * 1024;
-// 16MB
-constexpr size_t main_chunk_size = 16 * 1024 * 1024;
+namespace mlir {
+namespace gc {
 
-static constexpr size_t default_alignment = 64;
-
+namespace memory_pool {
 static constexpr size_t divide_and_ceil(size_t x, size_t y) {
   return (x + y - 1) / y;
 }
+static constexpr size_t default_alignment = 64;
 
 size_t get_os_page_size() {
 #ifdef _WIN32
@@ -50,20 +49,6 @@ size_t get_os_page_size() {
 #endif
 }
 
-// The chunk of memory that is allocated to the user
-struct memory_chunk_t {
-  static constexpr uint64_t magic_check_num_ = 0xc0ffeebeef0102ff;
-  // `canary` should be set as a magic value to check the existence of
-  // overflow
-  uint64_t canary_;
-  // the size of the memory_chunk_t allocated, incluing this `memory_chunk_t`
-  size_t size_;
-  // the memory for the user
-  char buffer_[0];
-  // initalizes the memory chunk, given the address of data
-  static memory_chunk_t *init(intptr_t pdata, size_t sz);
-};
-
 memory_chunk_t *memory_chunk_t::init(intptr_t pdata, size_t sz) {
   memory_chunk_t *ths =
       reinterpret_cast<memory_chunk_t *>(pdata - sizeof(memory_chunk_t));
@@ -72,38 +57,10 @@ memory_chunk_t *memory_chunk_t::init(intptr_t pdata, size_t sz) {
   return ths;
 }
 
-// the control block for pre-allocated memory block - created by page-wise
-// allocation system calls (mmap). We can divide the memory block into memory
-// chunks for user memory allocation in memory starting from `buffer_`
-struct memory_block_t {
-  // size of the memory block, starting from `this`
-  size_t size_;
-  // size of allocated bytes, including this struct
-  size_t allocated_;
-  memory_block_t *prev_;
-  memory_block_t *next_;
-  // here starts the allocatable memory
-  char buffer_[0];
-
-  /**
-   * Calculates the next pointer to allocate with alignment = 512-bits (64
-   * bytes). The  (returned pointer - sizeof(memory_chunk_t)) should be the
-   * address of memory_chunk_t
-   * */
-  intptr_t calc_alloc_ptr();
-
-  static memory_block_t *make(size_t sz, memory_block_t *prev,
-                              memory_block_t *next);
-};
-
-void dealloc_by_mmap(void *b) {
-#ifdef _MSC_VER
-  auto ret = VirtualFree(b, 0, MEM_RELEASE);
-  SC_UNUSED(ret);
-  assert(ret);
-#else
-  munmap(b, reinterpret_cast<memory_block_t *>(b)->size_);
-#endif
+intptr_t memory_block_t::calc_alloc_ptr() {
+  intptr_t start_addr =
+      reinterpret_cast<intptr_t>(this) + allocated_ + sizeof(memory_chunk_t);
+  return divide_and_ceil(start_addr, default_alignment) * default_alignment;
 }
 
 void *alloc_by_mmap(size_t sz) {
@@ -134,29 +91,15 @@ memory_block_t *memory_block_t::make(size_t sz, memory_block_t *prev,
   return blk;
 }
 
-intptr_t memory_block_t::calc_alloc_ptr() {
-  intptr_t start_addr =
-      reinterpret_cast<intptr_t>(this) + allocated_ + sizeof(memory_chunk_t);
-  return divide_and_ceil(start_addr, default_alignment) * default_alignment;
+void dealloc_by_mmap(void *b) {
+#ifdef _MSC_VER
+  auto ret = VirtualFree(b, 0, MEM_RELEASE);
+  SC_UNUSED(ret);
+  assert(ret);
+#else
+  munmap(b, reinterpret_cast<memory_block_t *>(b)->size_);
+#endif
 }
-
-// The FILO memory pool. The memory allocation and deallocation should be in
-// first-in-last-out fashion
-struct filo_memory_pool_t {
-  size_t block_size_;
-  // the linked list of all allocated memory blocks
-  memory_block_t *buffers_ = nullptr;
-  memory_block_t *current_ = nullptr;
-  size_t get_block_size(size_t sz) const;
-  void *alloc(size_t sz);
-  void dealloc(void *ptr);
-  filo_memory_pool_t(size_t block_size) : block_size_(block_size) {}
-  ~filo_memory_pool_t();
-  // release the memory to os/underlying memory allocator
-  void release();
-  // reset the memory pool, but keep the allocated memory in the pool
-  void clear();
-};
 
 static void free_memory_block_list(memory_block_t *b) {
   while (b) {
@@ -246,27 +189,27 @@ void filo_memory_pool_t::clear() {
 
 filo_memory_pool_t::~filo_memory_pool_t() { release(); }
 
-} // namespace
+} // namespace memory_pool
+} // namespace gc
+} // namespace mlir
 
 extern "C" void *gcAlignedMalloc(size_t sz) noexcept {
   if (sz == 0) {
     return nullptr;
   }
-  filo_memory_pool_t main_memory_pool_{main_chunk_size};
-  return main_memory_pool_.alloc(sz);
+  return mlir::gc::thread_local_buffer_t::tls_buffer().main_memory_pool_.alloc(
+      sz);
 }
 
 extern "C" void gcAlignedFree(void *p) noexcept {
-  filo_memory_pool_t main_memory_pool_{main_chunk_size};
-  main_memory_pool_.dealloc(p);
+  mlir::gc::thread_local_buffer_t::tls_buffer().main_memory_pool_.dealloc(p);
 }
 
 extern "C" void *gcThreadAlignedMalloc(size_t sz) noexcept {
-  filo_memory_pool_t thread_memory_pool_{threadlocal_chunk_size};
-  return thread_memory_pool_.alloc(sz);
+  return mlir::gc::thread_local_buffer_t::tls_buffer()
+      .thread_memory_pool_.alloc(sz);
 }
 
 extern "C" void gcThreadAlignedFree(void *p) noexcept {
-  filo_memory_pool_t thread_memory_pool_{threadlocal_chunk_size};
-  thread_memory_pool_.dealloc(p);
+  mlir::gc::thread_local_buffer_t::tls_buffer().thread_memory_pool_.dealloc(p);
 }
