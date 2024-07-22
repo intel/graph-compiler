@@ -24,7 +24,8 @@
 PYBIND11_MODULE(_gc_mlir, m) {
   m.doc() = "Graph-compiler MLIR Python binding";
 
-  mlirRegisterGraphCompilerPasses();
+  mlirRegisterAllGCPassesAndPipelines();
+
   //===----------------------------------------------------------------------===//
   // OneDNNGraph
   //===----------------------------------------------------------------------===//
@@ -44,7 +45,6 @@ PYBIND11_MODULE(_gc_mlir, m) {
   //===----------------------------------------------------------------------===//
   // CPURuntime
   //===----------------------------------------------------------------------===//
-  mlirRegisterCPURuntimePasses();
   auto cpuruntimeM = m.def_submodule("cpuruntime");
   cpuruntimeM.def(
       "register_dialect",
