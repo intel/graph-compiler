@@ -10,9 +10,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 add_mlir_library(GCCpuRuntime
     SHARED
     Parallel.cpp
-    Memorypool.cpp
+    MemoryPool.cpp
     EXCLUDE_FROM_LIBMLIR
-
-    ADDITIONAL_HEADER_DIRS
-      ${PROJECT_SOURCE_DIR}/include
   )
