@@ -32,6 +32,17 @@ namespace gc {
 #include "gc/Transforms/Passes.h.inc"
 
 namespace {
+
+bool hasParallelParent(Operation *op) {
+  // Check if the parent contains a forall / parallel loop
+  for (Operation *parentOp = op->getParentOp(); parentOp != nullptr;
+       parentOp = parentOp->getParentOp()) {
+    if (parentOp->hasTrait<OpTrait::HasParallelRegion>()) {
+      return true;
+    }
+  }
+  return false;
+}
 struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(memref::AllocOp op,
@@ -40,17 +51,8 @@ struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
     MemRefType type = op.getMemref().getType();
     ValueRange symbolOperands = op.getSymbolOperands();
     ValueRange dynamicSizes = op.getDynamicSizes();
-    // Check if the parent contains a forall / parallel loop
-    bool hasParallelParent = false;
-    for (Operation *parentOp = op->getParentOp(); parentOp != nullptr;
-         parentOp = parentOp->getParentOp()) {
-      if (isa<scf::ForallOp, scf::ParallelOp>(parentOp)) {
-        hasParallelParent = true;
-        break;
-      }
-    }
     Operation *newAllocOp;
-    if (hasParallelParent) {
+    if (hasParallelParent(op)) {
       newAllocOp = rewriter.create<cpuruntime::ThreadAllocOp>(
           loc, type, dynamicSizes, symbolOperands);
     } else {
@@ -68,17 +70,8 @@ struct AlignedDeallocLowering : public OpRewritePattern<memref::DeallocOp> {
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     Value memref = op.getMemref();
-    // Check if the parent contains a forall / parallel loop
-    bool hasParallelParent = false;
-    for (Operation *parentOp = op->getParentOp(); parentOp != nullptr;
-         parentOp = parentOp->getParentOp()) {
-      if (isa<scf::ForallOp, scf::ParallelOp>(parentOp)) {
-        hasParallelParent = true;
-        break;
-      }
-    }
     Operation *newDeallocOp;
-    if (hasParallelParent) {
+    if (hasParallelParent(op)) {
       newDeallocOp = rewriter.create<cpuruntime::ThreadDeallocOp>(loc, memref);
     } else {
       newDeallocOp = rewriter.create<cpuruntime::DeallocOp>(loc, memref);
