@@ -11,13 +11,65 @@
 
 include "MicrokernelDialect.td"
 include "gc/Dialect/Microkernel/MicrokernelEnum.td"
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+
+class StaticTensorRankOf<list<Type> allowedTypes, list<int> ranks> :
+     Type<And<[TensorOf<allowedTypes>.predicate,
+              HasAnyRankOfPred<ranks>, HasStaticShapePred]>, 
+              !interleave(!foreach(rank, ranks, rank # "D"), "/") # " static " # 
+              TensorOf<allowedTypes>.summary, "::mlir::TensorType">;
 
 class StaticMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
      Type<And<[MemRefOf<allowedTypes>.predicate,
               HasAnyRankOfPred<ranks>, HasStaticShapePred]>, 
               !interleave(!foreach(rank, ranks, rank # "D"), "/") # " static " # 
               MemRefOf<allowedTypes>.summary, "::mlir::MemRefType">;
+
+def BrgemmTensor : StaticTensorRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>;
+
+def BrgemmTensorOrMemRef : AnyTypeOf<[StaticTensorRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>,
+                                      StaticMemRefRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>]>;
+
+def Microkernel_BrgemmOnTensorOp : Microkernel_Op<"brgemm_on_tensor", 
+	[DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+         DestinationStyleOpInterface]> {
+  let summary = "Abstract Op that execute brgemm kernel on tensors.";
+  let description = [{
+    The operation has the following arguments: 
+    1) Tensors or MemRefs of operand A/B;
+    2) The batch dims and leading dims of operand A/B;
+    And has the following outputs:
+    1) Tensor of operand C;
+  }];
+
+  let arguments = (ins Variadic<BrgemmTensorOrMemRef>:$inputs,
+                       BrgemmTensorOrMemRef:$init, 
+    		       ConfinedAttr<DenseI64ArrayAttr,
+                           [DenseArrayNonNegative<DenseI64ArrayAttr>]>:$batchDims,
+    		       ConfinedAttr<DenseI64ArrayAttr,
+                           [DenseArrayNonNegative<DenseI64ArrayAttr>]>:$leadingDims, 
+                       TypedArrayAttrBase<Microkernel_BrgemmFlags, "brgemm flags">:$flags);
+  let results = (outs Variadic<BrgemmTensor>:$output);
+
+  let extraClassDeclaration = [{
+    Value getOperandA() { return getInputs()[0]; }
+    Value getOperandB() { return getInputs()[1]; }
+    Value getOperandC() { return getInit(); }
+    
+    int64_t getBatchDimA() { return getBatchDims()[0]; }
+    int64_t getLeadingDimA() { return getLeadingDims()[0]; }
+    
+    int64_t getBatchDimB() { return getBatchDims()[1]; }
+    int64_t getLeadingDimB() { return getLeadingDims()[1]; }
+
+    MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
+  }];
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
+  let hasFolder = 1;
+}
 
 def Microkernel_BrgemmDispatchOp : Microkernel_Op<"brgemm.dispatch", [Pure]> {
   let summary = "JIT the brgemm microkernel given the parameters";
