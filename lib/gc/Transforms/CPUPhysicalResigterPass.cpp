@@ -1430,6 +1430,7 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
               forResultOrignalResultMap, originalResultForResultMap);
 
           // insert accumulate value to original vector
+          // TODO: fix first accumualte idx use map
           auto accRes = nxtFor->getResults()[0];
 
           Operation *reductionOp = b.create<vector::ReductionOp>(
@@ -1465,6 +1466,79 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
           forResultOrignalResultMap = std::move(currentResultMap);
           nextAnchorResultsIdxMap = std::move(currentResultIdxMap);
           maybeYieldValue(b, loc, nextAnchorResults);
+        }
+      });
+}
+
+scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
+    OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
+    const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
+    const ValueRange &iterArgs) {
+  auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
+  vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
+  VectorType vtType = tpOp.getVector().getType();
+  size_t rank = vtType.getRank();
+
+  auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
+  bool isTransposeDim = forDimIdx == tpCanonicalizer.getFirstTpIdx() or
+                        forDimIdx == tpCanonicalizer.getSecondTpIdx();
+  auto forSteps =
+      makeIndexArithConstantOp(opBuilder, loc, isTransposeDim ? tpSteps : 1);
+  auto numIter =
+      makeIndexArithConstantOp(opBuilder, loc, vtType.getShape()[forDimIdx]);
+  VectorType kernelType =
+      VectorType::get({tpSteps, tpSteps}, vtType.getElementType());
+  // generate transpose for loop
+  return opBuilder.create<scf::ForOp>(
+      loc, zero, numIter, forSteps, iterArgs,
+      [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
+        inductionVars.emplace_back(iv);
+
+        // inner most body of the loop
+        if (forDimIdx == rank - 1) {
+          // transfer read from source tensor
+          Value source = tpOp->getOperand(0);
+          auto readSourceOp =
+              cast<vector::TransferReadOp>(source.getDefiningOp());
+          vector::TransferWriteOp successorWriteOp;
+          for (Operation *x : tpOp->getUsers()) {
+            if (isa<vector::TransferWriteOp>(x)) {
+              successorWriteOp = cast<vector::TransferWriteOp>(x);
+            }
+          }
+          auto padValue = b.create<arith::ConstantOp>(
+              loc, b.getZeroAttr(vtType.getElementType()));
+          SmallVector<bool> inBoundsVal(2, true);
+          inBoundsVal[0] = !ShapedType::isDynamic(
+              vtType.getShape()[tpCanonicalizer.getFirstTpIdx()]);
+          inBoundsVal[1] = !ShapedType::isDynamic(
+              vtType.getShape()[tpCanonicalizer.getSecondTpIdx()]);
+
+          auto transferReadOp = b.create<vector::TransferReadOp>(
+              loc,
+              /*vectorType=*/kernelType,
+              /*source=*/readSourceOp.getSource(),
+              /*indices=*/inductionVars,
+              /*padding=*/padValue,
+              /*inBounds=*/inBoundsVal);
+          SmallVector<int64_t> perm{1, 0};
+          auto transposeOp = b.create<vector::TransposeOp>(
+              loc, transferReadOp->getResults()[0], perm);
+          SmallVector<Value> writeVars(inductionVars.begin(),
+                                       inductionVars.end());
+          writeVars[tpCanonicalizer.getSecondTpIdx()] =
+              inductionVars[tpCanonicalizer.getFirstTpIdx()];
+          writeVars[tpCanonicalizer.getFirstTpIdx()] =
+              inductionVars[tpCanonicalizer.getSecondTpIdx()];
+          auto writeOp = b.create<vector::TransferWriteOp>(
+              loc, transposeOp->getResults()[0],
+              successorWriteOp->getOperands()[1], writeVars, inBoundsVal);
+          maybeYieldValue(b, loc, writeOp->getResults());
+        } else {
+          // outter loop
+          auto nxtFor = generateTransposeForLoopWithLastDim(
+              b, grpIdx, forDimIdx + 1, tpSteps, loc, inductionVars, loopState);
+          maybeYieldValue(b, loc, nxtFor->getResults());
         }
       });
 }
@@ -1539,6 +1613,144 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
   }
   rewriter.replaceOp(getMultiRdCanonicalizers()[grpIdx].getCandidateOps()[0],
                      forOp);
+
+  return forOp;
+}
+
+// generate simple data movement for loop
+scf::ForOp ForLoopGenerator::generateScalarDataMovement(
+    OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
+    const Location &loc, SmallVector<Value> &inductionVars,
+    const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap) {
+  auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
+  vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
+  VectorType vtType = tpOp.getVector().getType();
+  size_t rank = vtType.getRank();
+
+  auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
+  auto forSteps = makeIndexArithConstantOp(opBuilder, loc, 1);
+  auto numIter =
+      makeIndexArithConstantOp(opBuilder, loc, vtType.getShape()[forDimIdx]);
+  VectorType kernelType = VectorType::get({1}, vtType.getElementType());
+  // generate transpose for loop
+  return opBuilder.create<scf::ForOp>(
+      loc, zero, numIter, forSteps, iterArgs,
+      [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
+        inductionVars.emplace_back(iv);
+
+        // inner most body of the loop
+        if (forDimIdx == rank - 1) {
+          // transfer read from source tensor
+          Value source = tpOp->getOperand(0);
+          auto readSourceOp =
+              cast<vector::TransferReadOp>(source.getDefiningOp());
+          vector::TransferWriteOp successorWriteOp;
+          for (Operation *x : tpOp->getUsers()) {
+            if (isa<vector::TransferWriteOp>(x)) {
+              successorWriteOp = cast<vector::TransferWriteOp>(x);
+            }
+          }
+          auto padValue = b.create<arith::ConstantOp>(
+              loc, b.getZeroAttr(vtType.getElementType()));
+          SmallVector<bool> inBoundsVal(1, true);
+
+          auto transferReadOp = b.create<vector::TransferReadOp>(
+              loc,
+              /*vectorType=*/kernelType,
+              /*source=*/readSourceOp.getSource(),
+              /*indices=*/inductionVars,
+              /*padding=*/padValue,
+              /*inBounds=*/inBoundsVal);
+          SmallVector<Value> writeVars;
+          size_t itrIdx = 0;
+          while (itrIdx < rank) {
+            writeVars.emplace_back(inductionVars[tpAxisMap[itrIdx]]);
+            itrIdx++;
+          }
+
+          auto writeOp = b.create<vector::TransferWriteOp>(
+              loc, transferReadOp->getResults()[0],
+              successorWriteOp->getOperands()[1], writeVars, inBoundsVal);
+          maybeYieldValue(b, loc, writeOp->getResults());
+        } else {
+          // outter loop
+          auto nxtFor =
+              generateScalarDataMovement(b, grpIdx, forDimIdx + 1, loc,
+                                         inductionVars, loopState, tpAxisMap);
+          maybeYieldValue(b, loc, nxtFor->getResults());
+        }
+      });
+}
+
+/// generate transpose for loop
+scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
+
+  // transpose rank must bigger than 2
+  TransposeCanonicalizer &tpCanonicalizer =
+      getTransposeCanonicalizers()[grpIdx];
+  vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
+  VectorType vtType = tpOp.getVector().getType();
+  std::cout << " _________ check tp operation source."
+            << "\n";
+  vtType.dump();
+  tpOp->getResultTypes()[0].dump();
+  size_t rank = vtType.getRank();
+  if (rank < 2) {
+    llvm::llvm_unreachable_internal(
+        "Wrong transpose operation appear. It's rank must bigger than 2.");
+    return nullptr;
+  }
+
+  // permutation contains last dim can use optimizing algorithm
+  ArrayRef<int64_t> permutation = tpOp.getPermutation();
+  DenseSet<int64_t> permuteSet(permutation.begin(), permutation.end());
+  bool isTwoDTranspose = tpCanonicalizer.isTwoDTranspose();
+  const int tpStep = 16;
+  // currently we only support shape that is an integer multiple of tpStep
+  if (vtType.getShape()[tpCanonicalizer.getFirstTpIdx()] % tpStep != 0 or
+      vtType.getShape()[tpCanonicalizer.getSecondTpIdx()] % tpStep != 0) {
+    isTwoDTranspose = false;
+  }
+  OpBuilder b(tpOp);
+  SmallVector<Value> iterArgs;
+  vector::TransferWriteOp successorWriteOp;
+  for (Operation *x : tpOp->getUsers()) {
+    if (isa<vector::TransferWriteOp>(x)) {
+      successorWriteOp = cast<vector::TransferWriteOp>(x);
+    }
+  }
+  iterArgs.emplace_back(successorWriteOp->getOperands()[1]);
+  SmallVector<Value> inductionVars;
+  IRRewriter rewriter(func);
+
+  if (permuteSet.contains(rank - 1) and isTwoDTranspose) {
+    std::cout << " can use 16x16 : " << std::endl;
+    scf::ForOp forOp = generateTransposeForLoopWithLastDim(
+        b, grpIdx, 0, tpStep, tpOp.getLoc(), inductionVars, iterArgs);
+
+    for (Operation *x : tpOp->getUsers()) {
+      if (isa<vector::TransferWriteOp>(x)) {
+        rewriter.replaceOp(x, forOp);
+      }
+    }
+    return forOp;
+  }
+  // findTransposeAxisMap(DenseMap<size_t, size_t> & tpAxisMap);
+  DenseMap<size_t, size_t> tpAxisMap;
+  size_t itrIdx = 0;
+  while (itrIdx < rank) {
+    tpAxisMap[itrIdx] = permutation[itrIdx];
+    itrIdx++;
+  }
+  // scalar data movement
+  scf::ForOp forOp = generateScalarDataMovement(
+      b, grpIdx, 0, tpOp.getLoc(), inductionVars, iterArgs, tpAxisMap);
+  for (Operation *x : tpOp->getUsers()) {
+    if (isa<vector::TransferWriteOp>(x)) {
+      rewriter.replaceOp(x, forOp);
+    }
+  }
+  std::cout << " scalar data movement." << std::endl;
   forOp->dump();
   return forOp;
 }
@@ -1599,6 +1811,44 @@ void MultiReductionCanonicalizer::prepareSpecialOperationInfo() {
   getReductionAxisAndParallelAxis();
   hasLastDimReduction();
 };
+
+void TransposeCanonicalizer::prepareSpecialOperationInfo() {
+  if (getCandidateOps().empty()) {
+    return;
+  }
+}
+
+bool TransposeCanonicalizer::isTwoDTranspose() {
+  ArrayRef<int64_t> permutation = getCandidateOps()[0].getPermutation();
+  size_t rank = permutation.size();
+  int diffCount = 0;
+  // get the first transpose axis
+  size_t itrIdx = 0;
+  while (itrIdx < rank) {
+    if ((int64_t)itrIdx != permutation[itrIdx]) {
+      diffCount += 1;
+    }
+    itrIdx += 1;
+  }
+  itrIdx = 0;
+  while (itrIdx < rank) {
+    if (permutation[itrIdx] != (int64_t)itrIdx) {
+      firstTpIdx = itrIdx;
+      break;
+    }
+    itrIdx++;
+  }
+  itrIdx = 0;
+  // get the second transpose axis
+  while (itrIdx < rank) {
+    if (permutation[itrIdx] == (int64_t)firstTpIdx) {
+      secondTpIdx = itrIdx;
+      break;
+    }
+    itrIdx++;
+  }
+  return diffCount == 2;
+}
 
 template <class T> void addDummyInit(SmallVector<T, 8> &canonicalizer) {
   canonicalizer.emplace_back(T({}));
@@ -1670,7 +1920,7 @@ void CanonicalizerVectorOperation::canonicalizeSpecialOperation() {
     SmallVector<vector::TransposeOp, 4> &transposeOps =
         transposeCanonicalizers[groupId].getCandidateOps();
     if (!transposeOps.empty()) {
-      // (void) generateTransposeForLoop(groupId);
+      (void)generateTransposeForLoop(groupId);
     }
   }
 }
@@ -2706,6 +2956,13 @@ struct CPUPhysicalRegisterPass
     CanonicalizerVectorOperation canonicalizer(
         func, CanonicalizerKind::OperationsGroup, hwInfo);
     canonicalizer.run();
+
+    // transpose kernel
+    vector::VectorTransformsOptions transposeOptions =
+        vector::VectorTransformsOptions();
+    transposeOptions.vectorTransposeLowering =
+        vector::VectorTransposeLowering::Shuffle16x16;
+    vector::populateVectorTransposeLoweringPatterns(patterns, transposeOptions);
 
     (void)applyPatternsAndFoldGreedily(func, std::move(patterns));
   }

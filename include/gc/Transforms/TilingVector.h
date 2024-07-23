@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/Float16bits.h"
 #include "mlir/IR/AffineMap.h"
@@ -246,16 +247,22 @@ public:
 class TransposeCanonicalizer
     : public SpecialOperationCanonicalizer<vector::TransposeOp> {
 private:
+  size_t firstTpIdx = 0, secondTpIdx = 0;
+
 public:
   TransposeCanonicalizer(
       const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps)
       : SpecialOperationCanonicalizer<vector::TransposeOp>(
             candidateTpOps, SpecialOperationKind::OP_Transpose){};
   virtual ~TransposeCanonicalizer() {}
-  void prepareSpecialOperationInfo() override {}
+  void prepareSpecialOperationInfo() override;
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_Transpose;
   }
+
+  size_t getFirstTpIdx() { return firstTpIdx; }
+  size_t getSecondTpIdx() { return secondTpIdx; }
+  bool isTwoDTranspose();
 };
 
 class ShapeCastCanonicalizer
@@ -514,6 +521,18 @@ public:
       const llvm::SmallVector<int64_t, 4> &parallelAxis,
       llvm::SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
       MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel);
+
+  /// transpose operation related
+  scf::ForOp generateTransposeForLoop(const size_t groupId);
+  scf::ForOp generateTransposeForLoopWithLastDim(
+      OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
+      const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
+      const ValueRange &iterArgs);
+
+  scf::ForOp generateScalarDataMovement(
+      OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
+      const Location &loc, SmallVector<Value> &inductionVars,
+      const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap);
 };
 
 class VectorOperationAnalyzer : virtual public CanonicalizerCommonUsedData {
