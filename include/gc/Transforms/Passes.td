@@ -59,4 +59,13 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
 }
 #endif
 
+def GpuLegalizeModule: Pass<"gc-gpu-legalize-module", ""> {
+  let summary = "Legalizes a GPU module for spirv conversion.";
+  let description = [{
+    Update all the nested gpu modules with an appropriate spirv target
+    information that is used further down in the pipeline.
+  }];
+  let dependentDialects = ["gpu::GPUDialect", "spirv::SPIRVDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
