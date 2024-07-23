@@ -1,5 +1,6 @@
 gc_add_mlir_library(GcGpuPasses
   LinalgToXeGPU.cpp
+  GPULegalizeModule.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
