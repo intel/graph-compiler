@@ -1,5 +1,6 @@
 add_mlir_library(GCGPUPasses
   LinalgToXeGPU.cpp
+  GPULegalizeModule.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include
