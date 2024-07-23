@@ -13,21 +13,19 @@
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.h"
 #include "gc/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallSet.h"
+#include <set>
 
 using namespace mlir::cpuruntime;
 
@@ -109,8 +107,38 @@ struct ConvertMemRefToCPURuntime
 
   void runOnOperation() final {
     auto *ctx = &getContext();
+    // Create a local set to store operations that should not be transformed.
+    llvm::SmallSet<Operation *, 16> noTransformOps;
+
+    // Walk through the module to find func::FuncOp instances.
+    getOperation()->walk([&](func::FuncOp funcOp) {
+      BufferViewFlowAnalysis analysis(funcOp);
+      // Now walk through the operations within the func::FuncOp.
+      funcOp.walk([&](Operation *op) {
+        if (op->hasTrait<OpTrait::ReturnLike>()) {
+          for (Value operand : op->getOperands()) {
+            if (operand.getType().isa<MemRefType>()) {
+              SmallPtrSet<Value, 16> aliases = analysis.resolve(operand);
+              // Check if any of the returned memref is allocated within scope.
+              for (Value alias : aliases) {
+                if (Operation *allocOp = alias.getDefiningOp<memref::AllocOp>()) {
+                  noTransformOps.insert(allocOp);
+                }
+              }
+            }
+          }
+        }
+      });
+    });
+
     // add lowering target
     ConversionTarget target(getContext());
+    target.addDynamicallyLegalOp<memref::AllocOp, memref::DeallocOp>(
+        [&](Operation *op) {
+          // Return true if the operation is in the noTransformOps set, making
+          // it dynamically legal.
+          return noTransformOps.find(op) != noTransformOps.end();
+        });
     target.addLegalDialect<
         // clang-format off
         BuiltinDialect,
@@ -121,28 +149,10 @@ struct ConvertMemRefToCPURuntime
         scf::SCFDialect
         // clang-format on
         >();
-    target.addIllegalOp<memref::AllocOp, memref::DeallocOp>();
     // set pattern
     RewritePatternSet patterns(ctx);
     patterns.add<AlignedAllocLowering>(ctx);
     patterns.add<AlignedDeallocLowering>(ctx);
-
-    // Traverse the entire graph to find returnlikeOp operations
-    getOperation()->walk([this, ctx](Operation *op) {
-      if (op->hasTrait<OpTrait::ReturnLike>()) {
-        for (Value operand : op->getOperands()) {
-          if (operand.getType().isa<MemRefType>()) {
-            // Use buffer analysis to trace the source of the memref
-            Value memrefSrc = getViewBase(operand);
-            if (auto allocOp = memrefSrc.getDefiningOp<memref::AllocOp>()) {
-              // If the source is an alloc, mark the allocOp with a no_trans
-              // attribute
-              allocOp->setAttr("no_trans", mlir::BoolAttr::get(ctx, true));
-            }
-          }
-        }
-      }
-    });
     // perform conversion
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
