@@ -13,6 +13,7 @@
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.h"
 #include "gc/Transforms/Passes.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -34,22 +35,11 @@ namespace gc {
 #define GEN_PASS_DEF_CONVERTMEMREFTOCPURUNTIME
 #include "gc/Transforms/Passes.h.inc"
 
-static Value getViewBase(Value value) {
-  while (auto viewLikeOp = value.getDefiningOp<ViewLikeOpInterface>())
-    value = viewLikeOp.getViewSource();
-  return value;
-}
 namespace {
 struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(memref::AllocOp op,
                                 PatternRewriter &rewriter) const final {
-    auto attr = op->getAttr("no_trans");
-    if (attr && attr.isa<mlir::BoolAttr>() &&
-        attr.cast<mlir::BoolAttr>().getValue()) {
-      success();
-    }
-    // The operation has a "no_trans" attribute set to true
     auto loc = op->getLoc();
     MemRefType type = op.getMemref().getType();
     ValueRange symbolOperands = op.getSymbolOperands();
@@ -117,11 +107,12 @@ struct ConvertMemRefToCPURuntime
       funcOp.walk([&](Operation *op) {
         if (op->hasTrait<OpTrait::ReturnLike>()) {
           for (Value operand : op->getOperands()) {
-            if (operand.getType().isa<MemRefType>()) {
+            if (isa<MemRefType>(operand.getType())) {
               SmallPtrSet<Value, 16> aliases = analysis.resolve(operand);
               // Check if any of the returned memref is allocated within scope.
               for (Value alias : aliases) {
-                if (Operation *allocOp = alias.getDefiningOp<memref::AllocOp>()) {
+                if (Operation *allocOp =
+                        alias.getDefiningOp<memref::AllocOp>()) {
                   noTransformOps.insert(allocOp);
                 }
               }
@@ -146,6 +137,7 @@ struct ConvertMemRefToCPURuntime
         memref::MemRefDialect,
         cpuruntime::CPURuntimeDialect,
         arith::ArithDialect,
+        affine::AffineDialect,
         scf::SCFDialect
         // clang-format on
         >();
