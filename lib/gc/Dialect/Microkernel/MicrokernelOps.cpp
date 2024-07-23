@@ -6,14 +6,26 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Dialect.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/TypeUtilities.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
+
 #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
-#include <mlir/IR/TypeUtilities.h>
 
 #define GET_OP_CLASSES
 #include "gc/Dialect/Microkernel/MicrokernelOps.cpp.inc"
 
 #include <llvm/Support/Debug.h>
+
+using namespace mlir::bufferization;
 
 namespace mlir {
 
@@ -330,6 +342,90 @@ LogicalResult BrgemmOnTensorOp::verify() {
     return op.emitOpError() << "unmatched matmul dim of A, B and C\n";
 
   return verifyBrgemmFlags(op.getFlags(), op, FLAGS_ASM_NAME);
+}
+
+bool BrgemmOnTensorOp::bufferizesToMemoryRead(OpOperand &opOperand,
+                                              const AnalysisState &state) {
+  Operation *op = *this;
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+  return !dpsOp.isDpsInit(&opOperand);
+}
+
+bool BrgemmOnTensorOp::bufferizesToMemoryWrite(OpOperand &opOperand,
+                                               const AnalysisState &state) {
+  Operation *op = *this;
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+  return dpsOp.isDpsInit(&opOperand);
+}
+
+bool BrgemmOnTensorOp::bufferizesToElementwiseAccess(
+    const AnalysisState &state, ArrayRef<OpOperand *> opOperands) {
+  // This op contains non-parallel reduction loops,
+  // should return `false` per linalg implementation
+  return false;
+}
+
+LogicalResult BrgemmOnTensorOp::bufferize(RewriterBase &rewriter,
+                                          const BufferizationOptions &options) {
+  // This implementation refers to linalg's
+  // `bufferizeDestinationStyleOpInterface`
+  Operation *op = *this;
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+
+  // Take a guard before anything else.
+  OpBuilder::InsertionGuard g(rewriter);
+  rewriter.setInsertionPoint(dpsOp);
+
+  // Nothing to do. This op is already bufferized.
+  if (dpsOp.hasPureBufferSemantics())
+    return success();
+
+  // Ensure op has only tensors. Allow mixed tensor-buffer mode on a per-need
+  // basis.
+  if (!dpsOp.hasPureTensorSemantics())
+    return emitError() << "op does not have pure tensor semantics";
+
+  // New input operands for the cloned op.
+  SmallVector<Value> newInputBuffers;
+  newInputBuffers.reserve(dpsOp.getNumDpsInputs());
+  for (OpOperand *opOperand : dpsOp.getDpsInputOperands()) {
+    FailureOr<Value> buffer = getBuffer(rewriter, opOperand->get(), options);
+    if (failed(buffer))
+      return failure();
+    newInputBuffers.push_back(*buffer);
+  }
+
+  // New output operands for the cloned op.
+  SmallVector<Value> newOutputBuffers;
+  for (OpResult opResult : dpsOp->getOpResults()) {
+    OpOperand *opOperand = dpsOp.getDpsInitOperand(opResult.getResultNumber());
+    FailureOr<Value> resultBuffer =
+        getBuffer(rewriter, opOperand->get(), options);
+    if (failed(resultBuffer))
+      return failure();
+    newOutputBuffers.push_back(*resultBuffer);
+  }
+
+  // Merge input/output operands.
+  SmallVector<Value> newOperands = newInputBuffers;
+  newOperands.append(newOutputBuffers.begin(), newOutputBuffers.end());
+
+  // Set insertion point now that potential alloc/dealloc are introduced.
+  rewriter.setInsertionPoint(dpsOp);
+  // Clone the op, but use the new operands. Since the new op does not have any
+  // tensor results, it does not return anything.
+  OperationState state(dpsOp->getLoc(), dpsOp->getName(), newOperands,
+                       TypeRange{}, dpsOp->getAttrs());
+  Operation *newOp = Operation::create(state);
+
+  // We don't want the rewriter tracks an incomplete operation, so insert new
+  // operation after op was fully constructed.
+  rewriter.insert(newOp);
+
+  // Replace the results of the old op with the new output buffers.
+  replaceOpWithBufferizedValues(rewriter, dpsOp, newOutputBuffers);
+
+  return success();
 }
 
 /////////////////////////////////////////////////////

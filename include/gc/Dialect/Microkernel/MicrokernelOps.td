@@ -11,6 +11,7 @@
 
 include "MicrokernelDialect.td"
 include "gc/Dialect/Microkernel/MicrokernelEnum.td"
+include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
@@ -33,6 +34,7 @@ def BrgemmTensorOrMemRef : AnyTypeOf<[StaticTensorRankOf<[F32, BF16, SI32, SI8, 
 
 def Microkernel_BrgemmOnTensorOp : Microkernel_Op<"brgemm_on_tensor", 
 	[DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+         BufferizableOpInterface,
          DestinationStyleOpInterface]> {
   let summary = "Abstract Op that execute brgemm kernel on tensors.";
   let description = [{
@@ -64,6 +66,15 @@ def Microkernel_BrgemmOnTensorOp : Microkernel_Op<"brgemm_on_tensor",
     int64_t getLeadingDimB() { return getLeadingDims()[1]; }
 
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
+
+    bool bufferizesToMemoryRead(OpOperand &,
+                                const bufferization::AnalysisState &);
+    bool bufferizesToMemoryWrite(OpOperand &,
+                                 const bufferization::AnalysisState &);
+    bool bufferizesToElementwiseAccess(const bufferization::AnalysisState &,
+                                       ArrayRef<OpOperand *>);
+    LogicalResult bufferize(RewriterBase &,
+                            const bufferization::BufferizationOptions &);
   }];
 
   let hasVerifier = 1;
