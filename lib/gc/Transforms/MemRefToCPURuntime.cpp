@@ -117,12 +117,8 @@ struct ConvertMemRefToCPURuntime
         func::FuncDialect,
         memref::MemRefDialect,
         cpuruntime::CPURuntimeDialect,
-        math::MathDialect,
         arith::ArithDialect,
-        scf::SCFDialect,
-        tensor::TensorDialect,
-        linalg::LinalgDialect,
-        affine::AffineDialect
+        scf::SCFDialect
         // clang-format on
         >();
     target.addIllegalOp<memref::AllocOp, memref::DeallocOp>();
