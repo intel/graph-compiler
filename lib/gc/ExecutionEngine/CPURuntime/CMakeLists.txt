@@ -11,7 +11,6 @@ add_mlir_library(GCCpuRuntime
     SHARED
     Parallel.cpp
     Memorypool.cpp
-    ThreadLocals.cpp
     EXCLUDE_FROM_LIBMLIR
 
     ADDITIONAL_HEADER_DIRS
