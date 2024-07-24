@@ -1,10 +1,10 @@
-//===- MicrokernelInvariantCodeMotion.cpp ----------------------*- C++ -*-===//
+//===-- MicrokernelInvariantCodeMotion.cpp - Hoist invariance ---*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//===---------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -82,7 +82,7 @@ struct BrgemmContextStructInfo {
   }
 };
 
-typedef DenseMap<Operation *, BrgemmContextStructInfo> OpStructInfoMap;
+using OpStructInfoMap = DenseMap<Operation *, BrgemmContextStructInfo>;
 
 class BrgemmTilecfgRewriter : public OpRewritePattern<func::CallOp> {
 private:
@@ -297,12 +297,14 @@ private:
   // current Op without violating other peer BrgemmCallOp in the same level; For
   // example, one scf.ForOp contains two TILECFG in the same level, then we
   // cannot hoist any of them.
+  // NOLINTBEGIN(performance-unnecessary-value-param)
   void expandInvariantScopeWithCond(
       OpStructInfoMap &structInfo, Operation *op,
       std::function<bool(Operation *)> controlFlowAllow,
       std::function<bool(Operation *, const OpStructInfoMap &, Operation *,
                          const DenseSet<Operation *> &)>
           peerAllow) {
+    // NOLINTEND(performance-unnecessary-value-param)
     auto opIter = structInfo.find(op);
     assert(opIter != structInfo.end());
     auto contextRoot = opIter->second.contextRoot;
