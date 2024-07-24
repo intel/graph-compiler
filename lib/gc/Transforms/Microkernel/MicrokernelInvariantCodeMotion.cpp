@@ -18,7 +18,7 @@
 
 #include "gc/Transforms/Microkernel/BrgemmRuntimeUtils.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
-#include "gc/Utils/ValueUtils.h"
+#include "gc/Transforms/Utils/ValueUtils.h"
 #include "oneapi/dnnl/dnnl_types.h"
 
 namespace mlir::microkernel {
