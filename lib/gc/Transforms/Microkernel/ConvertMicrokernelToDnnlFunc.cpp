@@ -16,7 +16,7 @@
 
 #include "gc/Transforms/Microkernel/BrgemmRuntimeUtils.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
-#include "gc/Utils/ValueUtils.h"
+#include "gc/Transforms/Utils/ValueUtils.h"
 
 namespace mlir::microkernel {
 #define GEN_PASS_DEF_CONVERTMICROKERNELTODNNLFUNC
