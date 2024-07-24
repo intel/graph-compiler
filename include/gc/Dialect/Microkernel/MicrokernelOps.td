@@ -32,7 +32,7 @@ def BrgemmTensor : StaticTensorRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>;
 def BrgemmTensorOrMemRef : AnyTypeOf<[StaticTensorRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>,
                                       StaticMemRefRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>]>;
 
-def Microkernel_BrgemmOnTensorOp : Microkernel_Op<"brgemm_on_tensor", 
+def Microkernel_BrgemmOp : Microkernel_Op<"brgemm", 
 	[DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
          BufferizableOpInterface,
          DestinationStyleOpInterface]> {
@@ -143,7 +143,7 @@ def Microkernel_BrgemmEpilogueOp : Microkernel_Op<"brgemm.epilogue"> {
  */
 def BrgemmMemRefOrI64 : AnyTypeOf<[StaticMemRefRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>, I64]>;
 
-def Microkernel_BrgemmOp : Microkernel_Op<"brgemm"> {
+def Microkernel_BrgemmExecuteOp : Microkernel_Op<"brgemm.execute"> {
   let summary = "execute the JITed brgemm kernel.";
   let description = [{
     The operation has the following arguments: 

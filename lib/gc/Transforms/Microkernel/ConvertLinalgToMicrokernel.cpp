@@ -310,7 +310,7 @@ static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
                         linalgOp->getOperands().end());
   invokeOperands.push_back(batchDim);
   invokeOperands.push_back(lenDim);
-  rewriter.create<microkernel::BrgemmOp>(loc, invokeOperands);
+  rewriter.create<microkernel::BrgemmExecuteOp>(loc, invokeOperands);
 
   // create epilogue op & replace original op
   rewriter.replaceOpWithNewOp<microkernel::BrgemmEpilogueOp>(linalgOp,

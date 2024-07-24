@@ -190,10 +190,9 @@ static LogicalResult verifyBrgemmFlags(ArrayAttr flags, Operation *op,
 }
 
 /////////////////////////////////////////////////////
-// Start of BrgemmOnTensorOp
+// Start of BrgemmOp
 
-ParseResult BrgemmOnTensorOp::parse(OpAsmParser &parser,
-                                    OperationState &result) {
+ParseResult BrgemmOp::parse(OpAsmParser &parser, OperationState &result) {
 
   if (failed(parseOperandsImpl(parser, result, INPUTS_ASM_NAME)))
     return failure();
@@ -217,8 +216,8 @@ ParseResult BrgemmOnTensorOp::parse(OpAsmParser &parser,
   return success();
 }
 
-void BrgemmOnTensorOp::print(OpAsmPrinter &printer) {
-  BrgemmOnTensorOp op = *this;
+void BrgemmOp::print(OpAsmPrinter &printer) {
+  BrgemmOp op = *this;
   printer << " " << INPUTS_ASM_NAME << "(" << op.getInputs() << ")";
   printer << " " << OUTPUTS_ASM_NAME << "(" << op.getInit() << ")";
   printer << " " << BATCH_DIMS_ASM_NAME << "(" << op.getBatchDims() << ")";
@@ -233,18 +232,17 @@ void BrgemmOnTensorOp::print(OpAsmPrinter &printer) {
   printer.printOptionalArrowTypeList(resultTypes);
 }
 
-LogicalResult BrgemmOnTensorOp::fold(FoldAdaptor,
-                                     SmallVectorImpl<OpFoldResult> &) {
+LogicalResult BrgemmOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
   return memref::foldMemRefCast(*this);
 }
 
-void BrgemmOnTensorOp::getEffects(
+void BrgemmOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
   if (hasPureTensorSemantics())
     return;
 
-  BrgemmOnTensorOp op = *this;
+  BrgemmOp op = *this;
 
   for (auto [index, operand] : llvm::enumerate(op.getDpsInputs())) {
     if (!llvm::isa<MemRefType>(operand.getType()))
@@ -289,8 +287,8 @@ static inline ArrayRef<int64_t> getShapedValueShape(Value val) {
   return memrefTy.getShape();
 }
 
-LogicalResult BrgemmOnTensorOp::verify() {
-  BrgemmOnTensorOp op = *this;
+LogicalResult BrgemmOp::verify() {
+  BrgemmOp op = *this;
 
   size_t expectedInputSize = 2;
   SmallVector<Value, 2> ins;
@@ -344,29 +342,29 @@ LogicalResult BrgemmOnTensorOp::verify() {
   return verifyBrgemmFlags(op.getFlags(), op, FLAGS_ASM_NAME);
 }
 
-bool BrgemmOnTensorOp::bufferizesToMemoryRead(OpOperand &opOperand,
-                                              const AnalysisState &state) {
+bool BrgemmOp::bufferizesToMemoryRead(OpOperand &opOperand,
+                                      const AnalysisState &state) {
   Operation *op = *this;
   auto dpsOp = cast<DestinationStyleOpInterface>(op);
   return !dpsOp.isDpsInit(&opOperand);
 }
 
-bool BrgemmOnTensorOp::bufferizesToMemoryWrite(OpOperand &opOperand,
-                                               const AnalysisState &state) {
+bool BrgemmOp::bufferizesToMemoryWrite(OpOperand &opOperand,
+                                       const AnalysisState &state) {
   Operation *op = *this;
   auto dpsOp = cast<DestinationStyleOpInterface>(op);
   return dpsOp.isDpsInit(&opOperand);
 }
 
-bool BrgemmOnTensorOp::bufferizesToElementwiseAccess(
-    const AnalysisState &state, ArrayRef<OpOperand *> opOperands) {
+bool BrgemmOp::bufferizesToElementwiseAccess(const AnalysisState &state,
+                                             ArrayRef<OpOperand *> opOperands) {
   // This op contains non-parallel reduction loops,
   // should return `false` per linalg implementation
   return false;
 }
 
-LogicalResult BrgemmOnTensorOp::bufferize(RewriterBase &rewriter,
-                                          const BufferizationOptions &options) {
+LogicalResult BrgemmOp::bufferize(RewriterBase &rewriter,
+                                  const BufferizationOptions &options) {
   // This implementation refers to linalg's
   // `bufferizeDestinationStyleOpInterface`
   Operation *op = *this;
@@ -518,7 +516,7 @@ LogicalResult BrgemmDispatchOp::verify() {
 }
 
 /////////////////////////////////////////////////////
-// Start of BrgemmOp
+// Start of BrgemmExecuteOp
 
 // TODO(haixin): could use compiler-wide VNNI utils?
 static bool isInVnniLayout(MemRefType memref) {
@@ -556,8 +554,8 @@ static bool isTypeSupported(Type outType, Type operandAType,
   return true;
 }
 
-LogicalResult BrgemmOp::verify() {
-  BrgemmOp &brgemmOp = *this;
+LogicalResult BrgemmExecuteOp::verify() {
+  BrgemmExecuteOp &brgemmOp = *this;
 
   SmallVector<Value> inputs = brgemmOp.getInputs();
   // inputs for BRGEMM: kernel id, A memref, B memref, C memref, batch_size,
