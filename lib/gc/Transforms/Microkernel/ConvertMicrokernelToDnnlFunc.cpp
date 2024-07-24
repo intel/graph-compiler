@@ -136,13 +136,14 @@ public:
   }
 };
 
-class ConvertBrgemmOpRewriter : public OpRewritePattern<microkernel::BrgemmOp> {
+class ConvertBrgemmExecuteOpRewriter
+    : public OpRewritePattern<microkernel::BrgemmExecuteOp> {
 public:
-  using OpRewritePattern<microkernel::BrgemmOp>::OpRewritePattern;
+  using OpRewritePattern<microkernel::BrgemmExecuteOp>::OpRewritePattern;
   // runtime func for stride mode dnnl brgemm execution:
   // void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void
   // *B, uint64_t B_offset, void *C, uint64_t C_offset, int num)
-  LogicalResult matchAndRewrite(microkernel::BrgemmOp op,
+  LogicalResult matchAndRewrite(microkernel::BrgemmExecuteOp op,
                                 PatternRewriter &rewriter) const final {
     // currently only support stride mode, directly call it
     // TODO(haixin): support addr mode execution, through detecting dispatch
@@ -210,7 +211,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns
         .add<ConvertBrgemmDispatchOpRewriter, ConvertBrgemmPrologueOpRewriter,
-             ConvertBrgemmOpRewriter, ConvertBrgemmEpilogueOpRewriter>(
+             ConvertBrgemmExecuteOpRewriter, ConvertBrgemmEpilogueOpRewriter>(
             &getContext());
 
     FrozenRewritePatternSet patternSet(std::move(patterns));

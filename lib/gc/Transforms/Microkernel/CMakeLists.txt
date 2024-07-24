@@ -4,6 +4,7 @@ include(onednn)
 
 gc_add_mlir_dialect_library(MLIRMicrokernelTransforms
 	ConvertLinalgToMicrokernel.cpp
+        ExpandMicrokernel.cpp
         ConvertMicrokernelToDnnlFunc.cpp
 
         ADDITIONAL_HEADER_DIRS
