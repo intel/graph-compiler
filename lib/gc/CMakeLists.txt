@@ -4,6 +4,8 @@ endif()
 
 include(functions)
 
+add_subdirectory(CAPI)
 add_subdirectory(Dialect)
 add_subdirectory(Analysis)
 add_subdirectory(Transforms)
+add_subdirectory(ExecutionEngine)

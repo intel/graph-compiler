@@ -1,3 +1,5 @@
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRFuncDialect)
+
 add_mlir_dialect_library(MLIRCPURuntimeDialect
         CPURuntimeDialect.cpp
         CPURuntimeOps.cpp
@@ -10,5 +12,5 @@ add_mlir_dialect_library(MLIRCPURuntimeDialect
         MLIRCPURuntimePassesIncGen
 
         LINK_LIBS PUBLIC
-        MLIRFuncDialect
+        ${MLIR_LINK_COMPONENTS}
         )

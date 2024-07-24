@@ -12,7 +12,40 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
+
+namespace LLVM {
+class LLVMDialect;
+}
+
+namespace scf {
+class SCFDialect;
+}
+
+namespace openmp {
+class OpenMPDialect;
+}
+
+namespace linalg {
+class LinalgDialect;
+}
+namespace linalgx {
+class LinalgxDialect;
+}
+
+namespace MemRef {
+class MemRefDialect;
+}
+
+namespace xegpu {
+class XeGPUDialect;
+}
+
+class OpPassManager;
+
 namespace gc {
+
+void populateFrontendPasses(mlir::OpPassManager &);
+void populateCPUPipeline(mlir::OpPassManager &);
 
 #define GEN_PASS_DECL
 #define GEN_PASS_DECL_CONSTANTSUBGRAPHANALYSIS

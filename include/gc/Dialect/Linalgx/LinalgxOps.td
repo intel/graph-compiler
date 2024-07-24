@@ -11,4 +11,8 @@
 
 include "LinalgxDialect.td"
 
+// Base class for Linalg dialect ops that do not correspond to library calls.
+class Linalgx_Op<string mnemonic, list<Trait> traits = []> :
+    Op<LinalgxDialect, mnemonic, traits>;
+
 #endif // LINALGX_OPS

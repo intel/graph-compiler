@@ -1,0 +1,114 @@
+{
+  "version": "3.5.0",
+  "engine_kind": "cpu",
+  "fpmath_mode": "any",
+  "input_ports": [
+    0,
+    1
+  ],
+  "output_ports": [
+    3
+  ],
+  "graph": [
+    {
+      "id": 0,
+      "name": "add",
+      "kind": "Add",
+      "attrs": {
+        "auto_broadcast": {
+          "type": "string",
+          "value": "none"
+        }
+      },
+      "inputs": [
+        {
+          "id": 0,
+          "dtype": "bf16",
+          "shape": [
+            1,
+            32,
+            28,
+            28
+          ],
+          "stride": [
+            -9223372036854775808
+          ],
+          "layout_type": "undef",
+          "property_type": "undef"
+        },
+        {
+          "id": 1,
+          "dtype": "bf16",
+          "shape": [
+            1,
+            32,
+            28,
+            28
+          ],
+          "stride": [
+            1, 2, 3, 4
+          ],
+          "layout_type": "strided",
+          "property_type": "undef"
+        }
+      ],
+      "outputs": [
+        {
+          "id": 2,
+          "dtype": "bf16",
+          "shape": [
+            1,
+            32,
+            28,
+            28
+          ],
+          "stride": [
+            -9223372036854775808
+          ],
+          "layout_type": "undef",
+          "property_type": "undef"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "relu",
+      "kind": "ReLU",
+      "attrs": {},
+      "inputs": [
+        {
+          "id": 2,
+          "dtype": "bf16",
+          "shape": [
+            1,
+            32,
+            28,
+            28
+          ],
+          "stride": [
+            -9223372036854775808
+          ],
+          "layout_type": "undef",
+          "property_type": "undef"
+        }
+      ],
+      "outputs": [
+        {
+          "id": 3,
+          "dtype": "bf16",
+          "shape": [
+            1,
+            32,
+            28,
+            28
+          ],
+          "stride": [
+            -9223372036854775808
+          ],
+          "layout_type": "undef",
+          "property_type": "undef"
+        }
+      ]
+    }
+  ]
+}

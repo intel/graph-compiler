@@ -17,6 +17,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -27,13 +28,18 @@
 #include "llvm/Support/TargetSelect.h"
 #include <stdio.h>
 
+extern int gc_runtime_keep_alive;
+
 int main(int argc, char **argv) {
+  // keeps GCCPURuntime linked
+  gc_runtime_keep_alive = 0;
   llvm::InitLLVM y(argc, argv);
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();
 
   mlir::DialectRegistry registry;
+  registry.insert<mlir::arith::ArithDialect>();
   mlir::registerAllToLLVMIRTranslations(registry);
 
   return mlir::JitRunnerMain(argc, argv, registry);

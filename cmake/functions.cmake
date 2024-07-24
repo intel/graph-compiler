@@ -31,7 +31,7 @@ function(gc_fetch_content
         FetchContent_Declare(
                 ${name}
                 SOURCE_DIR ${GC_${uname}_SRC_DIR}
-                CMAKE_ARGS ${${uname}_CMAKE_ARGS}
+                CMAKE_ARGS ${GC_${uname}_CMAKE_ARGS}
         )
     else ()
         if (DEFINED GC_${uname}_VERSION)
@@ -65,12 +65,13 @@ function(gc_fetch_content
                 FetchContent_Populate(${name})
                 FetchContent_GetProperties(${name})
                 set(${name}_POPULATED TRUE PARENT_SCOPE)
-                set(${name}_SOURCE_DIR ${${name}_SOURCE_DIR} PARENT_SCOPE)
-                set(${name}_BINARY_DIR ${${name}_BINARY_DIR} PARENT_SCOPE)
             endif ()
         else ()
             FetchContent_MakeAvailable(${name})
         endif ()
+
+        set(${name}_SOURCE_DIR ${${name}_SOURCE_DIR} PARENT_SCOPE)
+        set(${name}_BINARY_DIR ${${name}_BINARY_DIR} PARENT_SCOPE)
     endif ()
 endfunction()
 

@@ -1,3 +1,5 @@
+[<img src="https://scan.coverity.com/projects/30281/badge.svg">](https://scan.coverity.com/projects/intel-graph-compiler)
+
 # Graph Compiler
 Graph Compiler is an end-to-end, MLIR-based compiler designed to enhance the performance of deep learning workloads. It accepts computation graphs from the frontend, applies domain-specific optimizations and transformations, generates code, and manages runtime execution.
 
@@ -30,8 +32,9 @@ cmake --build build --target install
 ```
 
 Notes
- * It is recommended to add optional options `-DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON` to the command `cmake -G Ninja llvm ...` above. These will enable the build of LLVM/MLIR dynamic libraries and let MLIR/LLVM tools link to them, to reduce the installed binary size of LLVM/MLIR. These options also enable the `GC_DEV_LINK_LLVM_DYLIB` option of graph-compiler repo (see below).
+ * It is recommended to add optional options `-DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON` to the command `cmake -G Ninja llvm ...` above **if you are building for CPU only**. These will enable the build of LLVM/MLIR dynamic libraries and let MLIR/LLVM tools link to them, to reduce the installed binary size of LLVM/MLIR. These options also enable the `GC_DEV_LINK_LLVM_DYLIB` option of graph-compiler repo (see below).
  * The option `-DLLVM_INSTALL_GTEST=ON` is optional, if the tests of graph-compiler are disabled (see `GC_TEST_ENABLE` below).
+ * If you would like to enable GPU components of Graph Compiler, please make sure to statically link Graph Compiler and LLVM(MLIR). It is a known issue that LLVM shared library cannot be linked together with IGC (Intel's low level GPU compiler). Make sure `LLVM_BUILD_LLVM_DYLIB` and `LLVM_LINK_LLVM_DYLIB` are `OFF` (they are off by default). Also make sure Graph Compiler's cmake option `GC_DEV_LINK_LLVM_DYLIB` is `OFF` when configuring Graph Compiler (see below).
 
 We have now installed LLVM at `llvm-project/llvm-install`.
 
@@ -55,6 +58,7 @@ cmake --build . --target gc-check
 Notes:
  * `/PATH/TO/llvm-project/llvm-install` should be the install path of LLVM. If you installed LLVM elsewhere by `-DCMAKE_INSTALL_PREFIX` option when building LLVM, you need to change the path in `-DMLIR_DIR` accordingly.
  *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
+ * If GPU components are on (`-DGC_USE_GPU=ON`), make sure the Level-zero runtime is installed in your system. Either install Level-zero runtime via system package managers (e.g. `apt`), or follow the instructions of [IMEX](https://github.com/intel/mlir-extensions).
 
 Graph Compiler supports the following build-time options.
 
@@ -63,4 +67,6 @@ Graph Compiler supports the following build-time options.
 | GC_LEGACY_ENABLE                | **ON**, OFF                            | Controls building the legacy graph-compiler component                                  |
 | GC_TEST_ENABLE                  | **ON**, OFF                            | Controls building the tests                                                            |
 | GC_DEV_LINK_LLVM_DYLIB          | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer                        |
+| GC_ENABLE_BINDINGS_PYTHON       | **ON**, OFF                            | Controls building the Python API                                                       |
+| GC_USE_GPU          | ON, **OFF**                            | Whether to enable the GPU components                        |
 
