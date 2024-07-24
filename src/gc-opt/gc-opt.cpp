@@ -23,6 +23,7 @@
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
@@ -55,6 +56,7 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::linalgx::LinalgxDialect>();
   registry.insert<mlir::microkernel::MicrokernelDialect>();
   mlir::registerAllDialects(registry);
+  mlir::registerAllExtensions(registry);
 #ifdef GC_USE_GPU
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif
