@@ -27,14 +27,18 @@
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#endif
 #include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
 
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::OpPassManager &pm) {
+#ifdef GC_HAS_ONEDNN_DIALECT
   pm.addPass(createConvertOneDNNGraphToLinalg());
+#endif
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack

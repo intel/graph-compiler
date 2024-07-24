@@ -1,11 +1,11 @@
 set(GC_ALL_LIBS 
   MLIROneDNNGraph
-  MLIRCPURuntimeDialect
-  GCPasses
+  ${GC_ONEDNN_DIALECT_LIB_NAME}
+  GcPasses
   MLIRCPURuntimeTransforms)
 
 if(GC_USE_GPU)
-  list(APPEND GC_ALL_LIBS GCGPUPasses)
+  list(APPEND GC_ALL_LIBS GcGPUPasses)
 endif()
 
 add_mlir_public_c_api_library(GcCAPI

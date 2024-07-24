@@ -26,12 +26,12 @@ else()
   )
 endif()
 
-set(GC_PASSES GCPasses)
-if(GC_USE_GPU)
-  list(APPEND GC_PASSES GCGPUPasses)
+set(GC_PASSES GcPasses)
+if(GC_UNABLE_GPU)
+  list(APPEND GC_PASSES GcGPUPasses)
 endif()
 
-add_mlir_library(GCJitWrapper
+add_mlir_library(GcJitWrapper
   Driver.cpp
 
   ADDITIONAL_HEADER_DIRS

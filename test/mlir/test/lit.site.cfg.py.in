@@ -30,11 +30,11 @@ config.host_ldflags = '@HOST_LDFLAGS@'
 config.llvm_use_sanitizer = "@LLVM_USE_SANITIZER@"
 config.llvm_host_triple = '@LLVM_HOST_TRIPLE@'
 config.host_arch = "@HOST_ARCH@"
-config.gc_src_root = "@CMAKE_SOURCE_DIR@"
-config.gc_obj_root = "@CMAKE_BINARY_DIR@"
+config.gc_src_root = "@PROJECT_SOURCE_DIR@"
+config.gc_obj_root = "@PROJECT_BINARY_DIR@"
 config.gc_lib_dir = os.path.join(config.gc_obj_root, "lib")
 config.mlir_obj_dir = "@MLIR_BINARY_DIR@"
-config.gc_use_gpu = "@GC_USE_GPU@" in ["ON", "1"]
+config.gc_use_gpu = "@GC_ENABLE_GPU@" in ["ON", "1"]
 config.enable_bindings_python = @GC_ENABLE_BINDINGS_PYTHON@
 config.llvm_shlib_dir = "@SHLIBDIR@"
 config.llvm_shlib_ext = "@SHLIBEXT@"
@@ -48,4 +48,4 @@ import lit.llvm
 lit.llvm.initialize(lit_config, config)
 
 # Let the main config do the real work.
-lit_config.load_config(config, "@CMAKE_SOURCE_DIR@/test/mlir/test/lit.cfg.py")
+lit_config.load_config(config, "@PROJECT_SOURCE_DIR@/test/mlir/test/lit.cfg.py")

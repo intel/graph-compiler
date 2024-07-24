@@ -8,7 +8,9 @@
 
 #include "gc/ExecutionEngine/Driver/Driver.h"
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#endif
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -29,7 +31,9 @@ static DialectRegistry initDialects() {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   mlir::registerAllDialects(registry);
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
+#ifdef GC_HAS_ONEDNN_DIALECT
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
+#endif
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();

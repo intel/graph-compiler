@@ -18,20 +18,25 @@ function(gc_fetch_content
         # Optional arguments:
         # SKIP_ADD: Populate but do not add the content to the project.
         # SKIP_FIND: Do not use find_package().
-        # CMAKE_ARGS: Passed to FetchContent_Declare.
+        # SET: key=value variables to be set before the content population.
 )
     string(TOUPPER ${name} uname)
-    cmake_parse_arguments(GC_${uname} "SKIP_ADD;SKIP_FIND" "" "CMAKE_ARGS" ${ARGN})
+    cmake_parse_arguments(GC_${uname} "SKIP_ADD;SKIP_FIND" "" "SET" ${ARGN})
 
-    if (DEFINED GC_${uname}_CMAKE_ARGS)
-        message(STATUS "${name}_CMAKE_ARGS: ${GC_${uname}_CMAKE_ARGS}")
+    if (DEFINED GC_${uname}_SET)
+        foreach (var ${GC_${uname}_SET})
+            string(REGEX REPLACE "([^=]+)=(.*)" "\\1;\\2" var ${var})
+            list(GET var 0 key)
+            list(GET var 1 value)
+            message(STATUS "Setting ${key}=${value}")
+            set(${key} ${value})
+        endforeach ()
     endif ()
 
     if (DEFINED GC_${uname}_SRC_DIR)
         FetchContent_Declare(
                 ${name}
                 SOURCE_DIR ${GC_${uname}_SRC_DIR}
-                CMAKE_ARGS ${GC_${uname}_CMAKE_ARGS}
         )
     else ()
         if (DEFINED GC_${uname}_VERSION)
@@ -53,7 +58,6 @@ function(gc_fetch_content
                     GIT_REPOSITORY ${git_repository}
                     GIT_TAG ${git_tag_or_version}
                     GIT_PROGRESS TRUE
-                    CMAKE_ARGS ${GC_${uname}_CMAKE_ARGS}
                     FIND_PACKAGE_ARGS ${FIND_PACKAGE_ARGS}
             )
         endif ()
@@ -74,28 +78,6 @@ function(gc_fetch_content
         set(${name}_BINARY_DIR ${${name}_BINARY_DIR} PARENT_SCOPE)
     endif ()
 endfunction()
-
-# Add one or multiple paths to the specified list.
-# The paths could be specified as a list of files or a GLOB pattern:
-#   gc_add_path(SOURCES GLOB "src/*.cpp")
-#   gc_add_path(INCLUDES include1 include2 include3)
-function(gc_add_path list_name paths)
-    if (paths STREQUAL "GLOB")
-        file(GLOB paths ${ARGN})
-        list(APPEND ${list_name} ${paths})
-    else ()
-        get_filename_component(path ${paths} ABSOLUTE)
-        list(APPEND ${list_name} ${path})
-        foreach (path ${ARGN})
-            get_filename_component(path ${path} ABSOLUTE)
-            list(APPEND ${list_name} ${path})
-        endforeach ()
-    endif ()
-    set(${list_name} ${${list_name}}
-            CACHE INTERNAL "${list_name} paths"
-    )
-endfunction()
-
 
 macro(gc_set_mlir_link_components VAR)
     if(GC_DEV_LINK_LLVM_DYLIB)

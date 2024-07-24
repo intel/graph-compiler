@@ -9,7 +9,7 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
 get_property(mlir_dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
-add_mlir_library(GCPasses
+add_mlir_library(GcPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   TileNamed.cpp
@@ -24,7 +24,7 @@ add_mlir_library(GCPasses
     ${mlir_dialect_libs}
     ${mlir_conversion_libs}
     ${MLIR_LINK_COMPONENTS}
-    MLIROneDNNGraph
+    ${GC_ONEDNN_DIALECT_LIB_NAME}
   )
 
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

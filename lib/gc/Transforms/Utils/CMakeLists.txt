@@ -1,4 +1,4 @@
-add_mlir_library(GCUtilsIR
+add_mlir_library(GcUtilsIR
   MatcherUtils.cpp
   StructuredOpMatcher.cpp
   ValueUtils.cpp

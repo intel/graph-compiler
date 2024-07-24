@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#ifdef GC_HAS_ONEDNN_DIALECT
 
 #include <numeric>
 #include <vector>
@@ -560,3 +561,5 @@ struct ConvertOneDNNGraphToLinalg
 } // namespace
 } // namespace gc
 } // namespace mlir
+
+#endif // GC_HAS_ONEDNN_DIALECT

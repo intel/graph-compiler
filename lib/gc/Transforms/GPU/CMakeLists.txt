@@ -1,4 +1,4 @@
-add_mlir_library(GCGPUPasses
+add_mlir_library(GcGpuPasses
   LinalgToXeGPU.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -17,7 +17,7 @@ add_mlir_library(GCGPUPasses
     MLIRMathToSPIRV
     MLIRControlFlowToSPIRV
     MLIRMemRefTransforms
-    GCUtilsIR
+    GcUtilsIR
 )
 
-set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCGPUPasses)
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GcGpuPasses)

@@ -24,15 +24,19 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
-option(GC_LEGACY_ENABLE ON)
-option(GC_TEST_ENABLE "Build the tests" ON)
-option(GC_USE_GPU "Enable GPU backend" OFF)
+option(GC_ENABLE_LEGACY ON)
+option(GC_ENABLE_DNNL "Enable the oneDNN library integration" ON)
+option(GC_ENABLE_TEST "Build the tests" ON)
+option(GC_ENABLE_TEST_DNNL "Build the dnnl tests" ${GC_ENABLE_DNNL})
+option(GC_ENABLE_TEST_MLIR "Build the mlir tests" ON)
+option(GC_ENABLE_OPT "Build gc-opt" ON)
+option(GC_ENABLE_GPU "Enable GPU backend" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 
-if(GC_LEGACY_ENABLE)
+if(GC_ENABLE_LEGACY)
     add_subdirectory(legacy/core)
 endif()
 
@@ -41,9 +45,9 @@ find_package(MLIR REQUIRED CONFIG)
 message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
-set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
-set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
+set(LLVM_RUNTIME_OUTPUT_INTDIR ${PROJECT_BINARY_DIR}/bin)
+set(LLVM_LIBRARY_OUTPUT_INTDIR ${PROJECT_BINARY_DIR}/lib)
+set(MLIR_BINARY_DIR ${PROJECT_BINARY_DIR})
 
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
@@ -53,12 +57,21 @@ include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
-if(GC_USE_GPU)
+if(GC_ENABLE_DNNL)
+  add_definitions(-DGC_HAS_ONEDNN_DIALECT)
+  set(GC_ONEDNN_DIALECT_LIB_NAME MLIROneDNNGraph)
+endif ()
+
+if(GC_ENABLE_GPU)
   include(imex)
   if(GC_DEV_LINK_LLVM_DYLIB)
     message(WARN "GPU backend may not be compatible with dynamic linking to LLVM")
   endif()
 endif()
+
+if (GC_ENABLE_OPT)
+  set(GC_OPT_EXE_NAME gc-opt)
+endif ()
 
 if(GC_ENABLE_BINDINGS_PYTHON AND NOT MLIR_ENABLE_BINDINGS_PYTHON)
   message(STATUS "Failed to enable Python API due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
@@ -76,11 +89,6 @@ include_directories(
         ${PROJECT_BINARY_DIR}/include
         ${PROJECT_SOURCE_DIR}/include
 )
-
-# The paths are added in the subfolders using the gc_add_path() function.
-# These lists are also used by tests.
-set(GC_LIB_SOURCES CACHE INTERNAL "The graph_compiler library source paths")
-set(GC_LIB_INCLUDES CACHE INTERNAL "The graph_compiler library include paths")
 
 add_definitions(${LLVM_DEFINITIONS})
 
@@ -102,15 +110,62 @@ if(GC_ENABLE_BINDINGS_PYTHON)
   message(STATUS "Enabling Python API")
   add_subdirectory(python)
 endif()
-
-set(GC_LIB_LINKED_LIBS
-        GCJitWrapper
-        GCCpuRuntime
-)
-add_mlir_library(graph_compiler SHARED ${GC_LIB_SOURCES})
-target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
-target_compile_options(graph_compiler PRIVATE -fvisibility=hidden -fexceptions)
-target_link_options(graph_compiler PRIVATE -Wl,--gc-sections)
-target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
-
 add_subdirectory(test)
+
+# Export the targets
+add_library(GcInterface INTERFACE)
+target_include_directories(GcInterface INTERFACE
+        $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ TYPE INCLUDE)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/include/ TYPE INCLUDE
+        PATTERN "CMake*" EXCLUDE PATTERN "*.cmake" EXCLUDE)
+install(TARGETS
+        GcCpuRuntime
+        GcGpuPasses
+        GcInterface
+        GcJitWrapper
+        GcPasses
+        GcUtilsIR
+        MLIRCPURuntimeDialect
+        MLIRCPURuntimeTransforms
+        MLIRLinalgx
+        MLIRMicrokernel
+        ${GC_OPT_EXE_NAME}
+        ${GC_ONEDNN_DIALECT_LIB_NAME}
+
+        EXPORT ${PROJECT_NAME}Targets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+export(EXPORT ${PROJECT_NAME}Targets
+        FILE "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake"
+)
+install(EXPORT ${PROJECT_NAME}Targets
+        FILE ${PROJECT_NAME}Targets.cmake
+        DESTINATION lib/cmake/${PROJECT_NAME}
+)
+
+# Generate the config files
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+        ${PROJECT_SOURCE_DIR}/cmake/Config.cmake.in
+        "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        INSTALL_DESTINATION "lib/cmake/${PROJECT_NAME}"
+        NO_SET_AND_CHECK_MACRO
+        NO_CHECK_REQUIRED_COMPONENTS_MACRO
+)
+write_basic_package_version_file(
+        "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+        COMPATIBILITY AnyNewerVersion
+)
+install(FILES
+        ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+        ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
+        DESTINATION "lib/cmake/${PROJECT_NAME}"
+)
