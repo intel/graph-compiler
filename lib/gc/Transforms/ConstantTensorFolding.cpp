@@ -14,11 +14,8 @@
 #include <deque>
 #include <unordered_set>
 
-#include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
-#include "gc/Dialect/OneDNNGraph/OneDNNGraphTypes.h"
-#include "gc/Dialect/OneDNNGraph/Utils/Utils.h"
-
 #include "mlir/Transforms/Passes.h"
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -389,22 +386,14 @@ static void addGlobalI32Array(ModuleOp &module, Location loc,
 }
 
 std::unordered_set<int> getConstArgsIndexes(Operation &topFunc) {
+  auto topFuncAttr = topFunc.getAttrDictionary();
+  std::optional<NamedAttribute> constArgs =
+      topFuncAttr.getNamed("onednn_graph.const_args");
   std::unordered_set<int> constArgsIndexes;
-  // auto topFuncAttr = topFunc.getAttrDictionary();
-  // std::optional<NamedAttribute> constArgs =
-  //     topFuncAttr.getNamed("onednn_graph.const_args");
-  // if (constArgs.has_value()) {
-  //   ArrayAttr constArgsArray = llvm::dyn_cast<ArrayAttr>(constArgs->getValue());
-  //   for (auto id : constArgsArray) {
-  //     constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
-  //   }
-  // }
-  auto funcOp = cast<func::FuncOp>(topFunc);
-  mlir::onednn_graph::LogicalTensorInfo info(funcOp);
-  for (int i = 0; i < funcOp.getArguments().size(); ++i) {
-    if (info.queryPropertyType(funcOp.getArguments()[i]) ==
-        mlir::onednn_graph::PropertyType::constant) {
-      constArgsIndexes.insert(i);
+  if (constArgs.has_value()) {
+    ArrayAttr constArgsArray = llvm::dyn_cast<ArrayAttr>(constArgs->getValue());
+    for (auto id : constArgsArray) {
+      constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
     }
   }
   return constArgsIndexes;

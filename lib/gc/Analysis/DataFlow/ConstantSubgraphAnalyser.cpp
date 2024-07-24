@@ -6,11 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "gc/Analysis/DataFlow/ConstantSubgraphAnalyser.h"
-
-#include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
-#include "gc/Dialect/OneDNNGraph/OneDNNGraphTypes.h"
-#include "gc/Dialect/OneDNNGraph/Utils/Utils.h"
-
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -101,32 +96,22 @@ void ConstantSubgraphAnalyser::setToEntryState(
     Lattice<InConstantSubgraph> *lattice) {
   if (auto blockArg = cast<BlockArgument>(lattice->getPoint())) {
     auto parent_op = blockArg.getParentBlock()->getParentOp();
-    // auto parent_op_attr = parent_op->getAttrDictionary();
-    // std::optional<NamedAttribute> const_args =
-    //     parent_op_attr.getNamed("onednn_graph.const_args");
-    // if (const_args.has_value()) {
-    //   ArrayAttr const_args_indexes =
-    //       llvm::dyn_cast<ArrayAttr>(const_args->getValue());
-    //   for (auto id : const_args_indexes) {
-    //     auto idint = llvm::cast<IntegerAttr>(id).getInt();
-    //     if (blockArg.getArgNumber() == idint) {
-    //       LLVM_DEBUG(llvm::dbgs() << "Block argument: " << blockArg
-    //                               << " is marked as constant\n");
-    //       propagateIfChanged(lattice,
-    //                          lattice->join(InConstantSubgraph(true, true)));
-    //       return;
-    //     }
-    //   }
-    // }
-    auto funcOp = cast<func::FuncOp>(parent_op);
-    mlir::onednn_graph::LogicalTensorInfo info(funcOp);
-    if (info.queryPropertyType(blockArg) ==
-        mlir::onednn_graph::PropertyType::constant) {
-      LLVM_DEBUG(llvm::dbgs() << "Block argument: " << blockArg
-                              << " is marked as constant\n");
-      propagateIfChanged(lattice,
-                         lattice->join(InConstantSubgraph(true, true)));
-      return;
+    auto parent_op_attr = parent_op->getAttrDictionary();
+    std::optional<NamedAttribute> const_args =
+        parent_op_attr.getNamed("onednn_graph.const_args");
+    if (const_args.has_value()) {
+      ArrayAttr const_args_indexes =
+          llvm::dyn_cast<ArrayAttr>(const_args->getValue());
+      for (auto id : const_args_indexes) {
+        auto idint = llvm::cast<IntegerAttr>(id).getInt();
+        if (blockArg.getArgNumber() == idint) {
+          LLVM_DEBUG(llvm::dbgs() << "Block argument: " << blockArg
+                                  << " is marked as constant\n");
+          propagateIfChanged(lattice,
+                             lattice->join(InConstantSubgraph(true, true)));
+          return;
+        }
+      }
     }
     propagateIfChanged(lattice, lattice->join(InConstantSubgraph(true, false)));
   } else {

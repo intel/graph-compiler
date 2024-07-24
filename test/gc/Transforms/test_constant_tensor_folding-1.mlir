@@ -2,7 +2,7 @@
 
 // CHECK-LABEL: func.func @entry
 module {
-    func.func @entry(%a: tensor<128xf32>, %b: tensor<128xf32>, %c: tensor<128xf32>) -> (tensor<128xf32>, tensor<128xf32>) attributes { llvm.emit_c_interface, onednn_graph.const_args = [0 : i32, 1 : i32], onednn_graph.property_types = [#onednn_graph.property_type<constant>, #onednn_graph.property_type<constant>, #onednn_graph.property_type<variable>] } {
+    func.func @entry(%a: tensor<128xf32>, %b: tensor<128xf32>, %c: tensor<128xf32>) -> (tensor<128xf32>, tensor<128xf32>) attributes { llvm.emit_c_interface, onednn_graph.const_args = [0 : i32, 1 : i32] } {
         %c0 = arith.constant 0 : index
         cpuruntime.printf "HI%zu\n" %c0 : index
         %ax2 = tensor.empty() : tensor<128xf32>
@@ -36,7 +36,7 @@ module {
 // COM:   llvm.mlir.global external constant @__compute_args(dense<[3, 2, 3, 4]> : tensor<4xi32>) {addr_space = 0 : i32} : !llvm.array<4 x i32>
 // COM:   llvm.mlir.global external constant @__fold_args(dense<[4, 0, 1, 3, 4]> : tensor<5xi32>) {addr_space = 0 : i32} : !llvm.array<5 x i32>
 // COM:   llvm.mlir.global external constant @__fold_buffer_ids(dense<[2, 0, 1]> : tensor<3xi64>) {addr_space = 0 : i32} : !llvm.array<3 x i64>
-// COM:   func.func @entry(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>, %arg2: tensor<128xf32>) -> (tensor<128xf32>, tensor<128xf32>) attributes {llvm.emit_c_interface, onednn_graph.const_args = [0 : i32, 1 : i32], onednn_graph.property_types = [#onednn_graph.property_type<constant>, #onednn_graph.property_type<constant>,  #onednn_graph.property_type<variable>]} {
+// COM:   func.func @entry(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>, %arg2: tensor<128xf32>) -> (tensor<128xf32>, tensor<128xf32>) attributes {llvm.emit_c_interface, onednn_graph.const_args = [0 : i32, 1 : i32]} {
 // COM:     %c0 = arith.constant 0 : index
 // COM:     cpuruntime.printf "HI%zu\0A" %c0 : index
 // COM:     %0 = tensor.empty() : tensor<128xf32>
