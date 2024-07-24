@@ -70,11 +70,9 @@ static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
     return false;
   }
   auto firstDim = getAffineDimExpr(dimPos[0], linalgOp.getContext());
-  if (dimPos.size() == 1) {
-    if (firstDim == expr)
-      return true;
-    return false;
-  }
+  if (dimPos.size() == 1)
+    return firstDim == expr;
+
   // If not regular dim affine, check for VNNI format K affine
   auto secondKPosDim = getAffineDimExpr(dimPos[1], linalgOp.getContext());
   // An K affine result for VNNI should be this format:
