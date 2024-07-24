@@ -73,8 +73,7 @@ static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
   if (dimPos.size() == 1) {
     if (firstDim == expr)
       return true;
-    else
-      return false;
+    return false;
   }
   // If not regular dim affine, check for VNNI format K affine
   auto secondKPosDim = getAffineDimExpr(dimPos[1], linalgOp.getContext());
@@ -244,7 +243,7 @@ static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
       // batch-reduce dim for BRGEMM should be identified as one of k dim
       // including VNNI & non-VNNI cases
       (contractionDims->k.size() != 2 && contractionDims->k.size() != 3) ||
-      contractionDims->batch.size() != 0) {
+      !contractionDims->batch.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions\n");
     LLVM_DEBUG(llvm::dbgs()
                << "[checkStructure] " << contractionDims->m.size() << " "
