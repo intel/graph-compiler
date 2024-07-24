@@ -1,10 +1,10 @@
-//===- EarlyDispatchMicrokernel.cpp ----------------------------*- C++ -*-===//
+//===-- EarlyDispatchMicrokernel.cpp - Dispatch before runtime --*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//===---------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -26,10 +26,6 @@ namespace mlir::microkernel {
 
 #define DEBUG_TYPE "early-dispatch-microkernel"
 
-static constexpr StringRef getGlobalCtorsVarName() {
-  return "llvm.global_ctors";
-}
-
 static FailureOr<std::string>
 createGlobalKernelHandleName(RewriterBase &rewriter,
                              microkernel::BrgemmDispatchOp op) {
@@ -41,9 +37,9 @@ createGlobalKernelHandleName(RewriterBase &rewriter,
   for (auto flag : flags) {
     auto brgemmFlag = dyn_cast_or_null<microkernel::BrgemmFlagsAttr>(flag);
     if (!brgemmFlag)
-      return failure("unknown flag for BRGEMM");
+      return failure();
     if (brgemmFlag.getValue() == BrgemmFlags::LIST)
-      return failure("addr mode BRGEMM not supported yet");
+      return failure();
     if (brgemmFlag.getValue() == BrgemmFlags::BETA_0)
       ss << "_init";
   }
@@ -58,7 +54,7 @@ createGlobalKernelHandleName(RewriterBase &rewriter,
   // dtypeA, dtypeB
   auto dtypes = op.getDataType();
   if (dtypes.size() != 2)
-    return failure("invalid number of DataType for BRGEMM");
+    return failure();
   ss << "_" << getDnnlDataTypeVal(rewriter, dtypes[0]);
   ss << "_" << getDnnlDataTypeVal(rewriter, dtypes[1]);
 
@@ -78,7 +74,7 @@ getOrCreateGlobalKernelHandle(RewriterBase &rewriter, ModuleOp module,
     FlatSymbolRefAttr ctorName =
         SymbolRefAttr::get(module->getContext(), kernelName + "_ctor");
     if (module.lookupSymbol<LLVM::LLVMFuncOp>(ctorName.getAttr())) {
-      return failure("Existing ctor for new global kernel handle");
+      return failure();
     }
 
     OpBuilder::InsertionGuard insertGuard(rewriter);
