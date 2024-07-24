@@ -18,7 +18,7 @@ add_mlir_dialect_library(MLIRMicrokernelTransforms
 
         LINK_LIBS PUBLIC
         ${MLIR_LINK_COMPONENTS}
-	GCMLIRUtils
+	GCUtilsIR
         )
 
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS MLIRMicrokernelTransforms)

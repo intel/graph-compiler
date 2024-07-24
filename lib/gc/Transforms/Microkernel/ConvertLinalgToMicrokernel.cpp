@@ -151,7 +151,7 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
     auto majorDimPosInCodomain = getPosInCodomain(majorDim, operand, linalgOp);
     if (!minorDimPosInCodomain || !majorDimPosInCodomain)
       return failure();
-    auto stridesOnOperand = gcext::utils::getStaticStrides(operand->get());
+    auto stridesOnOperand = utils::getStaticStrides(operand->get());
     if (failed(stridesOnOperand))
       return failure();
     auto minorDimLd = (*stridesOnOperand)[*minorDimPosInCodomain];
@@ -191,11 +191,11 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
   int64_t strideA = 1;
   int64_t strideB = 1;
   auto batchPosCodomainA = getPosInCodomain(batchPos, operandA, linalgOp);
-  auto stridesOnA = gcext::utils::getStaticStrides(operandA->get());
+  auto stridesOnA = utils::getStaticStrides(operandA->get());
   strideA = (*stridesOnA)[*batchPosCodomainA];
 
   auto batchPosCodomainB = getPosInCodomain(batchPos, operandB, linalgOp);
-  auto stridesOnB = gcext::utils::getStaticStrides(operandB->get());
+  auto stridesOnB = utils::getStaticStrides(operandB->get());
   strideB = (*stridesOnB)[*batchPosCodomainB];
 
   auto loops = linalgOp.computeStaticLoopSizes();
@@ -224,7 +224,7 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
 }
 
 static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
-  using namespace mlir::gcext::utils::structured_match;
+  using namespace mlir::structured_match;
   auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
                                 .output(MatchAll(), HasStaticShape())
                                 .input(MatchAll(), HasStaticShape())

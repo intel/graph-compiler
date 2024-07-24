@@ -165,7 +165,7 @@ public:
       Type operandType = operand.getType();
       if (auto memrefType = dyn_cast<MemRefType>(operandType)) {
         Type basePtrType = LLVM::LLVMPointerType::get(context);
-        auto [ptr, offset] = gcext::utils::getPtrAndOffset(rewriter, operand);
+        auto [ptr, offset] = utils::getPtrAndOffset(rewriter, operand);
         operands.push_back(ptr);
         operands.push_back(offset);
         operandTypes.push_back(basePtrType);
