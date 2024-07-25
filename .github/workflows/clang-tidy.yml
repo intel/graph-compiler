@@ -103,4 +103,4 @@ jobs:
       shell: bash
       run: |
         cd build
-        python3 ../llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -warnings-as-errors=* -p ./ -config-file ../llvm-project/mlir/.clang-tidy -clang-tidy-binary $(which clang-tidy-15) ${{ env.CHANGED_FILES }}
+        python3 ../llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -warnings-as-errors=* -p ./ -config-file ../llvm-project/mlir/.clang-tidy -clang-tidy-binary $(which clang-tidy) ${{ env.CHANGED_FILES }}
