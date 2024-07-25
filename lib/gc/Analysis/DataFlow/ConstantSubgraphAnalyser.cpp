@@ -5,6 +5,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include <cassert>
+#include <unordered_set>
+
 #include "gc/Analysis/DataFlow/ConstantSubgraphAnalyser.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
@@ -25,7 +28,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include <cassert>
 
 #define DEBUG_TYPE "in-constant-subgraph"
 
@@ -95,23 +97,32 @@ void ConstantSubgraphAnalyser::visitOperation(
 void ConstantSubgraphAnalyser::setToEntryState(
     Lattice<InConstantSubgraph> *lattice) {
   if (auto blockArg = cast<BlockArgument>(lattice->getPoint())) {
-    auto parent_op = blockArg.getParentBlock()->getParentOp();
-    auto parent_op_attr = parent_op->getAttrDictionary();
-    std::optional<NamedAttribute> const_args =
-        parent_op_attr.getNamed("onednn_graph.const_args");
-    if (const_args.has_value()) {
-      ArrayAttr const_args_indexes =
-          llvm::dyn_cast<ArrayAttr>(const_args->getValue());
-      for (auto id : const_args_indexes) {
-        auto idint = llvm::cast<IntegerAttr>(id).getInt();
-        if (blockArg.getArgNumber() == idint) {
-          LLVM_DEBUG(llvm::dbgs() << "Block argument: " << blockArg
-                                  << " is marked as constant\n");
-          propagateIfChanged(lattice,
-                             lattice->join(InConstantSubgraph(true, true)));
-          return;
-        }
+    auto parentOp = blockArg.getParentBlock()->getParentOp();
+    auto parentOpAttr = parentOp->getAttrDictionary();
+
+    std::unordered_set<int> constArgsIndexes;
+    std::optional<NamedAttribute> compiletimeConstArgs =
+        parentOpAttr.getNamed("compiletime_const_args_index");
+    if (compiletimeConstArgs.has_value()) {
+      for (auto id :
+           llvm::dyn_cast<ArrayAttr>(compiletimeConstArgs->getValue())) {
+        constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
       }
+    }
+    std::optional<NamedAttribute> runtimeConstArgs =
+        parentOpAttr.getNamed("runtime_const_args_index");
+    if (runtimeConstArgs.has_value()) {
+      for (auto id : llvm::dyn_cast<ArrayAttr>(runtimeConstArgs->getValue())) {
+        constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
+      }
+    }
+
+    if (constArgsIndexes.count(blockArg.getArgNumber())) {
+      LLVM_DEBUG(llvm::dbgs() << "Block argument: " << blockArg
+                              << " is marked as constant\n");
+      propagateIfChanged(lattice,
+                         lattice->join(InConstantSubgraph(true, true)));
+      return;
     }
     propagateIfChanged(lattice, lattice->join(InConstantSubgraph(true, false)));
   } else {

@@ -355,6 +355,7 @@ static void addGlobalI32(ModuleOp &module, Location loc, OpBuilder &builder,
       loc, type, /*isConstant=*/true, LLVM::Linkage::External, name,
       builder.getI32IntegerAttr(value),
       /*alignment=*/0);
+  (void)global;
 }
 
 static void addGlobalI64Array(ModuleOp &module, Location loc,
@@ -369,6 +370,7 @@ static void addGlobalI64Array(ModuleOp &module, Location loc,
       loc, type, /*isConstant=*/true, LLVM::Linkage::External, name,
       builder.getI64TensorAttr(array),
       /*alignment=*/0);
+  (void)global;
 }
 
 static void addGlobalI32Array(ModuleOp &module, Location loc,
@@ -383,20 +385,72 @@ static void addGlobalI32Array(ModuleOp &module, Location loc,
       loc, type, /*isConstant=*/true, LLVM::Linkage::External, name,
       builder.getI32TensorAttr(array),
       /*alignment=*/0);
+  (void)global;
 }
 
 std::unordered_set<int> getConstArgsIndexes(Operation &topFunc) {
   auto topFuncAttr = topFunc.getAttrDictionary();
-  std::optional<NamedAttribute> constArgs =
-      topFuncAttr.getNamed("onednn_graph.const_args");
   std::unordered_set<int> constArgsIndexes;
-  if (constArgs.has_value()) {
-    ArrayAttr constArgsArray = llvm::dyn_cast<ArrayAttr>(constArgs->getValue());
-    for (auto id : constArgsArray) {
+  std::optional<NamedAttribute> compiletimeConstArgs =
+      topFuncAttr.getNamed("compiletime_const_args_index");
+  if (compiletimeConstArgs.has_value()) {
+    for (auto id :
+         llvm::dyn_cast<ArrayAttr>(compiletimeConstArgs->getValue())) {
+      constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
+    }
+  }
+  std::optional<NamedAttribute> runtimeConstArgs =
+      topFuncAttr.getNamed("runtime_const_args_index");
+  if (runtimeConstArgs.has_value()) {
+    for (auto id : llvm::dyn_cast<ArrayAttr>(runtimeConstArgs->getValue())) {
       constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
     }
   }
   return constArgsIndexes;
+}
+
+void getArithConstantOutputs(Block &block, SmallVector<Type> &outputTypes,
+                             SmallVector<Value> &outputValues) {
+  for (Operation &op : block.getOperations()) {
+    if (isa<arith::ConstantOp>(&op)) {
+      Operation *constOp = &op;
+      auto constTensor = constOp->getResults().front();
+      if (!isa<TensorType>(constTensor.getType())) {
+        continue;
+      }
+      auto v = dyn_cast<Value>(constTensor);
+      SmallVector<Value> valuesOnTheWay = {v}; // the constant tensors
+      std::deque<Value> dq;
+      dq.push_back(v);
+      // For v -> pack1 -> pack2 -> matmul, we need the type of output of pack2
+      while (!dq.empty()) {
+        v = dq.front();
+        dq.pop_front();
+        // if the children ops of v are not all constant, we end at v
+        if (std::any_of(v.getUsers().begin(), v.getUsers().end(),
+                        [](Operation *child) {
+                          return !isInConstantSubgraph(child);
+                        })) {
+          if (std::find(outputValues.begin(), outputValues.end(), v) ==
+              outputValues.end()) {
+            outputTypes.push_back(v.getType());
+            outputValues.push_back(v);
+          }
+          continue;
+        }
+
+        // the children ops of v are all constant, we push their results to
+        // queue
+        for (Operation *child : v.getUsers()) {
+          for (OpResult result : child->getResults()) {
+            auto r = dyn_cast<Value>(result);
+            dq.push_back(r);
+            valuesOnTheWay.push_back(r);
+          }
+        }
+      }
+    }
+  }
 }
 
 void getInputsAndOutputs(Block &block,
@@ -499,7 +553,7 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
   func::FuncOp foldFunc =
       builder.create<func::FuncOp>(topOp->getLoc(), funcName, foldFuncType);
   Block *foldBlock = foldFunc.addEntryBlock();
-  // values of folded constant weights in foldBlock
+  // values of folded constant tensors in foldBlock
   SmallVector<Value> outputValuesInFold;
   IRMapping mapper;
   for (Operation *op : constOps) {
@@ -696,18 +750,20 @@ void ConstantTensorFolding::runOnOperation() {
     }
   }
 
-  SmallVector<Type> inputTypes; // types of constant weights
-  // values of constant weights in original block
+  SmallVector<Type> inputTypes; // types of constant tensors
+  // values of constant tensors in original block
   SmallVector<Value> inputValues;
-  SmallVector<Type> outputTypes; // types of folded constant weights
-  // values of folded constant weights in original block
+  SmallVector<Type> outputTypes; // types of folded constant tensors
+  // values of folded constant tensors in original block
   SmallVector<Value> outputValues;
+  getArithConstantOutputs(block, outputTypes, outputValues);
   getInputsAndOutputs(block, constArgsIndexes, inputTypes, inputValues,
                       outputTypes, outputValues);
 
   func::FuncOp foldFunc =
       buildFoldFunc(context, builder, topOp, constOps, inputTypes, inputValues,
                     outputTypes, outputValues);
+  (void)foldFunc;
 
   modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
                     outputTypes, outputValues);

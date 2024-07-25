@@ -40,7 +40,7 @@ void ConstantSubgraphAnalysis::runOnOperation() {
 
   // Hard-code: set the #1 argument to be constant.
   // OpBuilder builder(op->getContext());
-  // func.setAttr("onednn_graph.const_args",
+  // func.setAttr("runtime_const_args_index",
   //     builder.getI32ArrayAttr({1,2,3,4}));
 
   RunConstantSubgraphAnalyser runAnalyser;
