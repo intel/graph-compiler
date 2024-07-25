@@ -57,7 +57,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t LDB, int64_t LDC, int64_t stride_a,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
-  brgemm_desc_list.emplace_back(brgemm_desc_t());
+  brgemm_desc_list.emplace_back();
   brgemm_kernel_list.emplace_back(nullptr);
 
   brgemm_desc_t &desc = brgemm_desc_list.back();
