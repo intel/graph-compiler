@@ -62,7 +62,7 @@ jobs:
     - name: Get changed files
       run: |
         cd graph-compiler
-        echo "CHANGED_FILES=$(git diff --name-only $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd' ')" >> $GITHUB_ENV
+        echo "CHANGED_FILES=$(git diff --name-only --diff-filter=d $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd' ')" >> $GITHUB_ENV
         
     - name: Prepare Environment
       shell: bash
