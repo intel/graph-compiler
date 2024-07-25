@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_DIALECTS_LINALGX_UTILSH
-#define GC_DIALECTS_LINALGX_UTILSH
+#ifndef GC_DIALECTS_LINALGX_UTILS_H
+#define GC_DIALECTS_LINALGX_UTILS_H
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -33,4 +33,4 @@ bool isGenericVnniMatmulOp(Operation *op, VnniOpType opType);
 } // namespace linalgx
 } // namespace mlir
 
-#endif // GC_DIALECTS_LINALGX_UTILSH
+#endif // GC_DIALECTS_LINALGX_UTILS_H
