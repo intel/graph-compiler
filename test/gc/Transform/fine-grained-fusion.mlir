@@ -1,7 +1,7 @@
 // RUN: gc-opt --split-input-file -fine-grained-fusion %s
 
 module {
-  func.func @mlp(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32xbf16>, %arg2: tensor<256xbf16>) -> tensor<128x256xbf16> {
+  func.func @fuse_mlp(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32xbf16>, %arg2: tensor<256xbf16>) -> tensor<128x256xbf16> {
     %c32 = arith.constant 32 : index
     %c512 = arith.constant 512 : index
     %c128 = arith.constant 128 : index
@@ -137,5 +137,17 @@ module {
     %dest2 = tensor.empty() : tensor<256xf32>
     %6 = linalg.reduce { arith.addf } ins(%5 : tensor<256x256xf32>) outs(%dest2 : tensor<256xf32>) dimensions = [1]
     return %6 : tensor<256xf32>
+  }
+}
+
+// -----
+
+module {
+  func.func @fuse_with_default_tiling(%arg0: tensor<128x256x256xf32>, %arg1: tensor<128x256x256xf32>) -> tensor<128x256xf32> {
+    %dest0 = tensor.empty() : tensor<128x256x256xf32>
+    %0 = linalg.add ins(%arg0, %arg1 : tensor<128x256x256xf32>, tensor<128x256x256xf32>) outs(%dest0 : tensor<128x256x256xf32>) -> tensor<128x256x256xf32>
+    %dest1 = tensor.empty() : tensor<128x256xf32>
+    %1 = linalg.reduce { arith.addf } ins(%0 : tensor<128x256x256xf32>) outs(%dest1 : tensor<128x256xf32>) dimensions = [1]
+    return %1 : tensor<128x256xf32>
   }
 }

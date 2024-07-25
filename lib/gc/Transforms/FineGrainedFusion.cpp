@@ -512,20 +512,18 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
   }
 }
 
-/**
- * Target at following general topology:
- *
- * producer1   producer2
- *    \         /
- *        Op
- *    /         \
- * consumer1  consumer2
- *
- * where:
- *
- * Support iterative producer and consumer fusion in BFS fashion.
- */
-void iterativelyFuseProducerAndConsumerOfTiledOp(
+/// Target at following general topology:
+///
+/// producer1   producer2
+///    \         /
+///        Op
+///    /         \
+/// consumer1  consumer2
+///
+/// where:
+///
+/// Support iterative producer and consumer fusion in BFS fashion.
+LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
     RewriterBase &rewriter, Operation *tiledOp,
     TargetSystemSpecInterface targetSpec) {
   // Flexible options to control which candidate slice would be selected from
@@ -540,10 +538,7 @@ void iterativelyFuseProducerAndConsumerOfTiledOp(
                      CandidateDefOrUse defOrUse) -> LogicalResult {
     return success(numTiledOps < 20);
   };
-  // If more than one filters need given, please use filter list instead. E.g.
-  //
-  // SmallVector<CandidateSliceFilter> customizedFilterList
-  //        = {customizedFilter1, customizedFilter2, ...};
+  // If more than one filters need given, please use filter list instead.
   options.addFilter(customizedFilter);
 
   std::deque<Operation *> tiledOpList = {tiledOp};
@@ -569,22 +564,19 @@ void iterativelyFuseProducerAndConsumerOfTiledOp(
       }
     }
   }
+  return success(numTiledOps);
 }
 
-/**
- * What is single tiled op in loop?
- *
- * E.g.
- * %1 = scf.for(){
- *   %2 = scf.for(){
- *       %3 = extract_slice
- *       %4 = tiled_op(%3)
- *       %5 = insert %4
- *       yield %5
- *   }
- * }
- *
- * */
+/// What is single tiled op in loop?
+/// E.g.
+/// %1 = scf.for(){
+///   %2 = scf.for(){
+///       %3 = extract_slice
+///       %4 = tiled_op(%3)
+///       %5 = insert %4
+///       yield %5
+///   }
+/// }
 static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
   // 0. check tilable
   if (!isa<TilingInterface>(targetOp)) {
@@ -616,6 +608,134 @@ static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
   return success(walkResult.wasInterrupted());
 }
 
+template <typename OpTy>
+static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op) {
+  // a. Check <OpTy>
+  if (!isa<TilingInterface>(op) || !isa<OpTy>(op))
+    return false;
+  auto tilingInterfaceOp = cast<TilingInterface>(op);
+
+  scf::SCFTilingOptions options;
+  // b. Get default tiling size
+  SmallVector<utils::IteratorType> iteratorTypes =
+      tilingInterfaceOp.getLoopIteratorTypes();
+
+  SmallVector<OpFoldResult> defaultTileSize(iteratorTypes.size(),
+                                            rewriter.getIndexAttr(0));
+
+  for (auto &&[en, iterType] : llvm::enumerate(iteratorTypes)) {
+    // All outer non reduction loop should contribute parallelism. In another
+    // word, all reduction dimensions should not be tiled.
+    if (iterType == utils::IteratorType::parallel &&
+        (en != iteratorTypes.size() - 1 ||
+         llvm::count(iteratorTypes, utils::IteratorType::reduction))) {
+      defaultTileSize[en] = rewriter.getIndexAttr(1);
+    }
+  }
+
+  options.setTileSizes(defaultTileSize);
+  // c. Set loop type
+  options.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
+  // d. Use builtin tiling interface
+  FailureOr<scf::SCFTilingResult> tilingResult =
+      scf::tileUsingSCF(rewriter, tilingInterfaceOp, options);
+  if (succeeded(tilingResult)) {
+    rewriter.replaceOp(op, tilingResult->replacements);
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f) {
+  // Get target descriptor
+  TargetSystemSpecInterface targetSpec =
+      mlir::impl::getTargetSystemSpec(f->getParentOfType<ModuleOp>());
+  // Collect untiled and tiled ops respectively
+  llvm::SetVector<Operation *> singleTiledOpInLoop, unTiledOps;
+
+  auto collectUnTiledOps = [&f, &unTiledOps]() -> bool {
+    // Reset
+    unTiledOps.clear();
+    // Pre-order walk through funcOp
+    f->walk<WalkOrder::PreOrder>([&unTiledOps](Operation *op) {
+      if (isa<LoopLikeOpInterface>(op)) {
+        return WalkResult::skip();
+      }
+      if (isa<TilingInterface>(op) && !op->use_empty()) {
+        auto parentLoop = op->getParentOfType<LoopLikeOpInterface>();
+        if (!parentLoop.getOperation()) {
+          unTiledOps.insert(op);
+        }
+      }
+      return WalkResult::advance();
+    });
+    return !unTiledOps.empty();
+  };
+
+  auto collectSingleTiledOpInLoop = [&f, &singleTiledOpInLoop]() -> bool {
+    // Reset
+    singleTiledOpInLoop.clear();
+    // Walk through funcOp
+    f->walk([&singleTiledOpInLoop](Operation *op) {
+      // Target at certain kind of tiled op, such as matmul/conv implemented
+      // by multiple level of nest loops and candidate slices for better
+      // utilization of parallelism and memory hierarchy.
+      if (succeeded(isSingleTiledOpInLoop(op))) {
+        singleTiledOpInLoop.insert(op);
+      }
+    });
+    return !singleTiledOpInLoop.empty();
+  };
+  // Iterative tiling and fusion until exhaustion.
+  while (collectUnTiledOps()) {
+    // If existing tiled op before tiling.
+    if (collectSingleTiledOpInLoop()) {
+      // Sort by topology
+      mlir::topologicalSort(singleTiledOpInLoop);
+      // Record if any fusion happens
+      bool changed = false;
+      // Iteratively fuse in forward and backward fashion.
+      llvm::for_each(singleTiledOpInLoop, [&rewriter, &targetSpec,
+                                           &changed](Operation *tiledOp) {
+        changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
+            rewriter, tiledOp, targetSpec));
+      });
+      if (!changed) {
+        // If no new fusion happens, terminate iteration.
+        break;
+      } else {
+        (void)mlir::eraseUnreachableBlocks(rewriter, {f.getRegion()});
+        (void)mlir::runRegionDCE(rewriter, {f.getRegion()});
+      }
+    } else {
+      // Auto tiling with default tile size if no tiled op found.
+      auto defaultTileContractionOp = [&rewriter](Operation *op) -> bool {
+        return defaultTilingOfType<mlir::linalg::ContractionOpInterface>(
+            rewriter, op);
+      };
+      auto defaultTileReductionOp = [&rewriter](Operation *op) -> bool {
+        return defaultTilingOfType<mlir::linalg::ReduceOp>(rewriter, op);
+      };
+      auto defaultTileLinalgOp = [&rewriter](Operation *op) -> bool {
+        return defaultTilingOfType<mlir::linalg::LinalgOp>(rewriter, op);
+      };
+      // Follow tiling priority based on OpTy:
+      // `Contraction`->`Reduction`->`Elementwise`
+      SmallVector<std::function<bool(Operation *)>> priorityTilingFns = {
+          defaultTileContractionOp, defaultTileReductionOp,
+          defaultTileLinalgOp};
+      if (llvm::all_of(priorityTilingFns,
+                       [&unTiledOps](function_ref<bool(Operation *)> fn) {
+                         return !llvm::any_of(unTiledOps, fn);
+                       })) {
+        // If no op can be tiled
+        break;
+      }
+    }
+  }
+}
+
 struct FineGrainedFusion
     : public impl::FineGrainedFusionBase<FineGrainedFusion> {
 
@@ -625,30 +745,10 @@ public:
     {
       // Get funcOp
       func::FuncOp func = getOperation();
-      // Get target descriptor
-      TargetSystemSpecInterface targetSpec =
-          mlir::impl::getTargetSystemSpec(func);
       // Get rewriter
       IRRewriter rewriter(&ctx);
-
-      // Collect tiled ops before fusion
-      llvm::SetVector<Operation *> tiledOps;
-      // Walk through funcOp
-      func->walk([&tiledOps](Operation *op) {
-        // Target at certain kind of tiled op, such as matmul/conv implemented
-        // by multiple level of nest loops and candidate slices for better
-        // utilization of parallelism and memory hierarchy.
-        if (succeeded(isSingleTiledOpInLoop(op))) {
-          tiledOps.insert(op);
-        }
-      });
-      // Sort by topology
-      mlir::topologicalSort(tiledOps);
-      // Iteratively fuse in forward and backward fashion.
-      for (auto &tiledOp : tiledOps) {
-        iterativelyFuseProducerAndConsumerOfTiledOp(rewriter, tiledOp,
-                                                    targetSpec);
-      }
+      // Run iterative fusion
+      iterativeTilingAndFusion(rewriter, func);
     }
 
     {
