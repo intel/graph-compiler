@@ -11,10 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Transforms/Passes.h"
 #include <deque>
 #include <unordered_set>
-
-#include "mlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
@@ -388,21 +387,15 @@ static void addGlobalI32Array(ModuleOp &module, Location loc,
   (void)global;
 }
 
-std::unordered_set<int> getConstArgsIndexes(Operation &topFunc) {
+std::unordered_set<int> getConstArgsIndexes(Operation &topFunc,
+                                            bool compiletime) {
   auto topFuncAttr = topFunc.getAttrDictionary();
   std::unordered_set<int> constArgsIndexes;
-  std::optional<NamedAttribute> compiletimeConstArgs =
-      topFuncAttr.getNamed("compiletime_const_args_index");
-  if (compiletimeConstArgs.has_value()) {
-    for (auto id :
-         llvm::dyn_cast<ArrayAttr>(compiletimeConstArgs->getValue())) {
-      constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
-    }
-  }
-  std::optional<NamedAttribute> runtimeConstArgs =
-      topFuncAttr.getNamed("runtime_const_args_index");
-  if (runtimeConstArgs.has_value()) {
-    for (auto id : llvm::dyn_cast<ArrayAttr>(runtimeConstArgs->getValue())) {
+  std::string attrName =
+      compiletime ? "compiletime_const_args_index" : "runtime_const_args_index";
+  std::optional<NamedAttribute> constArgs = topFuncAttr.getNamed(attrName);
+  if (constArgs.has_value()) {
+    for (auto id : llvm::dyn_cast<ArrayAttr>(constArgs->getValue())) {
       constArgsIndexes.insert(llvm::cast<IntegerAttr>(id).getInt());
     }
   }
@@ -542,16 +535,16 @@ void getInputsAndOutputs(Block &block,
 }
 
 func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
-                           Operation *topOp, SmallVector<Operation *> constOps,
+                           Operation *topOp, std::string name,
+                           SmallVector<Operation *> constOps,
                            SmallVector<Type> &inputTypes,
                            SmallVector<Value> &inputValues,
                            SmallVector<Type> &outputTypes,
                            SmallVector<Value> &outputValues) {
-  std::string funcName("fold");
   FunctionType foldFuncType =
       FunctionType::get(context, inputTypes, outputTypes);
   func::FuncOp foldFunc =
-      builder.create<func::FuncOp>(topOp->getLoc(), funcName, foldFuncType);
+      builder.create<func::FuncOp>(topOp->getLoc(), name, foldFuncType);
   Block *foldBlock = foldFunc.addEntryBlock();
   // values of folded constant tensors in foldBlock
   SmallVector<Value> outputValuesInFold;
@@ -584,8 +577,8 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
   }
   globalIndexes.insert(globalIndexes.begin(), globalIndexes.size());
   auto moduleOp = dyn_cast<ModuleOp>(topOp);
-  addGlobalI64Array(moduleOp, moduleOp.getLoc(), builder, "__fold_buffer_ids",
-                    globalIndexes);
+  addGlobalI64Array(moduleOp, moduleOp.getLoc(), builder,
+                    "__" + name + "_buffer_ids_", globalIndexes);
 
   auto returnOp =
       builder.create<func::ReturnOp>(topOp->getLoc(), outputValuesInFold);
@@ -736,8 +729,11 @@ void ConstantTensorFolding::runOnOperation() {
   Region &region = topFunc.getRegions().front();
   Block &block = region.getBlocks().front();
 
-  std::unordered_set<int> constArgsIndexes = getConstArgsIndexes(topFunc);
-  if (constArgsIndexes.empty()) {
+  std::unordered_set<int> compiletimeConstArgsIndexes =
+      getConstArgsIndexes(topFunc, true);
+  std::unordered_set<int> runtimeConstArgsIndexes =
+      getConstArgsIndexes(topFunc, false);
+  if (compiletimeConstArgsIndexes.empty() && runtimeConstArgsIndexes.empty()) {
     return;
   }
 
@@ -750,21 +746,52 @@ void ConstantTensorFolding::runOnOperation() {
     }
   }
 
-  SmallVector<Type> inputTypes; // types of constant tensors
+  // ===== build compile time folding function =====
+  SmallVector<Type> compiletimeInputTypes; // types of constant tensors
   // values of constant tensors in original block
-  SmallVector<Value> inputValues;
-  SmallVector<Type> outputTypes; // types of folded constant tensors
+  SmallVector<Value> compiletimeInputValues;
+  SmallVector<Type> compiletimeOutputTypes; // types of folded constant tensors
   // values of folded constant tensors in original block
-  SmallVector<Value> outputValues;
-  getArithConstantOutputs(block, outputTypes, outputValues);
-  getInputsAndOutputs(block, constArgsIndexes, inputTypes, inputValues,
-                      outputTypes, outputValues);
+  SmallVector<Value> compiletimeOutputValues;
+  getArithConstantOutputs(block, compiletimeOutputTypes,
+                          compiletimeOutputValues);
+  getInputsAndOutputs(block, compiletimeConstArgsIndexes, compiletimeInputTypes,
+                      compiletimeInputValues, compiletimeOutputTypes,
+                      compiletimeOutputValues);
 
-  func::FuncOp foldFunc =
-      buildFoldFunc(context, builder, topOp, constOps, inputTypes, inputValues,
-                    outputTypes, outputValues);
-  (void)foldFunc;
+  func::FuncOp compiletimeFoldFunc =
+      buildFoldFunc(context, builder, topOp, "compiletime_fold", constOps,
+                    compiletimeInputTypes, compiletimeInputValues,
+                    compiletimeOutputTypes, compiletimeOutputValues);
+  (void)compiletimeFoldFunc;
+  canonicalizeAndClean(context, compiletimeFoldFunc.getOperation());
 
+  // ===== build runtime folding function =====
+  SmallVector<Type> runtimeInputTypes; // types of constant tensors
+  // values of constant tensors in original block
+  SmallVector<Value> runtimeInputValues;
+  SmallVector<Type> runtimeOutputTypes; // types of folded constant tensors
+  // values of folded constant tensors in original block
+  SmallVector<Value> runtimeOutputValues;
+  getInputsAndOutputs(block, runtimeConstArgsIndexes, runtimeInputTypes,
+                      runtimeInputValues, runtimeOutputTypes,
+                      runtimeOutputValues);
+
+  func::FuncOp runtimeFoldFunc = buildFoldFunc(
+      context, builder, topOp, "runtime_fold", constOps, runtimeInputTypes,
+      runtimeInputValues, runtimeOutputTypes, runtimeOutputValues);
+  (void)runtimeFoldFunc;
+  canonicalizeAndClean(context, runtimeFoldFunc.getOperation());
+
+  // ===== build computing function =====
+  std::unordered_set<int> constArgsIndexes = compiletimeConstArgsIndexes;
+  constArgsIndexes.merge(runtimeConstArgsIndexes);
+  SmallVector<Type> outputTypes = compiletimeOutputTypes;
+  outputTypes.insert(outputTypes.end(), runtimeOutputTypes.begin(),
+                     runtimeOutputTypes.end());
+  SmallVector<Value> outputValues = compiletimeOutputValues;
+  outputValues.insert(outputValues.end(), runtimeOutputValues.begin(),
+                      runtimeOutputValues.end());
   modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
                     outputTypes, outputValues);
 
