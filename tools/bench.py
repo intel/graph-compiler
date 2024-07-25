@@ -35,16 +35,12 @@ def py_timeit_bench(
     entry_name: str,
     pipeline: str,
     mlir_args: list,
-    shared_libs: Sequence,
     ir_printing=False,
     repeat_time=100,
     warm_up=20,
 ) -> Tuple[float, float]:
     """benchmark mlir with python timeit."""
-    compiler = GraphCompiler(
-        pipeline,
-        shared_libs,
-    )
+    compiler = GraphCompiler(pipeline)
     compile_begin = timeit.default_timer()
     engine = compiler.compile_and_jit(ir_module, ir_printing=ir_printing)
     compile_cost = (timeit.default_timer() - compile_begin) * 1000
@@ -69,7 +65,6 @@ def mlir_wrapper_bench(
     entry_name: str,
     pipeline: str,
     mlir_args: list,
-    shared_libs: Sequence,
     ir_printing=False,
     repeat_time=100,
     warm_up=20,
@@ -79,10 +74,7 @@ def mlir_wrapper_bench(
     wrapper_module = ir_module
     with ir.InsertionPoint(wrapper_module.body):
         emit_benchmark_wrapped_main_func(kernel_func, emit_nano_time())
-    compiler = GraphCompiler(
-        pipeline,
-        shared_libs,
-    )
+    compiler = GraphCompiler(pipeline)
     compile_begin = timeit.default_timer()
     engine = compiler.compile_and_jit(wrapper_module, ir_printing=ir_printing)
     compile_cost = (timeit.default_timer() - compile_begin) * 1000
@@ -110,7 +102,6 @@ def fake_bench(
     entry_name: str = None,
     pipeline: str = None,
     mlir_args: list = None,
-    shared_libs: Sequence = None,
     ir_printing=False,
     repeat_time=100,
     warm_up=20,
@@ -126,16 +117,12 @@ def batch_py_timeit_bench(
     entry_name: str,
     pipeline: str,
     mlir_args: list,
-    shared_libs: Sequence,
     ir_printing=False,
     repeat_time=5,
     warm_up=2,
 ) -> List[Tuple[float, float]]:
     """benchmark a batch of mlir with python timeit."""
-    compiler = GraphCompiler(
-        pipeline,
-        shared_libs,
-    )
+    compiler = GraphCompiler(pipeline)
     funcs = []
     compile_costs = []
     for m in ir_modules:
@@ -171,16 +158,12 @@ def batch_mlir_wrapper_bench(
     entry_name: str,
     pipeline: str,
     mlir_args: list,
-    shared_libs: Sequence,
     ir_printing=False,
     repeat_time=5,
     warm_up=2,
 ) -> Tuple[float, float]:
     """benchmark a batch of mlir with wrapper func."""
-    compiler = GraphCompiler(
-        pipeline,
-        shared_libs,
-    )
+    compiler = GraphCompiler(pipeline)
 
     engine_invokes = []
     compile_costs = []

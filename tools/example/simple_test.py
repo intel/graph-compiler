@@ -58,23 +58,17 @@ if __name__ == "__main__":
         entry = "main_entry"
         mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1, gc_res])
         passes = "any(gc-cpu-pipeline)"
-        shared_libs = [
-            os.environ["MLIR_C_RUNNER_UTILS"],
-            os.environ["MLIR_RUNNER_UTILS"],
-        ]
-
         # bench
         # _, cost = py_timeit_bench(
         #     module,
         #     "main_entry",
         #     passes,
         #     mlir_args,
-        #     shared_libs,
         # )
         # print("cost=", cost)
         
         # just run
-        compiler = GraphCompiler(passes, shared_libs)
+        compiler = GraphCompiler(passes)
         engine = compiler.compile_and_jit(module)
         engine.invoke(entry, *mlir_args)
             

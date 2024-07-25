@@ -9,7 +9,7 @@
 from gc_mlir import execution_engine
 from gc_mlir import ir
 from gc_mlir import passmanager
-from typing import Sequence
+from gc_mlir.config import MLIR_C_RUNNER_UTILS, MLIR_RUNNER_UTILS
 
 __all__ = [
     "GraphCompiler",
@@ -20,10 +20,9 @@ class GraphCompiler:
     def __init__(
         self,
         pipeline: str = "any(gc-cpu-pipeline)",
-        shared_libs: Sequence[str] = [],
         opt_level: int = 3,
     ):
-        self.shared_libs = shared_libs
+        self.shared_libs = [MLIR_C_RUNNER_UTILS, MLIR_RUNNER_UTILS]
         self.pipeline = pipeline
         self.opt_level = opt_level
 

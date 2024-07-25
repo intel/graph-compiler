@@ -17,7 +17,6 @@
 
 import argparse
 import json
-import os
 import numpy as np
 from bench import (
     mlir_wrapper_bench,
@@ -66,7 +65,6 @@ def do_bench(args: argparse.Namespace):
             driver.main_entry,
             driver.get_passes(),
             mlir_args,
-            [os.environ["MLIR_C_RUNNER_UTILS"], os.environ["MLIR_RUNNER_UTILS"]],
             args.print_ir,
             args.repeat,
             args.warm_up,
@@ -83,13 +81,7 @@ def do_bench(args: argparse.Namespace):
         print(json_res)
 
 
-def check_env():
-    """Function checking environment."""
-    assert "MLIR_C_RUNNER_UTILS" in os.environ
-    assert "MLIR_RUNNER_UTILS" in os.environ
-
 if __name__ == "__main__":
-    check_env()
     parser = argparse.ArgumentParser()
     parser.add_argument("--type", type=str, choices=["bench"], default="bench")
     parser.add_argument(
