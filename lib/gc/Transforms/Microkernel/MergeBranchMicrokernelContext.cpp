@@ -189,7 +189,6 @@ public:
 
   LogicalResult matchAndRewrite(scf::IfOp op,
                                 PatternRewriter &rewriter) const final {
-    ModuleOp module = op->template getParentOfType<ModuleOp>();
     auto &ifRegion = op.getThenRegion();
     auto &elseRegion = op.getElseRegion();
     if (!ifRegion.hasOneBlock() || !elseRegion.hasOneBlock())
@@ -238,7 +237,6 @@ public:
 
   LogicalResult matchAndRewrite(scf::IndexSwitchOp op,
                                 PatternRewriter &rewriter) const final {
-    ModuleOp module = op->template getParentOfType<ModuleOp>();
     auto &defaultRegion = op.getDefaultRegion();
     auto caseRegions = op.getCaseRegions();
 
@@ -260,7 +258,6 @@ public:
       return rewriter.notifyMatchFailure(op, "Cannot find kernel dispatch");
 
     for (size_t idx = 0; idx < caseRegions.size(); idx++) {
-      auto &caseRegion = caseRegions[idx];
       auto caseTileDispatch =
           analysis.getKernelDispatch(caseTilesOps[idx].first);
       if (!defaultTileDispatch)
