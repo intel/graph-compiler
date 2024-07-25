@@ -122,7 +122,7 @@ public:
     auto moduleOp = op->getParentOfType<ModuleOp>();
     auto loc = op->getLoc();
     MemRefType memRefType =
-        op->getResults().front().getType().dyn_cast<MemRefType>();
+        dyn_cast<MemRefType>(op->getResults().front().getType());
     mlir::Type llvmIntPtr = IntegerType::get(
         context, this->getTypeConverter()->getPointerBitwidth(0));
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
