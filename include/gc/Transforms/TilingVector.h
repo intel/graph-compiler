@@ -9,6 +9,7 @@
 #define GC_PASSES_TILINGVECTOR_H
 
 #include "gc/Transforms/Passes.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -21,6 +22,7 @@
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/Float16bits.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -122,10 +124,8 @@ public:
   llvm::SmallDenseMap<size_t, VectorType> &getGroupBiggestRankVectorType() {
     return groupBigestRankVectorType;
   };
-  llvm::SmallVector<std::queue<Operation *>, 8> &getOpGroups() {
-    return opGroups;
-  }
-  llvm::DenseMap<Operation *, size_t> &getOpGroupIndexMap() {
+  SmallVector<std::queue<Operation *>, 8> &getOpGroups() { return opGroups; }
+  DenseMap<Operation *, size_t> &getOpGroupIndexMap() {
     return opGroupIndexMap;
   }
   llvm::SmallVector<uint32_t, 8> &getGroupMaxSteps() { return groupMaxSteps; }
@@ -187,6 +187,8 @@ private:
   std::queue<Operation *> prevOps, postOps, accRelatedOps, sourceRelatedOps;
   bool haslastDimReduction = false;
   bool isStandaloneOp = false;
+  /// empty reduction means that all the reduction axis is 1
+  bool isEmptyReduction = true;
   int64_t typeRank = -1;
   llvm::SetVector<Value> originalOpResults;
   VectorType sourceType, accType;
@@ -205,6 +207,8 @@ public:
   void getReductionAxisAndParallelAxis();
   bool hasLastDimReduction();
   bool getIsStandAloneOp() { return isStandaloneOp; }
+  bool getHasLastDimReduction() { return haslastDimReduction; }
+  bool getIsEmptyReduction() { return isEmptyReduction; }
   void initReductionAxis();
   void initParallelAxis();
   llvm::SmallVector<int64_t, 4> &getReductionAxis() { return reductionAxis; };
@@ -278,6 +282,7 @@ public:
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_ShapeCast;
   }
+  bool isReadWriteOnLastDim();
 };
 
 enum class ReturnTypeKind {
@@ -363,7 +368,7 @@ public:
     return groupOpInitArgs;
   }
 
-  llvm::DenseMap<Operation *, AffineMap> &getOpPermuationMap() {
+  DenseMap<Operation *, AffineMap> &getOpPermuationMap() {
     return opPermuationMap;
   }
 
@@ -391,7 +396,8 @@ public:
       Operation *sourceOp,
       llvm::DenseMap<Operation *, std::pair<Value, Value>>
           &srcOpCanoniclizedMap,
-      size_t anchorPos, ReturnTypeKind retKind);
+      size_t anchorPos, ReturnTypeKind retKind,
+      DenseMap<Operation *, size_t> &visitedOperation);
 
   void updateOpOperandResultInGroups(size_t opGid, Operation *op, Value &init,
                                      const Value &result = Value());
@@ -416,12 +422,14 @@ public:
 
   virtual ~ForLoopGenerator() {}
   void setGeneratorFunc(func::FuncOp &func) { this->func = func; }
+  void clearCurrentOperationGroup(size_t grpIdx);
   void generateGroupOpVectorizedIR(const int idx);
   void
   rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
                               const std::queue<Operation *> *queue = nullptr);
   void createNewConstantOp(Operation *srcOp,
-                           vector::TransferWriteOp *transferWriteOp);
+                           vector::TransferWriteOp *transferWriteOp,
+                           size_t groupSteps);
   // elementwise for loop
   mlir::FailureOr<scf::ForOp>
   generateVectorizedForLoop(const size_t groupId, IRRewriter &rewriter,
@@ -529,10 +537,17 @@ public:
       const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
       const ValueRange &iterArgs);
 
-  scf::ForOp generateScalarDataMovement(
+  scf::ForOp generateTransposeScalarDataMovement(
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
       const Location &loc, SmallVector<Value> &inductionVars,
       const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap);
+
+  // shapecast
+  scf::ForOp generateShapeCastForLoop(const size_t grpIdx);
+  scf::ForOp generateShapeCastReadWriteLoop(
+      OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
+      const size_t steps, const Location &loc,
+      SmallVector<Value> &inductionVars, const ValueRange &iterArgs);
 };
 
 class VectorOperationAnalyzer : virtual public CanonicalizerCommonUsedData {
@@ -545,7 +560,10 @@ public:
   VectorOperationAnalyzer(func::FuncOp &func) : func(func) {}
 
   void setAnalysisFunc(func::FuncOp &func) { this->func = func; }
-  void analysisEmptyGroupAndMaxSteps();
+  ///  remove the useless operation, due to it result is not require by other
+  // operation
+  void analysisEmptyGroup();
+  void analysisGroupMaxSteps();
   void analysisGroupOperaion();
   void analysisGroupOperationResults();
   void specialOperationAnchorRectify();

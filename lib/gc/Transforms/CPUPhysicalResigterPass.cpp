@@ -20,7 +20,8 @@ namespace {
 
 #define ARITH_CAST_OPERATIONS                                                  \
   arith::ExtFOp, arith::ExtSIOp, arith::ExtUIOp, arith::BitcastOp,             \
-      arith::FPToSIOp, arith::FPToUIOp, arith::SIToFPOp, arith::UIToFPOp
+      arith::FPToSIOp, arith::FPToUIOp, arith::SIToFPOp, arith::UIToFPOp,      \
+      arith::TruncFOp, arith::TruncIOp
 
 // TODO: remove it in the future
 bool disableSpecialOp = false;
@@ -55,6 +56,15 @@ void printQueue(const std::queue<Operation *> &opQueue) {
   std::cout << "________________________________ op queue end "
                "__________________"
             << std::endl;
+}
+/// Get the index position of the first element that is true
+static size_t getFirstTrueIndex(ArrayRef<bool> ararys) {
+  for (size_t i = 0; i < ararys.size(); i++) {
+    if (!ararys[i]) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 bool isSpecialOp(Operation *op) {
@@ -153,29 +163,42 @@ bool isLastDim(const AffineExpr &expr, const size_t rank) {
   }
 }
 
+/// get float or integer dense attribute
+/// \param [in,out] attr
+template <typename T>
+void getConstantDenseAttr(TypedAttr &attr, VectorType type,
+                          DenseElementsAttr denseAttr) {
+  using APX = std::conditional_t<std::is_same_v<T, DenseFPElementsAttr>,
+                                 APFloat, APInt>;
+  attr = T::get(type, denseAttr.getSplatValue<APX>());
+}
+
 FailureOr<Value> createArithSplatConstantOp(IRRewriter &rewriter,
                                             const Location &loc,
-                                            const ElementsAttr &valueType,
-                                            VectorType &newOperandType) {
+                                            DenseElementsAttr valueType,
+                                            VectorType newOperandType) {
 
   if (valueType.isSplat()) {
-    Value res;
-    if (mlir::isa<FloatType>(valueType.getElementType())) {
-      res = rewriter.create<arith::ConstantOp>(
-          loc,
-          FloatAttr::get(newOperandType, valueType.getSplatValue<APFloat>()));
+    TypedAttr attr;
+    if (isa<FloatType>(newOperandType.getElementType())) {
+      getConstantDenseAttr<DenseFPElementsAttr>(attr, newOperandType,
+                                                valueType);
     } else {
-      res = rewriter.create<arith::ConstantOp>(
-          loc,
-          IntegerAttr::get(newOperandType, valueType.getSplatValue<APInt>()));
+      getConstantDenseAttr<DenseIntElementsAttr>(attr, newOperandType,
+                                                 valueType);
     }
-    return res;
+    return rewriter.create<arith::ConstantOp>(loc, attr)->getResults()[0];
   }
 
   return failure();
 }
 
-mlir::FailureOr<VectorType> getOperationVectorType(Operation *op) {
+/// get operation vector type
+/// \param isPrevOp whether the operation is a previous operation, if it is not
+/// prev-op, may need to use result vectortype
+/// default will return the opeation result type
+mlir::FailureOr<VectorType> getOperationVectorType(Operation *op,
+                                                   bool isPrevOp = true) {
   if (!op) {
     return failure();
   }
@@ -185,8 +208,8 @@ mlir::FailureOr<VectorType> getOperationVectorType(Operation *op) {
           .Case<vector::TransferWriteOp>(
               [&](vector::TransferWriteOp transferWriteOp)
                   -> mlir::FailureOr<VectorType> {
-                auto retType = mlir::dyn_cast<VectorType>(
-                    transferWriteOp->getOperand(0).getType());
+                auto retType =
+                    dyn_cast<VectorType>(transferWriteOp.getOperandTypes()[0]);
                 if (retType) {
                   return retType;
                 }
@@ -200,23 +223,84 @@ mlir::FailureOr<VectorType> getOperationVectorType(Operation *op) {
               })
           .Case<vector::MultiDimReductionOp>(
               [&](vector::MultiDimReductionOp multiReductionOp) {
-                return multiReductionOp.getSourceVectorType();
-              })
-          .Case<arith::ConstantOp>(
-              [&](arith::ConstantOp constantOp) -> mlir::FailureOr<VectorType> {
-                return failure();
+                if (isPrevOp) {
+                  return cast<VectorType>(
+                      multiReductionOp->getResultTypes()[0]);
+                }
+                // TODO: may need to add accumulate value vectortype
+                return cast<VectorType>(multiReductionOp.getSourceVectorType());
               })
           .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
-            if (!op->getResults().empty()) {
-              auto t = dyn_cast<VectorType>(op->getResultTypes().front());
-              if (t) {
-                if (isDynamicType(t)) {
-                  return failure();
-                }
-                return t;
+            if (isPrevOp) {
+              if (op->getResultTypes().empty()) {
+                return failure();
               }
+              if (auto shapedType =
+                      dyn_cast<VectorType>(op->getResultTypes()[0])) {
+                return shapedType;
+              }
+              return failure();
+            }
+            if (op->getOperandTypes().empty()) {
+              return failure();
+            }
+            if (auto shapedType =
+                    dyn_cast<VectorType>(op->getOperandTypes()[0])) {
+              return shapedType;
             }
             return failure();
+          });
+  if (!failed(ret) and isDynamicType(ret.value())) {
+    return failure();
+  }
+  return ret;
+}
+
+/// get operation vector type
+/// \param isPrevOp whether the operation is a previous operation, if it is not
+/// prev-op, may need to use result vectortype
+/// default will return the opeation result type
+mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op) {
+  if (!op) {
+    return failure();
+  }
+  auto isDynamicType = [](VectorType &type) { return !type.hasStaticShape(); };
+  auto ret =
+      TypeSwitch<Operation *, mlir::FailureOr<VectorType>>(op)
+          .Case<vector::TransferWriteOp>(
+              [&](vector::TransferWriteOp transferWriteOp)
+                  -> mlir::FailureOr<VectorType> {
+                auto retType =
+                    dyn_cast<VectorType>(transferWriteOp.getOperandTypes()[0]);
+                if (retType) {
+                  return retType;
+                }
+                LDBG("TransferWrite Operation has wrong vector to write.");
+                return failure();
+              })
+          .Case<vector::TransferReadOp>(
+              [&](vector::TransferReadOp transferReadOp)
+                  -> mlir::FailureOr<VectorType> {
+                return transferReadOp.getVectorType();
+              })
+          .Case<vector::MultiDimReductionOp>(
+              [&](vector::MultiDimReductionOp multiReductionOp) {
+                return cast<VectorType>(multiReductionOp.getSourceVectorType());
+              })
+          .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
+            if (op->getResultTypes().empty() and
+                op->getOperandTypes().empty()) {
+              return failure();
+            }
+            if (op->getResultTypes().empty()) {
+              return dyn_cast<VectorType>(op->getOperandTypes()[0]);
+            }
+            if (op->getOperandTypes().empty()) {
+              return dyn_cast<VectorType>(op->getResultTypes()[0]);
+            }
+            auto opdType = dyn_cast<VectorType>(op->getOperandTypes()[0]);
+            auto retType = dyn_cast<VectorType>(op->getResultTypes()[0]);
+            return opdType.getRank() > retType.getRank() ? opdType : retType;
           });
   if (!failed(ret) and isDynamicType(ret.value())) {
     return failure();
@@ -227,7 +311,7 @@ mlir::FailureOr<VectorType> getOperationVectorType(Operation *op) {
 VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loop_step) {
   // Check that the operation type can be broken
   // down into a loop.
-  auto baseType = getOperationVectorType(op);
+  mlir::FailureOr<VectorType> baseType = getOperationVectorType(op);
   if (failed(baseType)) {
     LDBG("Failed to get vector type for operation: " << *op << "\n");
     assert(false && "Failed to get vector type for operation");
@@ -588,12 +672,24 @@ Operation *createTensorEmptyBefore(Operation *op) {
                                           rtType.getElementType(), dynDims);
 }
 
-Value getOperationResultTensor(Operation *op) {
-  auto result = op->getResults()[0];
-  for (auto x : result.getUsers()) {
-    if (mlir::isa<vector::TransferWriteOp>(x)) {
-      return x->getOperand(1);
+/// get the tensor that operation should write into
+Value getOperationResultTensor(
+    Operation *op, DenseMap<Operation *, size_t> &visitedOperation) {
+  OpResult result = op->getResults()[0];
+  for (Operation *x : result.getUsers()) {
+    if (!isa<vector::TransferWriteOp>(x)) {
+      continue;
     }
+    Value sourceTensor = x->getOperands()[1];
+    Operation *srcOp = sourceTensor.getDefiningOp();
+    if (!visitedOperation.contains(srcOp)) {
+      continue;
+    }
+    size_t pos = visitedOperation[srcOp];
+    if (pos > visitedOperation[op]) {
+      continue;
+    }
+    return sourceTensor;
   }
   LDBG("Result not write back to tensor.");
 
@@ -679,8 +775,9 @@ Operation *CanonicalizerCommonUsedData::createTransferReadOpBefore(
 // canonicalizing operation as tensor empty and transfer write the operation
 // result into the empty tensor
 [[nodiscard]] std::pair<Value, Value>
-canonicalizeSourceOperation(Operation *op) {
-  auto resultTensor = getOperationResultTensor(op);
+canonicalizeSourceOperation(Operation *op,
+                            DenseMap<Operation *, size_t> &visitedOperation) {
+  auto resultTensor = getOperationResultTensor(op, visitedOperation);
   auto writeOp = createTransferWriteOpAfter(op, resultTensor);
   return std::make_pair(resultTensor, writeOp->getResults()[0]);
 }
@@ -1009,6 +1106,7 @@ void ForLoopGenerator::replaceOperationsWithForLoopResult(
   for (auto [nxtForResult, nextLoopResult] :
        zip(forResults, nextAnchorResults)) {
     Value originalResult = forResultOrignalResultMap[nextLoopResult];
+
     rewrite.replaceOpUsesWithIf(originalResult.getDefiningOp(), nxtForResult,
                                 replaceIfFn);
   }
@@ -1200,19 +1298,21 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
                               nextAnchorResultsIdxMap, nxtFor->getResults(),
                               movedOperation, forResultOrignalResultMap);
 
-          // reduction must return acc
+          // reduction must return accumulate
           if (originalResultForResultMap.contains(
                   multireductionOp->getResults()[0])) {
-            Value originalValue =
+            Value lastForResult =
                 originalResultForResultMap[multireductionOp->getResults()[0]];
             size_t retIdx =
-                nextAnchorArgsIdxMap[forResultOrignalResultMap[originalValue]];
+                nextAnchorArgsIdxMap[forResultOrignalResultMap[lastForResult]];
             Value forRes = nxtFor->getResults()[retIdx];
 
             nextAnchorResults.emplace_back(forRes);
             nextAnchorResultsIdxMap[forRes] = nextAnchorResults.size() - 1;
-            forResultOrignalResultMap[forRes] = originalValue;
-            originalResultForResultMap[originalValue] = forRes;
+            forResultOrignalResultMap[forRes] =
+                multireductionOp->getResults()[0];
+            originalResultForResultMap[multireductionOp->getResults()[0]] =
+                forRes;
           }
 
           maybeYieldValue(b, loc, nextAnchorResults);
@@ -1242,29 +1342,41 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
           moveOperationsToCurrentForBody(groupIdx, b, inductionVars,
                                          currentLoopStateIdxMap, loopState,
                                          movingOperation);
+          if (!rdCanonicalizer.getIsEmptyReduction()) {
+            int accValIdx = currentLoopStateIdxMap
+                [originalOperandLoopArgsMap[multireductionOp.getAcc()]];
 
-          int accValIdx = currentLoopStateIdxMap
-              [originalOperandLoopArgsMap[multireductionOp.getAcc()]];
+            Value reductionResult = makeArithReduction(
+                b, loc, multireductionOp.getKind(),
+                multireductionOp.getSource(), loopState[accValIdx]);
 
-          Value reductionResult = makeArithReduction(
-              b, loc, multireductionOp.getKind(), multireductionOp.getSource(),
-              loopState[accValIdx]);
+            movePostOpToCurrentAnchor(
+                b, anchorIdx, groupIdx, ValueRange(), b.getBlock(), opQueue,
+                movingOperation, inductionVars, currentLoopStateIdxMap,
+                loopState, nextAnchorResults, forResultOrignalResultMap);
 
-          movePostOpToCurrentAnchor(
-              b, anchorIdx, groupIdx, ValueRange(), b.getBlock(), opQueue,
-              movingOperation, inductionVars, currentLoopStateIdxMap, loopState,
-              nextAnchorResults, forResultOrignalResultMap);
+            nextAnchorResults.clear();
+            nextAnchorResults.emplace_back(reductionResult);
+            nextAnchorResultsIdxMap[reductionResult] = 0;
+            forResultOrignalResultMap[reductionResult] =
+                multireductionOp->getResults()[0];
+            originalResultForResultMap[multireductionOp->getResults()[0]] =
+                reductionResult;
+            getResultInCurrentOps(anchorIdx, groupIdx, movingOperation,
+                                  nextAnchorResults, forResultOrignalResultMap);
 
-          nextAnchorResults.clear();
-          nextAnchorResults.emplace_back(reductionResult);
-          nextAnchorResultsIdxMap[reductionResult] = 0;
-          forResultOrignalResultMap[reductionResult] =
-              multireductionOp->getResults()[0];
-          originalResultForResultMap[multireductionOp->getResults()[0]] =
-              reductionResult;
-          getResultInCurrentOps(anchorIdx, groupIdx, movingOperation,
-                                nextAnchorResults, forResultOrignalResultMap);
-
+          } else {
+            Value sourceVal = multireductionOp.getSource();
+            nextAnchorResults.clear();
+            nextAnchorResults.emplace_back(sourceVal);
+            nextAnchorResultsIdxMap[sourceVal] = 0;
+            forResultOrignalResultMap[sourceVal] =
+                multireductionOp->getResults()[0];
+            originalResultForResultMap[multireductionOp->getResults()[0]] =
+                sourceVal;
+            getResultInCurrentOps(anchorIdx, groupIdx, movingOperation,
+                                  nextAnchorResults, forResultOrignalResultMap);
+          }
           maybeYieldValue(b, loc, nextAnchorResults);
         }
       });
@@ -1292,7 +1404,12 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
   SmallVector<int64_t, 4> &parallelAxis = rdCanonicalizer.getParallelAxis();
   const Location &loc = multiReductionOp.getLoc();
   Value zero = makeIndexArithConstantOp(opBuilder, loc, 0);
-  Value forSteps = makeIndexArithConstantOp(opBuilder, loc, 1);
+  size_t grpMaxStep = getFusionStrategy().getGroupMaxSteps()[groupIdx];
+  size_t actualStep = (parallelIdx == parallelAxis.size() - 1 and
+                       !rdCanonicalizer.getHasLastDimReduction())
+                          ? grpMaxStep
+                          : 1;
+  Value forSteps = makeIndexArithConstantOp(opBuilder, loc, actualStep);
 
   // last dim reduction need to a generate dim=16 loop for fused with pre-op
   int dimSize = 0;
@@ -1370,12 +1487,25 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
             }
           }
 
+          scf::ForOp nxtFor;
+          DenseMap<Value, Value> originalResultForResultMap;
           // 2. generate next for loop
-          scf::ForOp nxtFor = parallelAxisGenerateForLoop(
-              b, groupIdx, parallelIdx + 1, nextAnchorArgsIdxMap,
-              nextAnchorArgs, nextAnchorResults, nextAnchorResultsIdxMap,
-              inductionVars, originalOperandLoopArgsMap,
-              loopArgsOriginalOperandMap, forResultOrignalResultMap);
+          if (rdCanonicalizer.hasLastDimReduction() or
+              parallelIdx < parallelAxis.size() - 1) {
+            nxtFor = parallelAxisGenerateForLoop(
+                b, groupIdx, parallelIdx + 1, nextAnchorArgsIdxMap,
+                nextAnchorArgs, nextAnchorResults, nextAnchorResultsIdxMap,
+                inductionVars, originalOperandLoopArgsMap,
+                loopArgsOriginalOperandMap, forResultOrignalResultMap);
+          } else if (parallelAxis.size() - 1 == parallelIdx) {
+
+            nxtFor = reductionAxisGenerateForLoop(
+                b, groupIdx, 0, parallelIdx + 1, nextAnchorArgsIdxMap,
+                nextAnchorArgs, originalOperandLoopArgsMap,
+                loopArgsOriginalOperandMap, nextAnchorResults,
+                nextAnchorResultsIdxMap, inductionVars,
+                forResultOrignalResultMap, originalResultForResultMap);
+          }
 
           // 3. move postOp to current body
           movePostOpToCurrentAnchor(
@@ -1545,8 +1675,10 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
 
 scf::ForOp
 ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
-  auto &rdCanonicalizer = getMultiRdCanonicalizers()[grpIdx];
-  auto multiReductionOp = rdCanonicalizer.getCandidateOps()[0];
+  MultiReductionCanonicalizer &rdCanonicalizer =
+      getMultiRdCanonicalizers()[grpIdx];
+  vector::MultiDimReductionOp multiReductionOp =
+      rdCanonicalizer.getCandidateOps()[0];
   std::queue<Operation *> &prevOps = rdCanonicalizer.getPrevOps();
   std::queue<Operation *> &postOps = rdCanonicalizer.getPostOps();
   std::queue<Operation *> &accRelatedOps = rdCanonicalizer.getAccRelatedOps();
@@ -1559,7 +1691,7 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
   getPostOps(postOps, copyOpQueue, multiReductionOp);
   classifyAccRelatedOps(accRelatedOps, sourceRelatedOps,
                         multiReductionOp.getAcc().getDefiningOp(), prevOps);
-  // move acc related operation to operation first
+  // move accumulate related operation to operation first
   std::queue<Operation *> rectifyQueue;
   DenseSet<Operation *> pushedSet;
   auto moveOperation = [&](std::queue<Operation *> &from,
@@ -1611,14 +1743,13 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
         originalResult.getDefiningOp(),
         forOp->getResults()[nextAnchorResultsIdxMap[x]], replaceIfFn);
   }
-  rewriter.replaceOp(getMultiRdCanonicalizers()[grpIdx].getCandidateOps()[0],
-                     forOp);
+  rewriter.eraseOp(multiReductionOp);
 
   return forOp;
 }
 
 // generate simple data movement for loop
-scf::ForOp ForLoopGenerator::generateScalarDataMovement(
+scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
     OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
     const Location &loc, SmallVector<Value> &inductionVars,
     const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap) {
@@ -1674,13 +1805,199 @@ scf::ForOp ForLoopGenerator::generateScalarDataMovement(
           maybeYieldValue(b, loc, writeOp->getResults());
         } else {
           // outter loop
-          auto nxtFor =
-              generateScalarDataMovement(b, grpIdx, forDimIdx + 1, loc,
-                                         inductionVars, loopState, tpAxisMap);
+          auto nxtFor = generateTransposeScalarDataMovement(
+              b, grpIdx, forDimIdx + 1, loc, inductionVars, loopState,
+              tpAxisMap);
           maybeYieldValue(b, loc, nxtFor->getResults());
         }
       });
 }
+
+// generate simple data movement for loop
+scf::ForOp ForLoopGenerator::generateShapeCastReadWriteLoop(
+    OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
+    const size_t steps, const Location &loc, SmallVector<Value> &inductionVars,
+    const ValueRange &iterArgs) {
+  auto &scCanonicalizer = getShapeCastCanonicalizers()[grpIdx];
+  vector::ShapeCastOp &scOp = scCanonicalizer.getCandidateOps()[0];
+  VectorType sourceType = scOp.getSourceVectorType();
+  VectorType destType = scOp.getResultVectorType();
+  VectorType loopType =
+      sourceType.getRank() > destType.getRank() ? sourceType : destType;
+  size_t rank = loopType.getRank();
+
+  auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
+  bool isLastDim = loopType.getRank() - 1 == (int64_t)forDimIdx;
+  auto forSteps =
+      makeIndexArithConstantOp(opBuilder, loc, isLastDim ? steps : 1);
+  auto numIter =
+      makeIndexArithConstantOp(opBuilder, loc, loopType.getShape()[forDimIdx]);
+  VectorType kernelType =
+      VectorType::get({(int64_t)steps}, loopType.getElementType());
+
+  // generate transpose for loop
+  return opBuilder.create<scf::ForOp>(
+      loc, zero, numIter, forSteps, iterArgs,
+      [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
+        inductionVars.emplace_back(iv);
+
+        // inner most body of the loop
+        if (forDimIdx == rank - 1) {
+          sourceType.dump();
+          destType.dump();
+          // transfer read from source tensor
+          Value source = scOp->getOperand(0);
+          auto readSourceOp =
+              cast<vector::TransferReadOp>(source.getDefiningOp());
+          vector::TransferWriteOp successorWriteOp;
+          for (Operation *x : scOp->getUsers()) {
+            if (isa<vector::TransferWriteOp>(x)) {
+              successorWriteOp = cast<vector::TransferWriteOp>(x);
+              break;
+            }
+          }
+          SmallVector<AffineExpr> exprs(loopType.getRank(), AffineExpr());
+          bindSymbolsList<AffineExpr>(b.getContext(), exprs);
+          SmallVector<Value> operands{inductionVars.begin(),
+                                      inductionVars.end()};
+          SmallVector<Value> smallRankShapeVars;
+
+          auto getSmallRankShapeVars = [&](VectorType smallType) {
+            size_t itrIdx = 0;
+            SmallVector<bool> visitedAxis(rank, false);
+            while ((int64_t)itrIdx < smallType.getRank()) {
+
+              size_t endShape = getFirstTrueIndex(visitedAxis), dimSize = 1;
+              assert(endShape < rank and endShape >= 0 && "Invalid endShape");
+              // skip non corresponding axis
+              // e.g.: vector<32x16x1x32xbf16> -> vector<1x512x32xbf16>
+              while (loopType.getShape()[endShape] >
+                     smallType.getShape()[itrIdx]) {
+                endShape++;
+              }
+              const size_t expandIdx = endShape;
+              while (endShape < rank) {
+                visitedAxis[endShape] = true;
+                dimSize *= loopType.getShape()[endShape];
+                if ((int64_t)dimSize == smallType.getShape()[itrIdx]) {
+                  break;
+                }
+                endShape += 1;
+              }
+              const size_t expandSize = endShape - expandIdx + 1;
+              AffineExpr calculateOffset;
+              SmallVector<Value> offsetVars;
+
+              for (size_t i = 0; i < expandSize; i++) {
+                size_t startIdx = i + 1;
+                size_t otherDimsSize = 1;
+                while (startIdx < expandSize) {
+                  otherDimsSize *= (loopType.getShape()[startIdx + expandIdx]);
+                  startIdx++;
+                }
+                AffineExpr dimSize =
+                    getAffineConstantExpr(otherDimsSize, b.getContext());
+                if (i == 0) {
+                  calculateOffset = exprs[i] * dimSize;
+                } else {
+                  calculateOffset = calculateOffset + exprs[i] * dimSize;
+                }
+
+                offsetVars.emplace_back(inductionVars[i + expandIdx]);
+              }
+              AffineMap map = AffineMap::get(0, expandSize, calculateOffset);
+
+              Value offset =
+                  b.createOrFold<affine::AffineApplyOp>(loc, map, offsetVars);
+              smallRankShapeVars.emplace_back(offset);
+              itrIdx++;
+            }
+          };
+
+          if (loopType == sourceType) {
+            getSmallRankShapeVars(destType);
+          } else {
+            getSmallRankShapeVars(sourceType);
+          }
+
+          auto padValue = b.create<arith::ConstantOp>(
+              loc, b.getZeroAttr(loopType.getElementType()));
+
+          SmallVector<bool> inBoundsVal(1, true);
+
+          auto transferReadOp = b.create<vector::TransferReadOp>(
+              loc,
+              /*vectorType=*/kernelType,
+              /*source=*/readSourceOp->getOperands()[0],
+              /*indices=*/loopType == sourceType ? inductionVars
+                                                 : smallRankShapeVars,
+              /*padding=*/padValue,
+              /*inBounds=*/inBoundsVal);
+
+          auto writeOp = b.create<vector::TransferWriteOp>(
+              loc, transferReadOp->getResults()[0],
+              successorWriteOp->getOperands()[1],
+              loopType == sourceType ? smallRankShapeVars : inductionVars,
+              inBoundsVal);
+          maybeYieldValue(b, loc, writeOp->getResults());
+        } else {
+          // outter loop
+          auto nxtFor = generateShapeCastReadWriteLoop(
+              b, grpIdx, forDimIdx + 1, steps, loc, inductionVars, loopState);
+          maybeYieldValue(b, loc, nxtFor->getResults());
+        }
+      });
+}
+
+/// generate transpose for loop
+scf::ForOp ForLoopGenerator::generateShapeCastForLoop(const size_t grpIdx) {
+
+  ShapeCastCanonicalizer &scCanonicalizer =
+      getShapeCastCanonicalizers()[grpIdx];
+  vector::ShapeCastOp &scOp = scCanonicalizer.getCandidateOps()[0];
+
+  VectorType sourceType = scOp.getSourceVectorType();
+  VectorType destType = scOp.getResultVectorType();
+
+  OpBuilder b(scOp);
+  SmallVector<Value> iterArgs;
+  vector::TransferWriteOp successorWriteOp;
+  for (Operation *x : scOp->getUsers()) {
+    if (isa<vector::TransferWriteOp>(x)) {
+      successorWriteOp = cast<vector::TransferWriteOp>(x);
+      break;
+    }
+  }
+  iterArgs.emplace_back(successorWriteOp->getOperands()[1]);
+  SmallVector<Value> inductionVars;
+  IRRewriter rewriter(func);
+  const size_t groupStep = getFusionStrategy().getGroupMaxSteps()[grpIdx];
+
+  bool isSourceMultiple =
+      sourceType.getShape()[sourceType.getRank() - 1] % groupStep == 0;
+  bool isDestMultiple =
+      destType.getShape()[destType.getRank() - 1] % groupStep == 0;
+
+  if (isDestMultiple and isSourceMultiple and
+      scCanonicalizer.isReadWriteOnLastDim()) {
+    scf::ForOp forOp = generateShapeCastReadWriteLoop(
+        b, grpIdx, 0, groupStep, scOp.getLoc(), inductionVars, iterArgs);
+    rewriter.replaceOp(successorWriteOp, forOp);
+    clearCurrentOperationGroup(grpIdx);
+    return forOp;
+  }
+
+  // scalar data movement
+  scf::ForOp forOp = generateShapeCastReadWriteLoop(
+      b, grpIdx, 0, 1, scOp.getLoc(), inductionVars, iterArgs);
+  rewriter.replaceOp(successorWriteOp, forOp);
+  clearCurrentOperationGroup(grpIdx);
+  return forOp;
+}
+
+void ForLoopGenerator::clearCurrentOperationGroup(size_t grpIdx) {
+  std::queue<Operation *>().swap(getFusionStrategy().getOpGroups()[grpIdx]);
+};
 
 /// generate transpose for loop
 scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
@@ -1689,11 +2006,8 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   TransposeCanonicalizer &tpCanonicalizer =
       getTransposeCanonicalizers()[grpIdx];
   vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
+
   VectorType vtType = tpOp.getVector().getType();
-  std::cout << " _________ check tp operation source."
-            << "\n";
-  vtType.dump();
-  tpOp->getResultTypes()[0].dump();
   size_t rank = vtType.getRank();
   if (rank < 2) {
     llvm::llvm_unreachable_internal(
@@ -1717,6 +2031,7 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   for (Operation *x : tpOp->getUsers()) {
     if (isa<vector::TransferWriteOp>(x)) {
       successorWriteOp = cast<vector::TransferWriteOp>(x);
+      break;
     }
   }
   iterArgs.emplace_back(successorWriteOp->getOperands()[1]);
@@ -1724,18 +2039,14 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   IRRewriter rewriter(func);
 
   if (permuteSet.contains(rank - 1) and isTwoDTranspose) {
-    std::cout << " can use 16x16 : " << std::endl;
     scf::ForOp forOp = generateTransposeForLoopWithLastDim(
         b, grpIdx, 0, tpStep, tpOp.getLoc(), inductionVars, iterArgs);
 
-    for (Operation *x : tpOp->getUsers()) {
-      if (isa<vector::TransferWriteOp>(x)) {
-        rewriter.replaceOp(x, forOp);
-      }
-    }
+    rewriter.replaceOp(successorWriteOp, forOp);
+    // clear current group operation
+    clearCurrentOperationGroup(grpIdx);
     return forOp;
   }
-  // findTransposeAxisMap(DenseMap<size_t, size_t> & tpAxisMap);
   DenseMap<size_t, size_t> tpAxisMap;
   size_t itrIdx = 0;
   while (itrIdx < rank) {
@@ -1743,15 +2054,11 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
     itrIdx++;
   }
   // scalar data movement
-  scf::ForOp forOp = generateScalarDataMovement(
+  scf::ForOp forOp = generateTransposeScalarDataMovement(
       b, grpIdx, 0, tpOp.getLoc(), inductionVars, iterArgs, tpAxisMap);
-  for (Operation *x : tpOp->getUsers()) {
-    if (isa<vector::TransferWriteOp>(x)) {
-      rewriter.replaceOp(x, forOp);
-    }
-  }
-  std::cout << " scalar data movement." << std::endl;
-  forOp->dump();
+
+  rewriter.replaceOp(successorWriteOp, forOp);
+  clearCurrentOperationGroup(grpIdx);
   return forOp;
 }
 
@@ -1766,6 +2073,7 @@ void MultiReductionCanonicalizer::initReductionAxis() {
   auto reductionRange = llvm::to_vector<4>(map_range(
       reductionAxisRange, [](const APInt &a) { return a.getZExtValue(); }));
   reductionAxis.assign(reductionRange.begin(), reductionRange.end());
+  llvm::sort(reductionAxis);
 }
 
 void MultiReductionCanonicalizer::initParallelAxis() {
@@ -1776,7 +2084,7 @@ void MultiReductionCanonicalizer::initParallelAxis() {
       parallelAxis.push_back(i);
     }
   }
-  llvm::sort(parallelAxis.begin(), parallelAxis.end());
+  llvm::sort(parallelAxis);
 }
 
 int64_t MultiReductionCanonicalizer::getTypeRank() {
@@ -1810,6 +2118,14 @@ void MultiReductionCanonicalizer::prepareSpecialOperationInfo() {
   getTypeRank();
   getReductionAxisAndParallelAxis();
   hasLastDimReduction();
+
+  // whether all the reduction axis is 1
+  for (auto axis : reductionAxis) {
+    if (sourceType.getShape()[axis] != 1) {
+      isEmptyReduction = false;
+      break;
+    }
+  }
 };
 
 void TransposeCanonicalizer::prepareSpecialOperationInfo() {
@@ -1848,6 +2164,49 @@ bool TransposeCanonicalizer::isTwoDTranspose() {
     itrIdx++;
   }
   return diffCount == 2;
+}
+
+bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
+  vector::ShapeCastOp &shapeCastOp = getCandidateOps()[0];
+  VectorType sourceType = shapeCastOp.getSourceVectorType();
+  VectorType destType = shapeCastOp.getResultVectorType();
+  VectorType smallRankType =
+      sourceType.getRank() > destType.getRank() ? destType : sourceType;
+  VectorType largeRankType =
+      sourceType.getRank() < destType.getRank() ? destType : sourceType;
+  SmallVector<bool> visitedAxis(largeRankType.getRank(), false);
+  // Map the index of the larger rank shape to the index of the smaller rank
+  // shape.
+  DenseMap<size_t, SmallVector<size_t>> shapeIdxMap;
+  for (size_t i = 0; i < smallRankType.getRank(); i++) {
+    shapeIdxMap[i] = std::move(SmallVector<size_t>());
+  }
+  size_t itrIdx = 0;
+  while (itrIdx < smallRankType.getRank()) {
+    size_t endShape = getFirstTrueIndex(visitedAxis), dimSize = 1;
+    assert(endShape < largeRankType.getRank() and endShape >= 0 &&
+           "Invalid endShape");
+    // skip non corresponding axis
+    // e.g.: vector<32x16x1x32xbf16> -> vector<1x512x32xbf16>
+    while (largeRankType.getShape()[endShape] >
+           smallRankType.getShape()[itrIdx]) {
+      endShape++;
+    }
+    while (endShape < largeRankType.getRank()) {
+      visitedAxis[endShape] = true;
+      shapeIdxMap[itrIdx].emplace_back(endShape);
+      dimSize *= largeRankType.getShape()[endShape];
+      if ((int64_t)dimSize == smallRankType.getShape()[itrIdx]) {
+        break;
+      }
+      endShape++;
+    }
+    itrIdx++;
+  }
+  // check if the last dim is read write
+  SmallVector<size_t> lastDims = shapeIdxMap[smallRankType.getRank() - 1];
+  DenseSet<size_t> set(lastDims.begin(), lastDims.end());
+  return set.contains(largeRankType.getRank() - 1);
 }
 
 template <class T> void addDummyInit(SmallVector<T, 8> &canonicalizer) {
@@ -1909,6 +2268,8 @@ void CanonicalizerVectorOperation::canonicalizeSpecialOperation() {
       getMultiRdCanonicalizers();
   llvm::SmallVector<TransposeCanonicalizer, 8> &transposeCanonicalizers =
       getTransposeCanonicalizers();
+  llvm::SmallVector<ShapeCastCanonicalizer, 8> &shapeCastCanonicalizers =
+      getShapeCastCanonicalizers();
   for (auto [groupId, rdCanonicalizer] :
        llvm::enumerate(multiRdCanonicalizers)) {
     SmallVector<vector::MultiDimReductionOp, 4> &rdOps =
@@ -1921,6 +2282,12 @@ void CanonicalizerVectorOperation::canonicalizeSpecialOperation() {
         transposeCanonicalizers[groupId].getCandidateOps();
     if (!transposeOps.empty()) {
       (void)generateTransposeForLoop(groupId);
+    }
+
+    SmallVector<vector::ShapeCastOp, 4> &shapeCastOps =
+        shapeCastCanonicalizers[groupId].getCandidateOps();
+    if (!shapeCastOps.empty()) {
+      (void)generateShapeCastForLoop(groupId);
     }
   }
 }
@@ -1965,8 +2332,14 @@ void CanonicalizerVectorOperation::run() {
 
     // Query groupResultYeildSet to map operaion result value to scf.yield
     // result value.
+    printGroupOps(getFusionStrategy().getOpGroups());
+    std::cout << "___________ before analysis ________________"
+              << "\n";
     analysisGroupOperaion();
-    // printGroupOps(fusionStrategy.getOpGroups());
+    std::cout << "___________ after analysis ________________"
+              << "\n";
+    printGroupOps(getFusionStrategy().getOpGroups());
+
     // Speical Operation Canonicalization
     canonicalizeSpecialOperation();
 
@@ -1995,6 +2368,12 @@ void CanonicalizerVectorOperation::run() {
   // We are only interested about the operation in vector dialect
   if (failed(getOperationVectorType(op))) {
     LDBG("Operation is not in vector dialect" << *op << "\n");
+    return false;
+  }
+
+  // We don't need to vectorize the constant operation
+  if (isa<arith::ConstantOp>(op)) {
+    LDBG("Operation is constantOp" << *op << "\n");
     return false;
   }
 
@@ -2100,15 +2479,26 @@ bool isSameVectorType(Operation *op1, Operation *op2) {
   return isSame;
 }
 
+/// default op1 is previous operation
 bool VectorFusionStrategy::isCompatibleVectorType(Operation *op1,
                                                   Operation *op2) {
-  auto type1 = getOperationVectorType(op1);
-  auto type2 = getOperationVectorType(op2);
+  // only lower to vector pass can produce read operation. In general two read
+  // operation is compatible
+  if (isa<vector::TransferReadOp>(op1) and isa<vector::TransferReadOp>(op2)) {
+    return true;
+  }
+
+  mlir::FailureOr<VectorType> type1 = getOperationVectorType(op1, true);
+  mlir::FailureOr<VectorType> type2 = getOperationVectorType(op2, false);
+  // some operation has two different operands type like multireduction, we need
+  // to check whether compitable with accumulate vector
+  VectorType suppleType;
   if (failed(type1) || failed(type2)) {
     return false;
   }
   auto sp1 = type1.value();
   auto sp2 = type2.value();
+
   // if (isReadOrWriteOperation(op1) or isReadOrWriteOperation(op2)) {
   //   if (sp1.getRank() != sp2.getRank()) {
   //     return false;
@@ -2119,17 +2509,31 @@ bool VectorFusionStrategy::isCompatibleVectorType(Operation *op1,
   //     }
   //   }
   // }
-  bool isCompatible = true;
-  auto min_rank = std::min(sp1.getRank(), sp2.getRank());
-  // from front to back
-  for (long i = 0; i < min_rank; i++) {
-    if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
-      isCompatible = false;
-      break;
+
+  auto isCompatible = [](VectorType sp1, VectorType sp2) {
+    bool isCompatible = true;
+    auto min_rank = std::min(sp1.getRank(), sp2.getRank());
+    // from front to back
+    for (long i = 0; i < min_rank; i++) {
+      if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
+        isCompatible = false;
+        break;
+      }
     }
+    return isCompatible;
+  };
+
+  bool result;
+  result = isCompatible(sp1, sp2);
+  // operand check only happen on later operation is op2
+  // TODO: may need to support other similar operation like multireduction has
+  // two different operands type
+  if (isa<vector::MultiDimReductionOp>(op2)) {
+    suppleType = cast<VectorType>(op2->getOperandTypes()[1]);
+    result |= isCompatible(suppleType, sp1);
   }
 
-  return isCompatible;
+  return result;
 }
 
 ///  which axis do the shape cast in source shape a
@@ -2259,11 +2663,13 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
       });
 }
 
+/// whether two operation has data dependency
+/// op1 default is previous operation, op2 default is current operation
 bool hasDataDependency(Operation *op1, Operation *op2) {
   if (!isSpecialOp(op1) and !isSpecialOp(op2)) {
     return false;
   }
-  // op1 must be special operation
+  // only special operation may cause data dependency
   if (!isSpecialOp(op1)) {
     return hasDataDependency(op2, op1);
   }
@@ -2272,6 +2678,23 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
   if (disableSpecialOp) {
     return true;
   }
+
+  // if op1 is read the value and pass it to op2, it is not data dependency
+  if (isa<vector::TransferReadOp>(op2)) {
+    for (Value opd : op1->getOperands()) {
+      if (opd.getDefiningOp() == op2) {
+        return false;
+      }
+    }
+  }
+  // if op2 is write the result from op2, it is not data dependency
+  if (isa<vector::TransferWriteOp>(op2)) {
+    Value opd = op2->getOperand(0);
+    if (opd.getDefiningOp() == op1) {
+      return false;
+    }
+  }
+
   auto hasSameAxis = [](const SmallVector<int64_t> &dims1,
                         const SmallVector<int64_t> &dims2) {
     DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
@@ -2353,7 +2776,6 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
             SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
-            return true;
             if (!isSpecialOp(op2)) {
               return hasSameAxis(dims1, dims2);
             } else {
@@ -2404,15 +2826,14 @@ void VectorFusionStrategy::updateGroupBitgestVectorType(VectorType vectorType) {
 
 void VectorFusionStrategy::addOperationToGroup(Operation *op) {
   assert(op);
-  VectorType vectorType = getOperationVectorType(op).value();
+  VectorType vectorType = getOperationMaxVectorType(op).value();
   if (isNeedNewGroup(op)) {
     opGroups.emplace_back(std::queue<Operation *>());
-  } else {
-    updateGroupBitgestVectorType(vectorType);
   }
+  updateGroupBitgestVectorType(vectorType);
   opGroups.back().push(op);
   opGroupIndexMap[op] = opGroups.size() - 1;
-  opAnchorPos[op] = getOperationVectorType(op)->getRank() - 1;
+  opAnchorPos[op] = getOperationMaxVectorType(op)->getRank() - 1;
 }
 
 // We classify the operations we are interested in after filtering. Operations
@@ -2495,15 +2916,19 @@ void setOperationOperandResult(Operation *op, const VectorType &newOperandType,
   }
 };
 
+/// Reimplementation of writing a tensor from a constant of denseElementattr.
 void ForLoopGenerator::createNewConstantOp(
-    Operation *srcOp, vector::TransferWriteOp *transferWriteOp) {
-  auto &opPermuationMap = getOpPermuationMap();
+    Operation *srcOp, vector::TransferWriteOp *transferWriteOp,
+    size_t groupSteps) {
+  DenseMap<Operation *, AffineMap> &opPermuationMap = getOpPermuationMap();
+
   IRRewriter srcWriter(srcOp);
-  auto newOperandType = getVectorzedType(mlir::cast<Operation *>(srcOp));
+  VectorType newOperandType =
+      getVectorzedType(cast<Operation *>(srcOp), groupSteps);
   auto srcConstantOp = dyn_cast<arith::ConstantOp>(srcOp);
   Operation *newConstantOp;
-  if (mlir::isa<ElementsAttr>(srcConstantOp.getValue())) {
-    auto valueType = mlir::dyn_cast<ElementsAttr>(srcConstantOp.getValue());
+  if (isa<DenseElementsAttr>(srcConstantOp.getValue())) {
+    auto valueType = dyn_cast<DenseElementsAttr>(srcConstantOp.getValue());
     if (valueType.isSplat()) {
       FailureOr<Value> res = createArithSplatConstantOp(
           srcWriter, srcOp->getLoc(), valueType, newOperandType);
@@ -2512,20 +2937,26 @@ void ForLoopGenerator::createNewConstantOp(
       }
       newConstantOp = res.value().getDefiningOp();
     } else {
-      newConstantOp = srcWriter.create<arith::ConstantOp>(
-          srcOp->getLoc(), srcConstantOp.getValue());
+      // TODO: need to test not splat value
+      // newConstantOp = srcWriter.create<arith::ConstantOp>(
+      //     srcOp->getLoc(), srcConstantOp.getValue());
+      llvm::llvm_unreachable_internal(
+          "Can't support not splat constant value.");
     }
 
     newConstantOp->getResult(0).setType(newOperandType);
     transferWriteOp->setOperand(0, newConstantOp->getResult(0));
     opPermuationMap.insert(
-        {mlir::cast<Operation *>(srcOp), transferWriteOp->getPermutationMap()});
+        {*transferWriteOp, transferWriteOp->getPermutationMap()});
     setOpVectorizationPermutationMap(
-        mlir::cast<Operation *>(srcOp), srcWriter,
+        *transferWriteOp, srcWriter,
         mlir::dyn_cast<RankedTensorType>(
             transferWriteOp->getResults()[0].getType()),
         transferWriteOp->getPermutationMap());
+    return;
   }
+  llvm::llvm_unreachable_internal(
+      "Can't support not DenseElementsAttr constant.");
 }
 
 /// Rewrite the operations in the group to vectorized form.
@@ -2553,7 +2984,7 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
                   Operation *srcOp =
                       transferWriteOp->getOperand(0).getDefiningOp();
                   if (mlir::isa<arith::ConstantOp>(srcOp)) {
-                    createNewConstantOp(srcOp, &transferWriteOp);
+                    createNewConstantOp(srcOp, &transferWriteOp, groupSteps);
                   } else {
                     opPermuationMap.insert(
                         {transferWriteOp, transferWriteOp.getPermutationMap()});
@@ -2661,7 +3092,8 @@ void VectorFusionStrategy::run() { classifyOperations(); }
 void CanonicalizerCommonUsedData::generateEmptyTensorAndWrite(
     Operation *sourceOp,
     DenseMap<Operation *, std::pair<Value, Value>> &srcOpCanoniclizedMap,
-    size_t anchorPos, ReturnTypeKind retKind) {
+    size_t anchorPos, ReturnTypeKind retKind,
+    DenseMap<Operation *, size_t> &visitedOperation) {
   DenseMap<Operation *, size_t> &opGroupIndexMap =
       getFusionStrategy().getOpGroupIndexMap();
   SmallVector<SetVector<Value>, 8> &groupOpInitArgs = getGroupOpInitArgs();
@@ -2669,7 +3101,8 @@ void CanonicalizerCommonUsedData::generateEmptyTensorAndWrite(
       &groupOpResults = getGroupOpResults();
   size_t sourceOpGid = opGroupIndexMap[sourceOp];
 
-  auto [tsr, writeOpresult] = canonicalizeSourceOperation(sourceOp);
+  auto [tsr, writeOpresult] =
+      canonicalizeSourceOperation(sourceOp, visitedOperation);
   auto writeOp = writeOpresult.getDefiningOp<vector::TransferWriteOp>();
   srcOpCanoniclizedMap.insert({sourceOp, {tsr, writeOpresult}});
   updateOpOperandResultInGroups(sourceOpGid, sourceOp, tsr, writeOpresult);
@@ -2681,35 +3114,47 @@ void CanonicalizerCommonUsedData::generateEmptyTensorAndWrite(
   getOpPermuationMap()[writeOp] = writeOp.getPermutationMap();
 }
 
-void VectorOperationAnalyzer::analysisEmptyGroupAndMaxSteps() {
-  auto &groupOpResults = getGroupOpResults();
-  auto &opGroups = getFusionStrategy().getOpGroups();
-
-  // If the group operations do not have result need to be returned, these are
-  // useless code.
+void VectorOperationAnalyzer::analysisEmptyGroup() {
+  SmallVector<std::queue<Operation *>, 8> &opGroups =
+      getFusionStrategy().getOpGroups();
+  SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
+      &groupOpResults = getGroupOpResults();
   for (auto [idx, grp] : llvm::enumerate(opGroups)) {
+    if (grp.empty()) {
+      continue;
+    }
     if (groupOpResults[idx].empty()) {
       std::queue<Operation *>().swap(grp);
     }
+  }
+}
+
+/// get each operation in each group maximum support vectorization length
+void VectorOperationAnalyzer::analysisGroupMaxSteps() {
+  auto &opGroups = getFusionStrategy().getOpGroups();
+
+  for (auto [idx, grp] : llvm::enumerate(opGroups)) {
+
     uint32_t steps = std::numeric_limits<uint32_t>::max();
 
-    auto &grpSteps = getFusionStrategy().getGroupMaxSteps();
-    while (idx >= grpSteps.size()) {
+    llvm::SmallVector<uint32_t, 8> &grpSteps =
+        getFusionStrategy().getGroupMaxSteps();
+    while (idx + 1 > grpSteps.size()) {
       grpSteps.emplace_back(steps);
     }
     std::queue<Operation *> tmpQueue(grp);
     auto calculateOpSteps = [&](Type type) {
-      auto opType = mlir::dyn_cast<VectorType>(type);
+      auto opType = dyn_cast<VectorType>(type);
       if (opType)
         steps = std::min(steps, (uint32_t)getDataTypeMAXSIMDLength(opType));
     };
     while (!tmpQueue.empty()) {
       auto op = tmpQueue.front();
       tmpQueue.pop();
-      if (mlir::isa<arith::ExtFOp, arith::ExtSIOp, arith::ExtUIOp>(op)) {
+      if (isa<ARITH_CAST_OPERATIONS>(op)) {
         calculateOpSteps(op->getOperandTypes()[0]);
       }
-      calculateOpSteps(op->getResultTypes()[0]);
+      calculateOpSteps(getOperationVectorType(op).value());
     }
     grpSteps[idx] = steps;
   }
@@ -2731,11 +3176,16 @@ void VectorOperationAnalyzer::specialOperationAnchorRectify() {
   }
 }
 
-// analysis operation result of current group whether needed by other
-// operation which out of current group
+/// analysis operation result of current group whether needed by other
+/// operation which out of current group
 void VectorOperationAnalyzer::analysisGroupOperationResults() {
   DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
+  // record the operation which has been moved
   DenseSet<Operation *> movedOperationSet;
+  //  record the operation's position which has visited, inorder to ensure set
+  //  correct operand
+  size_t opCounter = 0;
+  DenseMap<Operation *, size_t> visitedOperation;
   DenseMap<Operation *, size_t> &opGroupIndexMap =
       getFusionStrategy().getOpGroupIndexMap();
   SmallVector<SetVector<Value>, 8> &groupOpInitArgs = getGroupOpInitArgs();
@@ -2764,7 +3214,11 @@ void VectorOperationAnalyzer::analysisGroupOperationResults() {
     }
   };
 
+  analysisGroupMaxSteps();
+
   func.walk<WalkOrder::PreOrder>([&](Operation *op) {
+    visitedOperation.insert({op, opCounter++});
+
     for (auto [idx, opd] : llvm::enumerate(op->getOperands())) {
       Operation *sourceOp = opd.getDefiningOp();
       if (opGroupIndexMap.contains(sourceOp)) {
@@ -2795,7 +3249,8 @@ void VectorOperationAnalyzer::analysisGroupOperationResults() {
             }
             if (!srcOpCanoniclizedMap.contains(sourceOp)) {
               generateEmptyTensorAndWrite(sourceOp, srcOpCanoniclizedMap,
-                                          OpAnchorPos[sourceOp], rtKind);
+                                          OpAnchorPos[sourceOp], rtKind,
+                                          visitedOperation);
             } else {
               // udpate result return type
               updateReturnResultKind(sourceOp, sourceOpGid, rtKind);
@@ -2821,11 +3276,22 @@ void VectorOperationAnalyzer::analysisGroupOperationResults() {
           }
         }
       } else if (isa_and_nonnull<arith::ConstantOp>(sourceOp)) {
+        if (!opGroupIndexMap.contains(op)) {
+          continue;
+        }
+        // TODO: add more operation to this case, write to constant value need
+        // to do this
+        if (isa<vector::TransferWriteOp>(op)) {
+          if (idx == 0)
+            continue;
+        }
+
         auto constantOp = cast<arith::ConstantOp>(sourceOp);
         IRRewriter rewriter(constantOp);
-        if (mlir::isa<ElementsAttr>(constantOp.getValue())) {
+        if (isa<DenseElementsAttr>(constantOp.getValue())) {
           if (!srcOpCanoniclizedMap.contains(sourceOp)) {
-            auto [tsr, writeOpresult] = canonicalizeSourceOperation(sourceOp);
+            auto [tsr, writeOpresult] =
+                canonicalizeSourceOperation(sourceOp, visitedOperation);
             srcOpCanoniclizedMap.insert({sourceOp, {tsr, writeOpresult}});
           }
           auto opInit = canonicalizeCurrentOperation(
@@ -2840,7 +3306,7 @@ void VectorOperationAnalyzer::analysisGroupOperationResults() {
       movedOperationSet.insert(op);
     }
   });
-  analysisEmptyGroupAndMaxSteps();
+  analysisEmptyGroup();
   specialOperationAnchorRectify();
 #undef RESULT_RETURN_TYPE
   LDBG("Complete analysis group operation results\n");
@@ -2864,7 +3330,7 @@ mlir::FailureOr<scf::ForOp> ForLoopGenerator::generateVectorizedForLoop(
     operandIdxMap[x] = operands.size() - 1;
   }
   ValueRange forIterArgs(operands);
-  auto shapes = vectorType.getShape();
+  ArrayRef<int64_t> shapes = vectorType.getShape();
   SmallVector<Value, 5> inductionVars;
   // generate for loop
   auto forOp = constructNestedForOp(
@@ -2944,6 +3410,7 @@ struct CPUPhysicalRegisterPass
     auto *ctx = &getContext();
     RewritePatternSet patterns(ctx);
     auto func = getOperation();
+
     if (hasNotSupportOperation(&func)) {
       LDBG("Not support operation appears in current function.");
       return;
