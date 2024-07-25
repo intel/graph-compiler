@@ -2,18 +2,19 @@
 
 ## 1 Motivation
 Some tensors of a machine learning model are constant during inference, such as the weights of filters of convolution 
-layers. There are two types of representation in terms of these constant tensors:
+layers. There are two types of constant tensors:
 
-- Type 1: they appear as literal values within the model, such as `arith.constant` operations in MLIR. 
-OpenVINO can use this way. The IR of a OpenVINO model consists of its topology and constant values, like weights, 
-in memory. These values are available in compile time. When transforming OpenVINO IR to MLIR, the constants can be 
-lowered into `arith.constant` operations.
+- Type 1: they are available at compile time. They can appear as literal values within the model, such as 
+`arith.constant` operations in MLIR. They can also appear as the arguments of the MLIR module entry function and 
+are marked as compile-time available constant explicitly. Constants in OpenVINO belong to this type. The IR of an 
+OpenVINO model consists of its topology and constant values, like weights, in memory. 
+When transforming OpenVINO IR to MLIR, the constants can be lowered into `arith.constant` operations, 
+or arguments of the MLIR module entry function. Since the concrete values of the constants are compile-time 
+available in OpenVINO case, it is possible to fold them in compile-time.
 
-- Type 2: they appear as the arguments of the MLIR module entry function and are marked as constant explicitly. 
-OneDNN Graph needs to adopt this way. According to the specification of oneDNN Graph, AOT compiling is not supported 
-and the kernel compilation happens with logical tensors instead of real tensors. The literal values of these constant 
-tensors are available at execution time. OpenVINO can also use this way, by excluding the constant `Input` operations 
-when integrating.
+- Type 2: they are only available at runtime. Constants in OneDNN Graph belong to this type. According to the 
+specification of oneDNN Graph, AOT compiling is not supported and the kernel compilation happens with logical tensors 
+instead of real tensors. The literal values of these constant tensors are available at runtime.
 
 Within the IR, there are operations that take the constant tensors as parameters and process them, such as 
 reordering or packing. Outputs of such operations are also constants. However, these operations will run every time 
@@ -64,8 +65,8 @@ tensors. They will be marked as interested ops.
 
 The main work of analysis step will be implemented as a 
 [DataFlow Analysis](https://mlir.llvm.org/docs/Tutorials/DataFlowAnalysis/) pass. In the input MLIR graph,
-the constant tensors will appear as outputs of `arith.constant` operations (Type 1) or arguments of the MLIR module 
-entry function marked with constant attributes (Type 2). The constantness starts its propagation 
+the constant tensors will appear as outputs of `arith.constant` operations or arguments of the MLIR module 
+entry function marked with constant attributes. The constantness starts its propagation 
 from these tensors to the output tensors of operations that process them. Eventually, these operations
 will form a subgraph, which is named as 'constant subgraph'. Another subgraph, which contains non-constant operations, 
 consumes the outputs of constant subgraph and the parameters to the graph.
@@ -79,15 +80,17 @@ Take the following IR as an example (To make the IR short and easy to understand
 shown):
 ```mlir
 module {
-    // %weight0 is Type 2 constant, %weight1 is Type 1 constant.
-    main(%feature0: tensor<*xbf16>, %weight0: tensor<*xbf16>) 
-            -> %feature2: tensor<*xbf16> attributes {const_args_index = [1 : i32]} {
-        %weight1 = arith.constant dense<"0x01234567..."> : tensor<*xbf16>
+    // %weight0 and %weight1 is Type 1 constant. %weight2 is Type 2 constant.
+    main(%feature0: tensor<*xbf16>, %weight1: tensor<*xbf16>, %weight2: tensor<*xbf16>) 
+            -> %feature3: tensor<*xbf16> attributes {compiletime_const_args_index = [1 : i32], runtime_const_args_index = [2 : i32]} {
+        %weight0 = arith.constant dense<"0x01234567..."> : tensor<*xbf16>
         %packedWeight0 = tensor.pack(%weight0, ...)
         %feature1 = linalg.matmul(%feature0, %packedWeight0)
         %packedWeight1 = tensor.pack(%weight1, ...)
         %feature2 = linalg.matmul(%feature1, %packedWeight1)
-        return %feature2
+        %packedWeight2 = tensor.pack(%weight2, ...)
+        %feature3 = linalg.matmul(%feature2, %packedWeight2)
+        return %feature3
     }
 }
 ```
@@ -98,20 +101,22 @@ constants of Type 1. The runtime folding function contains the operations that c
 constants of Type 2. The computing function will take all folded tensors as inputs. The expected output IR will be like:
 ```mlir
 module {
-    compute(%feature0: tensor<*xbf16>, %foldedWeight0: tensor<*xbf16>, %foldedWeight1: tensor<*xbf16>) 
-            -> %feature2: tensor<*xbf16> {
+    compute(%feature0: tensor<*xbf16>, %foldedWeight0: tensor<*xbf16>, %foldedWeight1: tensor<*xbf16>, %foldedWeight2: tensor<*xbf16>) 
+            -> %feature3: tensor<*xbf16> {
         %feature1 = linalg.matmul(%feature0, %foldedWeight0)
         %feature2 = linalg.matmul(%feature1, %foldedWeight1)
-        return %feature2
+        %feature3 = linalg.matmul(%feature2, %foldedWeight2)
+        return %feature3
     }
-    compile_time_fold() -> %foldedWeight1: tensor<*xbf16> {
-        %weight1 = arith.constant dense<"0x01234567..."> : tensor<*xbf16>
-        %foldedWeight1 = tensor.pack(%weight1, ...)
-        return %foldedWeight1
-    }
-    runtime_fold(%weight0: tensor<*xbf16>) -> %foldedWeight0: tensor<*xbf16>{
+    compiletime_fold(%weight1: tensor<*xbf16>) -> %foldedWeight0, %foldedWeight1: tensor<*xbf16>, tensor<*xbf16> {
+        %weight0 = arith.constant dense<"0x01234567..."> : tensor<*xbf16>
         %foldedWeight0 = tensor.pack(%weight0, ...)
-        return %foldedWeight0
+        %foldedWeight1 = tensor.pack(%weight1, ...)
+        return %foldedWeight0, %foldedWeight1
+    }
+    runtime_fold(%weight2: tensor<*xbf16>) -> %foldedWeight2: tensor<*xbf16>{
+        %foldedWeight2 = tensor.pack(%weight2, ...)
+        return %foldedWeight2
     }
 }
 ```
