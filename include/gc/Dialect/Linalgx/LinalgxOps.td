@@ -9,7 +9,7 @@
 #ifndef LINALGX_OPS
 #define LINALGX_OPS
 
-include "gc/Dialect/Linalgx/LinalgxDialect.td"
+include "LinalgxDialect.td"
 
 // Base class for Linalg dialect ops that do not correspond to library calls.
 class Linalgx_Op<string mnemonic, list<Trait> traits = []> :

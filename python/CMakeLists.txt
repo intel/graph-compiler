@@ -62,15 +62,6 @@ declare_mlir_dialect_python_bindings(
     DIALECT_NAME cpuruntime
     )
 
-declare_mlir_dialect_python_bindings(
-    ADD_TO_PARENT GcPythonSources
-    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
-    TD_FILE dialects/linalgxOps.td
-    SOURCES 
-      dialects/linalgx.py
-    DIALECT_NAME linalgx
-    )
-
 declare_mlir_python_extension(GcPythonSources.Extension
   MODULE_NAME _gc_mlir
   ADD_TO_PARENT GcPythonSources

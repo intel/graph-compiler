@@ -9,7 +9,7 @@
 #ifndef LINALGX_STRUCTURED_OPS
 #define LINALGX_STRUCTURED_OPS
 
-include "gc/Dialect/Linalgx/LinalgxDialect.td"
+include "LinalgxDialect.td"
 
 include "mlir/Dialect/Utils/StructuredOpsUtils.td"
 include "mlir/Dialect/Linalg/IR/LinalgEnums.td"
