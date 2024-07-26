@@ -113,6 +113,4 @@ add_mlir_python_modules(GcPythonModules
     GcPythonCAPI
   )
 
-set(MLIR_C_RUNNER_UTILS "${MLIR_DIR}/../../libmlir_c_runner_utils.so")
-set(MLIR_RUNNER_UTILS "${MLIR_DIR}/../../libmlir_runner_utils.so")
 configure_file(config.py.in ${MLIR_BINARY_DIR}/python_packages/gc_mlir_core/gc_mlir/config.py @ONLY)
