@@ -56,14 +56,6 @@ if __name__ == "__main__":
         entry = "main_entry"
         mlir_args = get_mlir_args(module, entry, [np_arg0, np_arg1, gc_res])
         passes = "any(gc-cpu-pipeline)"
-        # bench
-        # _, cost = py_timeit_bench(
-        #     module,
-        #     "main_entry",
-        #     passes,
-        #     mlir_args,
-        # )
-        # print("cost=", cost)
         
         # just run
         compiler = GraphCompiler(passes)
