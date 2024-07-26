@@ -10,7 +10,10 @@ get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
-  TileNamed.cpp
+  DeepTileContractionNamedOp.cpp
+  Tiling.cpp
+  AnyTilableFusion.cpp
+  TilingUsingInterfaceX.cpp
   LowerTileVectorPass.cpp
   CPUPhysicalResigterPass.cpp
 
@@ -28,3 +31,5 @@ add_mlir_library(GCPasses
   )
 
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)
+
+add_subdirectory(Microkernel)

@@ -25,15 +25,62 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 
+#include <string>
+#include <iostream>
+
 namespace mlir::gc {
+#define GEN_PASS_DEF_LINALGLOWERTOLOOP
+#include "gc/Transforms/Passes.h.inc"
+struct LinalgLowerToLoop
+    : public impl::LinalgLowerToLoopBase<LinalgLowerToLoop> {
+public:
+  void runOnOperation() override {
+    auto module = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    module->walk([&](linalg::LinalgOp linalgOp) {
+      rewriter.setInsertionPoint(linalgOp);
+      if (linalgOp->getParentOfType<scf::ForallOp>() ||
+          linalgOp->getParentOfType<scf::ParallelOp>()) {
+        auto loops = linalgOpToLoops(rewriter, linalgOp);
+        if (failed(loops)) {
+          llvm::outs() << "Failed to convert to parallel loops\n";
+          return;
+        }
+        rewriter.eraseOp(linalgOp);
+      } else {
+        auto loops = linalgOpToParallelLoops(rewriter, linalgOp);
+        if (failed(loops)) {
+          llvm::outs() << "Failed to convert to parallel loops\n";
+          return;
+        }
+        rewriter.eraseOp(linalgOp);
+      }
+    });
+  }
+};
+#undef GEN_PASS_DEF_LINALGLOWERTOLOOP
+
+void populateCleanUpPasses(mlir::PassManager &pm) {
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCSEPass());
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  // pm.addPass(createLoopInvariantSubsetHoistingPass());
+  pm.addPass(createCSEPass());
+  pm.addPass(createSCCPPass());
+}
 
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::PassManager &pm) {
   pm.addPass(createConvertOneDNNGraphToLinalg());
+  PrintIRPassOptions option{"Frontend passes result"};
+  pm.addPass(createPrintIRPass(option));
+  populateCleanUpPasses(pm);
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
@@ -41,13 +88,16 @@ void populateTensorPasses(mlir::PassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
-  // todo: linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
+  pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
+  pm.addNestedPass<func::FuncOp>(createAnyTilableFusion());
   // todo: fine-grain fusion pass
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
-  pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"Tensor passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
@@ -65,6 +115,9 @@ void populateVectorPasses(mlir::PassManager &pm) {
   // oneDNN graph spec
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"Vector passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + linalg.brgemm
@@ -74,7 +127,12 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
+
+  PrintIRPassOptions option1{"createOneShotBufferizePass result"};
+  pm.addPass(createPrintIRPass(option1));
+
   pm.addPass(createCSEPass());
+
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
@@ -84,27 +142,41 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
   pm.addPass(createBufferizationToMemRefPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"Bufferization passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + func/microkernel
 void populateMicroKernelPasses(mlir::PassManager &pm) {
-  // todo: ConvertLinalgToMicrokernel pass
-  // todo: CleanupInvalidMicrokernel pass
-  // todo: InvariantMicrokernelMotion pass
-  // todo: ConvertMicrokernelToDnnlFunc to lower brgemm to dnnl call
-  // todo: ConvertMicrokernelToXsmm, to lower brgemm to libxsmm call
-  // todo: LowerMicrokernel pass
-  // todo: DispatchMicrokernel
+  pm.addNestedPass<func::FuncOp>(
+      mlir::microkernel::createConvertLinalgToMicrokernel());
+  pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
+  pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
+  pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
+  pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  // pm.addPass(createRemoveDeadValuesPass());
+  // pm.addPass(createInlinerPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"MicroKernel passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPURuntimePasses(mlir::PassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
+  pm.addPass(createForallToParallelLoopPass());
   pm.addPass(createConvertSCFToOpenMPPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"CPURuntime passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
+  pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
+  pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
@@ -117,12 +189,18 @@ void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
   pm.addPass(createSymbolDCEPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"LoweringToLLVM passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateLLVMPasses(mlir::PassManager &pm) {
   pm.addPass(memref::createExpandOpsPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
   populateLoweringToLLVMPasses(pm);
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"LLVM passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPUPipeline(mlir::PassManager &pm) {
@@ -134,10 +212,10 @@ void populateCPUPipeline(mlir::PassManager &pm) {
   populateVectorPasses(pm);
   // back-end, arith/math/vector/memref dialects
   populateBufferizationPasses(pm);
+  populateMicroKernelPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
-  pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
-  populateMicroKernelPasses(pm);
+  pm.addPass(createLinalgLowerToLoop());
   populateCPURuntimePasses(pm);
   // // back-end, llvm dialect
   populateLLVMPasses(pm);
@@ -146,15 +224,24 @@ void populateCPUPipeline(mlir::PassManager &pm) {
 #define GEN_PASS_DEF_GCCPUPIPELINE
 #include "gc/Transforms/Passes.h.inc"
 namespace {
-
 class GCCPUPipeline : public impl::GCCPUPipelineBase<GCCPUPipeline> {
 public:
   friend struct PassHelper;
   using impl::GCCPUPipelineBase<GCCPUPipeline>::GCCPUPipelineBase;
   void runOnOperation() final {
     auto op = getOperation();
-    PassManager pm{op->getContext()};
+    auto ctx = op->getContext();
+    // ctx->disableMultithreading();
+    PassManager pm{ctx};
     populateCPUPipeline(pm);
+    // pm.enableIRPrinting();
+  
+  // std::string pipeline;
+  // llvm::raw_string_ostream pipelineStream(pipeline);
+  // pm.printAsTextualPipeline(pipelineStream);
+  // std::cout << "pipeline= " << pipeline << std::endl;
+
+
     // TODO(longsheng): add a option to
     // disable threading and enable pm.enableIRPrinting();
     if (failed(pm.run(op)))

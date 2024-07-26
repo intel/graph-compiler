@@ -72,6 +72,8 @@ build_llvm() {
         git fetch --all
     fi
 
+    cd llvm-project
+    git pull
     git checkout ${LLVM_HASH}
 
     dylib=OFF
@@ -79,14 +81,14 @@ build_llvm() {
         dylib=ON
     fi
 
-    [ -z "$CLEANUP" ] || rm -rf build
+    python -m pip install -r mlir/python/requirements.txt
+
     cmake -G Ninja llvm -B build \
-        -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
-        -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir"\
-        -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true \
-        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLLVM_INSTALL_GTEST=ON \
-        -DLLVM_BUILD_LLVM_DYLIB=$dylib -DLLVM_LINK_LLVM_DYLIB=$dylib
-    cmake --build build
+        -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=true \
+        -DLLVM_ENABLE_PROJECTS="mlir" -DLLVM_TARGETS_TO_BUILD="X86" \
+        -DLLVM_INSTALL_UTILS=true -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DLLVM_INSTALL_GTEST=ON -DLLVM_BUILD_LLVM_DYLIB=$dylib -DLLVM_LINK_LLVM_DYLIB=$dylib -DMLIR_ENABLE_BINDINGS_PYTHON=ON -DPython3_EXECUTABLE=$(which python3)
+    cmake --build build 
 
     MLIR_DIR="$PWD/build/lib/cmake/mlir"
     cd ..

@@ -9,8 +9,8 @@
 #include <numeric>
 #include <vector>
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxDialect.h"
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.h"
 #include "gc/Transforms/Passes.h"
@@ -26,6 +26,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/Support/raw_ostream.h"
+#include<iostream>
 using namespace mlir::onednn_graph;
 
 namespace mlir {
@@ -492,6 +494,8 @@ struct MatMulOpLowering : public OpRewritePattern<MatMulOp> {
           /*outputs=*/outBias);
     }
 
+    // Passing mutmal configs to linalg.matmul
+    newOp->setAttrs(op->getAttrs());
     rewriter.replaceOp(op, newOp);
     return success();
   }
