@@ -40,9 +40,10 @@ struct BrgemmDims {
   int64_t leadingDimB;
   int64_t minorDimB;
 
+  BrgemmDims() {}
   BrgemmDims(int64_t bdA, int64_t ldA, int64_t mdA, int64_t bdB, int64_t ldB,
              int64_t mdB)
-      : batchDimA(bdA), leadingDimA(lda), minorDimA(mdA), batchDimB(bdB),
+      : batchDimA(bdA), leadingDimA(ldA), minorDimA(mdA), batchDimB(bdB),
         leadingDimB(ldB), minorDimB(mdB) {}
 };
 
@@ -105,7 +106,7 @@ static std::optional<unsigned> getPosInCodomain(ArrayRef<unsigned> dimPos,
   return std::nullopt;
 }
 
-static FailureOr<BrgemmInfo> inferBrgemmDims(linalg::LinalgOp linalgOp) {
+static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   using namespace mlir::structured_match;
   auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
                                 .output(MatchAll(), HasStaticShape())
@@ -143,60 +144,64 @@ static FailureOr<BrgemmInfo> inferBrgemmDims(linalg::LinalgOp linalgOp) {
     return failure();
   }
 
-  unsigned mAffinePos = contractionDims.m[0];
-  unsigned nAffinePos = contractionDims.n[0];
+  unsigned mAffinePos = contractionDims->m[0];
+  unsigned nAffinePos = contractionDims->n[0];
   // contractionDims.k could be of 2 cases:
   //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
   //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
-  unsigned batchAffinePos = contractionDims.k.front();
+  unsigned batchAffinePos = contractionDims->k.front();
   SmallVector<unsigned, 2> kAffinePos;
-  if (contractionDims.k.size() == 2)
-    kPos = {contractionDims.k[1]};
-  else if (contractionDims.k.size() == 3)
-    kPos = {contractionDims.k[1], contractionDims.k[2]};
+  if (contractionDims->k.size() == 2)
+    kAffinePos = {contractionDims->k[1]};
+  else if (contractionDims->k.size() == 3)
+    kAffinePos = {contractionDims->k[1], contractionDims->k[2]};
   else
     return failure();
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] Candidate dims: "
                           << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] m pos in affine: " << mPos
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] m pos in affine: " << mAffinePos
                           << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] n pos in affine: " << nPos
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] n pos in affine: " << nAffinePos
                           << "\n");
-  for (auto kp : kPos)
+  for (auto kp : kAffinePos)
     LLVM_DEBUG(llvm::dbgs()
                << "[inferBrgemmDims] k pos in affine: " << kp << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] batch pos in affine: "
-                          << batchPos << "\n");
+                          << batchAffinePos << "\n");
 
   OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
   OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
-  OpOperand *operandC = &linalgOp.getDpsInitsMutable()[0];
 
   BrgemmDims brgemmDims;
+
+  auto checkAndGetPosInCodomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
+                                      OpOperand *operand) {
+    auto pos = getPosInCodomain(batchAffinePos, operand, linalgOp);
+    assert(pos && "Cannot find position in codomain");
+    dim = *pos;
+  };
+
   // A(batch, m, k)
-  brgemmDims.batchDimA = getPosInCodomain(batchAffinePos, operandA, linalgOp);
-  brgemmDims.leadingDimA = getPosInCodomain({mAffinePos}, operandA, linalgOp);
-  brgemmDims.minorDimA = getPosInCodomain(kAffinePos, operandA, linalgOp);
+  checkAndGetPosInCodomain(brgemmDims.batchDimA, batchAffinePos, operandA);
+  checkAndGetPosInCodomain(brgemmDims.leadingDimA, {mAffinePos}, operandA);
+  checkAndGetPosInCodomain(brgemmDims.minorDimA, kAffinePos, operandA);
   // B(batch, k, n) or B(batch, k/vnni_step, n, vnni_step)
   // note: B does not use VNNI format K affine
-  brgemmDims.batchDimB = getPosInCodomain(batchAffinePos, operandB, linalgOp);
-  brgemmDims.leadingDimB =
-      getPosInCodomain({kAffinePos[0]}, operandB, linalgOp);
-  brgemmDims.minorDimB = getPosInCodomain({nAffinePos}, operandB, linalgOp);
+  checkAndGetPosInCodomain(brgemmDims.batchDimB, batchAffinePos, operandB);
+  checkAndGetPosInCodomain(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
+  checkAndGetPosInCodomain(brgemmDims.minorDimB, {nAffinePos}, operandB);
   // C(m, n)
-  brgemmDims.leadingDimC = getPosInCodomain({mAffinePos}, operandC, linalgOp);
-  brgemmDims.minorDimC = getPosInCodomain(kAffinePos, operandC, linalgOp);
+  // Currently useless, no need to set
+  // checkAndGetPosInCodomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
+  // checkAndGetPosInCodomain(brgemmDims.minorDimC, kAffinePos, operandC);
 
   return brgemmDims;
 }
 
 template <typename SrcBrmmOpTy>
-static FailureOr<linalg::TransposeOp>
-getFusibleTranspose(linalg::LinalgOp linalgOp, Value buffer) {
-  auto brmmOp = dyn_cast_or_null<SrcBrmmOpTy>(linalgOp);
-  if (!brmmOp)
-    return failure();
+static FailureOr<linalg::TransposeOp> getFusibleTranspose(SrcBrmmOpTy brmmOp,
+                                                          Value buffer) {
   auto defOp = buffer.getDefiningOp();
   auto transOp = dyn_cast_or_null<linalg::TransposeOp>(defOp);
   if (!transOp)
@@ -226,11 +231,11 @@ getFusibleTranspose(linalg::LinalgOp linalgOp, Value buffer) {
 }
 
 // Replace linalgOp with corresponding microkernel Op
-static void
-replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
-                              linalg::LinalgOp linalgOp, const BrgemmDims &dims,
-                              const DenseMap<Value, Value> &replaceMap,
-                              bool isInitOutput) {
+static void replaceOpWithMicrokernelOp(PatternRewriter &rewriter,
+                                       linalg::LinalgOp linalgOp,
+                                       const BrgemmDims &dims,
+                                       const DenseMap<Value, Value> &replaceMap,
+                                       bool isInitOutput) {
   OpBuilder::InsertionGuard guard(rewriter);
 
   DenseI64ArrayAttr batchDims = DenseI64ArrayAttr::get(
@@ -244,14 +249,16 @@ replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
     brgemmFlags.push_back(microkernel::BrgemmFlagsAttr::get(
         rewriter.getContext(), microkernel::BrgemmFlags::BETA_0));
   }
+  auto flags = rewriter.getArrayAttr(brgemmFlags);
 
   Value operandA = linalgOp.getDpsInputOperands()[0]->get();
   Value operandB = linalgOp.getDpsInputOperands()[1]->get();
   Value operandC = linalgOp.getDpsInitsMutable()[0].get();
 
+  SmallVector<Value> inputs{operandA, operandB};
   auto brgemmOp = rewriter.replaceOpWithNewOp<microkernel::BrgemmOp>(
-      linalgOp, operandC.getType(), {operandA, operandB}, operandC, batchDims,
-      leadingDims, brgemmFlags);
+      linalgOp, operandC.getType(), inputs, operandC, batchDims, leadingDims,
+      flags);
   // Replace operands according to fusion
   rewriter.modifyOpInPlace(brgemmOp, [&]() {
     for (const auto &pair : replaceMap)
@@ -293,20 +300,20 @@ public:
     // Check for fusible linalg::TransposeOp on operand A & B
     Value operandA = op.getDpsInputOperands()[0]->get();
     Value operandB = op.getDpsInputOperands()[1]->get();
-    auto fusibleTransA = getFusibleTranspose(operandA);
-    auto fusibleTransB = getFusibleTranspose(operandB);
+    auto fusibleTransA = getFusibleTranspose(op, operandA);
+    auto fusibleTransB = getFusibleTranspose(op, operandB);
     // Presumably minorDims are last dims and not permutated, so no need to
     // transform them
-    if (fusibleTransA) {
+    if (!failed(fusibleTransA)) {
       ArrayRef<int64_t> permutation = fusibleTransA->getPermutation();
-      brgemmDims.batchDimA = permutation[brgemmDims.batchDimA];
-      brgemmDims.leadingDimA = permutation[brgemmDims.leadingDimA];
+      brgemmDims->batchDimA = permutation[brgemmDims->batchDimA];
+      brgemmDims->leadingDimA = permutation[brgemmDims->leadingDimA];
       replaceMap[fusibleTransA->getResult()[0]] = fusibleTransA->getInput();
     }
-    if (fusibleTransB) {
+    if (!failed(fusibleTransB)) {
       ArrayRef<int64_t> permutation = fusibleTransB->getPermutation();
-      brgemmDims.batchDimB = permutation[brgemmDims.batchDimB];
-      brgemmDims.leadingDimB = permutation[brgemmDims.leadingDimB];
+      brgemmDims->batchDimB = permutation[brgemmDims->batchDimB];
+      brgemmDims->leadingDimB = permutation[brgemmDims->leadingDimB];
       replaceMap[fusibleTransB->getResult()[0]] = fusibleTransB->getInput();
     }
 
@@ -324,7 +331,7 @@ public:
       }
     }
 
-    replaceOpWithMicrokernelOp(rewriter, op, brgemmDims, replaceMap,
+    replaceOpWithMicrokernelOp(rewriter, op, *brgemmDims, replaceMap,
                                isInitOutput);
     return success();
   }

@@ -28,10 +28,10 @@
 #include "gc/Transforms/Utils/ValueUtils.h"
 
 namespace mlir::microkernel {
-#define GEN_PASS_DEF_CONVERTLINALGTOMICROKERNEL
+#define GEN_PASS_DEF_EXPANDMICROKERNEL
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h.inc"
 
-#define DEBUG_TYPE "convert-linalg-to-microkernel"
+#define DEBUG_TYPE "expand-microkernel"
 
 struct BrgemmInfo {
   enum BrgemmMode { STRIDE_MODE, LIST_MODE };
@@ -61,7 +61,7 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
     auto operandTy = operand.getType();
     if (!llvm::isa<MemRefType>(operandTy))
       return failure();
-    return operandTy.getShape();
+    return dyn_cast<MemRefType>(operandTy).getShape();
   };
 
   auto checkAndGetDimSize =
@@ -87,7 +87,7 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
     auto operandShape = checkTypeAndGetShape(operand);
     if (failed(operandShape))
       return failure();
-    auto stridesOnOperand = gcext::utils::getStaticStrides(operand);
+    auto stridesOnOperand = utils::getStaticStrides(operand);
     if (failed(stridesOnOperand))
       return failure();
     auto leadingDimStride = (*stridesOnOperand)[leadingDim];
@@ -100,24 +100,26 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
 
   auto checkAndGetBatchStride = [&](int64_t batchDim,
                                     Value operand) -> FailureOr<int64_t> {
-    auto stridesOnOperand = gcext::utils::getStaticStrides(operand);
+    auto stridesOnOperand = utils::getStaticStrides(operand);
     if (failed(stridesOnOperand))
       return failure();
     return (*stridesOnOperand)[batchDim];
   };
 
   // A(m, k)
+  auto batchDimA = brgemmOp.getBatchDimA();
   auto leadingDimA = brgemmOp.getLeadingDimA();
-  auto [batchA, M, KA] = checkAndGetDimSize(leadingDimA, operandA);
+  auto [batchA, M, KA] = checkAndGetDimSize(batchDimA, leadingDimA, operandA);
   auto lda = checkAndGetLdStride(leadingDimA, operandA);
-  if (failed(batchA) || failed(M) || failed(K) || failed(lda))
+  if (failed(batchA) || failed(M) || failed(KA) || failed(lda))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] M, K, Lda for A: " << *M << ", "
                           << *KA << ", " << *lda << "\n");
 
   // B(k, n)
+  auto batchDimB = brgemmOp.getBatchDimB();
   auto leadingDimB = brgemmOp.getLeadingDimB();
-  auto [batchB, KB, N] = checkAndGetDimSize(leadingDimB, operandB);
+  auto [batchB, KB, N] = checkAndGetDimSize(batchDimB, leadingDimB, operandB);
   auto ldb = checkAndGetLdStride(leadingDimB, operandB);
   if (failed(batchB) || failed(KB) || failed(N) || failed(ldb))
     return failure();
@@ -154,7 +156,7 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] final BrgemmInfo: m(" << *M
-                          << "), n(" << *N << "), k(" << * << "), batch("
+                          << "), n(" << *N << "), k(" << *KB << "), batch("
                           << *batchA << "), lda(" << *lda << "), ldb(" << *ldb
                           << "), ldc(" << *ldc << "), strideA(" << *strideA
                           << "), strideB(" << *strideB << ")\n");
@@ -234,7 +236,7 @@ static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
 class ExpandMicrokernelBrgemmRewriter
     : public OpRewritePattern<microkernel::BrgemmOp> {
 public:
-  using OpRewritePattern<ContractionOp>::OpRewritePattern;
+  using OpRewritePattern<BrgemmOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(microkernel::BrgemmOp op,
                                 PatternRewriter &rewriter) const final {
     if (!op.hasPureBufferSemantics())
