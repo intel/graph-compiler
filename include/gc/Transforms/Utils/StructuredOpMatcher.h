@@ -20,6 +20,18 @@ namespace mlir {
 class Operation;
 namespace structured_match {
 
+struct KindAdd {
+  static bool classof(const Operation *op) {
+    return isa<arith::AddFOp>(op) || isa<arith::AddIOp>(op);
+  }
+};
+
+struct KindMul {
+  static bool classof(const Operation *op) {
+    return isa<arith::MulFOp>(op) || isa<arith::MulIOp>(op);
+  }
+};
+
 // Base class for the matcher predicates selection tag.
 struct MatchSelector {
   MatchSelector() = delete;
@@ -47,6 +59,14 @@ struct MatchAll : public MatchSelector {
 struct MatchOne : public MatchSelector {
   MatchOne() = delete;
   MatchOne(size_t idx) : MatchSelector(idx, idx + 1) {}
+};
+
+// Selector which specifies that predicate should apply only on range of values
+// at positions from `lowerBound` up to - but not including - `upperBound`.
+struct MatchRange : public MatchSelector {
+  MatchRange() = delete;
+  MatchRange(size_t lowerBound, size_t upperBound)
+      : MatchSelector(lowerBound, upperBound) {}
 };
 
 // Callable object to check if the number of loops in `op` satisfies `fun`.
@@ -225,6 +245,20 @@ struct NumDpsInits {
   bool operator()(Operation *op) const {
     if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))
       return fun(linalgOp.getNumDpsInits());
+    return false;
+  }
+
+  std::function<bool(size_t)> fun;
+};
+
+// Callable object to check the number of affine map for `op`.
+struct NumAffineMaps {
+  NumAffineMaps() = delete;
+  explicit NumAffineMaps(std::function<bool(size_t)> fun) : fun(std::move(fun)){};
+
+  bool operator()(Operation *op) const {
+    if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))
+      return fun(linalgOp.getIndexingMapsArray().size());
     return false;
   }
 
