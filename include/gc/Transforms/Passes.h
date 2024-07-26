@@ -36,6 +36,10 @@ namespace MemRef {
 class MemRefDialect;
 }
 
+namespace cpuruntime {
+class CPURuntimeDialect;
+}
+
 class PassManager;
 
 namespace gc {

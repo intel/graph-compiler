@@ -28,6 +28,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 add_mlir_library(GCCpuRuntime
     SHARED
     Parallel.cpp
+    MemoryPool.cpp
     ${MICROKERNEL_RUNTIME_SOURCES}
 
     DEPENDS

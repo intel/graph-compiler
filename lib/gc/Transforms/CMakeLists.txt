@@ -9,6 +9,7 @@ get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
 add_mlir_library(GCPasses
   OneDNNGraphToLinalg.cpp
+  MemRefToCPURuntime.cpp
   Pipeline.cpp
   DeepTileContractionNamedOp.cpp
   Tiling.cpp
@@ -26,6 +27,7 @@ add_mlir_library(GCPasses
     ${mlir_conversion_libs}
     ${MLIR_LINK_COMPONENTS}
     MLIROneDNNGraph
+    MLIRCPURuntimeDialect
   )
 
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)

@@ -28,8 +28,8 @@
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 
-#include <string>
 #include <iostream>
+#include <string>
 
 namespace mlir::gc {
 #define GEN_PASS_DEF_LINALGLOWERTOLOOP
@@ -156,6 +156,11 @@ void populateCPURuntimePasses(mlir::PassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createForallToParallelLoopPass());
+  PrintIRPassOptions option1{"ForallToParallelLoop passes result"};
+  pm.addPass(createPrintIRPass(option1));
+  pm.addPass(createConvertMemRefToCPURuntime());
+  PrintIRPassOptions option2{"ConvertMemRefToCPURuntime passes result"};
+  pm.addPass(createPrintIRPass(option2));
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
   PrintIRPassOptions option{"CPURuntime passes result"};
@@ -225,12 +230,11 @@ public:
     PassManager pm{ctx};
     populateCPUPipeline(pm);
     // pm.enableIRPrinting();
-  
-  // std::string pipeline;
-  // llvm::raw_string_ostream pipelineStream(pipeline);
-  // pm.printAsTextualPipeline(pipelineStream);
-  // std::cout << "pipeline= " << pipeline << std::endl;
 
+    // std::string pipeline;
+    // llvm::raw_string_ostream pipelineStream(pipeline);
+    // pm.printAsTextualPipeline(pipelineStream);
+    // std::cout << "pipeline= " << pipeline << std::endl;
 
     // TODO(longsheng): add a option to
     // disable threading and enable pm.enableIRPrinting();

@@ -74,4 +74,15 @@ def AnyTilableFusion : Pass<"any-tilable-fusion",
                            "tensor::TensorDialect"];
 }
 
+def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime"> {
+  let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
+  let description = [{
+    Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
+  }];
+  let dependentDialects = [
+      "memref::MemRefDialect",
+      "cpuruntime::CPURuntimeDialect"
+  ];
+}
+
 #endif // GC_DIALECT_GC_PASSES
