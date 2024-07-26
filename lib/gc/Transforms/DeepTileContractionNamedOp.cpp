@@ -243,7 +243,7 @@ static Operation *findParentFillOp(Value val) {
          llvm::find(skipOpList, currentOp->getName().getStringRef()) !=
              skipOpList.end() &&
          !isa<linalg::FillOp>(currentOp)) {
-    currentOp = currentOp->getResult(0).getDefiningOp();
+    currentOp = currentOp->getOperand(0).getDefiningOp();
   }
   if (currentOp && isa<linalg::FillOp>(currentOp)) {
     return currentOp;

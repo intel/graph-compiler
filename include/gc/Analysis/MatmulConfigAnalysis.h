@@ -10,51 +10,69 @@
 #define MLIR_ANALYSIS_MATMULCONFIGANALYSIS_H
 
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include <cstring>
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
 
 namespace mlir {
 namespace gc {
 
 using namespace mlir;
 
-// A mock for the taget information
-// TODO: replace it with upstream hardware description model
 struct SystemDesc {
-
-  static int getPositiveIntFromStr(char *str, int defaultValue = 1) {
-    if (!str || strlen(str) == 0 || str[0] > '9' || str[0] < '0') {
-      return defaultValue;
-    }
-    auto val = std::stoi(str);
-    return val > 0 ? val : defaultValue;
-  }
-
   // get runtime OMP_NUM_THREADS
   uint32_t getNumThreads() {
-    char *numThreads = getenv("OMP_NUM_THREADS");
-    return getPositiveIntFromStr(numThreads, 1);
+    std::optional<Attribute> numThreads = layout.getDevicePropertyValue(
+        Builder(ctx).getStringAttr("CPU" /* device ID*/),
+        Builder(ctx).getStringAttr("num_threads"));
+    if (numThreads && isa<IntegerAttr>(*numThreads)) {
+      return dyn_cast<IntegerAttr>(*numThreads).getInt();
+    }
+    return 1;
   }
   // get cache size by cacheLevel
   size_t getCacheSize(uint8_t cacheLevel) {
     if (cacheLevel == 1) {
-      char *cacheSize = getenv("L1_CACHE_SIZE");
-      return getPositiveIntFromStr(cacheSize, 0);
+      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
+          Builder(ctx).getStringAttr("CPU" /* device ID*/),
+          Builder(ctx).getStringAttr("L1_cache_size_in_bytes"));
+      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
+        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
+      }
     } else if (cacheLevel == 2) {
-      char *cacheSize = getenv("L2_CACHE_SIZE");
-      return getPositiveIntFromStr(cacheSize, 0);
+      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
+          Builder(ctx).getStringAttr("CPU" /* device ID*/),
+          Builder(ctx).getStringAttr("L2_cache_size_in_bytes"));
+      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
+        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
+      }
     } else if (cacheLevel == 3) {
-      char *cacheSize = getenv("L3_CACHE_SIZE");
-      return getPositiveIntFromStr(cacheSize, 0);
+      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
+          Builder(ctx).getStringAttr("CPU" /* device ID*/),
+          Builder(ctx).getStringAttr("L3_cache_size_in_bytes"));
+      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
+        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
+      }
     }
     return 0;
   }
 
   // get the maximum vector length in bits
   size_t getMaxVectorLength() {
-    char *maxVectorLanes = getenv("MAX_VECTOR_LENGTH");
-    return getPositiveIntFromStr(maxVectorLanes, 512);
+    std::optional<Attribute> maxVectorLength = layout.getDevicePropertyValue(
+        Builder(ctx).getStringAttr("CPU" /* device ID*/),
+        Builder(ctx).getStringAttr("max_vector_width"));
+    if (maxVectorLength && isa<IntegerAttr>(*maxVectorLength)) {
+      return dyn_cast<IntegerAttr>(*maxVectorLength).getInt();
+    }
+    return 512;
   }
+
+  SystemDesc(ModuleOp m) : layout(m), ctx(m->getContext()) {}
+
+private:
+  DataLayout layout;
+  MLIRContext *ctx;
 };
 
 // The configuration for matmul tiling
@@ -62,12 +80,12 @@ struct SystemDesc {
 struct MatmulConfig {
   // The number of threads distributed to M, N, K
   uint32_t MThreads, NThreads, KThreads;
-  // The innermost block size for M, N, K which will be directly converted to
-  // brgemm.
-  uint32_t innerMostMBlock, innerMostNBlock, innerMostKBlock;
   // The outer block size for M, N, K which will be used to decide the loop tile
   // size in single thread
   uint32_t MBlock, NBlock, KBlock;
+  // The innermost block size for M, N, K which will be directly converted to
+  // brgemm.
+  uint32_t innerMostMBlock, innerMostNBlock, innerMostKBlock;
 };
 
 enum DimType { Batch, M, N, K };

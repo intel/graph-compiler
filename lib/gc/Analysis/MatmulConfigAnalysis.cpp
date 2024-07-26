@@ -88,6 +88,7 @@ double vectorRegEfficiencyCost(linalg::LinalgOp &linalgOp,
   size_t dtypeSize = DataLayout().getTypeSizeInBits(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
   size_t maxVectorLength = sysDesc.getMaxVectorLength() / dtypeSize;
+  // TODO: take matrix register like amx into account
   double cost = (maxVectorLength - config.innerMostMBlock % maxVectorLength) %
                     maxVectorLength * 1.0 / config.innerMostMBlock +
                 (maxVectorLength - config.innerMostKBlock % maxVectorLength) %
@@ -270,8 +271,8 @@ prepareConfigCandidates(Operation *root, SystemDesc &sysDesc,
                       continue;
                     }
                     MatmulConfig config{
-                        MBlock,          NBlock,          KBlock,
                         MThreads,        NThreads,        KThreads,
+                        MBlock,          NBlock,          KBlock,
                         innerMostMBlock, innerMostNBlock, innerMostKBlock};
                     configs.push_back(config);
                   }
@@ -311,13 +312,13 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
     } else if (attr.getName() == "MThreads") {
       config.MThreads = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
-    } else if (attr.getName() == "innerMostMBlock") {
+    } else if (attr.getName() == "innermostMBlock") {
       config.innerMostMBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
-    } else if (attr.getName() == "innerMostNBlock") {
+    } else if (attr.getName() == "innermostNBlock") {
       config.innerMostNBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
-    } else if (attr.getName() == "innerMostKBlock") {
+    } else if (attr.getName() == "innermostKBlock") {
       config.innerMostKBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
     }
@@ -338,7 +339,7 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
 // previous matmul
 MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
-    SystemDesc sysDesc;
+    SystemDesc sysDesc(root->getParentOfType<ModuleOp>());
     SmallVector<SmallVector<DimType>> oprandDimType =
         *getOprandDimType(linalgOp);
     // get the origin M,N,K size

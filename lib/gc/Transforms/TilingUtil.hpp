@@ -16,6 +16,8 @@
 namespace mlir {
 namespace linalgX {
 
+// An enahncement for the upstream pass to support tiling reduction for MKmk
+// like cases(with multiple reduction iterators).
 FailureOr<linalg::ForallReductionTilingResult> tileReductionUsingForall(
     RewriterBase &b, PartialReductionOpInterface op,
     ArrayRef<OpFoldResult> threadNums, ArrayRef<OpFoldResult> tileSizes,
