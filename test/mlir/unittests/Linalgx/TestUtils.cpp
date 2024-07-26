@@ -51,7 +51,7 @@ OpBuilder getMLIRBuilder(MLIRContext *context) {
 }
 
 ModuleOp getTestModule(OpBuilder &builder,
-                       std::function<void(OpBuilder &, ValueRange)> createBody,
+                       function_ref<void(OpBuilder &, ValueRange)> createBody,
                        TypeRange types) {
   auto loc = builder.getUnknownLoc();
   auto module = ModuleOp::create(builder.getUnknownLoc());
@@ -203,8 +203,8 @@ TEST(TestUtils, VnniBatchReduceMatmul3D) {
   func.func @test(%arg0: tensor<512x32x64xbf16>, %arg1: tensor<512x32x128x2xbf16>, %arg2: tensor<32x128xf32>) {
     %0 = linalg.generic {
           indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>, 
-                          affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>, 
-                          affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>], 
+                           affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>, 
+                           affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>], 
           iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]} 
           ins(%arg0, %arg1 : tensor<512x32x64xbf16>, tensor<512x32x128x2xbf16>) 
           outs(%arg2 : tensor<32x128xf32>) {
