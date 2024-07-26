@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "gc/Dialect/Linalgx/IR/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -29,7 +30,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include <iostream>
 
 namespace mlir {
 namespace gc {
@@ -52,6 +52,17 @@ bool is_innermost_ir(Operation *op) {
     return WalkResult::advance();
   });
   return inner_most;
+}
+
+static bool isMatchedOperationUsage(Operation *op) {
+  bool match = false;
+  for (auto x : op->getUsers()) {
+    if (isa<linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp>(x)) {
+      match = true;
+      break;
+    }
+  }
+  return match;
 }
 
 /// Need to check if the reassociation are static/constant.
@@ -364,7 +375,6 @@ LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op) {
   LDBG("Attempting to vectorize:\n" << *op << "\n");
 
   if (failed(lowerTargetOpPrecondition(op))) {
-    std::cout << "FAILED TO LOWER TARGET OP\n" << std::endl;
     LDBG("Vectorization pre-conditions failed\n");
     return failure();
   }
@@ -424,6 +434,15 @@ struct OperationConvertTileVectorPass : public RewritePattern {
     auto targetOp = llvm::dyn_cast<T>(op);
     if (!targetOp || !is_innermost_ir(op))
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
+
+    // linalg.fill + linalgx.batch_mutmul should not be lower to vector
+    // because these two operation is needed by brgemm optimization.
+    if (llvm::isa<linalg::FillOp>(op)) {
+      if (isMatchedOperationUsage(op)) {
+        return rewriter.notifyMatchFailure(
+            op, "linalg.fill + linalgx.batch_matmul can't do lowering.");
+      }
+    }
 
     return linalg::vectorize(rewriter, op, /*inputVectorSizes=*/{},
                              /*scalableVecDims=*/{}, vectorizeNDExtract,
