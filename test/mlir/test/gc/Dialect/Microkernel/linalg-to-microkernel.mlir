@@ -37,7 +37,7 @@ func.func @basic_linalg_to_microkernel() {
 // CHECK: %[[B:.+]] = memref.subview %[[TMP2:.+]][%arg1, 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : memref<8x16x32x32xf32> to memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>
 // CHECK: %[[DIS:.+]] = microkernel.brgemm.dispatch [32, 32, 32, 32, 32, 32, 1024, 1024] flags(stride) data_type(f32, f32)
 // CHECK-NEXT: microkernel.brgemm.prologue(%[[DIS]]) : (i64) -> ()
-// CHECK-NEXT: microkernel.brgemm(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
+// CHECK-NEXT: microkernel.brgemm.execute(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
@@ -79,7 +79,7 @@ func.func @vnni_linalg_to_microkernel() {
 // CHECK: %[[B:.+]] = memref.subview %[[TMP2:.+]][%arg1, 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : memref<8x16x16x32x2xbf16> to memref<16x16x32x2xbf16, strided<[1024, 64, 2, 1], offset: ?>>
 // CHECK: %[[DIS:.+]] = microkernel.brgemm.dispatch [32, 32, 32, 32, 32, 32, 1024, 1024] flags(stride) data_type(bf16, bf16)
 // CHECK-NEXT: microkernel.brgemm.prologue(%[[DIS]]) : (i64) -> ()
-// CHECK-NEXT: microkernel.brgemm(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xbf16, strided<[1024, 32, 1], offset: ?>>, memref<16x16x32x2xbf16, strided<[1024, 64, 2, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
+// CHECK-NEXT: microkernel.brgemm.execute(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xbf16, strided<[1024, 32, 1], offset: ?>>, memref<16x16x32x2xbf16, strided<[1024, 64, 2, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
@@ -123,7 +123,7 @@ func.func @basic_linalg_to_microkernel_fusing_fill() {
 // CHECK-NOT: linalg.fill
 // CHECK: %[[DIS:.+]] = microkernel.brgemm.dispatch [32, 32, 32, 32, 32, 32, 1024, 1024] flags(beta_0, stride) data_type(f32, f32)
 // CHECK-NEXT: microkernel.brgemm.prologue(%[[DIS]]) : (i64) -> ()
-// CHECK-NEXT: microkernel.brgemm(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
+// CHECK-NEXT: microkernel.brgemm.execute(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<16x32x32xf32, strided<[1024, 32, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
@@ -167,7 +167,7 @@ func.func @vnni_linalg_to_microkernel_fusing_fill() {
 // CHECK-NOT: linalg.fill
 // CHECK: %[[DIS:.+]] = microkernel.brgemm.dispatch [32, 32, 32, 32, 32, 32, 1024, 1024] flags(beta_0, stride) data_type(bf16, bf16)
 // CHECK-NEXT: microkernel.brgemm.prologue(%[[DIS]]) : (i64) -> ()
-// CHECK-NEXT: microkernel.brgemm(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xbf16, strided<[1024, 32, 1], offset: ?>>, memref<16x16x32x2xbf16, strided<[1024, 64, 2, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
+// CHECK-NEXT: microkernel.brgemm.execute(%[[DIS]], %[[A]], %[[B]], %[[C]], %[[CST16]], %[[CST0]]) : (i64, memref<16x32x32xbf16, strided<[1024, 32, 1], offset: ?>>, memref<16x16x32x2xbf16, strided<[1024, 64, 2, 1], offset: ?>>, memref<32x32xf32>, i64, i64) -> ()
 // CHECK-NEXT: microkernel.brgemm.epilogue(%[[DIS]]) : (i64) -> ()
 
 // -----
