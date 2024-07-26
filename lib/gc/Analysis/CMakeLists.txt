@@ -1,3 +1,7 @@
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
+  MLIRIR
+  MLIRSupport)
+
 add_mlir_library(GCAnalysis
   DataFlow/ConstantSubgraphAnalyser.cpp
 
@@ -14,3 +18,5 @@ add_mlir_library(GCAnalysis
     MLIRBufferizationToMemRef
     MLIRBufferizationPipelines
   )
+
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCAnalysis)

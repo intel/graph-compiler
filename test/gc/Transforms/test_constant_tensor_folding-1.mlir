@@ -24,7 +24,7 @@ module {
 // CHECK: cpuruntime.printf
 // CHECK: linalg.add
 // CHECK: linalg.mul
-// CHECK: func.func @fold
+// CHECK: func.func @runtime_fold
 // CHECK: linalg.add
 // CHECK: linalg.add
 // CHECK: linalg.add

@@ -68,7 +68,7 @@ module {
   }
 }
 // CHECK: linalg.broadcast
-// CHECK: func.func @fold
+// CHECK: func.func @runtime_fold
 // CHECK: arith.extf
 // CHECK: arith.truncf
 
