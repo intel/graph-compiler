@@ -1,6 +1,6 @@
-//===- ConstantSubgraphAnalyser.cpp - Constant subgraph analysis ----===//
+//===-- ConstantSubgraphAnalyser.cpp - Constant subgraph  -------*- C++ -*-===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -44,7 +44,6 @@ void InConstantSubgraph::print(raw_ostream &os) const {
     return;
   }
   os << getInConstantSubgraph();
-  return;
 }
 
 //===----------------------------------------------------------------------===//
@@ -61,7 +60,7 @@ void ConstantSubgraphAnalyser::visitOperation(
   if (op->hasTrait<OpTrait::ConstantLike>()) {
     LLVM_DEBUG(llvm::dbgs() << "Curr op is a Constant op\n");
     in = true;
-  } else if (operands.size() == 0) { // For example, tensor.empty()
+  } else if (operands.empty()) { // For example, tensor.empty()
     LLVM_DEBUG(llvm::dbgs() << "Curr op has 0 operand, constant\n");
     in = true;
   } else {
@@ -177,11 +176,11 @@ RunConstantSubgraphAnalyser::RunConstantSubgraphAnalyser() {
   solver.load<ConstantSubgraphAnalyser>();
 }
 
-void RunConstantSubgraphAnalyser::run(Operation *topFunc) {
-  if (failed(solver.initializeAndRun(topFunc))) {
+void RunConstantSubgraphAnalyser::run(Operation *op) {
+  if (failed(solver.initializeAndRun(op))) {
     return;
   }
-  getConstantSubgraph(solver, topFunc);
+  getConstantSubgraph(solver, op);
 }
 
 bool RunConstantSubgraphAnalyser::getInConstantSubgraph(Value val) {

@@ -1,7 +1,6 @@
-//===- ConstantTensorFolding.cpp - Constant Subgraph Transform
-//-----------------===//
+//===-- ConstantTensorFolding.cpp - Constant Folding ------------*- C++ -*-===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -326,8 +325,8 @@ struct ConstGraphTensorCacheManager {
   // alloc and set the buf_base_ and offset_ attributes of cache
   std::vector<uint64_t> alloc(std::vector<size_t> buffersSize) {
     size_t totalSize = 0;
-    for (size_t i = 0; i < buffersSize.size(); i++) {
-      totalSize += divideAndCeil(buffersSize[i], 64) * 64;
+    for (size_t size : buffersSize) {
+      totalSize += divideAndCeil(size, 64) * 64;
     }
     llvm::dbgs() << "Alloc total size: " << totalSize << '\n';
     // auto base = createConstCacheProxy(totalSize);
@@ -535,8 +534,8 @@ void getInputsAndOutputs(Block &block,
 }
 
 func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
-                           Operation *topOp, std::string name,
-                           SmallVector<Operation *> constOps,
+                           Operation *topOp, const std::string &name,
+                           const SmallVector<Operation *> &constOps,
                            SmallVector<Type> &inputTypes,
                            SmallVector<Value> &inputValues,
                            SmallVector<Type> &outputTypes,
