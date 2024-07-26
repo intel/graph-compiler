@@ -11,6 +11,7 @@
 
 include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/EnumAttr.td"
 
 def CPURuntime_PrintfOp : CPURuntime_Op<"printf", [MemoryEffects<[MemWrite]>]>,
   Arguments<(ins StrAttr:$format,
@@ -28,7 +29,8 @@ def CPURuntime_PrintfOp : CPURuntime_Op<"printf", [MemoryEffects<[MemWrite]>]>,
   }];
 }
 
-def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
+def CPURuntime_AllocOp : CPURuntime_Op<"alloc",
+  [
     AttrSizedOperandSegments,
     MemoryEffects<[MemAlloc<DefaultResource>]>
   ]> {
@@ -52,11 +54,11 @@ def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
     ```
   }];
 
-  let arguments = (ins Variadic<Index>:$dynamicSizes, Variadic<Index>:$symbolOperands);
+  let arguments = (ins CPURuntime_PoolTypeAttr:$poolType, Variadic<Index>:$dynamicSizes, Variadic<Index>:$symbolOperands);
   let results = (outs Res<AnyMemRef, "", [MemAlloc<DefaultResource, 0, FullEffect>]>:$memref);
 
   let assemblyFormat = [{
-    `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
+    `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`) ? attr-dict `:` type($memref)
   }];
 }
 
@@ -110,7 +112,6 @@ def CPURuntime_ThreadDeallocOp : CPURuntime_Op<"threadDealloc", [
   }];
 
   let arguments = (ins Arg<AnyMemRef, "", [MemFree]>:$memref);
-
 
   let assemblyFormat = [{ $memref attr-dict `:` type($memref) }];
 }

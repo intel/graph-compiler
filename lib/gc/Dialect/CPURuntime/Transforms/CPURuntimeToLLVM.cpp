@@ -155,12 +155,11 @@ public:
   }
 };
 
-template <typename OpType, typename OpAdaptor, const char *deallocFuncName>
-class AlignedFreeRewriterBase : public ConvertOpToLLVMPattern<OpType> {
+class AlignedFreeRewriter : public ConvertOpToLLVMPattern<DeallocOp> {
 public:
-  using ConvertOpToLLVMPattern<OpType>::ConvertOpToLLVMPattern;
+  using ConvertOpToLLVMPattern<DeallocOp>::ConvertOpToLLVMPattern;
   LogicalResult
-  matchAndRewrite(OpType runtimeOp, OpAdaptor adaptor,
+  matchAndRewrite(DeallocOp runtimeOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Operation *op = runtimeOp;
     MLIRContext *context = op->getContext();
@@ -169,7 +168,7 @@ public:
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
     mlir::Type llvmVoidType = LLVM::LLVMVoidType::get(context);
     auto deallocFunc = getOrDefineFunction(
-        moduleOp, loc, rewriter, deallocFuncName,
+        moduleOp, loc, rewriter, "gcAlignedFree",
         LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ false));
     Value pointer =
         MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);
@@ -218,8 +217,6 @@ struct CPURuntimeToDialectInterface : public ConvertToLLVMPatternInterface {
 // Define the actual function names as template arguments
 constexpr char kAlignedMallocFuncName[] = "gcAlignedMalloc";
 constexpr char kThreadAlignedMallocFuncName[] = "gcThreadAlignedMalloc";
-constexpr char kAligneFreeFuncName[] = "gcAlignedFree";
-constexpr char kThreadAlignedFreeFuncName[] = "gcThreadAlignedFree";
 
 // Define the specific rewriter classes using the base template
 using AlignedAllocRewriter =
@@ -227,19 +224,13 @@ using AlignedAllocRewriter =
 using ThreadAlignedAllocRewriter =
     AlignedAllocRewriterBase<ThreadAllocOp, ThreadAllocOpAdaptor,
                              kThreadAlignedMallocFuncName>;
-using AlignedFreeRewriter =
-    AlignedFreeRewriterBase<DeallocOp, DeallocOpAdaptor, kAligneFreeFuncName>;
-using ThreadAlignedFreeRewriter =
-    AlignedFreeRewriterBase<ThreadDeallocOp, ThreadDeallocOpAdaptor,
-                            kThreadAlignedFreeFuncName>;
 
 void populateCPURuntimeToLLVMConversionPatterns(LLVMTypeConverter &converter,
                                                 RewritePatternSet &patterns) {
   patterns.add<PrintfRewriter>(converter);
   patterns.add<AlignedAllocRewriter>(converter);
-  patterns.add<AlignedFreeRewriter>(converter);
   patterns.add<ThreadAlignedAllocRewriter>(converter);
-  patterns.add<ThreadAlignedFreeRewriter>(converter);
+  patterns.add<AlignedFreeRewriter>(converter);
 }
 
 void registerConvertCPURuntimeToLLVMInterface(DialectRegistry &registry) {

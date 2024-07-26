@@ -9,6 +9,7 @@
 #ifndef CPUPARALLEL_DIALECT
 #define CPUPARALLEL_DIALECT
 
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 
 //===----------------------------------------------------------------------===//
@@ -22,6 +23,21 @@ def CPURuntime_Dialect : Dialect {
         This dialect contains primitives for CPU runtime.
     }];
     let cppNamespace = "::mlir::cpuruntime";
+}
+
+//===----------------------------------------------------------------------===//
+// CPURuntime attribute definition.
+//===----------------------------------------------------------------------===//
+
+def CPURuntime_Main
+    : I32EnumAttrCase<"main", 0>;
+def CPURuntime_Thread
+    : I32EnumAttrCase<"thread", 1>;
+
+def CPURuntime_PoolTypeAttr : I32EnumAttr<
+    "PoolType", "An enum for cpuruntime memory pool type",
+    [CPURuntime_Main, CPURuntime_Thread]> {
+  let cppNamespace = "::mlir::cpuruntime";
 }
 
 //===----------------------------------------------------------------------===//
