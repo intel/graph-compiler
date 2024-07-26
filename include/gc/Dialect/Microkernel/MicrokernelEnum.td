@@ -13,7 +13,7 @@ include "mlir/IR/EnumAttr.td"
 include "gc/Dialect/Microkernel/MicrokernelDialect.td"
 
 def Microkernel_BrgemmFlags : I64EnumAttr<
-    "BrgemmFlags", "see: microkernel_brgemm_flags",
+    "BrgemmFlags", "Flags for indicating optional behaviours of Brgemm",
     [
       I64EnumAttrCase<"NONE", 0, "none">,
       I64EnumAttrCase<"BETA_0", 1, "beta_0">,

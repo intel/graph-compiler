@@ -71,7 +71,14 @@ def Microkernel_BrgemmEpilogueOp : Microkernel_Op<"brgemm.epilogue"> {
   }];
 }
 
-def BrgemmMemRef : AnyTypeOf<[StaticMemRefRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>, I64]>;
+/* A generic input type of Microkernel_BrgemmOp, allowing for `BrgemmMemRef` and I64.
+ * The `BrgemmMemRef` should be a static MemRef, and for each operand its shape should be:
+ *     Operand A: StaticMemRefRankOf<[F32, BF16, SI8, UI8], [3]>;
+ *     Operand B (none-VNNI): StaticMemRefRankOf<[F32], [3]>;
+ *     Operand B (VNNI): StaticMemRefRankOf<[BF16, SI8, UI8], [4]>;
+ *     Operand C: StaticMemRefRankOf<[F32, SI32], [2]>;
+ */
+def BrgemmMemRefOrI64 : AnyTypeOf<[StaticMemRefRankOf<[F32, BF16, SI32, SI8, UI8], [2, 3, 4]>, I64]>;
 
 def Microkernel_BrgemmOp : Microkernel_Op<"brgemm"> {
   let summary = "execute the JITed brgemm kernel.";
@@ -82,7 +89,7 @@ def Microkernel_BrgemmOp : Microkernel_Op<"brgemm"> {
     There is no output.
   }];
 
-  let arguments = (ins Variadic<BrgemmMemRef>:$inputs);
+  let arguments = (ins Variadic<BrgemmMemRefOrI64>:$inputs);
 
   let assemblyFormat = [{
     `(` $inputs `)`
