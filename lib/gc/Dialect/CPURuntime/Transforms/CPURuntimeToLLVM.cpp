@@ -121,8 +121,11 @@ public:
     MLIRContext *context = op->getContext();
     auto moduleOp = op->getParentOfType<ModuleOp>();
     auto loc = op->getLoc();
-    MemRefType memRefType =
-        dyn_cast<MemRefType>(op->getResults().front().getType());
+    auto memRefType =
+        dyn_cast_or_null<MemRefType>(op->getResults().front().getType());
+    if (!memRefType) {
+      return failure();
+    }
     mlir::Type llvmIntPtr = IntegerType::get(
         context, this->getTypeConverter()->getPointerBitwidth(0));
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
