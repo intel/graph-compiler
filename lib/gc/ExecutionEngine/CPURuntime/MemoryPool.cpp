@@ -44,8 +44,12 @@ size_t getOsPageSize() {
 #endif
 }
 
+static constexpr size_t alignTo(size_t x, size_t y) {
+  return (x + y - 1) / y * y;
+}
+
 static constexpr size_t divideAndCeil(size_t x, size_t y) {
-  return (x + y - 1) / y;
+  return alignTo(x, y) / y;
 }
 
 // The chunk of memory that is allocated to the user
@@ -108,7 +112,7 @@ void *allocByMmap(size_t sz) {
 void deallocByMmap(void *b) {
 #ifdef _MSC_VER
   auto ret = VirtualFree(b, 0, MEM_RELEASE);
-  SC_UNUSED(ret);
+  (void)(ret);
   assert(ret);
 #else
   munmap(b, reinterpret_cast<MemoryBlock *>(b)->size);
@@ -118,7 +122,7 @@ void deallocByMmap(void *b) {
 intptr_t MemoryBlock::callAllocPtr() {
   intptr_t startAddr =
       reinterpret_cast<intptr_t>(this) + allocated + sizeof(MemoryChunk);
-  return divideAndCeil(startAddr, defaultAlignment) * defaultAlignment;
+  return alignTo(startAddr, defaultAlignment);
 }
 
 MemoryBlock *MemoryBlock::make(size_t sz, MemoryBlock *prev,
@@ -166,9 +170,7 @@ static void freeMemoryBlockList(MemoryBlock *b) {
 size_t FILOMemoryPool::getBlockSize(size_t sz) const {
   // calculate the aligned size of management blocks in the header
   constexpr size_t header_size =
-      divideAndCeil(sizeof(MemoryBlock) + sizeof(MemoryChunk),
-                    defaultAlignment) *
-      defaultAlignment;
+      alignTo(sizeof(MemoryBlock) + sizeof(MemoryChunk), defaultAlignment);
   // the allocated size should include the aligned header size
   sz = sz + header_size;
   if (sz > blockSize) {
