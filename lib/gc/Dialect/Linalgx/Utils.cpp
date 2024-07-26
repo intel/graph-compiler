@@ -425,11 +425,9 @@ bool isGenericVnniMatmulOp(Operation *op, VnniOpType opType) {
   }
   // Check for matmul body
   linalg::GenericOp genericOp = cast<linalg::GenericOp>(op);
-  if (!linalg::detail::isContractionBody(
-          *genericOp.getBlock(), [](Operation *first, Operation *second) {
-            return ((isa<arith::MulFOp>(first) && isa<arith::AddFOp>(second)) ||
-                    (isa<arith::MulIOp>(first) && isa<arith::AddIOp>(second)));
-          })) {
+  if (!linalg::detail::isContractionBody<arith::MulFOp, arith::AddFOp,
+                                         arith::MulIOp, arith::AddIOp>(
+          *genericOp.getBlock())) {
     return false;
   }
   // Check for vnni packing
