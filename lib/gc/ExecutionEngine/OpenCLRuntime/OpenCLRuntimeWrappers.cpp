@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #include <CL/cl.h>
 #include <CL/cl_ext.h>
 #include <array>
@@ -73,10 +72,7 @@ struct CLExtTable {
   clSetKernelArgMemPointerINTEL_fn setKernelArgMemPtr;
   clEnqueueMemcpyINTEL_fn enqueneMemcpy;
   CLExtTable() = default;
-  CLExtTable(cl_device_id dev) {
-    cl_platform_id plat;
-    CL_SAFE_CALL(clGetDeviceInfo(dev, CL_DEVICE_PLATFORM,
-                                 sizeof(cl_platform_id), &plat, nullptr));
+  CLExtTable(cl_platform_id plat) {
     allocDev =
         (clDeviceMemAllocINTEL_fn)queryCLExtFunc(plat, DeviceMemAllocName);
     allocShared =
@@ -90,62 +86,23 @@ struct CLExtTable {
   }
 };
 
-// an "almost" lock-free cache for cl_device_id mapping to CL extention function
-// table reading from the table is lock-free. And writing to it (when
-// cache-miss) requires locking
 struct CLExtTableCache {
-  static constexpr int numExtCache = 16;
-  std::array<std::atomic<cl_device_id>, numExtCache> devices;
-  std::array<CLExtTable, numExtCache> tables;
-  std::mutex lock;
-  CLExtTableCache() { std::fill(devices.begin(), devices.end(), nullptr); }
-  static CLExtTableCache &get() {
-    static CLExtTableCache v;
-    return v;
-  }
-  CLExtTable *query(cl_device_id dev) {
-    bool found = false;
-    int firstSearch = search(dev, 0, found);
-    if (found) {
-      return &tables[firstSearch];
+  cl_platform_id platform;
+  CLExtTable table;
+  CLExtTableCache(cl_platform_id CurPlatform)
+      : platform{CurPlatform}, table{CurPlatform} {}
+  static CLExtTable *get(cl_device_id dev) {
+    cl_platform_id CurPlatform;
+    CL_SAFE_CALL(clGetDeviceInfo(dev, CL_DEVICE_PLATFORM,
+                                 sizeof(cl_platform_id), &CurPlatform,
+                                 nullptr));
+    static CLExtTableCache v{CurPlatform};
+    if (v.platform == CurPlatform) {
+      return &v.table;
     }
-    if (firstSearch == numExtCache) {
-      return nullptr;
-    }
-    {
-      std::lock_guard<std::mutex> guard{lock};
-      int secondSearch = search(dev, firstSearch, found);
-      if (found) {
-        return &tables[secondSearch];
-      }
-      if (secondSearch == numExtCache) {
-        return nullptr;
-      }
-      tables[secondSearch] = CLExtTable(dev);
-      devices[secondSearch].store(dev, std::memory_order_release);
-      return &tables[secondSearch];
-    }
-  }
-
-private:
-  int search(cl_device_id dev, int startIdx, bool &found) {
-    for (int i = startIdx; i < numExtCache; i++) {
-      auto val = devices[i].load(std::memory_order_acquire);
-      if (!val) {
-        found = false;
-        return i;
-      }
-      if (val == dev) {
-        found = true;
-        return i;
-      }
-    }
-    found = false;
-    return numExtCache;
+    return nullptr;
   }
 };
-
-} // namespace
 
 struct ParamDesc {
   void *data;
@@ -166,6 +123,7 @@ template <typename T> size_t countUntil(T *ptr, T &&elem) {
   }
   return static_cast<size_t>(curr - ptr);
 }
+} // namespace
 
 static cl_device_id getDevice(cl_device_type *devtype) {
   cl_platform_id platform; // OpenCL platform
@@ -194,7 +152,7 @@ struct GPUCLQUEUE {
     }
     device_ = getDevice(device);
     init_context(context, queue, device_);
-    ext_table_ = CLExtTableCache::get().query(device_);
+    ext_table_ = CLExtTableCache::get(device_);
   }
   GPUCLQUEUE(cl_device_id device, cl_context context, cl_command_queue queue) {
     if (!device) {
@@ -203,7 +161,7 @@ struct GPUCLQUEUE {
     }
     device_ = device;
     init_context(context, queue, device_);
-    ext_table_ = CLExtTableCache::get().query(device_);
+    ext_table_ = CLExtTableCache::get(device_);
   }
   ~GPUCLQUEUE() {
     for (auto p : kernels_) {
