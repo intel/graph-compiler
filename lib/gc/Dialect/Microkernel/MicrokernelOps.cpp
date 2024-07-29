@@ -25,6 +25,8 @@
 
 #include <llvm/Support/Debug.h>
 
+#define DEBUG_TYPE "microkernel-ops"
+
 using namespace mlir::bufferization;
 
 namespace mlir {
@@ -78,6 +80,29 @@ static ParseResult parseEnum(EnumClass &value, OpAsmParser &parser) {
   return success();
 }
 
+static ParseResult
+parseDenseI64ArrayAttrImpl(OpAsmParser &parser, OperationState &result,
+                           const std::string_view &attrAsmName,
+                           const std::string_view &attrName) {
+  auto &builder = parser.getBuilder();
+  if (parser.parseKeyword(attrAsmName) || parser.parseLParen())
+    return failure();
+  SmallVector<int64_t, 2> vals;
+  auto parseVal = [&]() -> ParseResult {
+    int64_t val;
+    if (parser.parseInteger(val))
+      return failure();
+    vals.push_back(val);
+    return success();
+  };
+  if (parser.parseCommaSeparatedList(parseVal) || parser.parseRParen())
+    return failure();
+
+  auto valAttr = builder.getDenseI64ArrayAttr(vals);
+  result.addAttribute(attrName, valAttr);
+  return success();
+}
+
 template <typename AttrType>
 static ParseResult parseArrayAttrImpl(OpAsmParser &parser,
                                       OperationState &result,
@@ -88,10 +113,8 @@ static ParseResult parseArrayAttrImpl(OpAsmParser &parser,
     return failure();
   SmallVector<Attribute, 2> attrs;
   auto parseAttr = [&]() -> ParseResult {
-    Attribute attr;
+    AttrType attr;
     if (parser.parseAttribute(attr))
-      return failure();
-    if (!isa<AttrType>(attr))
       return failure();
     attrs.push_back(attr);
     return success();
@@ -99,7 +122,8 @@ static ParseResult parseArrayAttrImpl(OpAsmParser &parser,
   if (parser.parseCommaSeparatedList(parseAttr) || parser.parseRParen())
     return failure();
 
-  result.addAttribute(attrName, builder.getArrayAttr(attrs));
+  auto arrayAttr = builder.getArrayAttr(attrs);
+  result.addAttribute(attrName, arrayAttr);
   return success();
 }
 
@@ -107,7 +131,7 @@ template <typename FLAGS>
 static ParseResult parseFlagsImpl(OpAsmParser &parser, OperationState &result,
                                   const std::string_view &flagsName) {
   auto &builder = parser.getBuilder();
-  if (parser.parseKeyword(flagsName) || parser.parseLParen())
+  if (parser.parseKeyword(flagsName))
     return failure();
 
   SmallVector<Attribute, 4> flags;
@@ -118,7 +142,7 @@ static ParseResult parseFlagsImpl(OpAsmParser &parser, OperationState &result,
     flags.push_back(builder.getI64IntegerAttr(static_cast<int64_t>(flag)));
     return success();
   };
-  if (parser.parseCommaSeparatedList(parseFlags) || parser.parseRParen())
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, parseFlags))
     return failure();
   result.addAttribute(flagsName, builder.getArrayAttr(flags));
   return success();
@@ -193,26 +217,26 @@ static LogicalResult verifyBrgemmFlags(ArrayAttr flags, Operation *op,
 // Start of BrgemmOp
 
 ParseResult BrgemmOp::parse(OpAsmParser &parser, OperationState &result) {
-
   if (failed(parseOperandsImpl(parser, result, INPUTS_ASM_NAME)))
     return failure();
   if (failed(parseOperandsImpl(parser, result, OUTPUTS_ASM_NAME)))
     return failure();
 
-  if (parseArrayAttrImpl<IntegerAttr>(parser, result, BATCH_DIMS_ASM_NAME,
-                                      BATCH_DIMS_ATTR_NAME))
+  if (failed(parseDenseI64ArrayAttrImpl(parser, result, BATCH_DIMS_ASM_NAME,
+                                        BATCH_DIMS_ATTR_NAME)))
     return failure();
-  if (parseArrayAttrImpl<IntegerAttr>(parser, result, LEADING_DIMS_ASM_NAME,
-                                      LEADING_DIMS_ATTR_NAME))
+  if (failed(parseDenseI64ArrayAttrImpl(parser, result, LEADING_DIMS_ASM_NAME,
+                                        LEADING_DIMS_ATTR_NAME)))
     return failure();
 
   if (failed(parseFlagsImpl<BrgemmFlags>(parser, result, FLAGS_ASM_NAME)))
     return failure();
 
   SmallVector<Type, 1> resultTypes;
-  if (parser.parseOptionalArrowTypeList(resultTypes))
+  if (failed(parser.parseOptionalArrowTypeList(resultTypes)))
     return failure();
   result.addTypes(resultTypes);
+
   return success();
 }
 
