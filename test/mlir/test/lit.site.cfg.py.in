@@ -42,7 +42,7 @@ config.mlir_runner_utils_dir = "@MLIR_RUNNER_UTILS_DIR@"
 config.mlir_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_utils_dir, config.shlib_prefix + "mlir_runner_utils" + config.llvm_shlib_ext))
 config.mlir_c_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_utils_dir, config.shlib_prefix + "mlir_c_runner_utils" + config.llvm_shlib_ext))
 
-config.levelzero_runtime = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "level-zero-runtime" + config.llvm_shlib_ext))
+config.opencl_runtime = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "opencl-runtime" + config.llvm_shlib_ext))
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)
