@@ -11,6 +11,7 @@ from enhanced_np_to_memref import (
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref, onednn_graph
 from op_config import *
+import math
 
 MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,
@@ -117,9 +118,16 @@ def mlir_type(s, ctx):
 
 
 def make_tensor(tensor_type):
-    return np.zeros(
-        tensor_type.shape, MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
-    )
+    shape = tensor_type.shape
+    dtype = MLIR_TYPE_TO_NUMPY_TYPE[str(tensor_type.element_type)]
+    dtypeSize = np.dtype(dtype).itemsize
+    raw_size = math.prod(shape)
+    size = int(raw_size + 64 / dtypeSize)
+    raw = np.empty(size, dtype)
+    rawptr, read_only_fla = raw.__array_interface__['data']
+    offset = int((64 - rawptr % 64) / dtypeSize)
+    result = raw[offset:offset+raw_size].reshape(shape)
+    return result
 
 
 def get_kernel_func_from_module(

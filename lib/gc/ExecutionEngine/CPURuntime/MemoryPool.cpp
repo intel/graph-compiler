@@ -253,7 +253,10 @@ extern "C" void *gcAlignedMalloc(size_t sz) noexcept {
   return mainMemoryPool_.alloc(sz);
 }
 
-extern "C" void gcAlignedFree(void *p) noexcept { mainMemoryPool_.dealloc(p); }
+
+extern "C" void gcAlignedFree(void *p) noexcept {
+  mainMemoryPool_.dealloc(p);
+}
 
 extern "C" void *gcThreadAlignedMalloc(size_t sz) noexcept {
   return threadMemoryPool_.alloc(sz);

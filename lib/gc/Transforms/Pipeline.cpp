@@ -76,8 +76,8 @@ void populateCleanUpPasses(mlir::PassManager &pm) {
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::PassManager &pm) {
   pm.addPass(createConvertOneDNNGraphToLinalg());
-  PrintIRPassOptions option{"Frontend passes result"};
-  pm.addPass(createPrintIRPass(option));
+  // PrintIRPassOptions option{"Frontend passes result"};
+  // pm.addPass(createPrintIRPass(option));
   populateCleanUpPasses(pm);
 }
 
@@ -94,8 +94,8 @@ void populateTensorPasses(mlir::PassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"Tensor passes result"};
-  pm.addPass(createPrintIRPass(option));
+  // PrintIRPassOptions option{"Tensor passes result"};
+  // pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
@@ -106,8 +106,8 @@ void populateVectorPasses(mlir::PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"Vector passes result"};
-  pm.addPass(createPrintIRPass(option));
+  // PrintIRPassOptions option{"Vector passes result"};
+  // pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + linalg.brgemm
@@ -118,8 +118,8 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
 
-  PrintIRPassOptions option1{"createOneShotBufferizePass result"};
-  pm.addPass(createPrintIRPass(option1));
+  // PrintIRPassOptions option1{"createOneShotBufferizePass result"};
+  // pm.addPass(createPrintIRPass(option1));
 
   pm.addPass(createCSEPass());
 
@@ -133,8 +133,8 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"Bufferization passes result"};
-  pm.addPass(createPrintIRPass(option));
+  // PrintIRPassOptions option{"Bufferization passes result"};
+  // pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + func/microkernel
@@ -156,15 +156,15 @@ void populateCPURuntimePasses(mlir::PassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createForallToParallelLoopPass());
-  PrintIRPassOptions option1{"ForallToParallelLoop passes result"};
-  pm.addPass(createPrintIRPass(option1));
+  // PrintIRPassOptions option1{"ForallToParallelLoop passes result"};
+  // pm.addPass(createPrintIRPass(option1));
   pm.addPass(createConvertMemRefToCPURuntime());
-  PrintIRPassOptions option2{"ConvertMemRefToCPURuntime passes result"};
-  pm.addPass(createPrintIRPass(option2));
+  // PrintIRPassOptions option2{"ConvertMemRefToCPURuntime passes result"};
+  // pm.addPass(createPrintIRPass(option2));
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"CPURuntime passes result"};
-  pm.addPass(createPrintIRPass(option));
+  // PrintIRPassOptions option{"CPURuntime passes result"};
+  // pm.addPass(createPrintIRPass(option));
 }
 
 void populateLoweringToLLVMPasses(mlir::PassManager &pm) {

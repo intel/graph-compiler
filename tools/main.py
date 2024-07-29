@@ -52,6 +52,8 @@ def do_bench(args):
         # for test, fill all data with 1
         for i in range(len(np_args)):
             np.ndarray.fill(np_args[i], 1)
+            pointer, read_only_flag = np_args[i].__array_interface__['data']
+            print("pointer addr", pointer, pointer%64)
 
         mlir_args = get_mlir_args(
             driver.ir_module, driver.main_entry, np_args, args.disable_results_to_params

@@ -84,6 +84,7 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   registry.insert<mlir::microkernel::MicrokernelDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
+  
   registerAllDialects(registry);
   registerAllExtensions(registry);
   registerAllToLLVMIRTranslations(registry);

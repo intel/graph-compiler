@@ -6,9 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <numeric>
-#include <vector>
-
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
@@ -26,6 +23,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
+#include <numeric>
+#include <vector>
 
 namespace mlir {
 namespace gc {
@@ -138,9 +137,12 @@ struct ConvertMemRefToCPURuntime
         arith::ArithDialect,
         affine::AffineDialect,
         microkernel::MicrokernelDialect,
+        LLVM::LLVMDialect,
         scf::SCFDialect
         // clang-format on
         >();
+    target.addLegalOp<LLVM::GlobalCtorsOp>();
+    target.addLegalOp<LLVM::GlobalOp>();
     // set pattern
     RewritePatternSet patterns(ctx);
     patterns.add<AlignedAllocLowering>(ctx);
