@@ -29,14 +29,9 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
 
 template <typename T>
 static llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
-                                     std::vector<T> arry) {
+                                     std::vector<T> array) {
   ss << "[";
-  for (auto [idx, a] : llvm::enumerate(arry)) {
-    if (idx != 0) {
-      ss << ", ";
-    }
-    ss << a;
-  }
+  llvm::interleaveComma(array, ss);
   ss << "]";
   return ss;
 }
@@ -174,24 +169,23 @@ std::vector<MatmulConfig>
 filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
                         linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
                         SystemDesc &sysDesc, const CostModelFn &costModel,
-                        float eliminationRatio = 0.5, float threshold = -1) {
+                        float preserveRatio = 0.5, float threshold = -1) {
   std::vector<MatmulConfig> result;
   std::vector<float> costs;
   std::vector<size_t> idx;
-  for (auto [i, config] : llvm::enumerate(configs)) {
+  for (auto &&[i, config] : llvm::enumerate(configs)) {
     costs.push_back(costModel(linalgOp, shape, config, sysDesc));
     idx.push_back(i);
   }
   std::stable_sort(idx.begin(), idx.end(), [&costs](size_t i1, size_t i2) {
     return costs[i1] < costs[i2];
   });
-  double thresholdCost =
-      costs[idx[(size_t)(eliminationRatio * configs.size())]];
+  double thresholdCost = costs[idx[(size_t)(preserveRatio * configs.size())]];
   thresholdCost =
       threshold < thresholdCost && threshold > 0 ? threshold : thresholdCost;
-  for (size_t i = 0; i < configs.size(); i++) {
-    if (costs[idx[i]] <= thresholdCost) {
-      result.push_back(configs[idx[i]]);
+  for (const auto &i : idx) {
+    if (costs[i] <= thresholdCost) {
+      result.push_back(configs[i]);
     }
   }
   LLVM_DEBUG(llvm::dbgs() << "thresholdCost is: " << thresholdCost
@@ -210,6 +204,11 @@ std::vector<MatmulConfig>
 prepareConfigCandidates(Operation *root, SystemDesc &sysDesc,
                         ArrayRef<uint32_t> shape,
                         ArrayRef<uint32_t> givenInnermostBlock) {
+  if (shape.size() < 3) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "The shape is invalid, no candidate is generated\n");
+    return {};
+  }
   std::vector<MatmulConfig> configs;
   uint32_t threads = sysDesc.getNumThreads();
   std::vector<uint32_t> MThreadsCandidates =
@@ -290,10 +289,25 @@ prepareConfigCandidates(Operation *root, SystemDesc &sysDesc,
   return configs;
 }
 
+bool validateConfig(const MatmulConfig &cfg) {
+  if (cfg.MThreads <= 0 || cfg.NThreads <= 0 || cfg.KThreads <= 0 ||
+      cfg.MBlock <= 0 || cfg.NBlock <= 0 || cfg.KBlock <= 0 ||
+      cfg.innerMostMBlock <= 0 || cfg.innerMostNBlock <= 0 ||
+      cfg.innerMostKBlock <= 0) {
+    return false;
+  }
+  if (cfg.MBlock % cfg.innerMostMBlock != 0 ||
+      cfg.NBlock % cfg.innerMostNBlock != 0 ||
+      cfg.KBlock % cfg.innerMostKBlock != 0) {
+    return false;
+  }
+  return true;
+}
+
 // read the config from the attributes for tuning
 bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
   size_t cfgItemCnt = 0;
-  for (auto &attr : attrs) {
+  for (const auto &attr : attrs) {
     if (attr.getName() == "KBlock") {
       config.KBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
@@ -323,7 +337,12 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
       cfgItemCnt++;
     }
   }
-  return cfgItemCnt == 9;
+  if (validateConfig(config)) {
+    return cfgItemCnt == 9;
+  } else {
+    LLVM_DEBUG(llvm::dbgs() << "The predefined config is invalid\n");
+    return false;
+  }
 }
 
 // Analyze the workload and system description to generate the default config
@@ -350,14 +369,14 @@ MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
     SmallVector<unsigned> NDimTypeIdx =
         extractDimTypeIdx(oprandDimType[1], DimType::N);
     uint32_t M = 1U, N = 1U, K = 1U;
-    for (auto [s, dimType] :
+    for (auto &&[s, dimType] :
          llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(0)),
                    oprandDimType[0])) {
       if (dimType == DimType::M) {
         M *= s;
       }
     }
-    for (auto [s, dimType] :
+    for (auto &&[s, dimType] :
          llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(1)),
                    oprandDimType[1])) {
       if (dimType == DimType::N) {
@@ -425,7 +444,7 @@ MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
       SmallVector<uint32_t> shape = {M, N, K};
       std::vector<MatmulConfig> configCandidates =
           prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock);
-      for (auto [fn, name, threshold] : costModelList) {
+      for (auto &&[fn, name, threshold] : costModelList) {
         configCandidates = filterConfigByCostModel(
             configCandidates, linalgOp, shape, sysDesc, fn, 0.5, threshold);
       }
