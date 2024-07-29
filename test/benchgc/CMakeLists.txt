@@ -20,7 +20,15 @@ if(NOT GC_BENCH_ENABLE)
     return()
 endif()
 
+
+
+
+set(MLIR_C_RUNNER_UTILS "${MLIR_DIR}/../../libmlir_runner_utils.so")
+message(STATUS "MLIR_C_RUNNER_UTILS is set to ${MLIR_C_RUNNER_UTILS}")
+
+
 configure_file(setup.py ${CMAKE_BINARY_DIR}/test/benchgc/setup.py COPYONLY)
+configure_file(config.py.in ${CMAKE_BINARY_DIR}/test/benchgc/src/benchgc/config.py @ONLY)
 
 file(GLOB PYTHON_SCRIPTS "*.py")
 foreach(PY_SCRIPT ${PYTHON_SCRIPTS})
@@ -38,3 +46,4 @@ add_subdirectory("src/benchgc/mlir")
 add_subdirectory("src/benchgc/linalg")
 add_subdirectory("src/benchgc/tensor")
 add_subdirectory("src/benchgc/arith")
+add_subdirectory("src/benchgc/pattern")
