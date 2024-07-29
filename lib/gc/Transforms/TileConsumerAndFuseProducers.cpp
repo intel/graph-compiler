@@ -29,7 +29,7 @@ namespace gc {
 #include "gc/Transforms/Passes.h.inc"
 #define GEN_PASS_DEF_ELEMENTWISEFUSION
 #include "gc/Transforms/Passes.h.inc"
-} // namespace tpp
+} // namespace gc
 } // namespace mlir
 
 #define DEBUG_TYPE "tile-consumer-and-fuse-producers"
@@ -179,9 +179,9 @@ static bool isIdentityMapWithZeros(AffineMap map) {
 }
 
 // Helper fuction to print a bit vector.
-[[maybe_unused]] static void printBitVector(std::string banner,
-                           const llvm::SmallBitVector &bitVector,
-                           llvm::raw_ostream &os) {
+[[maybe_unused]] static void
+printBitVector(std::string banner, const llvm::SmallBitVector &bitVector,
+               llvm::raw_ostream &os) {
   os << banner << "  ";
   for (size_t idx : llvm::seq<size_t>(0, bitVector.size())) {
     os << bitVector.test(idx);
@@ -688,8 +688,7 @@ static void doFusion(RewriterBase &rewriter, func::FuncOp func,
 }
 
 struct TileConsumerAndFuseProducers
-    : gc::impl::TileConsumerAndFuseProducersBase<
-          TileConsumerAndFuseProducers> {
+    : gc::impl::TileConsumerAndFuseProducersBase<TileConsumerAndFuseProducers> {
   using TileConsumerAndFuseProducersBase::TileConsumerAndFuseProducersBase;
 
   void runOnOperation() override {
