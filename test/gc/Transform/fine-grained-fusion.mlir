@@ -1,6 +1,14 @@
-// RUN: gc-opt --split-input-file -fine-grained-fusion %s
+// RUN: gc-opt --split-input-file -fine-grained-fusion %s --cse
 
-module {
+module attributes {
+  dlti.target_system_spec = #dlti.target_system_spec<
+    "CPU": #dlti.target_device_spec<
+      #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : i32>,
+      #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : i32>,
+      #dlti.dl_entry<"L3_cache_size_in_bytes", 110100480 : i32>,
+      #dlti.dl_entry<"num_threads", 56 : i32>,
+      #dlti.dl_entry<"max_vector_width", 512 : i32>>
+  >} {
   func.func @fuse_mlp(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32xbf16>, %arg2: tensor<256xbf16>) -> tensor<128x256xbf16> {
     %c32 = arith.constant 32 : index
     %c512 = arith.constant 512 : index
@@ -65,7 +73,15 @@ module {
 // -----
 
 #map = affine_map<(d0) -> (d0 * 128)>
-module {
+module attributes {
+  dlti.target_system_spec = #dlti.target_system_spec<
+    "CPU": #dlti.target_device_spec<
+      #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : i32>,
+      #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : i32>,
+      #dlti.dl_entry<"L3_cache_size_in_bytes", 110100480 : i32>,
+      #dlti.dl_entry<"num_threads", 56 : i32>,
+      #dlti.dl_entry<"max_vector_width", 512 : i32>>
+  >} {
   func.func @fuse_multiple_consumer(%arg0: tensor<256x512xf32>, %arg1: tensor<512x256xf32>, %arg2: tensor<256x256xf32>, %arg3: tensor<256x256xf32>) -> (tensor<256x256xf32>, tensor<256x256xf32>) {
     %c0 = arith.constant 0 : index
     %c64 = arith.constant 64 : index
@@ -103,7 +119,15 @@ module {
 // -----
 
 #map = affine_map<(d0) -> (d0 * 128)>
-module {
+module attributes {
+  dlti.target_system_spec = #dlti.target_system_spec<
+    "CPU": #dlti.target_device_spec<
+      #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : i32>,
+      #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : i32>,
+      #dlti.dl_entry<"L3_cache_size_in_bytes", 110100480 : i32>,
+      #dlti.dl_entry<"num_threads", 56 : i32>,
+      #dlti.dl_entry<"max_vector_width", 512 : i32>>
+  >} {
   func.func @fuse_reduce(%arg0: tensor<256x512xf32>, %arg1: tensor<512x256xf32>, %arg2: tensor<256x256xf32>) -> tensor<256xf32> {
     %c0 = arith.constant 0 : index
     %c64 = arith.constant 64 : index
@@ -142,7 +166,15 @@ module {
 
 // -----
 
-module {
+module attributes {
+  dlti.target_system_spec = #dlti.target_system_spec<
+    "CPU": #dlti.target_device_spec<
+      #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : i32>,
+      #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : i32>,
+      #dlti.dl_entry<"L3_cache_size_in_bytes", 110100480 : i32>,
+      #dlti.dl_entry<"num_threads", 56 : i32>,
+      #dlti.dl_entry<"max_vector_width", 512 : i32>>
+  >} {
   func.func @fuse_with_default_tiling(%arg0: tensor<128x256x256xf32>, %arg1: tensor<128x256x256xf32>) -> tensor<128x256xf32> {
     %dest0 = tensor.empty() : tensor<128x256x256xf32>
     %0 = linalg.add ins(%arg0, %arg1 : tensor<128x256x256xf32>, tensor<128x256x256xf32>) outs(%dest0 : tensor<128x256x256xf32>) -> tensor<128x256x256xf32>

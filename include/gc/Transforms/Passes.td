@@ -77,6 +77,15 @@ def FineGrainedFusion : Pass<"fine-grained-fusion",
   }];
   let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
                            "tensor::TensorDialect"];
+
+  let options = [
+    Option<"fusionLevel", "fusion-level", "int64_t",
+           /*default=*/"1",
+           "Control the granularity of fusion.">,
+    Option<"useCostModel", "use-cost-model", "bool",
+           /*default=*/"false",
+           "Decide if enable cost model to control iterative fusion.">,
+  ];
 }
 
 #endif // GC_DIALECT_GC_PASSES

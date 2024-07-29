@@ -26,9 +26,7 @@
 #include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
-
 #include <llvm/Support/Debug.h>
-
 #include <memory>
 
 #include "TilingUsingInterfaceX.h"
@@ -306,37 +304,38 @@ struct CandidateSliceFilterPipeLine
   }
 };
 
+static FailureOr<int64_t>
+computeTileSizeProductOfCandidate(OffsetSizeAndStrideOpInterface candidate) {
+  SmallVector<OpFoldResult> tileSizes = candidate.getMixedSizes();
+  int64_t totalSize = 1;
+  for (auto &tile : tileSizes) {
+    FailureOr<int64_t> cstSize = ValueBoundsConstraintSet::computeConstantBound(
+        presburger::BoundType::UB, tile,
+        /*stopCondition=*/nullptr, /*closedUB=*/true);
+    if (failed(cstSize)) {
+      return failure();
+    }
+    totalSize *= *cstSize;
+  };
+  return totalSize;
+}
+
 static int TilingSizeComparer(RewriterBase &rewriter,
                               OffsetSizeAndStrideOpInterface candidateA,
                               OffsetSizeAndStrideOpInterface candidateB,
                               CandidateDefOrUse defOrUse) {
-  auto computeTotalSize =
-      [](OffsetSizeAndStrideOpInterface candidate) -> FailureOr<int64_t> {
-    SmallVector<OpFoldResult> tileSizes = candidate.getMixedSizes();
-    int64_t totalSize = 1;
-    for (auto &tile : tileSizes) {
-      FailureOr<int64_t> cstSize =
-          ValueBoundsConstraintSet::computeConstantBound(
-              presburger::BoundType::UB, tile,
-              /*stopCondition=*/nullptr, /*closedUB=*/true);
-      if (failed(cstSize)) {
-        return failure();
-      }
-      totalSize *= *cstSize;
-    };
-    return totalSize;
-  };
-
-  FailureOr<int64_t> totalSizeA = computeTotalSize(candidateA),
-                     totalSizeB = computeTotalSize(candidateB);
-  if (failed(totalSizeA) || failed(totalSizeB)) {
+  FailureOr<int64_t> sizeProductA =
+                         computeTileSizeProductOfCandidate(candidateA),
+                     sizeProductB =
+                         computeTileSizeProductOfCandidate(candidateB);
+  if (failed(sizeProductA) || failed(sizeProductB)) {
     return 0;
   }
   // deal with equality
-  if (*totalSizeA == *totalSizeB) {
+  if (*sizeProductA == *sizeProductB) {
     return 0;
   } else {
-    return *totalSizeA < *totalSizeB ? -1 : 1;
+    return *sizeProductA < *sizeProductB ? -1 : 1;
   }
 }
 
@@ -525,22 +524,8 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
 /// Support iterative producer and consumer fusion in BFS fashion.
 LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
     RewriterBase &rewriter, Operation *tiledOp,
-    TargetSystemSpecInterface targetSpec) {
-  // Flexible options to control which candidate slice would be selected from
-  // the view of both validity and performance.
-  CandidateSliceOptions options;
-  // User-defined filter to control whether to fuse or not. For instance, the
-  // maximum amount of fused ops is limited to 20(only used for example).
-  int64_t numTiledOps = 0;
-  CandidateSliceFilter customizedFilter =
-      [&numTiledOps](RewriterBase &rewriter,
-                     OffsetSizeAndStrideOpInterface candidate,
-                     CandidateDefOrUse defOrUse) -> LogicalResult {
-    return success(numTiledOps < 20);
-  };
-  // If more than one filters need given, please use filter list instead.
-  options.addFilter(customizedFilter);
-
+    const CandidateSliceOptions &options) {
+  int numTiledOps = 0;
   std::deque<Operation *> tiledOpList = {tiledOp};
   while (!tiledOpList.empty()) {
     tiledOp = tiledOpList.front();
@@ -564,7 +549,7 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
       }
     }
   }
-  return success(numTiledOps);
+  return success(numTiledOps > 1);
 }
 
 /// What is single tiled op in loop?
@@ -647,10 +632,68 @@ static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op) {
   }
 }
 
-void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f) {
-  // Get target descriptor
-  TargetSystemSpecInterface targetSpec =
-      mlir::impl::getTargetSystemSpec(f->getParentOfType<ModuleOp>());
+struct IterativeFusionOptions {
+  bool useCostModel = false;
+};
+
+struct SystemDesc {
+  // get runtime OMP_NUM_THREADS
+  uint32_t getNumThreads() {
+    std::optional<Attribute> numThreads = layout.getDevicePropertyValue(
+        Builder(ctx).getStringAttr("CPU" /* device ID*/),
+        Builder(ctx).getStringAttr("num_threads"));
+    if (numThreads && isa<IntegerAttr>(*numThreads)) {
+      return dyn_cast<IntegerAttr>(*numThreads).getInt();
+    }
+    return 1;
+  }
+  // get cache size by cacheLevel
+  size_t getCacheSize(uint8_t cacheLevel) {
+    if (cacheLevel == 1) {
+      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
+          Builder(ctx).getStringAttr("CPU" /* device ID*/),
+          Builder(ctx).getStringAttr("L1_cache_size_in_bytes"));
+      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
+        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
+      }
+    } else if (cacheLevel == 2) {
+      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
+          Builder(ctx).getStringAttr("CPU" /* device ID*/),
+          Builder(ctx).getStringAttr("L2_cache_size_in_bytes"));
+      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
+        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
+      }
+    } else if (cacheLevel == 3) {
+      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
+          Builder(ctx).getStringAttr("CPU" /* device ID*/),
+          Builder(ctx).getStringAttr("L3_cache_size_in_bytes"));
+      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
+        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
+      }
+    }
+    return 0;
+  }
+
+  // get the maximum vector length in bits
+  size_t getMaxVectorLength() {
+    std::optional<Attribute> maxVectorLength = layout.getDevicePropertyValue(
+        Builder(ctx).getStringAttr("CPU" /* device ID*/),
+        Builder(ctx).getStringAttr("max_vector_width"));
+    if (maxVectorLength && isa<IntegerAttr>(*maxVectorLength)) {
+      return dyn_cast<IntegerAttr>(*maxVectorLength).getInt();
+    }
+    return 512;
+  }
+
+  SystemDesc(ModuleOp m) : layout(m), ctx(m->getContext()) {}
+
+private:
+  DataLayout layout;
+  MLIRContext *ctx;
+};
+
+void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f,
+                              const IterativeFusionOptions &fuseOptions) {
   // Collect untiled and tiled ops respectively
   llvm::SetVector<Operation *> singleTiledOpInLoop, unTiledOps;
 
@@ -687,6 +730,30 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f) {
     });
     return !singleTiledOpInLoop.empty();
   };
+
+  SystemDesc sysDesc(f->getParentOfType<ModuleOp>());
+  // Flexible options to control which candidate slice would be selected from
+  // the view of both validity and performance.
+  CandidateSliceOptions sliceOptions;
+  // Since most filters regarding to validity have already been built-in
+  // enabled. Users could focus on performance related filters, a.k.a. cost
+  // model.
+  if (fuseOptions.useCostModel) {
+    // Customized filter by cost model.
+    CandidateSliceFilter costModelFilter =
+        [&sysDesc](RewriterBase &rewriter,
+                   OffsetSizeAndStrideOpInterface candidate,
+                   CandidateDefOrUse defOrUse) -> LogicalResult {
+      // Get cache size
+      size_t l2CacheSize = sysDesc.getCacheSize(2);
+      FailureOr<int64_t> tileSizeProduct =
+          computeTileSizeProductOfCandidate(candidate);
+      return success(succeeded(tileSizeProduct) &&
+                     (*tileSizeProduct <= (int64_t)l2CacheSize));
+    };
+    sliceOptions.addFilter(costModelFilter);
+  }
+
   // Iterative tiling and fusion until exhaustion.
   while (collectUnTiledOps()) {
     // If existing tiled op before tiling.
@@ -696,10 +763,10 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f) {
       // Record if any fusion happens
       bool changed = false;
       // Iteratively fuse in forward and backward fashion.
-      llvm::for_each(singleTiledOpInLoop, [&rewriter, &targetSpec,
+      llvm::for_each(singleTiledOpInLoop, [&rewriter, &sliceOptions,
                                            &changed](Operation *tiledOp) {
         changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
-            rewriter, tiledOp, targetSpec));
+            rewriter, tiledOp, sliceOptions));
       });
       if (!changed) {
         // If no new fusion happens, terminate iteration.
@@ -709,26 +776,21 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f) {
         (void)mlir::runRegionDCE(rewriter, {f.getRegion()});
       }
     } else {
-      // Auto tiling with default tile size if no tiled op found.
-      auto defaultTileContractionOp = [&rewriter](Operation *op) -> bool {
-        return defaultTilingOfType<mlir::linalg::ContractionOpInterface>(
-            rewriter, op);
-      };
-      auto defaultTileReductionOp = [&rewriter](Operation *op) -> bool {
-        return defaultTilingOfType<mlir::linalg::ReduceOp>(rewriter, op);
-      };
-      auto defaultTileLinalgOp = [&rewriter](Operation *op) -> bool {
-        return defaultTilingOfType<mlir::linalg::LinalgOp>(rewriter, op);
-      };
-      // Follow tiling priority based on OpTy:
-      // `Contraction`->`Reduction`->`Elementwise`
-      SmallVector<std::function<bool(Operation *)>> priorityTilingFns = {
-          defaultTileContractionOp, defaultTileReductionOp,
-          defaultTileLinalgOp};
-      if (llvm::all_of(priorityTilingFns,
-                       [&unTiledOps](function_ref<bool(Operation *)> fn) {
-                         return !llvm::any_of(unTiledOps, fn);
-                       })) {
+      // Auto tiling with default tile size if no tiled op found. Follow tiling
+      // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
+      SmallVector<std::function<bool(RewriterBase &, Operation *)>>
+          priorityTilingPipeLine = {
+              defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
+              defaultTilingOfType<mlir::linalg::ReduceOp>,
+              defaultTilingOfType<mlir::linalg::LinalgOp>};
+      if (llvm::all_of(
+              priorityTilingPipeLine,
+              [&rewriter, &unTiledOps](
+                  function_ref<bool(RewriterBase &, Operation *)> tilingFn) {
+                return !llvm::any_of(unTiledOps,
+                                     std::bind(tilingFn, std::ref(rewriter),
+                                               std::placeholders::_1));
+              })) {
         // If no op can be tiled
         break;
       }
@@ -738,6 +800,7 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f) {
 
 struct FineGrainedFusion
     : public impl::FineGrainedFusionBase<FineGrainedFusion> {
+  using FineGrainedFusionBase::FineGrainedFusionBase;
 
 public:
   void runOnOperation() final {
@@ -748,7 +811,8 @@ public:
       // Get rewriter
       IRRewriter rewriter(&ctx);
       // Run iterative fusion
-      iterativeTilingAndFusion(rewriter, func);
+      iterativeTilingAndFusion(rewriter, func,
+                               IterativeFusionOptions{useCostModel});
     }
 
     {
