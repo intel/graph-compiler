@@ -18,11 +18,16 @@
  */
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Dialect/LLVMIR/GENDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+<<<<<<< HEAD
 #endif
+    =======
+#include "gc/Target/LLVM/GEN/Target.h"
+    >>>>>>> abeedf6 (Add gen dialect to hold the gen target)
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
@@ -34,8 +39,8 @@
 #include <imex/InitIMEXPasses.h>
 #endif
 
-namespace mlir::gc {
-void registerCPUPipeline();
+    namespace mlir::gc {
+  void registerCPUPipeline();
 } // namespace mlir::gc
 
 int main(int argc, char *argv[]) {
@@ -59,8 +64,10 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   registry.insert<mlir::microkernel::MicrokernelDialect>();
+  registry.insert<mlir::gen::GENDialect>();
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
+  mlir::gen::registerGenTargetInterfaceExternalModels(registry);
 #ifdef GC_USE_GPU
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif

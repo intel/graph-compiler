@@ -149,6 +149,21 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateLLVMPasses(pm);
 }
 
+void populateGPUPipeline(mlir::OpPassManager &pm) {
+  pm.addPass(createLinalgGeneralizeNamedOpsPass());
+  bufferization::OneShotBufferizationOptions options;
+  options.bufferizeFunctionBoundaries = true;
+  options.setFunctionBoundaryTypeConversion(
+      bufferization::LayoutMapOption::IdentityLayoutMap);
+  pm.addPass(bufferization::createOneShotBufferizePass(options));
+}
+
+void buildGPUBinaryGenerationPipeline(mlir::OpPassManager &pm) {
+  GpuModuleToBinaryPassOptions gpuModuleToBinaryPassOptions;
+  gpuModuleToBinaryPassOptions.compilationTarget = "genisa";
+  pm.addPass(createGpuModuleToBinaryPass(gpuModuleToBinaryPassOptions));
+}
+
 void registerCPUPipeline() {
   PassPipelineRegistration<>("gc-cpu-pipeline",
                              "The CPU pipeline for Graph Compiler",
