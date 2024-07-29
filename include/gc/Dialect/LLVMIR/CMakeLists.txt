@@ -1,0 +1,6 @@
+# set(LLVM_TARGET_DEFINITIONS XeOps.td)
+# mlir_tablegen(XeOpsAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=llvm)
+# mlir_tablegen(XeOpsAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=llvm)
+# mlir_tablegen(XeOpsAttributes.h.inc -gen-attrdef-decls)
+# mlir_tablegen(XeOpsAttributes.cpp.inc -gen-attrdef-defs)
+# add_public_tablegen_target(MLIRXEConversionsIncGen)

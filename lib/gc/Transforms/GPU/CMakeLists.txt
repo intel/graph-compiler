@@ -2,6 +2,7 @@ add_mlir_library(GCGPUPasses
   LinalgToXeGPU.cpp
   GPULegalizeModule.cpp
   ConvertGpuSignaturesToLLVM.cpp
+  GPUAttachXeTarget.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include
@@ -10,6 +11,7 @@ add_mlir_library(GCGPUPasses
     GraphCompilerPassIncGen
 
   LINK_LIBS PUBLIC
+    MLIRXETarget
     MLIRGPUDialect
     MLIRXeGPUDialect
     MLIRGPUTransforms

@@ -72,4 +72,9 @@ def ConvertGpuSignaturesToLLVM: Pass<"gc-gpu-signatures-to-llvm", "gpu::GPUModul
   let dependentDialects = ["gpu::GPUDialect", "memref::MemRefDialect"];
 }
 
+def GpuXeAttachTarget: Pass<"gc-attach-xe-target", ""> {
+  let summary = "Attaches Xe target to a GPU module.";
+  let dependentDialects = ["gpu::GPUDialect", "LLVM::LLVMDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
