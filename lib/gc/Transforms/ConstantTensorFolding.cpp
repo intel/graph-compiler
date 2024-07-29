@@ -745,54 +745,82 @@ void ConstantTensorFolding::runOnOperation() {
     }
   }
 
-  // ===== build compile time folding function =====
-  SmallVector<Type> compiletimeInputTypes; // types of constant tensors
-  // values of constant tensors in original block
-  SmallVector<Value> compiletimeInputValues;
-  SmallVector<Type> compiletimeOutputTypes; // types of folded constant tensors
-  // values of folded constant tensors in original block
-  SmallVector<Value> compiletimeOutputValues;
-  getArithConstantOutputs(block, compiletimeOutputTypes,
-                          compiletimeOutputValues);
-  getInputsAndOutputs(block, compiletimeConstArgsIndexes, compiletimeInputTypes,
-                      compiletimeInputValues, compiletimeOutputTypes,
-                      compiletimeOutputValues);
+  bool enableCompiletimeFolding = false;
+  if (enableCompiletimeFolding) {
+    // ===== build compile time folding function =====
+    SmallVector<Type> compiletimeInputTypes; // types of constant tensors
+    // values of constant tensors in original block
+    SmallVector<Value> compiletimeInputValues;
+    SmallVector<Type>
+        compiletimeOutputTypes; // types of folded constant tensors
+    // values of folded constant tensors in original block
+    SmallVector<Value> compiletimeOutputValues;
+    getArithConstantOutputs(block, compiletimeOutputTypes,
+                            compiletimeOutputValues);
+    getInputsAndOutputs(block, compiletimeConstArgsIndexes,
+                        compiletimeInputTypes, compiletimeInputValues,
+                        compiletimeOutputTypes, compiletimeOutputValues);
 
-  func::FuncOp compiletimeFoldFunc =
-      buildFoldFunc(context, builder, topOp, "compiletime_fold", constOps,
-                    compiletimeInputTypes, compiletimeInputValues,
-                    compiletimeOutputTypes, compiletimeOutputValues);
-  (void)compiletimeFoldFunc;
-  canonicalizeAndClean(context, compiletimeFoldFunc.getOperation());
+    func::FuncOp compiletimeFoldFunc =
+        buildFoldFunc(context, builder, topOp, "compiletime_fold", constOps,
+                      compiletimeInputTypes, compiletimeInputValues,
+                      compiletimeOutputTypes, compiletimeOutputValues);
+    (void)compiletimeFoldFunc;
+    canonicalizeAndClean(context, compiletimeFoldFunc.getOperation());
 
-  // ===== build runtime folding function =====
-  SmallVector<Type> runtimeInputTypes; // types of constant tensors
-  // values of constant tensors in original block
-  SmallVector<Value> runtimeInputValues;
-  SmallVector<Type> runtimeOutputTypes; // types of folded constant tensors
-  // values of folded constant tensors in original block
-  SmallVector<Value> runtimeOutputValues;
-  getInputsAndOutputs(block, runtimeConstArgsIndexes, runtimeInputTypes,
-                      runtimeInputValues, runtimeOutputTypes,
-                      runtimeOutputValues);
+    // ===== build runtime folding function =====
+    SmallVector<Type> runtimeInputTypes; // types of constant tensors
+    // values of constant tensors in original block
+    SmallVector<Value> runtimeInputValues;
+    SmallVector<Type> runtimeOutputTypes; // types of folded constant tensors
+    // values of folded constant tensors in original block
+    SmallVector<Value> runtimeOutputValues;
+    getInputsAndOutputs(block, runtimeConstArgsIndexes, runtimeInputTypes,
+                        runtimeInputValues, runtimeOutputTypes,
+                        runtimeOutputValues);
 
-  func::FuncOp runtimeFoldFunc = buildFoldFunc(
-      context, builder, topOp, "runtime_fold", constOps, runtimeInputTypes,
-      runtimeInputValues, runtimeOutputTypes, runtimeOutputValues);
-  (void)runtimeFoldFunc;
-  canonicalizeAndClean(context, runtimeFoldFunc.getOperation());
+    func::FuncOp runtimeFoldFunc = buildFoldFunc(
+        context, builder, topOp, "runtime_fold", constOps, runtimeInputTypes,
+        runtimeInputValues, runtimeOutputTypes, runtimeOutputValues);
+    (void)runtimeFoldFunc;
+    canonicalizeAndClean(context, runtimeFoldFunc.getOperation());
 
-  // ===== build computing function =====
-  std::unordered_set<int> constArgsIndexes = compiletimeConstArgsIndexes;
-  constArgsIndexes.merge(runtimeConstArgsIndexes);
-  SmallVector<Type> outputTypes = compiletimeOutputTypes;
-  outputTypes.insert(outputTypes.end(), runtimeOutputTypes.begin(),
-                     runtimeOutputTypes.end());
-  SmallVector<Value> outputValues = compiletimeOutputValues;
-  outputValues.insert(outputValues.end(), runtimeOutputValues.begin(),
-                      runtimeOutputValues.end());
-  modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
-                    outputTypes, outputValues);
+    // ===== build computing function =====
+    std::unordered_set<int> constArgsIndexes = compiletimeConstArgsIndexes;
+    constArgsIndexes.merge(runtimeConstArgsIndexes);
+    SmallVector<Type> outputTypes = compiletimeOutputTypes;
+    outputTypes.insert(outputTypes.end(), runtimeOutputTypes.begin(),
+                       runtimeOutputTypes.end());
+    SmallVector<Value> outputValues = compiletimeOutputValues;
+    outputValues.insert(outputValues.end(), runtimeOutputValues.begin(),
+                        runtimeOutputValues.end());
+    modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
+                      outputTypes, outputValues);
+  } else {
+    std::unordered_set<int> constArgsIndexes = compiletimeConstArgsIndexes;
+    constArgsIndexes.merge(runtimeConstArgsIndexes);
+
+    // ===== build runtime folding function =====
+    SmallVector<Type> inputTypes; // types of constant tensors
+    // values of constant tensors in original block
+    SmallVector<Value> inputValues;
+    SmallVector<Type> outputTypes; // types of folded constant tensors
+    // values of folded constant tensors in original block
+    SmallVector<Value> outputValues;
+    getArithConstantOutputs(block, outputTypes, outputValues);
+    getInputsAndOutputs(block, constArgsIndexes, inputTypes, inputValues,
+                        outputTypes, outputValues);
+
+    func::FuncOp foldFunc =
+        buildFoldFunc(context, builder, topOp, "runtime_fold", constOps,
+                      inputTypes, inputValues, outputTypes, outputValues);
+    (void)foldFunc;
+    canonicalizeAndClean(context, foldFunc.getOperation());
+
+    // ===== build computing function =====
+    modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
+                      outputTypes, outputValues);
+  }
 
   canonicalizeAndClean(context, topOp);
 }

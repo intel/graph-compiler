@@ -60,16 +60,26 @@ module {
   }
 }
 
+// COM: If enable compile time folding,
 // COM: 1 pack in entry for input feature, 
 // COM: 4 packs in compiletime_fold for 2 weights, 
-// COM: 2 packs in runtime_fold for 1 weights
+// COM: 2 packs in runtime_fold for 1 weights:
+// COM: CHECK: tensor.pack
+// COM: CHECK: func.func @compiletime_fold
+// COM: CHECK: tensor.pack
+// COM: CHECK: tensor.pack
+// COM: CHECK: tensor.pack
+// COM: CHECK: tensor.pack
+// COM: CHECK: func.func @runtime_fold
+// COM: CHECK: tensor.pack
+// COM: CHECK: tensor.pack
 
-// CHECK: tensor.pack
-// CHECK: func.func @compiletime_fold
-// CHECK: tensor.pack
-// CHECK: tensor.pack
-// CHECK: tensor.pack
+// COM: else,
 // CHECK: tensor.pack
 // CHECK: func.func @runtime_fold
+// CHECK: tensor.pack
+// CHECK: tensor.pack
+// CHECK: tensor.pack
+// CHECK: tensor.pack
 // CHECK: tensor.pack
 // CHECK: tensor.pack
