@@ -37,7 +37,7 @@ void ConstantSubgraphAnalysis::runOnOperation() {
   auto &func =
       op->getRegions().front().getBlocks().front().getOperations().front();
 
-  // Hard-code: set the #1 argument to be constant.
+  // Hard-code example: set some arguments to be constant.
   // OpBuilder builder(op->getContext());
   // func.setAttr("runtime_const_args_index",
   //     builder.getI32ArrayAttr({1,2,3,4}));

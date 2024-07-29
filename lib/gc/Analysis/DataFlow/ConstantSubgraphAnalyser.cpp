@@ -35,15 +35,15 @@ using namespace mlir;
 using namespace mlir::dataflow;
 
 //===----------------------------------------------------------------------===//
-// InConstantSubgraph
+// IsConstantTensor
 //===----------------------------------------------------------------------===//
 
-void InConstantSubgraph::print(raw_ostream &os) const {
+void IsConstantTensor::print(raw_ostream &os) const {
   if (isUninitialized()) {
     os << "<UNINITIALIZED>";
     return;
   }
-  os << getInConstantSubgraph();
+  os << getIsConstantTensor();
 }
 
 //===----------------------------------------------------------------------===//
@@ -51,8 +51,8 @@ void InConstantSubgraph::print(raw_ostream &os) const {
 //===----------------------------------------------------------------------===//
 
 void ConstantSubgraphAnalyser::visitOperation(
-    Operation *op, ArrayRef<const Lattice<InConstantSubgraph> *> operands,
-    ArrayRef<Lattice<InConstantSubgraph> *> results) {
+    Operation *op, ArrayRef<const Lattice<IsConstantTensor> *> operands,
+    ArrayRef<Lattice<IsConstantTensor> *> results) {
   LLVM_DEBUG(llvm::dbgs() << "ConstantSubgraphAnalyser: Visiting operation:\n"
                           << *op << "\n");
 
@@ -67,7 +67,7 @@ void ConstantSubgraphAnalyser::visitOperation(
     LLVM_DEBUG(llvm::dbgs() << "Curr op has " << operands.size()
                             << " operands, check if constant\n");
     for (auto *operandLattice : operands) {
-      auto operandState = operandLattice->getValue().getInConstantSubgraph();
+      auto operandState = operandLattice->getValue().getIsConstantTensor();
       LLVM_DEBUG(llvm::dbgs() << "Operand: " << operandLattice->getPoint()
                               << ", lattice value: " << operandState << "\n");
       if (!operandState) {
@@ -81,20 +81,18 @@ void ConstantSubgraphAnalyser::visitOperation(
   if (!in) {
     LLVM_DEBUG(llvm::dbgs() << "Curr op not in constant subgraph\n");
     for (auto lattice : results) {
-      propagateIfChanged(lattice,
-                         lattice->join(InConstantSubgraph(true, false)));
+      propagateIfChanged(lattice, lattice->join(IsConstantTensor(true, false)));
     }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Curr op in constant subgraph\n");
     for (auto lattice : results) {
-      propagateIfChanged(lattice,
-                         lattice->join(InConstantSubgraph(true, true)));
+      propagateIfChanged(lattice, lattice->join(IsConstantTensor(true, true)));
     }
   }
 }
 
 void ConstantSubgraphAnalyser::setToEntryState(
-    Lattice<InConstantSubgraph> *lattice) {
+    Lattice<IsConstantTensor> *lattice) {
   if (auto blockArg = cast<BlockArgument>(lattice->getPoint())) {
     auto parentOp = blockArg.getParentBlock()->getParentOp();
     auto parentOpAttr = parentOp->getAttrDictionary();
@@ -119,14 +117,13 @@ void ConstantSubgraphAnalyser::setToEntryState(
     if (constArgsIndexes.count(blockArg.getArgNumber())) {
       LLVM_DEBUG(llvm::dbgs() << "Block argument: " << blockArg
                               << " is marked as constant\n");
-      propagateIfChanged(lattice,
-                         lattice->join(InConstantSubgraph(true, true)));
+      propagateIfChanged(lattice, lattice->join(IsConstantTensor(true, true)));
       return;
     }
-    propagateIfChanged(lattice, lattice->join(InConstantSubgraph(true, false)));
+    propagateIfChanged(lattice, lattice->join(IsConstantTensor(true, false)));
   } else {
     propagateIfChanged(lattice,
-                       lattice->join(InConstantSubgraph::getUninitialized()));
+                       lattice->join(IsConstantTensor::getUninitialized()));
   }
 }
 
@@ -149,13 +146,13 @@ void RunConstantSubgraphAnalyser::getConstantSubgraph(DataFlowSolver &solver,
       continue;
     }
     for (Value res : op.getResults()) {
-      auto *lattice = solver.lookupState<Lattice<InConstantSubgraph>>(res);
+      auto *lattice = solver.lookupState<Lattice<IsConstantTensor>>(res);
       if (!lattice || lattice->getValue().isUninitialized()) {
         resultsAllConstant = false;
         break;
       }
-      const InConstantSubgraph &latticeValue = lattice->getValue();
-      if (!latticeValue.getInConstantSubgraph()) {
+      const IsConstantTensor &latticeValue = lattice->getValue();
+      if (!latticeValue.getIsConstantTensor()) {
         resultsAllConstant = false;
         break;
       }
@@ -183,8 +180,8 @@ void RunConstantSubgraphAnalyser::run(Operation *op) {
   getConstantSubgraph(solver, op);
 }
 
-bool RunConstantSubgraphAnalyser::getInConstantSubgraph(Value val) {
-  auto *lattice = solver.lookupState<Lattice<InConstantSubgraph>>(val);
-  const InConstantSubgraph &latticeValue = lattice->getValue();
-  return latticeValue.getInConstantSubgraph();
+bool RunConstantSubgraphAnalyser::getIsConstantTensor(Value val) {
+  auto *lattice = solver.lookupState<Lattice<IsConstantTensor>>(val);
+  const IsConstantTensor &latticeValue = lattice->getValue();
+  return latticeValue.getIsConstantTensor();
 }

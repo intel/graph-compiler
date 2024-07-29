@@ -10,9 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Transforms/Passes.h"
 #include <deque>
 #include <unordered_set>
+
+#include "mlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
@@ -30,6 +31,8 @@
 #include "llvm/Support/Debug.h"
 
 // #include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
+
+#define DEBUG_TYPE "constant-tensor-folding"
 
 namespace mlir {
 namespace gc {
@@ -69,6 +72,10 @@ int64_t getTensorSize(TensorType t) {
   return size;
 }
 
+/// @brief op has only one operand, or operands of op are one same value, or
+/// operands of op are one same value or from tensor.EmptyOp.
+/// @param op
+/// @return
 bool singleOperand(Operation *op) {
   if (op->getNumOperands() > 1) {
     Value firstOperand = op->getOperand(0);
@@ -328,12 +335,12 @@ struct ConstGraphTensorCacheManager {
     for (size_t size : buffersSize) {
       totalSize += divideAndCeil(size, 64) * 64;
     }
-    llvm::dbgs() << "Alloc total size: " << totalSize << '\n';
+    LLVM_DEBUG(llvm::dbgs() << "Alloc total size: " << totalSize << '\n');
     // auto base = createConstCacheProxy(totalSize);
     std::vector<uint64_t> globalIds(buffersSize.size());
     size_t offset = 0;
     for (size_t i = 0; i < buffersSize.size(); i++) {
-      llvm::dbgs() << "Alloc offset: " << offset << '\n';
+      LLVM_DEBUG(llvm::dbgs() << "Alloc offset: " << offset << '\n');
       // regCachedTensor(cachedTensorGlobalId, base, offset);
       globalIds[i] = cachedTensorGlobalId;
       ++cachedTensorGlobalId;
@@ -565,7 +572,8 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
   // Allocate buffer for outputValuesInFold
   std::vector<size_t> buffersSize;
   for (Value &tensor : outputValuesInFold) {
-    llvm::dbgs() << "Allocate buffer for tensor: " << tensor << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Allocate buffer for tensor: " << tensor << "\n");
     buffersSize.push_back(
         getTensorSize(dyn_cast<TensorType>(tensor.getType())));
   }
