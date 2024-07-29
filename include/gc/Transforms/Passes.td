@@ -78,7 +78,8 @@ def TileConsumerAndFuseProducers : Pass<"tile-consumer-and-fuse-producers",
            "Run fusion for the given number of iterations">,
     Option<"useForAll", "use-for-all", "bool", "true", "Use parallel forAll">,
     Option<"minTileFactor", "min-tile-factor", "int64_t", "2",
-           "Minimum factor between dimension size and a tile size">
+           "Minimum factor between dimension size and a tile size">,
+    Option<"keepNamedOp", "keep-named-op", "bool", "false", "Don't generalize named ops">
   ];
   let dependentDialects = ["linalg::LinalgDialect", "scf::SCFDialect",
                            "tensor::TensorDialect"];

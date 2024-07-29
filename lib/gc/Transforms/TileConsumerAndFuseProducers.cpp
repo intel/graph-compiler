@@ -719,7 +719,8 @@ struct TileConsumerAndFuseProducers
             RankReductionStrategy::ExtractInsertSlice;
         linalg::populateFoldUnitExtentDimsPatterns(patterns, options);
         tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
-        linalg::populateLinalgNamedOpsGeneralizationPatterns(patterns);
+        if (!this->keepNamedOp)
+          linalg::populateLinalgNamedOpsGeneralizationPatterns(patterns);
         (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
       }
     } while (--numIters);
