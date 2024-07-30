@@ -1,10 +1,8 @@
 // RUN: gc-opt %s --convert-cpuruntime-to-llvm | FileCheck %s
 
 module {
-  // CHECK: llvm.func @gcThreadAlignedFree(!llvm.ptr)
-  // CHECK: llvm.func @gcThreadAlignedMalloc(i64) -> !llvm.ptr
   // CHECK: llvm.func @gcAlignedFree(!llvm.ptr)
-  // CHECK: llvm.func @gcAlignedMalloc(i64) -> !llvm.ptr
+  // CHECK: llvm.func @gcAlignedMalloc(i64, i32) -> !llvm.ptr
   // CHECK: llvm.mlir.global internal constant @cpuprintfFormat_0("Hello world %f %d %lld\0A\00") {addr_space = 0 : i32}
   // CHECK: llvm.func @printf(!llvm.ptr,
   // CHECK-NEXT: func.func @doprint(%[[ARG0:.*]]: f32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i64)
@@ -26,7 +24,8 @@ module {
     // CHECK: %[[null:.*]] = llvm.mlir.zero : !llvm.ptr
     // CHECK: %[[gep:.*]] = llvm.getelementptr %[[null]][%[[c1]]] : (!llvm.ptr, i64) -> !llvm.ptr, f32
     // CHECK: %[[size_bytes:.*]] = llvm.ptrtoint %[[gep]] : !llvm.ptr to i64
-    // CHECK: %[[call:.*]] = llvm.call @gcAlignedMalloc(%[[size_bytes]]) : (i64) -> !llvm.ptr
+    // CHECK: %[[pool_type:.*]] = llvm.mlir.constant(0 : i32) : i32
+    // CHECK: %[[call:.*]] = llvm.call @gcAlignedMalloc(%[[size_bytes]], %[[pool_type]]) : (i64, i32) -> !llvm.ptr
     // CHECK: %[[ptr:.*]] = llvm.bitcast %[[call]] : !llvm.ptr to !llvm.ptr
     // CHECK: llvm.mlir.undef : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
     // CHECK: llvm.insertvalue %[[ptr]], %{{.*}}[0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
@@ -49,7 +48,8 @@ module {
     // CHECK: %[[null:.*]] = llvm.mlir.zero : !llvm.ptr
     // CHECK: %[[gep:.*]] = llvm.getelementptr %[[null]][%[[c1]]] : (!llvm.ptr, i64) -> !llvm.ptr, f32
     // CHECK: %[[size_bytes:.*]] = llvm.ptrtoint %[[gep]] : !llvm.ptr to i64
-    // CHECK: %[[call:.*]] = llvm.call @gcThreadAlignedMalloc(%[[size_bytes]]) : (i64) -> !llvm.ptr
+    // CHECK: %[[pool_type:.*]] = llvm.mlir.constant(1 : i32) : i32
+    // CHECK: %[[call:.*]] = llvm.call @gcAlignedMalloc(%[[size_bytes]], %[[pool_type]]) : (i64, i32) -> !llvm.ptr
     // CHECK: %[[ptr:.*]] = llvm.bitcast %[[call]] : !llvm.ptr to !llvm.ptr
     // CHECK: llvm.mlir.undef : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
     // CHECK: llvm.insertvalue %[[ptr]], %{{.*}}[0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
@@ -60,9 +60,9 @@ module {
     // CHECK: llvm.insertvalue %[[c2]], %{{.*}}[4, 0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
     // CHECK: %[[callfree:.*]] = llvm.extractvalue %{{.*}}[0] : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)>
     // CHECK: %[[ptrfree:.*]] = llvm.bitcast %[[callfree]] : !llvm.ptr to !llvm.ptr
-    // CHECK: llvm.call @gcThreadAlignedFree(%[[ptrfree]]) : (!llvm.ptr) -> ()
-    %m0 = cpuruntime.threadAlloc () : memref<13xf32>
-    cpuruntime.threadDealloc %m0 : memref<13xf32>
+    // CHECK: llvm.call @gcAlignedFree(%[[ptrfree]]) : (!llvm.ptr) -> ()
+    %m0 = cpuruntime.alloc threadLocal () : memref<13xf32>
+    cpuruntime.dealloc %m0 : memref<13xf32>
     return
   }
 
@@ -78,7 +78,8 @@ module {
     //  CHECK-NEXT:  %[[null:.*]] = llvm.mlir.zero : !llvm.ptr
     //  CHECK-NEXT:  %[[gep:.*]] = llvm.getelementptr %[[null]][%[[sz]]] : (!llvm.ptr, i64) -> !llvm.ptr, f32
     //  CHECK-NEXT:  %[[sz_bytes:.*]] = llvm.ptrtoint %[[gep]] : !llvm.ptr to i64
-    //  CHECK-NEXT:  %[[call:.*]] = llvm.call @gcAlignedMalloc(%[[sz_bytes]]) : (i64) -> !llvm.ptr
+    //  CHECK-NEXT:  %[[pool_type:.*]] = llvm.mlir.constant(0 : i32) : i32
+    //  CHECK-NEXT:  %[[call:.*]] = llvm.call @gcAlignedMalloc(%[[sz_bytes]], %[[pool_type]]) : (i64, i32) -> !llvm.ptr
     //  CHECK-NEXT:  llvm.bitcast %[[call]] : !llvm.ptr to !llvm.ptr
     //  CHECK-NEXT:  llvm.mlir.undef : !llvm.struct<(ptr, ptr, i64, array<3 x i64>, array<3 x i64>)>
     //  CHECK-NEXT:  llvm.insertvalue %{{.*}}, %{{.*}}[0] : !llvm.struct<(ptr, ptr, i64, array<3 x i64>, array<3 x i64>)>
@@ -111,7 +112,8 @@ module {
     //  CHECK-NEXT:  %[[null:.*]] = llvm.mlir.zero : !llvm.ptr
     //  CHECK-NEXT:  %[[gep:.*]] = llvm.getelementptr %[[null]][%[[sz]]] : (!llvm.ptr, i64) -> !llvm.ptr, f32
     //  CHECK-NEXT:  %[[sz_bytes:.*]] = llvm.ptrtoint %[[gep]] : !llvm.ptr to i64
-    //  CHECK-NEXT:  %[[call:.*]] = llvm.call @gcThreadAlignedMalloc(%[[sz_bytes]]) : (i64) -> !llvm.ptr
+    //  CHECK-NEXT:  %[[pool_type:.*]] = llvm.mlir.constant(1 : i32) : i32
+    //  CHECK-NEXT:  %[[call:.*]] = llvm.call @gcAlignedMalloc(%[[sz_bytes]], %[[pool_type]]) : (i64, i32) -> !llvm.ptr
     //  CHECK-NEXT:  llvm.bitcast %[[call]] : !llvm.ptr to !llvm.ptr
     //  CHECK-NEXT:  llvm.mlir.undef : !llvm.struct<(ptr, ptr, i64, array<3 x i64>, array<3 x i64>)>
     //  CHECK-NEXT:  llvm.insertvalue %{{.*}}, %{{.*}}[0] : !llvm.struct<(ptr, ptr, i64, array<3 x i64>, array<3 x i64>)>
@@ -126,9 +128,9 @@ module {
     //  CHECK-NEXT:  llvm.insertvalue %[[one]], %{{.*}}[4, 2] : !llvm.struct<(ptr, ptr, i64, array<3 x i64>, array<3 x i64>)>
     //  CHECK-NEXT:  %[[callfree:.*]] = llvm.extractvalue %{{.*}}[0] : !llvm.struct<(ptr, ptr, i64, array<3 x i64>, array<3 x i64>)>
     //  CHECK-NEXT:  %[[ptrfree:.*]] = llvm.bitcast %[[callfree]] : !llvm.ptr to !llvm.ptr
-    //  CHECK-NEXT: llvm.call @gcThreadAlignedFree(%[[ptrfree]]) : (!llvm.ptr) -> ()
-    %m0 = cpuruntime.threadAlloc(%arg0, %arg1) : memref<?x42x?xf32>
-    cpuruntime.threadDealloc %m0 : memref<?x42x?xf32>
+    //  CHECK-NEXT: llvm.call @gcAlignedFree(%[[ptrfree]]) : (!llvm.ptr)
+    %m0 = cpuruntime.alloc threadLocal (%arg0, %arg1) : memref<?x42x?xf32>
+    cpuruntime.dealloc %m0 : memref<?x42x?xf32>
     return
   }
 }

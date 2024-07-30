@@ -52,6 +52,8 @@ static constexpr size_t divideAndCeil(size_t x, size_t y) {
   return alignTo(x, y) / y;
 }
 
+enum class MemoryPoolType { MAIN, THREAD };
+
 // The chunk of memory that is allocated to the user
 struct MemoryChunk {
   static constexpr uint64_t magicCheckNum = 0xc0ffeebeef0102ff;
@@ -60,17 +62,20 @@ struct MemoryChunk {
   uint64_t canary;
   // the size of the MemoryChunk allocated, incluing this `MemoryChunk`
   size_t size;
+  // indicates the pool type, which is main / thread
+  MemoryPoolType poolType;
   // the memory for the user
   char buffer[0];
   // initalizes the memory chunk, given the address of data
-  static MemoryChunk *init(intptr_t pdata, size_t sz);
+  static MemoryChunk *init(intptr_t pdata, size_t sz, MemoryPoolType type);
 };
 
-MemoryChunk *MemoryChunk::init(intptr_t pdata, size_t sz) {
+MemoryChunk *MemoryChunk::init(intptr_t pdata, size_t sz, MemoryPoolType type) {
   MemoryChunk *ths =
       reinterpret_cast<MemoryChunk *>(pdata - sizeof(MemoryChunk));
   ths->canary = magicCheckNum;
   ths->size = sz;
+  ths->poolType = type;
   return ths;
 }
 
@@ -148,10 +153,12 @@ struct FILOMemoryPool {
   // the linked list of all allocated memory blocks
   MemoryBlock *buffers = nullptr;
   MemoryBlock *current = nullptr;
+  MemoryPoolType poolType;
   size_t getBlockSize(size_t sz) const;
   void *alloc(size_t sz);
   void dealloc(void *ptr);
-  FILOMemoryPool(size_t bs) : blockSize(bs) {}
+  FILOMemoryPool(size_t bs, MemoryPoolType type)
+      : blockSize(bs), poolType(type) {}
   ~FILOMemoryPool();
   // release the memory to os/underlying memory allocator
   void release();
@@ -192,7 +199,7 @@ void *FILOMemoryPool::alloc(size_t sz) {
       // if the current block is not full
       size_t alloc_size = newallocated - current->allocated;
       current->allocated = newallocated;
-      MemoryChunk::init(newptr, alloc_size);
+      MemoryChunk::init(newptr, alloc_size, poolType);
       return reinterpret_cast<void *>(newptr);
     }
     // if the block is full, check the next block
@@ -245,20 +252,26 @@ FILOMemoryPool::~FILOMemoryPool() { release(); }
 
 } // namespace
 
-static thread_local FILOMemoryPool mainMemoryPool_{mainChunkSize};
+static thread_local FILOMemoryPool mainMemoryPool_{mainChunkSize,
+                                                   MemoryPoolType::MAIN};
 // if the current thread is a worker thread, use this pool
-static thread_local FILOMemoryPool threadMemoryPool_{threadlocalChunkSize};
+static thread_local FILOMemoryPool threadMemoryPool_{threadlocalChunkSize,
+                                                     MemoryPoolType::THREAD};
 
-extern "C" void *gcAlignedMalloc(size_t sz) noexcept {
-  return mainMemoryPool_.alloc(sz);
+extern "C" void *gcAlignedMalloc(size_t sz, MemoryPoolType type) noexcept {
+  if (likely(type == MemoryPoolType::MAIN)) {
+    return mainMemoryPool_.alloc(sz);
+  } else {
+    return threadMemoryPool_.alloc(sz);
+  }
 }
 
-extern "C" void gcAlignedFree(void *p) noexcept { mainMemoryPool_.dealloc(p); }
-
-extern "C" void *gcThreadAlignedMalloc(size_t sz) noexcept {
-  return threadMemoryPool_.alloc(sz);
-}
-
-extern "C" void gcThreadAlignedFree(void *p) noexcept {
-  threadMemoryPool_.dealloc(p);
+extern "C" void gcAlignedFree(void *p) noexcept {
+  auto chunk = reinterpret_cast<MemoryChunk *>(reinterpret_cast<intptr_t>(p) -
+                                               sizeof(MemoryChunk));
+  if (likely(chunk->poolType == MemoryPoolType::MAIN)) {
+    mainMemoryPool_.dealloc(p);
+  } else {
+    threadMemoryPool_.dealloc(p);
+  }
 }

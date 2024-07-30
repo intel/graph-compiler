@@ -51,15 +51,11 @@ struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
     MemRefType type = op.getMemref().getType();
     ValueRange symbolOperands = op.getSymbolOperands();
     ValueRange dynamicSizes = op.getDynamicSizes();
-    Operation *newAllocOp;
-    if (hasParallelParent(op)) {
-      newAllocOp = rewriter.create<cpuruntime::ThreadAllocOp>(
-          loc, type, dynamicSizes, symbolOperands);
-    } else {
-      newAllocOp = rewriter.create<cpuruntime::AllocOp>(loc, type, dynamicSizes,
-                                                        symbolOperands);
-    }
-    rewriter.replaceOp(op, newAllocOp->getResults());
+    cpuruntime::AllocOp newAllocOp = rewriter.create<cpuruntime::AllocOp>(
+        loc, type, dynamicSizes, symbolOperands);
+    if (hasParallelParent(op))
+      newAllocOp.setThreadLocal(true);
+    rewriter.replaceOp(op, newAllocOp.getResult());
     return success();
   }
 };
@@ -70,13 +66,9 @@ struct AlignedDeallocLowering : public OpRewritePattern<memref::DeallocOp> {
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     Value memref = op.getMemref();
-    Operation *newDeallocOp;
-    if (hasParallelParent(op)) {
-      newDeallocOp = rewriter.create<cpuruntime::ThreadDeallocOp>(loc, memref);
-    } else {
-      newDeallocOp = rewriter.create<cpuruntime::DeallocOp>(loc, memref);
-    }
-    rewriter.replaceOp(op, newDeallocOp->getResults());
+    cpuruntime::DeallocOp newDeallocOp =
+        rewriter.create<cpuruntime::DeallocOp>(loc, memref);
+    rewriter.eraseOp(op);
     return success();
   }
 };
