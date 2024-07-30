@@ -32,11 +32,12 @@ struct GpuGenAttachTarget
 void GpuGenAttachTarget::runOnOperation() {
   OpBuilder builder(&getContext());
   auto target =
-      builder.getAttr<gen::GenTargetAttr>(2, "spir64-unknown-unknown");
+      builder.getAttr<gen::GenTargetAttr>(2, "spirv64-unknown-unknown");
   getOperation()->walk([&](gpu::GPUModuleOp gpuModule) {
     SmallVector<Attribute> targets;
-    if (std::optional<ArrayAttr> attrs = gpuModule.getTargets())
-      targets.append(attrs->getValue().begin(), attrs->getValue().end());
+    // Temporary solution to avoid an attempt to create a spirv binary
+    // if (std::optional<ArrayAttr> attrs = gpuModule.getTargets())
+    //   targets.append(attrs->getValue().begin(), attrs->getValue().end());
     targets.push_back(target);
     // Remove any duplicate targets.
     targets.erase(llvm::unique(targets), targets.end());

@@ -6,8 +6,6 @@ add_mlir_dialect_library(MLIRGENDialect
   ${PROJECT_SOURCE_DIR}/include/gc/Dialect/LLVMIR
 
   DEPENDS
-#   MLIRGPUCompilationAttrInterfacesIncGen
-#   MLIRGENOpsIncGen
   MLIRGENConversionsIncGen
 
   LINK_COMPONENTS

@@ -12,13 +12,17 @@ using namespace gen;
 
 LogicalResult
 GenTargetAttr::verify(function_ref<InFlightDiagnostic()> emitError, int O,
-                      StringRef triple) {
+                      StringRef triple, StringRef chip) {
   if (O < 0 || O > 3) {
     emitError() << "The optimization level must be a number between 0 and 3.";
     return failure();
   }
   if (triple.empty()) {
     emitError() << "The target triple cannot be empty.";
+    return failure();
+  }
+  if (chip.empty()) {
+    emitError() << "The target chip cannot be empty.";
     return failure();
   }
   return success();

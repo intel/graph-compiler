@@ -33,7 +33,6 @@ set(gc_opt_libs
         ${dialect_libs}
         ${conversion_libs} 
         ${MLIR_LINK_COMPONENTS}
-        # MLIRGENTarget
         GCPasses
         GCGPUPasses)
 

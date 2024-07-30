@@ -8,6 +8,7 @@
 
 #include "gc/Transforms/Passes.h"
 
+#include "gc/Dialect/LLVMIR/GENDialect.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
@@ -50,8 +51,10 @@ void ConvertGpuSignaturesToLLVM::runOnOperation() {
 
   patterns.add<GPUReturnOpLowering>(converter);
   patterns.add<GPUFuncOpLowering>(
-      converter, 0 /*local*/, 3 /*shared*/,
-      StringAttr::get(&converter.getContext(), "xe.kernel"));
+      converter, gen::GENDialect::kPrivateMemoryAddressSpace /*local*/,
+      gen::GENDialect::kSharedMemoryAddressSpace /*shared*/,
+      StringAttr::get(&converter.getContext(),
+                      gen::GENDialect::getKernelFuncAttrName()));
 
   if (failed(applyPartialConversion(gpuModule, target, std::move(patterns))))
     signalPassFailure();
