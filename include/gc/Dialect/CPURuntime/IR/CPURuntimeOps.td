@@ -52,11 +52,11 @@ def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
     ```
   }];
 
-  let arguments = (ins Variadic<Index>:$dynamicSizes, Variadic<Index>:$symbolOperands);
+  let arguments = (ins Variadic<Index>:$dynamicSizes, Variadic<Index>:$symbolOperands, UnitAttr:$threadLocal);
   let results = (outs Res<AnyMemRef, "", [MemAlloc<DefaultResource, 0, FullEffect>]>:$memref);
 
   let assemblyFormat = [{
-    `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
+    (` ` `threadLocal` $threadLocal^)? `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
   }];
 }
 
