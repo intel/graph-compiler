@@ -23,6 +23,13 @@
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 
 #include "llvm/IR/LegacyPassManager.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -60,7 +67,7 @@ void mlir::gen::registerGenTargetInterfaceExternalModels(MLIRContext &context) {
 StringRef mlir::gen::getONEAPIToolkitPath() {
   if (const char *var = std::getenv("ONEAPI_ROOT"))
     return var;
-  return "";
+  return "/usr/";
 }
 
 SerializeGPUModuleBase::SerializeGPUModuleBase(
@@ -103,7 +110,12 @@ public:
   std::optional<SmallVector<char, 0>>
   moduleToObject(llvm::Module &llvmModule) override;
 
+  std::optional<std::string> findTool(StringRef tool);
+
 private:
+  using TmpFile = std::pair<llvm::SmallString<128>, llvm::FileRemover>;
+  std::optional<TmpFile> createTemp(StringRef name, StringRef suffix);
+
   std::optional<std::string>
   translateToSPIRVBinary(llvm::Module &llvmModule,
                          llvm::TargetMachine &targetMachine);
@@ -117,6 +129,31 @@ GenSerializer::GenSerializer(Operation &module, GenTargetAttr target,
 
 gpu::GPUModuleOp GenSerializer::getOperation() {
   return dyn_cast<gpu::GPUModuleOp>(&SerializeGPUModuleBase::getOperation());
+}
+
+std::optional<GenSerializer::TmpFile>
+GenSerializer::createTemp(StringRef name, StringRef suffix) {
+  llvm::SmallString<128> filename;
+  std::error_code ec =
+      llvm::sys::fs::createTemporaryFile(name, suffix, filename);
+  if (ec) {
+    getOperation().emitError() << "Couldn't create the temp file: `" << filename
+                               << "`, error message: " << ec.message();
+    return std::nullopt;
+  }
+  return TmpFile(filename, llvm::FileRemover(filename.c_str()));
+}
+
+std::optional<std::string> GenSerializer::findTool(StringRef tool) {
+  if (std::optional<std::string> toolPath =
+          llvm::sys::Process::FindInEnvPath("PATH", tool))
+    return *toolPath;
+  getOperation().emitError()
+      << "Couldn't find the `" << tool
+      << "` binary. Please specify the toolkit "
+         "path, add the compiler to $PATH, or set one of the environment "
+         "variables in `gen::getGENToolkitPath()`.";
+  return std::nullopt;
 }
 
 std::optional<SmallVector<char, 0>>
@@ -139,33 +176,94 @@ GenSerializer::moduleToObject(llvm::Module &llvmModule) {
     return std::nullopt;
   }
 
-  std::optional<std::string> serializedISA =
-      translateToISA(llvmModule, **targetMachine);
-  if (!serializedISA) {
-    getOperation().emitError() << "Failed translating the module to ISA.";
-    return std::nullopt;
-  }
-
   // Return SPIRV if the compilation target is `assembly`.
   if (targetOptions.getCompilationTarget() ==
       gpu::CompilationTarget::Assembly) {
+    std::optional<std::string> serializedISA =
+        translateToISA(llvmModule, **targetMachine);
+    if (!serializedISA) {
+      getOperation().emitError() << "Failed translating the module to ISA.";
+      return std::nullopt;
+    }
     // Make sure to include the null terminator.
     StringRef bin(serializedISA->c_str(), serializedISA->size() + 1);
     return SmallVector<char, 0>(bin.begin(), bin.end());
   }
 
-  return compileToBinary(*serializedISA);
+  std::optional<std::string> serializedSPIRVBinary =
+      translateToSPIRVBinary(llvmModule, **targetMachine);
+  if (!serializedSPIRVBinary) {
+    getOperation().emitError() << "Failed translating the module to Binary.";
+    return std::nullopt;
+  }
+
+  return compileToBinary(*serializedSPIRVBinary);
 }
 
 std::optional<SmallVector<char, 0>>
 GenSerializer::compileToBinary(const std::string &serializedSPV) {
-  // FIXME
-  return SmallVector<char, 0>(serializedSPV.begin(), serializedSPV.end());
+  std::optional<std::string> ocloc = findTool("ocloc");
+  if (!ocloc)
+    return std::nullopt;
+
+  std::string basename =
+      llvm::formatv("mlir-{0}-{1}-{2}", getOperation().getNameAttr().getValue(),
+                    getTarget().getTriple(), getTarget().getChip());
+
+  std::optional<TmpFile> spvFile = createTemp(basename, "spv");
+  if (!spvFile)
+    return std::nullopt;
+  std::optional<TmpFile> binaryFile = createTemp(basename, "bin");
+  if (!binaryFile)
+    return std::nullopt;
+
+  Location loc = getOperation().getLoc();
+  std::error_code ec;
+  {
+    llvm::raw_fd_ostream spvStream(spvFile->first, ec);
+    if (ec) {
+      emitError(loc) << "Couldn't open the file: `" << spvFile->first
+                     << "`, error message: " << ec.message();
+      return std::nullopt;
+    }
+    spvStream << serializedSPV;
+    if (spvStream.has_error()) {
+      emitError(loc) << "An error occurred while writing the SPIRV to: `"
+                     << spvFile->first << "`.";
+      return std::nullopt;
+    }
+    spvStream.flush();
+  }
+
+  SmallVector<StringRef, 12> oclocArgs(
+      {StringRef("compile"), StringRef("-device"), getTarget().getChip(),
+       StringRef("-spirv_input"), StringRef("-file"), StringRef(spvFile->first),
+       StringRef("-o"), StringRef(binaryFile->first)});
+
+  std::string message;
+  if (llvm::sys::ExecuteAndWait(ocloc.value(), oclocArgs,
+                                /*Env=*/std::nullopt,
+                                /*Redirects=*/std::nullopt,
+                                /*SecondsToWait=*/0,
+                                /*MemoryLimit=*/0,
+                                /*ErrMsg=*/&message)) {
+    emitError(loc) << " ocloc invocation failed. Message:\n" << message;
+    return std::nullopt;
+  }
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> binaryBuffer =
+      llvm::MemoryBuffer::getFile(binaryFile->first);
+  if (!binaryBuffer) {
+    emitError(loc) << "Couldn't open the file: `" << binaryFile->first
+                   << "`, error message: " << binaryBuffer.getError().message();
+    return std::nullopt;
+  }
+  StringRef result = (*binaryBuffer)->getBuffer();
+  return SmallVector<char, 0>(result.begin(), result.end());
 }
 
 std::optional<std::string>
-translateToSPIRVBinary(llvm::Module &llvmModule,
-                       llvm::TargetMachine &targetMachine) {
+GenSerializer::translateToSPIRVBinary(llvm::Module &llvmModule,
+                                      llvm::TargetMachine &targetMachine) {
   std::string targetISA;
   llvm::raw_string_ostream stream(targetISA);
 
