@@ -2,7 +2,7 @@
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
-  func.func @simple_brgemm() {
+  func.func @basic_convert() {
     %c0_i64 = arith.constant 0 : i64
     %c16_i64 = arith.constant 16 : i64
     %cst = arith.constant 0.000000e+00 : f32
@@ -39,7 +39,7 @@ module {
 
 // CHECK-LABEL: dnnl_brgemm_execute
 // CHECK-LABEL: dnnl_brgemm_dispatch
-// CHECK-LABEL: simple_brgemm
+// CHECK-LABEL: basic_convert
 // CHECK: %[[CST3:.+]] = arith.constant 3 : i64
 // CHECK: %[[CST1F:.+]] = arith.constant 1.000000e+00 : f32
 // CHECK: %[[CST1024:.+]] = arith.constant 1024 : i64

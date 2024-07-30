@@ -1,7 +1,7 @@
 // RUN: gc-opt %s -convert-linalg-to-microkernel -split-input-file | FileCheck %s
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
-func.func @simple_brgemm() {
+func.func @basic_linalg_to_microkernel() {
   %cst = arith.constant 0.000000e+00 : f32
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xf32>
   %alloc_4 = memref.alloc() {alignment = 64 : i64} : memref<8x16x32x32xf32>
@@ -29,7 +29,7 @@ func.func @simple_brgemm() {
   return
 }
 
-// CHECK-LABEL: simple_brgemm
+// CHECK-LABEL: basic_linalg_to_microkernel
 // CHECK: %[[CST0:.+]] = arith.constant 0 : i64
 // CHECK: %[[CST16:.+]] = arith.constant 16 : i64
 // CHECK: %[[C:.+]] = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32> 
@@ -43,7 +43,7 @@ func.func @simple_brgemm() {
 // -----
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
-func.func @simple_brgemm() {
+func.func @vnni_linalg_to_microkernel() {
   %cst = arith.constant 0.000000e+00 : f32
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xbf16>
   %alloc_4 = memref.alloc() {alignment = 64 : i64} : memref<8x16x16x32x2xbf16>
@@ -71,7 +71,7 @@ func.func @simple_brgemm() {
   return
 }
 
-// CHECK-LABEL: simple_brgemm
+// CHECK-LABEL: vnni_linalg_to_microkernel
 // CHECK: %[[CST0:.+]] = arith.constant 0 : i64
 // CHECK: %[[CST16:.+]] = arith.constant 16 : i64
 // CHECK: %[[C:.+]] = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32> 
@@ -85,7 +85,7 @@ func.func @simple_brgemm() {
 // -----
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
-func.func @simple_brgemm() {
+func.func @basic_linalg_to_microkernel_fusing_fill() {
   %cst = arith.constant 0.000000e+00 : f32
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xf32>
   %alloc_4 = memref.alloc() {alignment = 64 : i64} : memref<8x16x32x32xf32>
@@ -114,7 +114,7 @@ func.func @simple_brgemm() {
   return
 }
 
-// CHECK-LABEL: simple_brgemm
+// CHECK-LABEL: basic_linalg_to_microkernel_fusing_fill
 // CHECK: %[[CST0:.+]] = arith.constant 0 : i64
 // CHECK: %[[CST16:.+]] = arith.constant 16 : i64
 // CHECK: %[[C:.+]] = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32> 
@@ -129,7 +129,7 @@ func.func @simple_brgemm() {
 // -----
 
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
-func.func @simple_brgemm() {
+func.func @vnni_linalg_to_microkernel_fusing_fill() {
   %cst = arith.constant 0.000000e+00 : f32
   %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xbf16>
   %alloc_4 = memref.alloc() {alignment = 64 : i64} : memref<8x16x16x32x2xbf16>
@@ -158,7 +158,7 @@ func.func @simple_brgemm() {
   return
 }
 
-// CHECK-LABEL: simple_brgemm
+// CHECK-LABEL: vnni_linalg_to_microkernel_fusing_fill
 // CHECK: %[[CST0:.+]] = arith.constant 0 : i64
 // CHECK: %[[CST16:.+]] = arith.constant 16 : i64
 // CHECK: %[[C:.+]] = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32> 
