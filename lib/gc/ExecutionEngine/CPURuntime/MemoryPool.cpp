@@ -44,11 +44,16 @@ size_t getOsPageSize() {
 #endif
 }
 
+static constexpr size_t alignTo(size_t x, size_t y) {
+  return (x + y - 1) / y * y;
+}
+
 static constexpr size_t divideAndCeil(size_t x, size_t y) {
-  return (x + y - 1) / y;
+  return alignTo(x, y) / y;
 }
 
 enum class MemoryPoolType { MAIN, THREAD };
+
 // The chunk of memory that is allocated to the user
 struct MemoryChunk {
   static constexpr uint64_t magicCheckNum = 0xc0ffeebeef0102ff;
@@ -57,10 +62,10 @@ struct MemoryChunk {
   uint64_t canary;
   // the size of the MemoryChunk allocated, incluing this `MemoryChunk`
   size_t size;
-  // the memory for the user
-  char buffer[0];
   // indicates the pool type, which is main / thread
   MemoryPoolType poolType;
+  // the memory for the user
+  char buffer[0];
   // initalizes the memory chunk, given the address of data
   static MemoryChunk *init(intptr_t pdata, size_t sz, MemoryPoolType type);
 };
@@ -112,7 +117,7 @@ void *allocByMmap(size_t sz) {
 void deallocByMmap(void *b) {
 #ifdef _MSC_VER
   auto ret = VirtualFree(b, 0, MEM_RELEASE);
-  SC_UNUSED(ret);
+  (void)(ret);
   assert(ret);
 #else
   munmap(b, reinterpret_cast<MemoryBlock *>(b)->size);
@@ -122,7 +127,7 @@ void deallocByMmap(void *b) {
 intptr_t MemoryBlock::callAllocPtr() {
   intptr_t startAddr =
       reinterpret_cast<intptr_t>(this) + allocated + sizeof(MemoryChunk);
-  return divideAndCeil(startAddr, defaultAlignment) * defaultAlignment;
+  return alignTo(startAddr, defaultAlignment);
 }
 
 MemoryBlock *MemoryBlock::make(size_t sz, MemoryBlock *prev,
@@ -145,15 +150,14 @@ MemoryBlock *MemoryBlock::make(size_t sz, MemoryBlock *prev,
 // first-in-last-out fashion
 struct FILOMemoryPool {
   size_t blockSize;
-  MemoryPoolType poolType;
   // the linked list of all allocated memory blocks
   MemoryBlock *buffers = nullptr;
   MemoryBlock *current = nullptr;
+  MemoryPoolType poolType;
   size_t getBlockSize(size_t sz) const;
   void *alloc(size_t sz);
   void dealloc(void *ptr);
-  FILOMemoryPool(size_t bs, MemoryPoolType type)
-      : blockSize(bs), poolType(type) {}
+  FILOMemoryPool(size_t bs, MemoryPoolType type) : blockSize(bs), poolType(type) {}
   ~FILOMemoryPool();
   // release the memory to os/underlying memory allocator
   void release();
@@ -172,9 +176,7 @@ static void freeMemoryBlockList(MemoryBlock *b) {
 size_t FILOMemoryPool::getBlockSize(size_t sz) const {
   // calculate the aligned size of management blocks in the header
   constexpr size_t header_size =
-      divideAndCeil(sizeof(MemoryBlock) + sizeof(MemoryChunk),
-                    defaultAlignment) *
-      defaultAlignment;
+      alignTo(sizeof(MemoryBlock) + sizeof(MemoryChunk), defaultAlignment);
   // the allocated size should include the aligned header size
   sz = sz + header_size;
   if (sz > blockSize) {
@@ -212,7 +214,6 @@ void FILOMemoryPool::dealloc(void *ptr) {
   auto intptr = reinterpret_cast<intptr_t>(ptr);
   auto intcur = reinterpret_cast<intptr_t>(current);
   // Optional: check if the pointer is valid in the current block
-
   assert(intptr > intcur &&
          intptr - intcur < static_cast<ptrdiff_t>(current->size));
   auto chunk = reinterpret_cast<MemoryChunk *>(intptr - sizeof(MemoryChunk));
@@ -257,15 +258,16 @@ static thread_local FILOMemoryPool threadMemoryPool_{threadlocalChunkSize,
 
 extern "C" void *gcAlignedMalloc(size_t sz, MemoryPoolType type) noexcept {
   if (likely(type == MemoryPoolType::MAIN)) {
-    mainMemoryPool_.alloc(sz);
+    return mainMemoryPool_.alloc(sz);
   } else {
-    threadMemoryPool_.alloc(sz);
+    return threadMemoryPool_.alloc(sz);
   }
 }
 
-extern "C" void gcAlignedFree(void *p) noexcept {
+extern "C" void gcAlignedFree(void *p)
+noexcept {
   auto chunk = reinterpret_cast<MemoryChunk *>(reinterpret_cast<intptr_t>(p) -
-                                               sizeof(MemoryBlock));
+                                               sizeof(MemoryChunk));
   if (likely(chunk->poolType == MemoryPoolType::MAIN)) {
     mainMemoryPool_.dealloc(p);
   } else {

@@ -109,13 +109,12 @@ public:
   }
 };
 
-template <typename OpType, typename OpAdaptor, const char *allocFuncName>
-class AlignedAllocRewriterBase : public ConvertOpToLLVMPattern<OpType> {
+class AlignedAllocRewriter : public ConvertOpToLLVMPattern<AllocOp> {
 public:
-  using ConvertOpToLLVMPattern<OpType>::ConvertOpToLLVMPattern;
+  using ConvertOpToLLVMPattern<AllocOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(OpType runtimeOp, OpAdaptor adaptor,
+  matchAndRewrite(AllocOp runtimeOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Operation *op = runtimeOp;
     MLIRContext *context = op->getContext();
@@ -126,9 +125,12 @@ public:
     mlir::Type llvmIntPtr = IntegerType::get(
         context, this->getTypeConverter()->getPointerBitwidth(0));
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
-    auto allocFunc = getOrDefineFunction(
-        moduleOp, loc, rewriter, allocFuncName,
-        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr}, /*isVarArg*/ false));
+    mlir::Type enumType = IntegerType::get(context, 32);
+
+    LLVM::LLVMFuncOp allocFunc = getOrDefineFunction(
+        moduleOp, loc, rewriter, "gcAlignedMalloc",
+        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr, enumType}, /*isVarArg*/ false));
+
 
     auto operands = adaptor.getOperands();
     SmallVector<Value, 4> shape;
@@ -138,7 +140,8 @@ public:
                                    strides, sizeBytes);
 
     Type elementPtrType = this->getElementPtrType(memRefType);
-    SmallVector<Value, 1> appendFormatArgs = {sizeBytes};
+    Value enumValue = rewriter.create<LLVM::ConstantOp>(loc, enumType, adaptor.getThreadLocal() ? 1 : 0);
+    SmallVector<Value, 2> appendFormatArgs = {sizeBytes, enumValue};
     LLVM::CallOp allocater =
         rewriter.create<LLVM::CallOp>(loc, allocFunc, appendFormatArgs);
     Value allocatedPtr = allocater.getResult();
@@ -214,22 +217,10 @@ struct CPURuntimeToDialectInterface : public ConvertToLLVMPatternInterface {
 
 } // namespace
 
-// Define the actual function names as template arguments
-constexpr char kAlignedMallocFuncName[] = "gcAlignedMalloc";
-constexpr char kThreadAlignedMallocFuncName[] = "gcThreadAlignedMalloc";
-
-// Define the specific rewriter classes using the base template
-using AlignedAllocRewriter =
-    AlignedAllocRewriterBase<AllocOp, AllocOpAdaptor, kAlignedMallocFuncName>;
-using ThreadAlignedAllocRewriter =
-    AlignedAllocRewriterBase<ThreadAllocOp, ThreadAllocOpAdaptor,
-                             kThreadAlignedMallocFuncName>;
-
 void populateCPURuntimeToLLVMConversionPatterns(LLVMTypeConverter &converter,
                                                 RewritePatternSet &patterns) {
   patterns.add<PrintfRewriter>(converter);
   patterns.add<AlignedAllocRewriter>(converter);
-  patterns.add<ThreadAlignedAllocRewriter>(converter);
   patterns.add<AlignedFreeRewriter>(converter);
 }
 

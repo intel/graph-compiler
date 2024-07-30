@@ -26,21 +26,6 @@ def CPURuntime_Dialect : Dialect {
 }
 
 //===----------------------------------------------------------------------===//
-// CPURuntime attribute definition.
-//===----------------------------------------------------------------------===//
-
-def CPURuntime_Main
-    : I32EnumAttrCase<"main", 0>;
-def CPURuntime_Thread
-    : I32EnumAttrCase<"thread", 1>;
-
-def CPURuntime_PoolTypeAttr : I32EnumAttr<
-    "PoolType", "An enum for cpuruntime memory pool type",
-    [CPURuntime_Main, CPURuntime_Thread]> {
-  let cppNamespace = "::mlir::cpuruntime";
-}
-
-//===----------------------------------------------------------------------===//
 // Base cpuruntime operation definition.
 //===----------------------------------------------------------------------===//
 
