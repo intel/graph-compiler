@@ -105,7 +105,7 @@ public:
   gpu::GPUModuleOp getOperation();
 
   std::optional<SmallVector<char, 0>>
-  compileToBinary(const std::string &serializedISA);
+  compileToBinary(const std::string &serializedSPV);
 
   std::optional<SmallVector<char, 0>>
   moduleToObject(llvm::Module &llvmModule) override;

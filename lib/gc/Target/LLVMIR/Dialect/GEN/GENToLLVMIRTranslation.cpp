@@ -49,13 +49,8 @@ public:
     auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
     if (!func)
       return failure();
-    llvm::LLVMContext &llvmContext = moduleTranslation.getLLVMContext();
-    llvm::Function *llvmFunc = moduleTranslation.lookupFunction(func.getName());
-
-    if (attribute.getName() == gen::GENDialect::getKernelFuncAttrName()) {
-      // todo; note: migth not need it as we'll have storage classes translated
-      // already
-    }
+    // todo; note: migth not need it as we'll have storage classes translated
+    // already
 
     return success();
   }
