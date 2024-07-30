@@ -2,6 +2,10 @@ name: LLVM Build
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - cmake/llvm-version.txt
+      - .github/workflows/build-llvm.yml
 
 permissions: read-all
 
