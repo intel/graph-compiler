@@ -2,6 +2,8 @@
 
 repo=intel/graph-compiler
 
+set -e
+
 # Uncomment for script debug
 # set -x
 
@@ -55,7 +57,7 @@ load_llvm() {
         -n "llvm-$LLVM_HASH" \
         --dir "$llvm_dir"
     cd "$llvm_dir"
-    tar -zxf "llvm-$LLVM_HASH"/llvm.tgz
+    tar -zxf llvm.tgz
 
     MLIR_DIR="$PWD/lib/cmake/mlir"
     cd "$PROJECT_DIR"
