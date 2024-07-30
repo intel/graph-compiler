@@ -37,6 +37,7 @@
 
 namespace mlir::gc {
 void registerCPUPipeline();
+void registerGPUPipeline();
 } // namespace mlir::gc
 
 int main(int argc, char *argv[]) {
@@ -51,6 +52,7 @@ int main(int argc, char *argv[]) {
 #endif
   mlir::registerAllPasses();
   mlir::gc::registerCPUPipeline();
+  mlir::gc::registerGPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
