@@ -13,6 +13,15 @@ def GEN_Dialect : Dialect {
   let hasOperationAttrVerify = 1;
 
   let extraClassDeclaration = [{
+    /// Get the name of the attribute used to annotate external kernel
+    /// functions.
+    static StringRef getKernelFuncAttrName() { return "gen.kernel"; }
+    /// The address space value that represents global memory.
+    static constexpr unsigned kGlobalMemoryAddressSpace = 1;
+    /// The address space value that represents shared memory.
+    static constexpr unsigned kSharedMemoryAddressSpace = 3;
+    /// The address space value that represents private memory.
+    static constexpr unsigned kPrivateMemoryAddressSpace = 0;
   }];
 
   let useDefaultAttributePrinterParser = 1;
@@ -39,15 +48,17 @@ def GEN_TargettAttr : GEN_Attr<"GenTarget", "target"> {
   }];
   let parameters = (ins
     DefaultValuedParameter<"int", "2", "Optimization level to apply.">:$O,
-    StringRefParameter<"Target triple.", "\"spir64-unknown-unknown\"">:$triple
+    StringRefParameter<"Target triple.", "\"spirv64-unknown-unknown\"">:$triple,
+    StringRefParameter<"Target chip.", "\"xe_1\"">:$chip
   );
   let assemblyFormat = [{
-    (`<` struct($O, $triple)^ `>`)?
+    (`<` struct($O, $triple, $chip)^ `>`)?
   }];
   let builders = [
     AttrBuilder<(ins CArg<"int", "2">:$optLevel,
-                     CArg<"StringRef", "\"spir64-unknown-unknown\"">:$triple), [{
-      return Base::get($_ctxt, optLevel, triple);
+                     CArg<"StringRef", "\"spirv64-unknown-unknown\"">:$triple,
+                     CArg<"StringRef", "\"xe_1\"">:$chip), [{
+      return Base::get($_ctxt, optLevel, triple, chip);
     }]>
   ];
   let skipDefaultBuilders = 1;

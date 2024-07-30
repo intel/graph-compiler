@@ -23,10 +23,12 @@
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #include "gc/Target/LLVM/GEN/Target.h"
+#include "gc/Target/LLVMIR/Dialect/GEN/GENToLLVMIRTranslation.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 #ifdef GC_USE_GPU
@@ -60,7 +62,9 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::gen::GENDialect>();
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
+  mlir::registerAllToLLVMIRTranslations(registry);
   mlir::gen::registerGenTargetInterfaceExternalModels(registry);
+  mlir::registerGENDialectTranslation(registry);
 #ifdef GC_USE_GPU
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif
