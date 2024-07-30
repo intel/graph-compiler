@@ -49,7 +49,7 @@ def GEN_TargettAttr : GEN_Attr<"GenTarget", "target"> {
   let parameters = (ins
     DefaultValuedParameter<"int", "2", "Optimization level to apply.">:$O,
     StringRefParameter<"Target triple.", "\"spirv64-unknown-unknown\"">:$triple,
-    StringRefParameter<"Target chip.", "\"xe_1\"">:$chip
+    StringRefParameter<"Target chip.", "\"pvc\"">:$chip
   );
   let assemblyFormat = [{
     (`<` struct($O, $triple, $chip)^ `>`)?
@@ -57,7 +57,7 @@ def GEN_TargettAttr : GEN_Attr<"GenTarget", "target"> {
   let builders = [
     AttrBuilder<(ins CArg<"int", "2">:$optLevel,
                      CArg<"StringRef", "\"spirv64-unknown-unknown\"">:$triple,
-                     CArg<"StringRef", "\"xe_1\"">:$chip), [{
+                     CArg<"StringRef", "\"pvc\"">:$chip), [{
       return Base::get($_ctxt, optLevel, triple, chip);
     }]>
   ];
