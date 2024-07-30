@@ -1,4 +1,4 @@
-//===-- FineGrainedFusion.cpp - Fine-Grained Fusion -------------*- C++ -*-===//
+//===-- IterativeTilingAndFusion.cpp - Iterative Tiling+Fusion --*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -33,7 +33,7 @@
 
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_FINEGRAINEDFUSION
+#define GEN_PASS_DEF_ITERATIVETILINGANDFUSION
 #include "gc/Transforms/Passes.h.inc"
 
 static FailureOr<tensor::ExtractSliceOp>
@@ -216,6 +216,15 @@ alreadyTiledOpFilter(RewriterBase &rewriter,
 }
 
 static LogicalResult
+NonContractionOpFilter(RewriterBase &rewriter,
+                       OffsetSizeAndStrideOpInterface candidate,
+                       CandidateDefOrUse defOrUse) {
+  // Currently this pass focuses on fine-grained fusion, which does not expect
+  // two consecutive contraction ops.
+  return failure(isa<mlir::linalg::ContractionOpInterface>(defOrUse.ownerOp));
+}
+
+static LogicalResult
 SingleCandidateInBlockFilter(RewriterBase &rewriter,
                              OffsetSizeAndStrideOpInterface candidate,
                              CandidateDefOrUse defOrUse) {
@@ -289,7 +298,7 @@ struct CandidateSliceFilterPipeLine
 
   SmallVector<CandidateSliceFilter> getDefaultPipeLine() {
     return SmallVector<CandidateSliceFilter>{
-        alreadyTiledOpFilter, noTilingOnReductionFilter,
+        alreadyTiledOpFilter, NonContractionOpFilter, noTilingOnReductionFilter,
         exactTilingOnPackUnPackFilter, SingleCandidateInBlockFilter};
   }
 
@@ -499,9 +508,8 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       // candidate slice in avoid of conflict with subsequent
       // `tileAndFuseConsumerOfSlice` get nest loops between next candidate
       // sliceOp and tiled producer.
-      auto region = outerLoops.front()->getParentRegion();
-      (void)mlir::eraseUnreachableBlocks(rewriter, {*region});
-      (void)mlir::runRegionDCE(rewriter, {*region});
+      (void)mlir::simplifyRegions(rewriter,
+                                  {*outerLoops.front()->getParentRegion()});
     }
   }
   if (fusedResultList.empty()) {
@@ -575,7 +583,7 @@ static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
   // 2. check single one tiling interface in loop body
   auto walkResult = forOp->walk([&targetOp](TilingInterface op) {
     // some special op maybe already deal with in template
-    if (isa<linalg::FillOp>(op))
+    if (isa<linalg::FillOp, linalg::CopyOp>(op))
       return WalkResult::skip();
     return op != targetOp ? WalkResult::interrupt() : WalkResult::advance();
   });
@@ -631,10 +639,6 @@ static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op) {
     return false;
   }
 }
-
-struct IterativeFusionOptions {
-  bool useCostModel = false;
-};
 
 struct SystemDesc {
   // get runtime OMP_NUM_THREADS
@@ -692,8 +696,9 @@ private:
   MLIRContext *ctx;
 };
 
-void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f,
-                              const IterativeFusionOptions &fuseOptions) {
+void iterativeTilingAndFusionUntilExhaustion(
+    RewriterBase &rewriter, func::FuncOp &f,
+    const CandidateSliceOptions &sliceOptions) {
   // Collect untiled and tiled ops respectively
   llvm::SetVector<Operation *> singleTiledOpInLoop, unTiledOps;
 
@@ -731,29 +736,6 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f,
     return !singleTiledOpInLoop.empty();
   };
 
-  SystemDesc sysDesc(f->getParentOfType<ModuleOp>());
-  // Flexible options to control which candidate slice would be selected from
-  // the view of both validity and performance.
-  CandidateSliceOptions sliceOptions;
-  // Since most filters regarding to validity have already been built-in
-  // enabled. Users could focus on performance related filters, a.k.a. cost
-  // model.
-  if (fuseOptions.useCostModel) {
-    // Customized filter by cost model.
-    CandidateSliceFilter costModelFilter =
-        [&sysDesc](RewriterBase &rewriter,
-                   OffsetSizeAndStrideOpInterface candidate,
-                   CandidateDefOrUse defOrUse) -> LogicalResult {
-      // Get cache size
-      size_t l2CacheSize = sysDesc.getCacheSize(2);
-      FailureOr<int64_t> tileSizeProduct =
-          computeTileSizeProductOfCandidate(candidate);
-      return success(succeeded(tileSizeProduct) &&
-                     (*tileSizeProduct <= (int64_t)l2CacheSize));
-    };
-    sliceOptions.addFilter(costModelFilter);
-  }
-
   // Iterative tiling and fusion until exhaustion.
   while (collectUnTiledOps()) {
     // If existing tiled op before tiling.
@@ -768,12 +750,8 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f,
         changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
             rewriter, tiledOp, sliceOptions));
       });
-      if (!changed) {
-        // If no new fusion happens, terminate iteration.
-        break;
-      } else {
-        (void)mlir::eraseUnreachableBlocks(rewriter, {f.getRegion()});
-        (void)mlir::runRegionDCE(rewriter, {f.getRegion()});
+      if (changed) {
+        (void)mlir::simplifyRegions(rewriter, {f.getRegion()});
       }
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
@@ -798,29 +776,42 @@ void iterativeTilingAndFusion(RewriterBase &rewriter, func::FuncOp &f,
   }
 }
 
-struct FineGrainedFusion
-    : public impl::FineGrainedFusionBase<FineGrainedFusion> {
-  using FineGrainedFusionBase::FineGrainedFusionBase;
+struct IterativeTilingAndFusion
+    : public impl::IterativeTilingAndFusionBase<IterativeTilingAndFusion> {
+  using IterativeTilingAndFusionBase::IterativeTilingAndFusionBase;
 
 public:
   void runOnOperation() final {
     auto &ctx = getContext();
-    {
-      // Get funcOp
-      func::FuncOp func = getOperation();
-      // Get rewriter
-      IRRewriter rewriter(&ctx);
-      // Run iterative fusion
-      iterativeTilingAndFusion(rewriter, func,
-                               IterativeFusionOptions{useCostModel});
+    // Get funcOp
+    func::FuncOp func = getOperation();
+    // Get system descriptor
+    SystemDesc sysDesc(func->getParentOfType<ModuleOp>());
+    // Flexible options to control which candidate slice would be selected from
+    // the view of both validity and performance.
+    CandidateSliceOptions sliceOptions;
+    // Since most filters regarding to validity have already been built-in
+    // enabled. Users could focus on performance related filters, a.k.a. cost
+    // model. E.g.
+    if (useCostModel) {
+      // Customized filter by cost model.
+      CandidateSliceFilter costModelFilter =
+          [&sysDesc](RewriterBase &rewriter,
+                     OffsetSizeAndStrideOpInterface candidate,
+                     CandidateDefOrUse defOrUse) -> LogicalResult {
+        // Get cache size
+        size_t l2CacheSize = sysDesc.getCacheSize(2);
+        FailureOr<int64_t> tileSizeProduct =
+            computeTileSizeProductOfCandidate(candidate);
+        return success(succeeded(tileSizeProduct) &&
+                       (*tileSizeProduct <= (int64_t)l2CacheSize));
+      };
+      sliceOptions.addFilter(costModelFilter);
     }
-
-    {
-      RewritePatternSet patternSet(&ctx);
-      if (failed(applyPatternsAndFoldGreedily(getOperation(),
-                                              std::move(patternSet))))
-        signalPassFailure();
-    }
+    // Get rewriter
+    IRRewriter rewriter(&ctx);
+    // Run iterative fusion
+    iterativeTilingAndFusionUntilExhaustion(rewriter, func, sliceOptions);
   }
 };
 

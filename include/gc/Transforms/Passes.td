@@ -58,9 +58,9 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   ];
 }
 
-def FineGrainedFusion : Pass<"fine-grained-fusion",
+def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
                                         "func::FuncOp"> {
-  let summary = "Fine Grained Fusion for any tilable operation";
+  let summary = "Iterative tiling and fusion for any tilable operation";
   let description = [{
     The pass tries to fuse any MLIR operation which can be tiled. Moreover, this pass aims to support:
       1. Matmul fusion with element-wise/reduce/broadcast ops.
@@ -72,7 +72,7 @@ def FineGrainedFusion : Pass<"fine-grained-fusion",
 
     It intends to control the granularity of fusion by `fusion-level`, E.g.
     * `0`: disable any fusion.
-    * `1`:[Default] enable pre-op fusion + post-op fusion covering any tilable operation including tensor.pack/tensor.fill/linalg.reduce etc but excluding branches forked by multiple uses.
+    * `1`:[Default] enable both producer and consumer fusion, covering any tilable operation including tensor.pack/tensor.fill/linalg.reduce etc but excluding branches forked by multiple uses.
     * `2`: `LEVEL 1` + extend to any topology including branches.
   }];
   let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",

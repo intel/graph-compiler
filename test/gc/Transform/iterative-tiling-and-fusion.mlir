@@ -1,4 +1,4 @@
-// RUN: gc-opt --split-input-file -fine-grained-fusion %s --cse
+// RUN: gc-opt --split-input-file -iterative-tiling-and-fusion %s --cse
 
 module attributes {
   dlti.target_system_spec = #dlti.target_system_spec<
