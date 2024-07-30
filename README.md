@@ -68,5 +68,5 @@ Graph Compiler supports the following build-time options.
 | GC_TEST_ENABLE                  | **ON**, OFF                            | Controls building the tests                                                            |
 | GC_DEV_LINK_LLVM_DYLIB          | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer                        |
 | GC_ENABLE_BINDINGS_PYTHON       | **ON**, OFF                            | Controls building the Python API                                                       |
-| GC_USE_GPU          | ON, **OFF**                            | Whether to enable the GPU components                        |
+| GC_USE_GPU                      | ON, **OFF**                            | Whether to enable the GPU components                                                   |
 
