@@ -68,76 +68,76 @@ getOrCreateGlobalKernelHandle(RewriterBase &rewriter, ModuleOp module,
                               const std::string &kernelName,
                               microkernel::BrgemmDispatchOp op) {
   // Create the global at the entry of the module
-  LLVM::GlobalOp global;
-  if (!(global = module.lookupSymbol<LLVM::GlobalOp>(kernelName))) {
-    auto global_type = op.getResults().getType();
-    FlatSymbolRefAttr ctorName =
-        SymbolRefAttr::get(module->getContext(), kernelName + "_ctor");
-    if (module.lookupSymbol<LLVM::LLVMFuncOp>(ctorName.getAttr())) {
-      return failure();
+  LLVM::GlobalOp global = module.lookupSymbol<LLVM::GlobalOp>(kernelName);
+  if (global)
+    return global;
+
+  auto global_type = op.getResults().getType();
+  FlatSymbolRefAttr ctorName =
+      SymbolRefAttr::get(module->getContext(), kernelName + "_ctor");
+  if (module.lookupSymbol<LLVM::LLVMFuncOp>(ctorName.getAttr()))
+    return failure();
+
+  OpBuilder::InsertionGuard insertGuard(rewriter);
+  rewriter.setInsertionPointToStart(module.getBody());
+  global = rewriter.create<LLVM::GlobalOp>(
+      module.getLoc(), global_type, /*isConstant=*/false,
+      LLVM::Linkage::Internal, kernelName, Attribute(),
+      /*alignment=*/0);
+
+  // create ctor for this global, which needs to be LLVMFuncOp
+  LLVM::LLVMFuncOp ctorFunc = rewriter.create<LLVM::LLVMFuncOp>(
+      module.getLoc(), ctorName.getValue(),
+      LLVM::LLVMFunctionType::get(global_type, {}, false));
+
+  Location loc = ctorFunc.getLoc();
+  Block *entryBlock = ctorFunc.addEntryBlock(rewriter);
+  rewriter.setInsertionPointToEnd(entryBlock);
+
+  auto dispatch = op.clone();
+  rewriter.insert(dispatch);
+  Value globalPtr = rewriter.create<LLVM::AddressOfOp>(loc, global);
+  rewriter.create<LLVM::StoreOp>(loc, dispatch.getResults(), globalPtr);
+  rewriter.create<LLVM::ReturnOp>(loc, dispatch.getResults());
+
+  // initialize the gloabl with global_ctors, as the initializer of global
+  // does not allow side effect
+  rewriter.setInsertionPointToStart(module.getBody());
+  LLVM::GlobalCtorsOp global_ctors = nullptr;
+  for (auto &op : module->getRegion(0).front()) {
+    auto ctorOp = dyn_cast<LLVM::GlobalCtorsOp>(op);
+    if (ctorOp) {
+      global_ctors = ctorOp;
+      break;
     }
+  }
 
-    OpBuilder::InsertionGuard insertGuard(rewriter);
-    rewriter.setInsertionPointToStart(module.getBody());
-    global = rewriter.create<LLVM::GlobalOp>(
-        module.getLoc(), global_type, /*isConstant=*/false,
-        LLVM::Linkage::Internal, kernelName, Attribute(),
-        /*alignment=*/0);
-
-    // create ctor for this global, which needs to be LLVMFuncOp
-    LLVM::LLVMFuncOp ctorFunc = rewriter.create<LLVM::LLVMFuncOp>(
-        module.getLoc(), ctorName.getValue(),
-        LLVM::LLVMFunctionType::get(global_type, {}, false));
-
-    Location loc = ctorFunc.getLoc();
-    Block *entryBlock = ctorFunc.addEntryBlock(rewriter);
-    rewriter.setInsertionPointToEnd(entryBlock);
-
-    auto dispatch = op.clone();
-    rewriter.insert(dispatch);
-    Value globalPtr = rewriter.create<LLVM::AddressOfOp>(loc, global);
-    rewriter.create<LLVM::StoreOp>(loc, dispatch.getResults(), globalPtr);
-    rewriter.create<LLVM::ReturnOp>(loc, dispatch.getResults());
-
-    // initialize the gloabl with global_ctors, as the initializer of global
-    // does not allow side effect
-    rewriter.setInsertionPointToStart(module.getBody());
-    LLVM::GlobalCtorsOp global_ctors = nullptr;
-    for (auto &op : module->getRegion(0).front()) {
-      auto ctorOp = dyn_cast<LLVM::GlobalCtorsOp>(op);
-      if (ctorOp) {
-        global_ctors = ctorOp;
-        break;
-      }
+  SmallVector<Attribute> ctorRefs;
+  SmallVector<Attribute> priorities;
+  if (global_ctors) {
+    auto ctorRefsAttr = global_ctors.getCtors();
+    auto prioritiesAttr = global_ctors.getPriorities();
+    for (auto &&[ctor, prior] : llvm::zip(ctorRefsAttr, prioritiesAttr)) {
+      ctorRefs.push_back(ctor);
+      priorities.push_back(prior);
     }
-
-    SmallVector<Attribute> ctorRefs;
-    SmallVector<Attribute> priorities;
-    if (global_ctors) {
-      auto ctorRefsAttr = global_ctors.getCtors();
-      auto prioritiesAttr = global_ctors.getPriorities();
-      for (auto &&[ctor, prior] : llvm::zip(ctorRefsAttr, prioritiesAttr)) {
-        ctorRefs.push_back(ctor);
-        priorities.push_back(prior);
-      }
-      LLVM_DEBUG(llvm::dbgs()
-                 << "After append ctors: " << ctorRefs.size() << "\n");
-    }
-    ctorRefs.push_back(ctorName);
-    // Set new ctor's priority to lowest
-    priorities.push_back(IntegerAttr::get(rewriter.getI32Type(), INT_MAX));
-    if (global_ctors) {
-      LLVM_DEBUG(llvm::dbgs() << "Replace existing ctors\n");
-      // If there's existing ctors
-      rewriter.replaceOpWithNewOp<LLVM::GlobalCtorsOp>(
-          global_ctors, rewriter.getArrayAttr(ctorRefs),
-          rewriter.getArrayAttr(priorities));
-    } else {
-      LLVM_DEBUG(llvm::dbgs() << "Create new ctor\n");
-      rewriter.create<LLVM::GlobalCtorsOp>(module.getLoc(),
-                                           rewriter.getArrayAttr(ctorRefs),
-                                           rewriter.getArrayAttr(priorities));
-    }
+    LLVM_DEBUG(llvm::dbgs()
+               << "After append ctors: " << ctorRefs.size() << "\n");
+  }
+  ctorRefs.push_back(ctorName);
+  // Set new ctor's priority to lowest
+  priorities.push_back(IntegerAttr::get(rewriter.getI32Type(), INT_MAX));
+  if (global_ctors) {
+    LLVM_DEBUG(llvm::dbgs() << "Replace existing ctors\n");
+    // If there's existing ctors
+    rewriter.replaceOpWithNewOp<LLVM::GlobalCtorsOp>(
+        global_ctors, rewriter.getArrayAttr(ctorRefs),
+        rewriter.getArrayAttr(priorities));
+  } else {
+    LLVM_DEBUG(llvm::dbgs() << "Create new ctor\n");
+    rewriter.create<LLVM::GlobalCtorsOp>(module.getLoc(),
+                                         rewriter.getArrayAttr(ctorRefs),
+                                         rewriter.getArrayAttr(priorities));
   }
   return global;
 }

@@ -44,18 +44,14 @@ static BrgemmCallType getBrgemmCallType(Operation *op) {
     return BrgemmCallType::INAPPLICABLE;
   }
   auto callOp = dyn_cast<func::CallOp>(op);
-  StringAttr callee = callOp.getCalleeAttr().getAttr();
+  auto calleeName = callOp.getCalleeAttr().getAttr().getValue();
 
-  if (callee == StringAttr::get(op->getContext(), DNNL_BRGEMM_DISPATCH_NAME)) {
+  if (calleeName == DNNL_BRGEMM_DISPATCH_NAME)
     return BrgemmCallType::DISPATCH;
-  }
-  if (callee == StringAttr::get(op->getContext(), DNNL_BRGEMM_TILECFG_NAME)) {
+  if (calleeName == DNNL_BRGEMM_TILECFG_NAME)
     return BrgemmCallType::TILECFG;
-  }
-  if (callee ==
-      StringAttr::get(op->getContext(), DNNL_BRGEMM_TILERELEASE_NAME)) {
+  if (calleeName == DNNL_BRGEMM_TILERELEASE_NAME)
     return BrgemmCallType::TILERELEASE;
-  }
   return BrgemmCallType::INAPPLICABLE;
 }
 
@@ -364,8 +360,7 @@ private:
       expandInvariantScopeWithCond(
           structInfo, op,
           [](Operation *op) -> bool {
-            return !llvm::isa<scf::IfOp>(op) &&
-                   !llvm::isa<scf::IndexSwitchOp>(op);
+            return !llvm::isa<scf::IfOp, scf::IndexSwitchOp>(op);
           },
           [](Operation *self, const OpStructInfoMap &structInfo,
              Operation *current,
