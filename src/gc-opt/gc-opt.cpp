@@ -67,7 +67,11 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::microkernel::MicrokernelDialect>();
   registry.insert<mlir::gen::GENDialect>();
   mlir::registerAllDialects(registry);
+  // covers lowerings for weird dialects like ub
+  // TODO: avoid `registerALL` to remove this
   mlir::registerAllExtensions(registry);
+  // Adds missing `LLVMTranslationDialectInterface` registration for dialect for
+  // gpu.module op
   mlir::registerAllToLLVMIRTranslations(registry);
   mlir::gen::registerGenTargetInterfaceExternalModels(registry);
   mlir::registerGENDialectTranslation(registry);
