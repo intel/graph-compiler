@@ -177,7 +177,7 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
 
   auto checkAndGetPosInCodomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
                                       OpOperand *operand) {
-    auto pos = getPosInCodomain(batchAffinePos, operand, linalgOp);
+    auto pos = getPosInCodomain(dimPos, operand, linalgOp);
     assert(pos && "Cannot find position in codomain");
     dim = *pos;
   };
@@ -196,6 +196,13 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   // checkAndGetPosInCodomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
   // checkAndGetPosInCodomain(brgemmDims.minorDimC, kAffinePos, operandC);
 
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] A batch dim: "
+                          << brgemmDims.batchDimA
+                          << ", A leading dim: " << brgemmDims.leadingDimA
+                          << ", A minor dim: " << brgemmDims.minorDimA
+                          << "; B batch dim: " << brgemmDims.batchDimB
+                          << ", B leading dim: " << brgemmDims.leadingDimB
+                          << ", B minor dim: " << brgemmDims.minorDimB << "\n");
   return brgemmDims;
 }
 
