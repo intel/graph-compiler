@@ -2,6 +2,9 @@ name: LLVM Build
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - cmake/llvm-version.txt
 
 permissions: read-all
 
