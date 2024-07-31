@@ -28,6 +28,7 @@
 #include "mlir/Transforms/RegionUtils.h"
 #include <llvm/Support/Debug.h>
 #include <memory>
+#include <unordered_map>
 
 #include "TilingUsingInterfaceX.h"
 
@@ -601,45 +602,6 @@ static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
   return success(walkResult.wasInterrupted());
 }
 
-template <typename OpTy>
-static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op) {
-  // a. Check <OpTy>
-  if (!isa<TilingInterface>(op) || !isa<OpTy>(op))
-    return false;
-  auto tilingInterfaceOp = cast<TilingInterface>(op);
-
-  scf::SCFTilingOptions options;
-  // b. Get default tiling size
-  SmallVector<utils::IteratorType> iteratorTypes =
-      tilingInterfaceOp.getLoopIteratorTypes();
-
-  SmallVector<OpFoldResult> defaultTileSize(iteratorTypes.size(),
-                                            rewriter.getIndexAttr(0));
-
-  for (auto &&[en, iterType] : llvm::enumerate(iteratorTypes)) {
-    // All outer non reduction loop should contribute parallelism. In another
-    // word, all reduction dimensions should not be tiled.
-    if (iterType == utils::IteratorType::parallel &&
-        (en != iteratorTypes.size() - 1 ||
-         llvm::count(iteratorTypes, utils::IteratorType::reduction))) {
-      defaultTileSize[en] = rewriter.getIndexAttr(1);
-    }
-  }
-
-  options.setTileSizes(defaultTileSize);
-  // c. Set loop type
-  options.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
-  // d. Use builtin tiling interface
-  FailureOr<scf::SCFTilingResult> tilingResult =
-      scf::tileUsingSCF(rewriter, tilingInterfaceOp, options);
-  if (succeeded(tilingResult)) {
-    rewriter.replaceOp(op, tilingResult->replacements);
-    return true;
-  } else {
-    return false;
-  }
-}
-
 struct SystemDesc {
   // get runtime OMP_NUM_THREADS
   uint32_t getNumThreads() {
@@ -696,9 +658,64 @@ private:
   MLIRContext *ctx;
 };
 
+using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
+
+template <typename OpTy>
+static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op,
+                                const OpTileSizeMap &tsMap) {
+  // a. Check <OpTy>
+  if (!isa<TilingInterface>(op) || !isa<OpTy>(op))
+    return false;
+  auto tilingInterfaceOp = cast<TilingInterface>(op);
+
+  scf::SCFTilingOptions options;
+  // b. Get default tiling size
+  SmallVector<utils::IteratorType> iteratorTypes =
+      tilingInterfaceOp.getLoopIteratorTypes();
+
+  SmallVector<OpFoldResult> defaultTileSize;
+
+  std::string opName = op->getName().getStringRef().str();
+  // Erase dialect name, such as Linalg or Tensor.
+  opName.erase(0, opName.find(".") + 1);
+
+  if (tsMap.count(opName)) {
+    SmallVector<int64_t> userDefaultTileSize = tsMap.find(opName)->second;
+    defaultTileSize =
+        getAsOpFoldResult(rewriter.getI64ArrayAttr(userDefaultTileSize));
+  } else {
+    defaultTileSize.resize(iteratorTypes.size(), rewriter.getIndexAttr(0));
+    for (auto &&[en, iterType] : llvm::enumerate(iteratorTypes)) {
+      // All outer non reduction loop should contribute parallelism. In another
+      // word, all reduction dimensions should not be tiled.
+      if (iterType == utils::IteratorType::parallel &&
+          (en != iteratorTypes.size() - 1 ||
+           llvm::count(iteratorTypes, utils::IteratorType::reduction))) {
+        defaultTileSize[en] = rewriter.getIndexAttr(1);
+      }
+    }
+  }
+  // If the tile sizes are all zero, no tiling would happen.
+  if (llvm::all_of(defaultTileSize, isZeroIndex))
+    return false;
+
+  options.setTileSizes(defaultTileSize);
+  // c. Set loop type
+  options.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
+  // d. Use builtin tiling interface
+  FailureOr<scf::SCFTilingResult> tilingResult =
+      scf::tileUsingSCF(rewriter, tilingInterfaceOp, options);
+  if (succeeded(tilingResult)) {
+    rewriter.replaceOp(op, tilingResult->replacements);
+    return true;
+  } else {
+    return false;
+  }
+}
+
 void iterativeTilingAndFusionUntilExhaustion(
     RewriterBase &rewriter, func::FuncOp &f,
-    const CandidateSliceOptions &sliceOptions) {
+    const CandidateSliceOptions &sliceOptions, const OpTileSizeMap &tsMap) {
   // Collect untiled and tiled ops respectively
   llvm::SetVector<Operation *> singleTiledOpInLoop, unTiledOps;
 
@@ -756,24 +773,55 @@ void iterativeTilingAndFusionUntilExhaustion(
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
       // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
-      SmallVector<std::function<bool(RewriterBase &, Operation *)>>
+      SmallVector<std::function<bool(RewriterBase &, Operation *,
+                                     const OpTileSizeMap &)>>
           priorityTilingPipeLine = {
               defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
               defaultTilingOfType<mlir::linalg::ReduceOp>,
               defaultTilingOfType<mlir::linalg::LinalgOp>};
-      if (llvm::all_of(
-              priorityTilingPipeLine,
-              [&rewriter, &unTiledOps](
-                  function_ref<bool(RewriterBase &, Operation *)> tilingFn) {
-                return !llvm::any_of(unTiledOps,
-                                     std::bind(tilingFn, std::ref(rewriter),
-                                               std::placeholders::_1));
-              })) {
+      if (llvm::all_of(priorityTilingPipeLine,
+                       [&rewriter, &tsMap, &unTiledOps](
+                           function_ref<bool(RewriterBase &, Operation *,
+                                             const OpTileSizeMap &)>
+                               tilingFn) {
+                         return !llvm::any_of(
+                             unTiledOps, std::bind(tilingFn, std::ref(rewriter),
+                                                   std::placeholders::_1,
+                                                   std::cref(tsMap)));
+                       })) {
         // If no op can be tiled
         break;
       }
     }
   }
+}
+
+static OpTileSizeMap defaultTileSizeParser(ArrayRef<std::string> strArgs) {
+  OpTileSizeMap tsMap;
+  char warning[] =
+      "Please follow correct argument format: opType:{ts1,ts2,...}";
+  for (auto str : strArgs) {
+    str.erase(llvm::remove_if(str, llvm::isSpace), str.end());
+    size_t pos = str.find(":");
+    if (pos == std::string::npos) {
+      llvm_unreachable(warning);
+    }
+    std::string opType = str.substr(0, pos);
+    std::string strTileSize = str.erase(0, pos + 1);
+    if (strTileSize.size() <= 2 || strTileSize.front() != '{' ||
+        strTileSize.back() != '}') {
+      llvm_unreachable(warning);
+    }
+    strTileSize = strTileSize.substr(1, strTileSize.size() - 2);
+    SmallVector<int64_t> intTileSize;
+    while ((pos = strTileSize.find(",")) != std::string::npos) {
+      intTileSize.push_back(std::stoi(strTileSize.substr(0, pos)));
+      strTileSize.erase(0, pos + 1);
+    }
+    intTileSize.push_back(std::stoi(strTileSize));
+    tsMap[opType] = intTileSize;
+  }
+  return tsMap;
 }
 
 struct IterativeTilingAndFusion
@@ -808,10 +856,12 @@ public:
       };
       sliceOptions.addFilter(costModelFilter);
     }
+    OpTileSizeMap tsMap = defaultTileSizeParser(defaultTileSize);
     // Get rewriter
     IRRewriter rewriter(&ctx);
     // Run iterative fusion
-    iterativeTilingAndFusionUntilExhaustion(rewriter, func, sliceOptions);
+    iterativeTilingAndFusionUntilExhaustion(rewriter, func, sliceOptions,
+                                            tsMap);
   }
 };
 
