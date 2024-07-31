@@ -399,7 +399,7 @@ extern "C" OCL_RUNTIME_EXPORT void gpuWait(GPUCLQUEUE *queue) {
 
 // a silly workaround for mgpuModuleLoad. OCL needs context and device to load
 // the module. We remember the last call to any mgpu* APIs
-static thread_local GPUCLQUEUE *lastQueue;
+static GPUCLQUEUE *lastQueue;
 extern "C" OCL_RUNTIME_EXPORT GPUCLQUEUE *mgpuStreamCreate() {
   auto ret =
       new GPUCLQUEUE(static_cast<cl_device_id>(nullptr), nullptr, nullptr);
@@ -431,6 +431,10 @@ extern "C" OCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, GPUCLQUEUE *queue) {
 // functions. This is ugly and error-prone. We might need another workaround.
 extern "C" OCL_RUNTIME_EXPORT cl_program mgpuModuleLoad(const void *data,
                                                         size_t gpuBlobSize) {
+  auto ret =
+      new GPUCLQUEUE(static_cast<cl_device_id>(nullptr), nullptr, nullptr);
+  lastQueue = ret;
+
   return loadModule(lastQueue, (const unsigned char *)data, gpuBlobSize, false);
 }
 
