@@ -33,6 +33,7 @@ option(GC_ENABLE_TEST_DNNL "Build the dnnl tests" ${GC_ENABLE_DNNL})
 option(GC_ENABLE_TEST_MLIR "Build the mlir tests" ON)
 option(GC_ENABLE_OPT "Build gc-opt" ON)
 option(GC_ENABLE_GPU "Enable GPU backend" OFF)
+option(GC_ENABLE_IMEX "Intel® Extension for MLIR" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 
@@ -63,6 +64,10 @@ if(GC_ENABLE_DNNL)
 endif ()
 
 if(GC_ENABLE_GPU)
+  add_definitions(-DGC_USE_GPU)
+endif ()
+
+if(GC_ENABLE_IMEX)
   include(imex)
   if(GC_DEV_LINK_LLVM_DYLIB)
     message(WARN "GPU backend may not be compatible with dynamic linking to LLVM")
