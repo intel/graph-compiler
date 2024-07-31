@@ -59,7 +59,7 @@ Notes:
  * `/PATH/TO/llvm-project/llvm-install` should be the install path of LLVM. If you installed LLVM elsewhere by `-DCMAKE_INSTALL_PREFIX` option when building LLVM, you need to change the path in `-DMLIR_DIR` accordingly.
  *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
 
-More notes if GPU components are on (`-DGC_USE_GPU=ON`):
+More notes if GPU IMEX components are on (`-DGC_USE_IMEX=ON`):
  * make sure the OpenCL runtime is installed in your system. You can either
   install using OS-provided package (Ubuntu 22.04)
 ```sh
@@ -76,5 +76,5 @@ Graph Compiler supports the following build-time options.
 | GC_TEST_ENABLE                  | **ON**, OFF                            | Controls building the tests                                                            |
 | GC_DEV_LINK_LLVM_DYLIB          | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer                        |
 | GC_ENABLE_BINDINGS_PYTHON       | **ON**, OFF                            | Controls building the Python API                                                       |
-| GC_USE_GPU          | ON, **OFF**                            | Whether to enable the GPU components                        |
+| GC_USE_IMEX          | ON, **OFF**                            | Whether to enable the GPU IMEX components                        |
 

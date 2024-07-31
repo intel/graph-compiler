@@ -1,4 +1,9 @@
-add_mlir_library(GCGPUPasses
+# todo: populate with default sources
+# add_mlir_library(GCGPUPasses)
+
+# todo: relax this to not require imex
+if(GC_ENABLE_IMEX)
+add_mlir_library(GCGPUIMEXPasses
   LinalgToXeGPU.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -20,4 +25,5 @@ add_mlir_library(GCGPUPasses
     GCUtilsIR
 )
 
-set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCGPUPasses)
+set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCGPUIMEXPasses)
+endif()

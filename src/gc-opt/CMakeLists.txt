@@ -29,19 +29,20 @@ else()
   get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 endif()
 
+get_property(gc_passes_libs GLOBAL PROPERTY GC_PASS_LIBS)
+
 set(gc_opt_libs 
         ${dialect_libs}
         ${conversion_libs} 
         ${MLIR_LINK_COMPONENTS}
-        GCPasses)
+        ${gc_passes_libs})
 
-if(GC_USE_GPU)
-  add_definitions(-DGC_USE_GPU=1)
+if(GC_USE_IMEX)
+  add_definitions(-DGC_USE_IMEX=1)
   get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
   include_directories(${IMEX_INCLUDES})
   list(APPEND gc_opt_libs IMEXGPUXDialect IMEXXeTileDialect IMEXRegionDialect IMEXRegionTransforms
-    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM IMEXXeGPUToVC IMEXXeTileToXeGPU IMEXUtil
-    GCGPUPasses)
+    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM IMEXXeGPUToVC IMEXXeTileToXeGPU IMEXUtil)
 endif()
 if(GC_MLIR_CXX_FLAGS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")

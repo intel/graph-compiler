@@ -26,7 +26,7 @@
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
 #include <imex/InitIMEXDialects.h>
 #include <imex/InitIMEXPasses.h>
 #endif
@@ -36,7 +36,7 @@ void registerCPUPipeline();
 } // namespace mlir::gc
 
 int main(int argc, char *argv[]) {
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
   imex::registerTransformsPasses();
   // Conversion passes
   imex::registerConvertGPUToGPUX();
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::linalgx::LinalgxDialect>();
   registry.insert<mlir::microkernel::MicrokernelDialect>();
   mlir::registerAllDialects(registry);
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);

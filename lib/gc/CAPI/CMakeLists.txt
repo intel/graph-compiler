@@ -4,9 +4,8 @@ set(GC_ALL_LIBS
   GCPasses
   MLIRCPURuntimeTransforms)
 
-if(GC_USE_GPU)
-  list(APPEND GC_ALL_LIBS GCGPUPasses)
-endif()
+get_property(gc_passes_libs GLOBAL PROPERTY GC_PASS_LIBS)
+list(APPEND GC_ALL_LIBS ${gc_passes_libs})
 
 add_mlir_public_c_api_library(GcCAPI
   Dialects.cpp

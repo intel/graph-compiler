@@ -28,7 +28,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 option(GC_LEGACY_ENABLE ON)
 option(GC_TEST_ENABLE "Build the tests" ON)
-option(GC_USE_GPU "Enable GPU backend" OFF)
+option(GC_USE_IMEX "Enable GPU backend with IMEX support" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 
@@ -53,10 +53,10 @@ include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
-if(GC_USE_GPU)
+if(GC_USE_IMEX)
   include(imex)
   if(GC_DEV_LINK_LLVM_DYLIB)
-    message(WARN "GPU backend may not be compatible with dynamic linking to LLVM")
+    message(WARN "GPU IMEX backend may not be compatible with dynamic linking to LLVM")
   endif()
 endif()
 

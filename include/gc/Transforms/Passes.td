@@ -32,7 +32,7 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   ];
 }
 
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";
   let description = [{
@@ -57,6 +57,6 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
                "DPAS register block sizes MxNxK">,
   ];
 }
-#endif
+#endif // GC_USE_IMEX
 
 #endif // GC_DIALECT_GC_PASSES

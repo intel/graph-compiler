@@ -26,10 +26,7 @@ else()
   )
 endif()
 
-set(GC_PASSES GCPasses)
-if(GC_USE_GPU)
-  list(APPEND GC_PASSES GCGPUPasses)
-endif()
+get_property(gc_passes_libs GLOBAL PROPERTY GC_PASS_LIBS)
 
 add_mlir_library(GCJitWrapper
   Driver.cpp
@@ -41,6 +38,6 @@ add_mlir_library(GCJitWrapper
     ${MLIR_LINK_COMPONENTS}
     ${dialect_libs}
     ${conversion_libs}
-    ${GC_PASSES}
+    ${gc_passes_libs}
   )
 

@@ -28,6 +28,4 @@ add_mlir_library(GCPasses
   )
 
 set_property(GLOBAL APPEND PROPERTY GC_PASS_LIBS GCPasses)
-if(GC_USE_GPU)
-  add_subdirectory(GPU)
-endif()
+add_subdirectory(GPU)
