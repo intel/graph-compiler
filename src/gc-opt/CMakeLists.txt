@@ -21,17 +21,21 @@ if(GC_DEV_LINK_LLVM_DYLIB)
   )
   get_property(dialect_libs GLOBAL PROPERTY GC_DIALECT_LIBS)
   get_property(conversion_libs GLOBAL PROPERTY GC_PASS_LIBS)
+  get_property(extension_libs GLOBAL PROPERTY GC_EXTENSION_LIBS)
 else()
   set(MLIR_LINK_COMPONENTS
     MLIROptLib
+    MLIRToLLVMIRTranslationRegistration
   )
   get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
   get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+  get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 endif()
 
 set(gc_opt_libs 
         ${dialect_libs}
         ${conversion_libs} 
+        ${extension_libs}
         ${MLIR_LINK_COMPONENTS}
         GCPasses)
 

@@ -1,0 +1,6 @@
+add_mlir_dialect(GenOps gen)
+add_mlir_doc(GenOps GENDialect Dialects/ -gen-dialect-doc -dialect=gen)
+set(LLVM_TARGET_DEFINITIONS GenOps.td)
+mlir_tablegen(GenOpsAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=gen)
+mlir_tablegen(GenOpsAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=gen)
+add_public_tablegen_target(MLIRGENConversionsIncGen)

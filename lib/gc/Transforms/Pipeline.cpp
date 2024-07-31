@@ -10,6 +10,8 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -145,10 +147,45 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateLLVMPasses(pm);
 }
 
+void populateGPUPipeline(mlir::OpPassManager &pm) {
+  pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  bufferization::OneShotBufferizationOptions options;
+  options.bufferizeFunctionBoundaries = true;
+  options.setFunctionBoundaryTypeConversion(
+      bufferization::LayoutMapOption::IdentityLayoutMap);
+  pm.addPass(bufferization::createOneShotBufferizePass(options));
+  pm.addPass(createCSEPass());
+  pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
+  pm.addNestedPass<func::FuncOp>(createGpuMapParallelLoopsPass());
+  pm.addNestedPass<func::FuncOp>(createParallelLoopToGpuPass());
+  pm.addNestedPass<func::FuncOp>(createLowerAffinePass());
+  pm.addPass(memref::createNormalizeMemRefsPass());
+  pm.addPass(createGpuKernelOutliningPass());
+  pm.addPass(createGpuLegalizeModule());
+  pm.addPass(memref::createFoldMemRefAliasOpsPass());
+  ConvertIndexToLLVMPassOptions idxOptions;
+  idxOptions.indexBitwidth = 32;
+  pm.addNestedPass<gpu::GPUModuleOp>(createConvertIndexToLLVMPass(idxOptions));
+  pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuOpsToLLVMSPVOps());
+  pm.addPass(createCanonicalizerPass());
+  pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuSignaturesToLLVM());
+  pm.addPass(createGpuToLLVMConversionPass());
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createGpuGenAttachTarget());
+  GpuModuleToBinaryPassOptions gpuModuleToBinaryPassOptions;
+  pm.addPass(createGpuModuleToBinaryPass(gpuModuleToBinaryPassOptions));
+}
+
 void registerCPUPipeline() {
   PassPipelineRegistration<>("gc-cpu-pipeline",
                              "The CPU pipeline for Graph Compiler",
                              populateCPUPipeline);
+}
+
+void registerGPUPipeline() {
+  PassPipelineRegistration<>("gc-gpu-pipeline",
+                             "The GPU pipeline for Graph Compiler",
+                             populateGPUPipeline);
 }
 
 } // namespace mlir::gc
