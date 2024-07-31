@@ -34,7 +34,7 @@ config.substitutions.append(('%mlir_runner_utils', config.mlir_runner_utils))
 config.substitutions.append(('%mlir_c_runner_utils', config.mlir_c_runner_utils))
 
 if config.gc_use_gpu:
-    config.substitutions.append(('%levelzero_runtime', config.levelzero_runtime))
+    config.substitutions.append(('%opencl_runtime', config.opencl_runtime))
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 

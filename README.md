@@ -58,7 +58,15 @@ cmake --build . --target gc-check
 Notes:
  * `/PATH/TO/llvm-project/llvm-install` should be the install path of LLVM. If you installed LLVM elsewhere by `-DCMAKE_INSTALL_PREFIX` option when building LLVM, you need to change the path in `-DMLIR_DIR` accordingly.
  *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
- * If GPU components are on (`-DGC_USE_GPU=ON`), make sure the Level-zero runtime is installed in your system. Either install Level-zero runtime via system package managers (e.g. `apt`), or follow the instructions of [IMEX](https://github.com/intel/mlir-extensions).
+
+More notes if GPU components are on (`-DGC_USE_GPU=ON`):
+ * make sure the OpenCL runtime is installed in your system. You can either
+  install using OS-provided package (Ubuntu 22.04)
+```sh
+sudo apt install -y intel-opencl-icd opencl-c-headers
+```
+  Or, download and install package from: https://github.com/intel/compute-runtime/releases
+ * the LLVM codebase needs to be patched to support XeGPU lowering (from IMEX). Please follow instructions of [IMEX](https://github.com/intel/mlir-extensions) on patching LLVM.
 
 Graph Compiler supports the following build-time options.
 
