@@ -18,6 +18,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
+#include "mlir/Dialect/Traits.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
@@ -43,6 +44,7 @@
 #include <deque>
 #include <iostream>
 #include <queue>
+#include <stack>
 #include <tuple>
 #include <type_traits>
 #include <variant>
@@ -54,6 +56,7 @@ Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
 void setOperationCorrectOperand(
     Operation *op, const ValueRange &iterArgs,
     const llvm::DenseMap<Value, int> &operandIdxMap,
+    DenseMap<Value, Value> &originalOperandLoopArgsMap,
     ArrayRef<Value> inductionVars,
     const llvm::DenseMap<Operation *, AffineMap> &opPermuationMap);
 mlir::FailureOr<Value> getOperationOperateTensor(Operation *op);
@@ -441,11 +444,18 @@ public:
                        const ValueRange &iterArgs, VectorType type,
                        const llvm::ArrayRef<int64_t> &dims,
                        llvm::SmallVector<Value, 5> &inductionVars,
-                       const llvm::DenseMap<Value, int> &operandIdxMap);
+                       llvm::DenseMap<Value, int> &operandIdxMap,
+                       DenseMap<Value, Value> &originalOperandMap,
+                       DenseMap<Value, Value> &operandOriginalMap,
+                       llvm::SmallVector<Value, 4> &nextAnchorResults,
+                       DenseMap<Value, int> &nextAnchorResultsIdxMap,
+                       DenseMap<Value, Value> &forResultOrignalResultMap);
   void moveOperationsToCurrentForBody(
       const size_t groupIdx, const OpBuilder &b, ArrayRef<Value> inductionVars,
       const llvm::DenseMap<Value, int> &operandIdxMap,
-      const ValueRange &loopState, std::queue<Operation *> &queue);
+      const ValueRange &loopState,
+      DenseMap<Value, Value> &originalOperandLoopArgsMap,
+      std::queue<Operation *> &queue);
 
   void getResultInCurrentOps(const size_t anchorIdx, const size_t groupId,
                              const std::queue<Operation *> ops,
@@ -479,6 +489,8 @@ public:
       std::queue<Operation *> &movedOperation, ArrayRef<Value> inductionVars,
       const llvm::DenseMap<Value, int> &operandIdxMap,
       const ValueRange &loopState,
+      DenseMap<Value, Value> &originalOperandLoopArgsMap,
+      DenseMap<Value, Value> &loopArgsOriginalOperandMap,
       const llvm::SmallVector<Value, 4> &nextAnchorResults,
       DenseMap<Value, Value> &forResultOrignalResultMap);
 
@@ -535,7 +547,8 @@ public:
   scf::ForOp generateTransposeForLoopWithLastDim(
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
       const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
-      const ValueRange &iterArgs);
+      const ValueRange &iterArgs, DenseMap<Value, int> &operandIdxMap,
+      DenseMap<Value, Value> &originalOperandMap);
 
   scf::ForOp generateTransposeScalarDataMovement(
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
@@ -566,7 +579,7 @@ public:
   void analysisGroupMaxSteps();
   void analysisGroupOperaion();
   void analysisGroupOperationResults();
-  void specialOperationAnchorRectify();
+  void specialOperationRectify(DenseMap<Operation *, size_t> &visitedOperation);
 };
 /// Vectorize vector operation with target machines simd instructions.
 class CanonicalizerVectorOperation : virtual public ForLoopGenerator,

@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
@@ -53,6 +54,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::OpPassManager &pm) {
+
+  pm.addPass(createLowerToTileVector());
   // Do promotion for math / arith ops
   pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
@@ -65,7 +68,8 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
   // Bf16 cast elimilation pass
   pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
-  pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
+  // pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
+  pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
   // todo: lower to physical vector pass, device dependent pass
 }
 

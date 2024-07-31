@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -42,6 +43,14 @@ namespace {
 #define DBGS() (llvm::dbgs() << '[' << DEBUG_TYPE << "] ")
 #define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
 
+#define IMPLEMENTED_MATMUL                                                     \
+  linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,               \
+      linalg::BatchReduceMatmulOp, linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp,   \
+      linalg::MatmulOp, linalg::BatchMatmulOp,                                 \
+      linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp,        \
+      linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
+      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp
+
 bool is_innermost_ir(Operation *op) {
   bool inner_most = true;
   op->walk([&inner_most](Operation *p) {
@@ -52,6 +61,24 @@ bool is_innermost_ir(Operation *op) {
     return WalkResult::advance();
   });
   return inner_most;
+}
+
+static bool isMatchedOperationUsage(Operation *op) {
+  if (isa<IMPLEMENTED_MATMUL>(op)) {
+    return true;
+  }
+  // operation produce for matmul can't lower
+  if (!isa<linalg::FillOp>(op)) {
+    return false;
+  }
+
+  for (auto x : op->getUsers()) {
+    if (isa<IMPLEMENTED_MATMUL>(x)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /// Need to check if the reassociation are static/constant.
@@ -425,6 +452,13 @@ struct OperationConvertTileVectorPass : public RewritePattern {
     if (!targetOp || !is_innermost_ir(op))
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
 
+    // linalg.fill + linalgx.batch_mutmul should not be lower to vector
+    // because these two operation is needed by brgemm optimization.
+    if (isMatchedOperationUsage(op)) {
+      return rewriter.notifyMatchFailure(
+          op, "linalg.fill + linalgx.batch_matmul can't do lowering.");
+    }
+
     return linalg::vectorize(rewriter, op, /*inputVectorSizes=*/{},
                              /*scalableVecDims=*/{}, vectorizeNDExtract,
                              flatten1DDepthwiseConv);
@@ -511,6 +545,7 @@ struct LowerTileVectorPass
     vector::TransferWriteOp::getCanonicalizationPatterns(patterns, ctx);
 
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    // clean up useless IR
     auto curOp = getOperation();
     IRRewriter reWriter(curOp);
     DominanceInfo domInfo(curOp);
