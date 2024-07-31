@@ -1,5 +1,4 @@
 add_mlir_library(GCGPUPasses
-  LinalgToXeGPU.cpp
   GPULegalizeModule.cpp
   ConvertGpuSignaturesToLLVM.cpp
   GPUAttachGenTarget.cpp

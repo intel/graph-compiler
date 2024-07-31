@@ -197,6 +197,9 @@ GenSerializer::moduleToObject(llvm::Module &llvmModule) {
     return std::nullopt;
   }
 
+  StringRef bin(serializedSPIRVBinary->c_str(),
+                serializedSPIRVBinary->size() + 1);
+  return SmallVector<char, 0>(bin.begin(), bin.end());
   return compileToBinary(*serializedSPIRVBinary);
 }
 
@@ -237,8 +240,9 @@ GenSerializer::compileToBinary(const std::string &serializedSPV) {
 
   SmallVector<StringRef, 12> oclocArgs(
       {StringRef("compile"), StringRef("-device"), getTarget().getChip(),
-       StringRef("-spirv_input"), StringRef("-file"), StringRef(spvFile->first),
-       StringRef("-o"), StringRef(binaryFile->first)});
+       StringRef("-qq"), StringRef("-spirv_input"), StringRef("-file"),
+       StringRef(spvFile->first), StringRef("-o"),
+       StringRef(binaryFile->first)});
 
   std::string message;
   if (llvm::sys::ExecuteAndWait(ocloc.value(), oclocArgs,

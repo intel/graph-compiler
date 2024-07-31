@@ -24,6 +24,8 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 
+#include "gc/Target/LLVMIR/Dialect/GEN/GENToLLVMIRTranslation.h"
+
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 #include <stdio.h>
@@ -41,6 +43,7 @@ int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   registry.insert<mlir::arith::ArithDialect>();
   mlir::registerAllToLLVMIRTranslations(registry);
+  mlir::registerGENDialectTranslation(registry);
 
   return mlir::JitRunnerMain(argc, argv, registry);
 }

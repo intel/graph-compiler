@@ -41,6 +41,7 @@ else()
     MLIRLLVMDialect
     MLIRLLVMToLLVMIRTranslation
     MLIRToLLVMIRTranslationRegistration
+    MLIRGENToLLVMIRTranslation
     MLIRParser
     MLIRTargetLLVMIRExport
     MLIRSupport

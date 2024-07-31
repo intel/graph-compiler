@@ -27,9 +27,7 @@ else()
 endif()
 
 set(GC_PASSES GCPasses)
-if(GC_USE_GPU)
-  list(APPEND GC_PASSES GCGPUPasses)
-endif()
+list(APPEND GC_PASSES GCGPUPasses)
 
 add_mlir_library(GCJitWrapper
   Driver.cpp
