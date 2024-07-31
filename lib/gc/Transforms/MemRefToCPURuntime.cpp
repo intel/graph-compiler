@@ -66,8 +66,7 @@ struct AlignedDeallocLowering : public OpRewritePattern<memref::DeallocOp> {
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     Value memref = op.getMemref();
-    cpuruntime::DeallocOp newDeallocOp =
-        rewriter.create<cpuruntime::DeallocOp>(loc, memref);
+    rewriter.create<cpuruntime::DeallocOp>(loc, memref);
     rewriter.eraseOp(op);
     return success();
   }
