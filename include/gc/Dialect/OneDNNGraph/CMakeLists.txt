@@ -1,4 +1,4 @@
-if (NOT GC_ENABLE_TEST_DNNL)
+if (NOT GC_ENABLE_DNNL)
     message(STATUS "OneDNNGraphDialect is not enabled.")
     return()
 endif ()

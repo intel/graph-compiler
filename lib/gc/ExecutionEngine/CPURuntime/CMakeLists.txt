@@ -1,15 +1,18 @@
 find_package(OpenMP REQUIRED)
 
-add_mlir_library(GcCpuRuntime
+gc_add_mlir_library(GcCpuRuntime
     SHARED
     Parallel.cpp
+
+    LINK_LIBS PUBLIC
+    GcInterface
 
     EXCLUDE_FROM_LIBMLIR
 )
 
 if ("iomp" IN_LIST OpenMP_C_LIB_NAMES OR "omp" IN_LIST OpenMP_C_LIB_NAMES OR "omp5" IN_LIST OpenMP_C_LIB_NAMES)
 else()
-  target_compile_definitions(GcCpuRuntime PRIVATE "-DGC_NEEDS_OMP_WRAPPER")
+  target_compile_options(GcCpuRuntime PRIVATE "-DGC_NEEDS_OMP_WRAPPER")
 endif()
 
 string(REPLACE " " ";" flags "${OpenMP_C_FLAGS} ${OpenMP_CXX_FLAGS}")

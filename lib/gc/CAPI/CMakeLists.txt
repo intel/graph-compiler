@@ -1,11 +1,10 @@
 set(GC_ALL_LIBS 
-  MLIROneDNNGraph
   ${GC_ONEDNN_DIALECT_LIB_NAME}
   GcPasses
   MLIRCPURuntimeTransforms)
 
-if(GC_USE_GPU)
-  list(APPEND GC_ALL_LIBS GcGPUPasses)
+if(GC_ENABLE_GPU)
+  list(APPEND GC_ALL_LIBS GcGpuPasses)
 endif()
 
 add_mlir_public_c_api_library(GcCAPI
@@ -14,3 +13,5 @@ add_mlir_public_c_api_library(GcCAPI
   LINK_LIBS PUBLIC
   ${GC_ALL_LIBS}
 )
+target_link_libraries(obj.GcCAPI PUBLIC GcInterface)
+set_property(GLOBAL APPEND PROPERTY GC_MLIR_LIBS GcCAPI)

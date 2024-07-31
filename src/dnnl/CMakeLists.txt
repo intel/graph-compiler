@@ -13,32 +13,36 @@
 # and limitations under the License.
 # SPDX-License-Identifier: Apache-2.0
 
-if (NOT GC_ENABLE_DNNL AND NOT GC_ENABLE_TEST_DNNL)
-    message(STATUS "oneDNN library integration is not enabled.")
-    return()
-endif ()
+if(NOT GC_ENABLE_DNNL)
+  message(STATUS "oneDNN library integration is not enabled.")
+  return()
+endif()
 
 include(onednn)
 
-set(GC_LIB_INCLUDES ${DNNL_INCLUDES})
-set(GC_LIB_SOURCES
-        JsonParser.cpp
-        dnnl_graph_compiler.cpp
+set(GC_DNNL_SOURCES
+  JsonParser.cpp
+  dnnl_graph_compiler.cpp
 )
-set(GC_LIB_LINKED_LIBS
-        GcJitWrapper
-        GcCpuRuntime
+set(GC_DNNL_LINKED_LIBS
+  GcJitWrapper
+  GcCpuRuntime
 )
-add_mlir_library(GcDnnl SHARED ${GC_LIB_SOURCES})
-target_include_directories(GcDnnl PUBLIC ${DNNL_INCLUDES})
+gc_add_mlir_library(GcDnnl SHARED
+  ${GC_DNNL_SOURCES}
+  LINK_LIBS PRIVATE ${GC_DNNL_LINKED_LIBS}
+)
+target_link_libraries(GcDnnl PUBLIC GcInterface)
+target_include_directories(GcDnnl PUBLIC ${GC_DNNL_INCLUDES})
 target_compile_options(GcDnnl PRIVATE -fvisibility=hidden -fexceptions)
 target_link_options(GcDnnl PRIVATE -Wl,--gc-sections)
-target_link_libraries(GcDnnl PRIVATE ${GC_LIB_LINKED_LIBS})
 
-if (GC_ENABLE_TEST_DNNL)
-    # Static graph compiler library to be used in tests
-    add_mlir_library(GcDnnlStatic STATIC ${GC_LIB_SOURCES})
-    target_compile_options(obj.GcDnnlStatic PUBLIC -fexceptions)
-    target_include_directories(GcDnnlStatic PUBLIC ${GC_LIB_INCLUDES})
-    target_link_libraries(GcDnnlStatic PUBLIC ${GC_LIB_LINKED_LIBS})
-endif ()
+if(GC_ENABLE_TEST_DNNL)
+  # Static graph compiler library to be used in tests
+  gc_add_mlir_library(GcDnnlStatic STATIC
+    ${GC_DNNL_SOURCES}
+    LINK_LIBS PUBLIC GcInterface ${GC_DNNL_LINKED_LIBS}
+  )
+  target_compile_options(obj.GcDnnlStatic PUBLIC -fexceptions)
+  target_include_directories(GcDnnlStatic PUBLIC ${GC_DNNL_INCLUDES})
+endif()

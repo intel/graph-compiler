@@ -1,9 +1,11 @@
-if (NOT GC_ENABLE_TEST_DNNL)
+if (NOT GC_ENABLE_DNNL)
     return()
 endif ()
 
+target_compile_options(GcInterface INTERFACE -DGC_HAS_ONEDNN_DIALECT)
+
 gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
-add_mlir_dialect_library(${GC_ONEDNN_DIALECT_LIB_NAME}
+gc_add_mlir_dialect_library(${GC_ONEDNN_DIALECT_LIB_NAME}
     OneDNNGraphDialect.cpp
     OneDNNGraphOps.cpp
     
@@ -15,5 +17,5 @@ add_mlir_dialect_library(${GC_ONEDNN_DIALECT_LIB_NAME}
     
     LINK_LIBS PUBLIC
     ${MLIR_LINK_COMPONENTS}
+    GcInterface
 )
-set_property(GLOBAL APPEND PROPERTY GC_DIALECT_LIBS ${GC_ONEDNN_DIALECT_LIB_NAME})

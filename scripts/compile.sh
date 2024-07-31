@@ -110,9 +110,9 @@ build_llvm() {
         -DLLVM_INCLUDE_TESTS=OFF \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_INCLUDE_DOCS=OFF \
-        -DLLVM_BUILD_TOOLS=OFF \
         -DLLVM_INSTALL_UTILS=ON \
-        -DLLVM_INSTALL_GTEST=ON
+        -DLLVM_INSTALL_GTEST=ON \
+        -DMLIR_ENABLE_BINDINGS_PYTHON=ON
     cmake --build build --parallel $MAX_JOBS
 
     MLIR_DIR="$PWD/build/lib/cmake/mlir"

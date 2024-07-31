@@ -15,10 +15,10 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-if (NOT GC_ENABLE_OPT)
-    message(STATUS "gc-opt is not enabled.")
-    return()
-endif ()
+if(NOT GC_ENABLE_OPT)
+  message(STATUS "gc-opt is not enabled.")
+  return()
+endif()
 
 if(GC_DEV_LINK_LLVM_DYLIB)
   set(MLIR_LINK_COMPONENTS
@@ -34,26 +34,40 @@ else()
   get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 endif()
 
-set(gc_opt_libs
-        ${dialect_libs}
-        ${conversion_libs}
-        ${MLIR_LINK_COMPONENTS}
-        GCPasses)
+add_llvm_executable(gc-opt gc-opt.cpp)
+llvm_update_compile_flags(gc-opt)
+mlir_check_all_link_libraries(gc-opt)
+
+target_link_libraries(gc-opt PUBLIC GcInterface)
+target_link_libraries(gc-opt PRIVATE
+  ${dialect_libs}
+  ${conversion_libs}
+  ${MLIR_LINK_COMPONENTS}
+  GcPasses
+)
+
+if(GC_ENABLE_GPU)
+  target_link_libraries(gc-opt PRIVATE GcGpuPasses)
+endif()
 
 if(GC_ENABLE_IMEX)
-  add_definitions(-DGC_USE_IMEX)
+  include(imex)
+  target_compile_options(gc-opt PRIVATE -DGC_USE_IMEX)
   get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
-  include_directories(${IMEX_INCLUDES})
-  list(APPEND gc_opt_libs IMEXGPUXDialect IMEXXeTileDialect IMEXRegionDialect IMEXRegionTransforms
-    IMEXTransforms IMEXGPUToGPUX IMEXGPUToSPIRV IMEXGPUXToLLVM IMEXXeGPUToVC IMEXXeTileToXeGPU IMEXUtil
-    GcGPUPasses)
-endif()
-if(GC_MLIR_CXX_FLAGS)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
+  target_include_directories(gc-opt PRIVATE ${IMEX_INCLUDES})
+  target_link_libraries(gc-opt PRIVATE
+    IMEXGPUXDialect
+    IMEXXeTileDialect
+    IMEXRegionDialect
+    IMEXRegionTransforms
+    IMEXTransforms
+    IMEXGPUToGPUX
+    IMEXGPUToSPIRV
+    IMEXGPUXToLLVM
+    IMEXXeGPUToVC
+    IMEXXeTileToXeGPU
+    IMEXUtil
+  )
 endif()
 
-add_llvm_executable(${GC_OPT_EXE_NAME} gc-opt.cpp)
-
-target_link_libraries(${GC_OPT_EXE_NAME} PRIVATE ${gc_opt_libs})
-llvm_update_compile_flags(${GC_OPT_EXE_NAME})
-mlir_check_all_link_libraries(${GC_OPT_EXE_NAME})
+set_property(GLOBAL APPEND PROPERTY GC_TOOLS gc-opt)

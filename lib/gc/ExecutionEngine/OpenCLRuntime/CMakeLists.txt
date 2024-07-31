@@ -1,6 +1,6 @@
 find_package(OpenCL REQUIRED)
 
-add_mlir_library(mlir_opencl_runtime
+gc_add_mlir_library(GcOpenclRuntime
     SHARED
     OpenCLRuntimeWrappers.cpp
 
@@ -11,12 +11,12 @@ check_cxx_compiler_flag("-frtti" CXX_HAS_FRTTI_FLAG)
 if(NOT CXX_HAS_FRTTI_FLAG)
     message(FATAL_ERROR "CXX compiler does not accept flag -frtti")
 endif()
-target_compile_options (mlir_opencl_runtime PUBLIC -fexceptions -frtti)
+target_compile_options (GcOpenclRuntime PUBLIC -fexceptions -frtti)
 
-target_include_directories(mlir_opencl_runtime PRIVATE
+target_include_directories(GcOpenclRuntime PRIVATE
     ${MLIR_INCLUDE_DIRS}
     ${OpenCL_INCLUDE_DIRS}
     )
 
 message(STATUS "OpenCL Libraries: ${OpenCL_LIBRARIES}")
-target_link_libraries(mlir_opencl_runtime PUBLIC ${OpenCL_LIBRARIES})
+target_link_libraries(GcOpenclRuntime PUBLIC ${OpenCL_LIBRARIES})
