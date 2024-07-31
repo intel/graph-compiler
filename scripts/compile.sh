@@ -140,6 +140,7 @@ cmake -S . -G Ninja -B build \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
-    -DGC_DEV_LINK_LLVM_DYLIB=$DYLIB
+    -DGC_DEV_LINK_LLVM_DYLIB=$DYLIB \
+    -DGC_BENCH_ENABLE=ON
 
 cmake --build build --parallel $(nproc)

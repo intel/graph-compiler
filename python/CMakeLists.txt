@@ -34,6 +34,7 @@ declare_mlir_python_sources(GcPythonSources.Common
   ADD_TO_PARENT GcPythonSources
   SOURCES
     __init__.py
+    graph_compiler.py
     dialects/__init__.py
     # init hooks
     _mlir_libs/_site_initialize_0.py
@@ -52,14 +53,14 @@ declare_mlir_dialect_python_bindings(
     DIALECT_NAME onednn_graph
     )
 
-    declare_mlir_dialect_python_bindings(
-      ADD_TO_PARENT GcPythonSources
-      ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
-      TD_FILE dialects/CPURuntimeOps.td
-      SOURCES 
-        dialects/cpuruntime.py
-      DIALECT_NAME cpuruntime
-      )
+declare_mlir_dialect_python_bindings(
+    ADD_TO_PARENT GcPythonSources
+    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
+    TD_FILE dialects/CPURuntimeOps.td
+    SOURCES 
+      dialects/cpuruntime.py
+    DIALECT_NAME cpuruntime
+    )
 
 declare_mlir_python_extension(GcPythonSources.Extension
   MODULE_NAME _gc_mlir
@@ -82,7 +83,10 @@ add_mlir_python_common_capi_library(GcPythonCAPI
   DECLARED_SOURCES
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
+    MLIRPythonSources
     MLIRPythonSources.Core
+    MLIRPythonSources.Dialects.linalg
+    MLIRPythonSources.ExecutionEngine
 )
 
 ################################################################################
@@ -96,6 +100,9 @@ add_mlir_python_modules(GcPythonModules
     GcPythonSources
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources
+    MLIRPythonSources.ExecutionEngine
   COMMON_CAPI_LINK_LIBS
     GcPythonCAPI
   )
+
+configure_file(config.py.in ${MLIR_BINARY_DIR}/python_packages/gc_mlir_core/gc_mlir/config.py @ONLY)

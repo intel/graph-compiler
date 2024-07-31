@@ -30,11 +30,11 @@ config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
 config.substitutions.append(("%llvmlibdir", config.llvm_lib_dir))
 config.substitutions.append(("%gclibdir", config.gc_obj_root + "/lib/"))
-config.substitutions.append(('%mlir_runner_utils', config.mlir_runner_utils))
-config.substitutions.append(('%mlir_c_runner_utils', config.mlir_c_runner_utils))
+config.substitutions.append(("%mlir_runner_utils", config.mlir_runner_utils))
+config.substitutions.append(("%mlir_c_runner_utils", config.mlir_c_runner_utils))
 
 if config.gc_use_gpu:
-    config.substitutions.append(('%levelzero_runtime', config.levelzero_runtime))
+    config.substitutions.append(("%levelzero_runtime", config.levelzero_runtime))
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 
@@ -43,7 +43,7 @@ llvm_config.use_default_substitutions()
 # excludes: A list of directories to exclude from the testsuite. The 'Inputs'
 # subdirectories contain auxiliary inputs for various tests in their parent
 # directories.
-config.excludes = []
+config.excludes = ["benchgc"]
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)

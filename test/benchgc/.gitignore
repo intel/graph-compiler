@@ -1,0 +1,5 @@
+dist/
+src/benchgc.egg-info/
+build
+benchgc.egg-info/
+__pycache__

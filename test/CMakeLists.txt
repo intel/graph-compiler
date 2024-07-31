@@ -13,3 +13,6 @@ target_link_libraries(graph_compiler_static PUBLIC ${GC_LIB_LINKED_LIBS})
 
 add_subdirectory(dnnl)
 add_subdirectory(mlir)
+if(GC_BENCH_ENABLE)
+        add_subdirectory(benchgc)
+endif()
