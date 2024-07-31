@@ -42,10 +42,16 @@ class XeGPUDialect;
 
 class OpPassManager;
 
+namespace bufferization {
+class BufferizationDialect;
+}
+
 namespace gc {
 
 void populateFrontendPasses(mlir::OpPassManager &);
 void populateCPUPipeline(mlir::OpPassManager &);
+
+std::unique_ptr<Pass> createBufferNestedParallelLoopHoistingPass();
 
 #define GEN_PASS_DECL
 #include "gc/Transforms/Passes.h.inc"
