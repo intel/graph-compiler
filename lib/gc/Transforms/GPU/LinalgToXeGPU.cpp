@@ -350,7 +350,7 @@ static std::optional<Value> lowerEltwiseOp(linalg::LinalgOp linalgOp,
         // Unhandled type. Bail out.
         return std::nullopt;
       })
-      .Case([&](linalg::NegfOp negfOp) -> std::optional<Value> {
+      .Case([&](linalg::NegFOp negFOp) -> std::optional<Value> {
         assert(operands.size() == 1 && "Invalid number of operands for negf");
         return rewriter.create<arith::NegFOp>(loc, resType, operands[0])
             .getResult();
@@ -1390,7 +1390,7 @@ void populateLinalgEltwiseToXeGPUPatterns(RewritePatternSet &patterns,
                ConvertNamedEltwiseToXeGPU<linalg::FloorOp>,
                ConvertNamedEltwiseToXeGPU<linalg::MaxOp>,
                ConvertNamedEltwiseToXeGPU<linalg::MulOp>,
-               ConvertNamedEltwiseToXeGPU<linalg::NegfOp>,
+               ConvertNamedEltwiseToXeGPU<linalg::NegFOp>,
                ConvertNamedEltwiseToXeGPU<linalg::SubOp>>(patterns.getContext(),
                                                           options);
 }
