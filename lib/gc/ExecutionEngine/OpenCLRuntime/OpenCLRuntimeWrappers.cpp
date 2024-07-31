@@ -134,7 +134,6 @@ static cl_device_id getDevice(cl_device_type *devtype) {
 }
 
 struct GPUCLQUEUE {
-
   cl_device_id device_ = nullptr;
   cl_context context_ = nullptr;
   cl_command_queue queue_ = nullptr;
@@ -232,7 +231,7 @@ static void deallocDeviceMemory(GPUCLQUEUE *queue, void *ptr) {
 }
 
 static cl_program loadModule(GPUCLQUEUE *queue, const unsigned char *data,
-                             size_t dataSize) {
+                             size_t dataSize, bool takeOwnership) {
   assert(data);
   cl_int errNum = 0;
   const unsigned char *codes[1] = {data};
@@ -251,7 +250,8 @@ static cl_program loadModule(GPUCLQUEUE *queue, const unsigned char *data,
         "'-printregusage -enableBCR' -cl-kernel-arg-info -x spir";
   }
   CL_SAFE_CALL(clBuildProgram(program, 0, NULL, build_flags, NULL, NULL));
-  queue->programs_.push_back(program);
+  if (takeOwnership)
+    queue->programs_.push_back(program);
   return program;
 }
 
@@ -274,30 +274,30 @@ static cl_kernel getKernel(GPUCLQUEUE *queue, cl_program program,
   return kernel;
 }
 
+template <typename NumArgsFuncT, typename GetParamFuncT>
 static void launchKernel(GPUCLQUEUE *queue, cl_kernel kernel, size_t gridX,
                          size_t gridY, size_t gridZ, size_t blockX,
                          size_t blockY, size_t blockZ, size_t sharedMemBytes,
-                         ParamDesc *params) {
-  auto func = queue->ext_table_
-                  ? queue->ext_table_->setKernelArgMemPtr
-                  : (clSetKernelArgMemPointerINTEL_fn)queryCLExtFunc(
-                        queue->device_, SetKernelArgMemPointerName);
-  auto paramsCount = countUntil(params, ParamDesc{nullptr, 0});
-  // The assumption is, if there is a param for the shared local memory,
-  // then that will always be the last argument.
-  if (sharedMemBytes) {
-    paramsCount = paramsCount - 1;
-  }
+                         NumArgsFuncT &&fnGetNumArgs,
+                         GetParamFuncT &&fnGetParamFunc) {
+  auto clSetKernelArgMemPointerINTEL =
+      queue->ext_table_ ? queue->ext_table_->setKernelArgMemPtr
+                        : (clSetKernelArgMemPointerINTEL_fn)queryCLExtFunc(
+                              queue->device_, SetKernelArgMemPointerName);
+  auto paramsCount = fnGetNumArgs();
   for (size_t i = 0; i < paramsCount; i++) {
     cl_kernel_arg_address_qualifier name;
     size_t nameSize = sizeof(name);
+    // we can do better here, to cache the arginfo for the kernel
     CL_SAFE_CALL(clGetKernelArgInfo(kernel, i, CL_KERNEL_ARG_ADDRESS_QUALIFIER,
                                     sizeof(name), &name, &nameSize));
-    auto param = params[i];
-    if (param.size == sizeof(void *) && name == CL_KERNEL_ARG_ADDRESS_GLOBAL) {
-      CL_SAFE_CALL(func(kernel, i, *(void **)param.data));
+    auto [paramData, paramSize] = fnGetParamFunc(i);
+    if (paramSize == sizeof(void *) && name == CL_KERNEL_ARG_ADDRESS_GLOBAL) {
+      // pass the value of the pointer instead of the pointer of the pointer
+      CL_SAFE_CALL(
+          clSetKernelArgMemPointerINTEL(kernel, i, *(void **)paramData));
     } else {
-      CL_SAFE_CALL(clSetKernelArg(kernel, i, param.size, param.data));
+      CL_SAFE_CALL(clSetKernelArg(kernel, i, paramSize, paramData));
     }
   }
   if (sharedMemBytes) {
@@ -350,7 +350,7 @@ extern "C" OCL_RUNTIME_EXPORT void gpuMemFree(GPUCLQUEUE *queue, void *ptr) {
 extern "C" OCL_RUNTIME_EXPORT cl_program
 gpuModuleLoad(GPUCLQUEUE *queue, const unsigned char *data, size_t dataSize) {
   if (queue) {
-    return loadModule(queue, data, dataSize);
+    return loadModule(queue, data, dataSize, false);
   }
   return nullptr;
 }
@@ -369,8 +369,20 @@ gpuLaunchKernel(GPUCLQUEUE *queue, cl_kernel kernel, size_t gridX, size_t gridY,
                 size_t gridZ, size_t blockX, size_t blockY, size_t blockZ,
                 size_t sharedMemBytes, void *params) {
   if (queue) {
-    launchKernel(queue, kernel, gridX, gridY, gridZ, blockX, blockY, blockZ,
-                 sharedMemBytes, static_cast<ParamDesc *>(params));
+    auto typedParams = static_cast<ParamDesc *>(params);
+    launchKernel(
+        queue, kernel, gridX, gridY, gridZ, blockX, blockY, blockZ,
+        sharedMemBytes,
+        [&]() {
+          // The assumption is, if there is a param for the shared local memory,
+          // then that will always be the last argument.
+          auto paramsCount = countUntil(typedParams, ParamDesc{nullptr, 0});
+          if (sharedMemBytes) {
+            paramsCount = paramsCount - 1;
+          }
+          return paramsCount;
+        },
+        [&](size_t i) -> const ParamDesc & { return typedParams[i]; });
   }
 }
 
@@ -378,4 +390,78 @@ extern "C" OCL_RUNTIME_EXPORT void gpuWait(GPUCLQUEUE *queue) {
   if (queue) {
     CL_SAFE_CALL(clFinish(queue->queue_));
   }
+}
+
+////////////////////////////////////////////////////////////////
+// Here starts the upstream OCL wrappers
+////////////////////////////////////////////////////////////////
+
+// a silly workaround for mgpuModuleLoad. OCL needs context and device to load
+// the module. We remember the last call to any mgpu* APIs
+static thread_local GPUCLQUEUE *lastQueue;
+extern "C" OCL_RUNTIME_EXPORT GPUCLQUEUE *mgpuStreamCreate() {
+  auto ret =
+      new GPUCLQUEUE(static_cast<cl_device_id>(nullptr), nullptr, nullptr);
+  lastQueue = ret;
+  return ret;
+}
+
+extern "C" OCL_RUNTIME_EXPORT void mgpuStreamDestroy(GPUCLQUEUE *queue) {
+  lastQueue = nullptr;
+  delete queue;
+}
+
+extern "C" OCL_RUNTIME_EXPORT void *
+mgpuMemAlloc(uint64_t size, GPUCLQUEUE *queue, bool isShared) {
+  lastQueue = queue;
+  return allocDeviceMemory(queue, size, /*alignment*/ 64, isShared);
+}
+
+extern "C" OCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, GPUCLQUEUE *queue) {
+  lastQueue = queue;
+  if (ptr) {
+    deallocDeviceMemory(queue, ptr);
+  }
+}
+
+// mgpuModuleLoad and mgpuModuleGetFunction does not have
+// queue in parameters, but OCL APIs requires them. We implicitly use the queue
+// pointer of the last mgpu* API of the current thread as the queue for these
+// functions. This is ugly and error-prone. We might need another workaround.
+extern "C" OCL_RUNTIME_EXPORT cl_program mgpuModuleLoad(const void *data,
+                                                        size_t gpuBlobSize) {
+  return loadModule(lastQueue, (const unsigned char *)data, gpuBlobSize, false);
+}
+
+extern "C" OCL_RUNTIME_EXPORT cl_kernel
+mgpuModuleGetFunction(cl_program module, const char *name) {
+  // we need to push the kernel to lastQueue to avoid cl_kernel resource leak
+  return getKernel(lastQueue, module, name);
+}
+
+extern "C" OCL_RUNTIME_EXPORT void mgpuModuleUnload(cl_program module) {
+  CL_SAFE_CALL(clReleaseProgram(module));
+}
+
+extern "C" OCL_RUNTIME_EXPORT void
+mgpuLaunchKernel(cl_kernel kernel, size_t gridX, size_t gridY, size_t gridZ,
+                 size_t blockX, size_t blockY, size_t blockZ,
+                 size_t sharedMemBytes, GPUCLQUEUE *queue, void **params,
+                 void ** /*extra*/, size_t paramsCount) {
+  launchKernel(
+      queue, kernel, gridX, gridY, gridZ, blockX, blockY, blockZ,
+      sharedMemBytes,
+      [&]() {
+        // todo (yijie): do we need to handle shared mem? If there is dynamic
+        // shared mem required, which value should paramsCount be?
+        return paramsCount;
+      },
+      [&](size_t i) {
+        // todo (yijie): assuming all parameters are passed with pointer size
+        return std::make_pair(params[i], sizeof(void *));
+      });
+}
+
+extern "C" OCL_RUNTIME_EXPORT void mgpuStreamSynchronize(GPUCLQUEUE *queue) {
+  CL_SAFE_CALL(clFinish(queue->queue_));
 }
