@@ -449,15 +449,15 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
           }
         }
       } else {
-        TilingInterface tilingInterface =
-            cast<TilingInterface>(currentOp.getOperation());
-        FailureOr<linalg::ForallTilingResult> tilingResult =
-            linalg::tileToForallOpUsingTileSizes(b, tilingInterface, tileSizes,
-                                                 std::nullopt);
+        scf::SCFTilingOptions tileOption;
+        tileOption.setTileSizes(tileSizes);
+        tileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
+        FailureOr<scf::SCFTilingResult> tilingResult = scf::tileUsingSCF(
+            b, cast<TilingInterface>(currentOp.getOperation()), tileOption);
         if (failed(tilingResult))
           return failure();
-        b.replaceOp(currentOp, tilingResult->tileOp);
-        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOp);
+        b.replaceOp(currentOp, tilingResult->replacements);
+        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
       }
     }
   }
@@ -539,11 +539,13 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     size_t NFirstDim = *getConstantIntValue(loopRange[NDimPos[0]].size);
 
     size_t KParallelBlockSize =
-        KDimPos.size() > 1
-            ? llvm::divideCeil(KFirstDim, cfg.KThreads)
-            : llvm::divideCeil(llvm::divideCeil(KFirstDim, cfg.KBlock),
-                               cfg.KThreads) *
-                  cfg.KBlock;
+        cfg.KThreads == 1
+            ? 0
+            : (KDimPos.size() > 1
+                   ? llvm::divideCeil(KFirstDim, cfg.KThreads)
+                   : llvm::divideCeil(llvm::divideCeil(KFirstDim, cfg.KBlock),
+                                      cfg.KThreads) *
+                         cfg.KBlock);
     size_t MParallelBlockSize =
         MDimPos.size() > 1
             ? llvm::divideCeil(MFirstDim, cfg.MThreads)

@@ -7,9 +7,9 @@ func.func @matmul_2Dx2D_f32(%arg0: tensor<4096x4096xf32>, %arg1: tensor<4096x409
     %cst_0 = arith.constant 0.000000e+00 : f32
     %0 = tensor.empty() : tensor<4096x4096xf32>
     %1 = linalg.fill ins(%cst_0 : f32) outs(%0 : tensor<4096x4096xf32>) -> tensor<4096x4096xf32>
-    // CHECK: scf.forall {{.*}} (4) {{.*}}  (tensor<4096x4096xf32>) {
+    // CHECK: scf.forall {{.*}} (0) to (4096) step (1024) {{.*}}  (tensor<4096x4096xf32>) {
     // CHECK: tensor.extract_slice {{.*}} [1024, 4096] [1, 1]
-    // CHECK: scf.forall {{.*}} (2) {{.*}}  (tensor<1024x4096xf32>)
+    // CHECK: scf.forall {{.*}} (0) to (4096) step (2048) {{.*}}  (tensor<1024x4096xf32>)
     // CHECK: tensor.extract_slice {{.*}} [1024, 2048] [1, 1]
     // CHECK: scf.for
     // CHECK: tensor.extract_slice {{.*}} [256, 2048] [1, 1]
@@ -43,9 +43,9 @@ func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<12
     %0 = tensor.empty() : tensor<128x128x32x32xbf16>
     // CHECK-NOT: linalg.fill
     %1 = linalg.fill ins(%cst_0 : bf16) outs(%0 : tensor<128x128x32x32xbf16>) -> tensor<128x128x32x32xbf16>
-    // CHECK: scf.forall {{.*}} (16) {{.*}} (tensor<128x128x32x32xbf16>)
+    // CHECK: scf.forall {{.*}} (0) to (128) step (8) {{.*}} (tensor<128x128x32x32xbf16>)
     // CHECK: tensor.extract_slice {{.*}} [8, 128, 32, 32] [1, 1, 1, 1]
-    // CHECK: scf.forall {{.*}} (2) {{.*}} (tensor<8x128x32x32xbf16>)
+    // CHECK: scf.forall {{.*}} (0) to (128) step (64) {{.*}} (tensor<8x128x32x32xbf16>)
     // CHECK: tensor.extract_slice {{.*}} [8, 64, 32, 32] [1, 1, 1, 1]
     // CHECK: scf.for
     // CHECK: tensor.extract_slice {{.*}} [8, 8, 32, 32] [1, 1, 1, 1]
@@ -80,9 +80,9 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
     %1 = linalg.fill ins(%cst_0 : bf16) outs(%0 : tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
     // CHECK: scf.forall {{.*}} (2) {{.*}} (tensor<2x1x1x4096x4096xf32>)
     // CHECK: tensor.extract_slice {{.*}} [1, 1, 1, 4096, 4096] [1, 1, 1, 1, 1]
-    // CHECK: scf.forall {{.*}} (16) {{.*}} (tensor<4096x4096xf32>)
+    // CHECK: scf.forall {{.*}} (0) to (4096) step (256) {{.*}} (tensor<4096x4096xf32>)
     // CHECK: tensor.extract_slice {{.*}} [256, 4096] [1, 1]
-    // CHECK: scf.forall {{.*}} (2) {{.*}} (tensor<256x4096xf32>)
+    // CHECK: scf.forall {{.*}} (0) to (128) step (64) {{.*}} (tensor<256x4096xf32>)
     // CHECK: tensor.extract_slice {{.*}} [256, 2048] [1, 1]
     // CHECK: scf.for
     // CHECK: tensor.extract_slice {{.*}} [256, 256] [1, 1]
