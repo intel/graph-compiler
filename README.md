@@ -59,7 +59,7 @@ Notes:
  * `/PATH/TO/llvm-project/llvm-install` should be the install path of LLVM. If you installed LLVM elsewhere by `-DCMAKE_INSTALL_PREFIX` option when building LLVM, you need to change the path in `-DMLIR_DIR` accordingly.
  *  The cmake option `-DLLVM_EXTERNAL_LIT` is for the tests of this project. It requires the `lit` tool to be installed in the system. You can install it via `pip install lit`. If you don't need to run the tests of this repo, you can omit this option in the command line.
 
-More notes if GPU components are on (`-DGC_ENABLE_GPU=ON`):
+More notes if Intel® Extension for MLIR is on (`-DGC_ENABLE_IMEX=ON`):
  * make sure the OpenCL runtime is installed in your system. You can either
   install using OS-provided package (Ubuntu 22.04)
 ```sh
@@ -70,11 +70,11 @@ sudo apt install -y intel-opencl-icd opencl-c-headers
 
 Graph Compiler supports the following build-time options.
 
-| CMake Option               | Supported values (defaults in bold)    | Description                                                     |
-|:---------------------------|:---------------------------------------|:----------------------------------------------------------------|
-| GC_ENABLE_LEGACY           | **ON**, OFF                            | Controls building the legacy graph-compiler component           |
-| GC_ENABLE_TEST             | **ON**, OFF                            | Controls building the tests                                     |
-| GC_DEV_LINK_LLVM_DYLIB     | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer |
-| GC_ENABLE_BINDINGS_PYTHON  | **ON**, OFF                            | Controls building the Python API                                |
-| GC_ENABLE_GPU              | ON, **OFF**                            | Whether to enable the GPU components                            |
+| CMake Option              | Supported values (defaults in bold)    | Description                                                     |
+|:--------------------------|:---------------------------------------|:----------------------------------------------------------------|
+| GC_ENABLE_LEGACY          | **ON**, OFF                            | Controls building the legacy graph-compiler component           |
+| GC_ENABLE_TEST            | **ON**, OFF                            | Controls building the tests                                     |
+| GC_DEV_LINK_LLVM_DYLIB    | ON, **OFF**                            | Controls dynamic link LLVM/MLIR libraries, mainly for developer |
+| GC_ENABLE_BINDINGS_PYTHON | **ON**, OFF                            | Controls building the Python API                                |
+| GC_ENABLE_IMEX            | ON, **OFF**                            | Whether to enable the GPU components                            |
 

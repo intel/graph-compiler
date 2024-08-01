@@ -34,7 +34,7 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
 }
 #endif
 
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";
   let description = [{

@@ -1,9 +1,9 @@
-set(GC_ALL_LIBS 
+set(GC_ALL_LIBS
   ${GC_ONEDNN_DIALECT_LIB_NAME}
   GcPasses
   MLIRCPURuntimeTransforms)
 
-if(GC_ENABLE_GPU)
+if(GC_ENABLE_IMEX)
   list(APPEND GC_ALL_LIBS GcGpuPasses)
 endif()
 
