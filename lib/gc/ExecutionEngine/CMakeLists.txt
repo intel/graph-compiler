@@ -1,2 +1,5 @@
 add_subdirectory(CPURuntime)
 add_subdirectory(Driver)
+if(GC_USE_GPU)
+    add_subdirectory(OpenCLRuntime)
+endif()

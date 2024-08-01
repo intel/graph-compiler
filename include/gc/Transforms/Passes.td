@@ -43,6 +43,7 @@ def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime"> {
   ];
 }
 
+#ifdef GC_USE_GPU
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";
   let description = [{
@@ -67,5 +68,6 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
                "DPAS register block sizes MxNxK">,
   ];
 }
+#endif
 
 #endif // GC_DIALECT_GC_PASSES
