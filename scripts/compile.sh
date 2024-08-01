@@ -2,6 +2,8 @@
 
 repo=intel/graph-compiler
 
+set -e
+
 # Uncomment for script debug
 # set -x
 
@@ -50,14 +52,12 @@ LLVM_HASH=$(cat cmake/llvm-version.txt)
 load_llvm() {
     local run_id
 
-    run_id=$(gh run list -w "LLVM Build" --repo $repo --json databaseId --jq '.[0].databaseId')
-
     gh run download "$run_id" \
         --repo "$repo" \
-        --pattern "llvm-$LLVM_HASH" \
+        -n "llvm-$LLVM_HASH" \
         --dir "$llvm_dir"
     cd "$llvm_dir"
-    tar -zxf "llvm-$LLVM_HASH"/llvm.tgz
+    tar -zxf llvm.tgz
 
     MLIR_DIR="$PWD/lib/cmake/mlir"
     cd "$PROJECT_DIR"
@@ -84,6 +84,7 @@ build_llvm() {
         -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
         -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir"\
         -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true \
+        -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLLVM_INSTALL_GTEST=ON \
         -DLLVM_BUILD_LLVM_DYLIB=$dylib -DLLVM_LINK_LLVM_DYLIB=$dylib
     cmake --build build

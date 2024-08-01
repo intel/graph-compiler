@@ -1,10 +1,16 @@
+set(GC_ALL_LIBS 
+  MLIROneDNNGraph
+  MLIRCPURuntimeDialect
+  GCPasses
+  MLIRCPURuntimeTransforms)
+
+if(GC_USE_GPU)
+  list(APPEND GC_ALL_LIBS GCGPUPasses)
+endif()
+
 add_mlir_public_c_api_library(GcCAPI
   Dialects.cpp
   Passes.cpp
   LINK_LIBS PUBLIC
-  MLIROneDNNGraph
-  MLIRCPURuntimeDialect
-  GCPasses
-  GCGPUPasses
-  MLIRCPURuntimeTransforms
+  ${GC_ALL_LIBS}
 )
