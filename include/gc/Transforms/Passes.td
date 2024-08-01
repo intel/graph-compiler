@@ -11,6 +11,18 @@
 
 include "mlir/Pass/PassBase.td"
 
+def SplitComputeIntensivePatterns : Pass<"split-compute-intensive-patterns"> {
+  let summary = "Split matmul patterns";
+  let description = [{
+    Split matmul patterns' weights into several parts, number of which aligns
+    with the number of target machine's numa node.
+  }];
+  let dependentDialects = [
+    "mlir::linalg::LinalgDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::arith::ArithDialect"];
+}
+
 def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   let summary =
       "Lower the operations from the oneDNN Graph dialect into Linalg";

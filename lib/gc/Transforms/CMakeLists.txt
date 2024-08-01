@@ -14,6 +14,7 @@ add_mlir_library(GCPasses
   Tiling.cpp
   AnyTilableFusion.cpp
   TilingUsingInterfaceX.cpp
+  SplitComputeIntensivePatterns.cpp
 
   ADDITIONAL_HEADER_DIRS
     ${PROJECT_SOURCE_DIR}/include
