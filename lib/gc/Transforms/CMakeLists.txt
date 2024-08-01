@@ -15,6 +15,9 @@ gc_add_mlir_library(GcPasses
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
+  PropagateLayout.cpp
+  PostProcessPackUnpack.cpp
+  LowerPackUnpack.cpp
   DeepTileContractionNamedOp.cpp
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp

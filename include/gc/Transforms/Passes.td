@@ -106,4 +106,38 @@ def MergeNestedForall : Pass<"merge-nested-forall"> {
   let dependentDialects = ["scf::SCFDialect"];
 }
 
+def PropagateLayoutOnNamedOps : Pass<"propagate-layout-on-named-ops"> {
+  let summary = "Insert and propagte tensor.pack to pack the computation of linalg named ops and tensor ops.";
+  let description = [{
+    Insert and propagte tensor.pack on linalg named ops and tensor ops.
+  }];
+  let dependentDialects = [
+      "mlir::tensor::TensorDialect",
+      "mlir::linalg::LinalgDialect",
+      "mlir::linalgx::LinalgxDialect"
+      ];
+}
+
+def PostProcessPackUnpack : Pass<"post-process-pack-unpack"> {
+  let summary = "Fold and simplify pack and unpack ops.";
+  let description = [{
+    Fold and simplify pack and unpack ops.
+  }];
+  let dependentDialects = [
+      "mlir::tensor::TensorDialect",
+      "mlir::linalg::LinalgDialect"
+      ];
+}
+
+def LowerPackUnpack : Pass<"lower-pack-unpack"> {
+  let summary = "Lower pack and unpack ops.";
+  let description = [{
+    Lower pack and unpack into transpose and shape related ops.
+  }];
+  let dependentDialects = [
+      "mlir::tensor::TensorDialect",
+      "mlir::linalg::LinalgDialect"
+      ];
+}
+
 #endif // GC_DIALECT_GC_PASSES
