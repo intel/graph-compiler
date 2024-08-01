@@ -26,6 +26,9 @@ set(GC_OPT_TEST_DEPENDS
 if(GC_USE_GPU)
         include(imex)
         list(APPEND GC_OPT_TEST_DEPENDS mlir_opencl_runtime)
+        if (IMEX_ENABLE_L0_RUNTIME)
+                list(APPEND GC_OPT_TEST_DEPENDS level-zero-runtime)
+        endif()
 endif()
 
 if(GC_ENABLE_BINDINGS_PYTHON)

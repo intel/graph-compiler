@@ -7,7 +7,7 @@ if (NOT DEFINED IMEX_INCLUDES)
     # TODO: Change to main https://github.com/oneapi-src/oneDNN.git when all the
     # required functionality is merged.
     gc_fetch_content(imex 496b240093b5e132b60c5ee69878300fe69be300 https://github.com/Menooker/mlir-extensions
-            CMAKE_ARGS "-DMLIR_DIR=${MLIR_DIR};-DIMEX_CHECK_LLVM_VERSION=ON"
+            CMAKE_ARGS "-DMLIR_DIR=${MLIR_DIR};-DIMEX_CHECK_LLVM_VERSION=ON;-DIMEX_ENABLE_L0_RUNTIME=${IMEX_ENABLE_L0_RUNTIME}"
     )
 
     set(IMEX_INCLUDES
