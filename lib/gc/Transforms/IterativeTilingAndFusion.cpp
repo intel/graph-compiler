@@ -41,9 +41,8 @@ static FailureOr<tensor::ExtractSliceOp>
 getClosestExtractSliceOfOperand(OpOperand &operand) {
   if (auto iterArg = dyn_cast<BlockArgument>(operand.get())) {
     if (auto loop =
-            dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp())) {
+            dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp()))
       return getClosestExtractSliceOfOperand(*loop.getTiedLoopInit(iterArg));
-    }
   }
 
   Operation *defineOp = operand.get().getDefiningOp();
@@ -69,10 +68,9 @@ getClosestInsertSliceOfResult(OpResult result) {
       sliceOp =
           dyn_cast<OffsetSizeAndStrideOpInterface>(useOfResult.getOwner());
     } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOfResult.getOwner())) {
-      if (auto loop = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp())) {
+      if (auto loop = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp()))
         return getClosestInsertSliceOfResult(
             loop->getResult(useOfResult.getOperandNumber()));
-      }
     }
   }
 
@@ -138,9 +136,8 @@ noTilingOnReductionFilter(RewriterBase &rewriter,
               presburger::BoundType::UB, tileSizes[resultExpr.index()], nullptr,
               true);
       if (!cstIterDomain || failed(cstTileSizes) ||
-          cstIterDomain != cstTileSizes) {
+          cstIterDomain != cstTileSizes)
         return failure();
-      }
     }
   }
   return success();
@@ -246,9 +243,8 @@ SingleCandidateInBlockFilter(RewriterBase &rewriter,
             scfX::getRealProducerOfExtractSliceOp(otherCandidate,
                                                   backwardSlice);
         if (succeeded(realProducer) &&
-            realProducer->getDefiningOp() == defOrUse.ownerOp) {
+            realProducer->getDefiningOp() == defOrUse.ownerOp)
           return failure();
-        }
       } else {
         SmallVector<OffsetSizeAndStrideOpInterface> forwardSlice;
         FailureOr<SmallVector<OpOperand *>> realConsumers =
@@ -257,9 +253,8 @@ SingleCandidateInBlockFilter(RewriterBase &rewriter,
         if (succeeded(realConsumers) &&
             llvm::any_of(*realConsumers, [&defOrUse](OpOperand *use) {
               return use->getOwner() == defOrUse.ownerOp;
-            })) {
+            }))
           return failure();
-        }
       }
     }
   }
@@ -338,9 +333,8 @@ static int TilingSizeComparer(RewriterBase &rewriter,
                          computeTileSizeProductOfCandidate(candidateA),
                      sizeProductB =
                          computeTileSizeProductOfCandidate(candidateB);
-  if (failed(sizeProductA) || failed(sizeProductB)) {
+  if (failed(sizeProductA) || failed(sizeProductB))
     return 0;
-  }
   // deal with equality
   if (*sizeProductA == *sizeProductB) {
     return 0;
@@ -401,17 +395,17 @@ tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
   // a. Find the closest sliceOp
   FailureOr<tensor::ExtractSliceOp> closestSliceOp =
       getClosestExtractSliceOfOperand(operand);
-  if (failed(closestSliceOp)) {
+  if (failed(closestSliceOp))
     return std::nullopt;
-  }
+
   // b. Find the real producer and collect the sliceOp chain during backward
   // stage, sorted from inner to outer.
   SmallVector<tensor::ExtractSliceOp> backwardSlice;
   FailureOr<OpResult> realProducer =
       scfX::getRealProducerOfExtractSliceOp(*closestSliceOp, backwardSlice);
-  if (failed(realProducer)) {
+  if (failed(realProducer))
     return std::nullopt;
-  }
+
   // c. Check the producer of root source if is tilable.
   Operation *producer = realProducer->getDefiningOp<TilingInterface>();
   if (!producer)
@@ -451,17 +445,16 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
   // a. Find the closest sliceOp
   FailureOr<tensor::ExtractSliceOp> closestSliceOp =
       getClosestInsertSliceOfResult(result);
-  if (failed(closestSliceOp)) {
+  if (failed(closestSliceOp))
     return std::nullopt;
-  }
+
   // b. Find the real consumers and collect the sliceOp chain during forward
   // stage, sorted from inner to outer.
   SmallVector<OffsetSizeAndStrideOpInterface> forwardSlice;
   FailureOr<SmallVector<OpOperand *>> realConsumers =
       scfX::getRealConsumersFromInsertSliceOp(*closestSliceOp, forwardSlice);
-  if (failed(realConsumers)) {
+  if (failed(realConsumers))
     return std::nullopt;
-  }
 
   SmallVector<scf::SCFFuseConsumerOfSliceResult> fusedResultList;
   for (auto useOperand : *realConsumers) {
@@ -543,18 +536,16 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
     // fuse producer
     for (OpOperand &operand : tiledOp->getOpOperands()) {
       if (std::optional<scf::SCFFuseProducerOfSliceResult> fuseProducerResult =
-              tileAndFuseProducerOfOpOperand(rewriter, operand, options)) {
+              tileAndFuseProducerOfOpOperand(rewriter, operand, options))
         tiledOpList.push_back(fuseProducerResult.value().tiledOps[0]);
-      }
     }
     // fuse consumer(s)
     for (OpResult result : tiledOp->getResults()) {
       if (std::optional<SmallVector<scf::SCFFuseConsumerOfSliceResult>>
               fuseConsumerResults =
                   tileAndFuseConsumerOfOpResult(rewriter, result, options)) {
-        for (auto &fuseConsumerResult : *fuseConsumerResults) {
+        for (auto &fuseConsumerResult : *fuseConsumerResults)
           tiledOpList.push_back(fuseConsumerResult.tiledOps[0]);
-        }
       }
     }
   }
@@ -573,14 +564,12 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
 /// }
 static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
   // 0. check tilable
-  if (!isa<TilingInterface>(targetOp)) {
+  if (!isa<TilingInterface>(targetOp))
     return failure();
-  }
   // 1. check parentOp
   auto forOp = targetOp->getParentOfType<LoopLikeOpInterface>();
-  if (!forOp) {
+  if (!forOp)
     return failure();
-  }
   // 2. check single one tiling interface in loop body
   auto walkResult = forOp->walk([&targetOp](TilingInterface op) {
     // some special op maybe already deal with in template
@@ -588,15 +577,13 @@ static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
       return WalkResult::skip();
     return op != targetOp ? WalkResult::interrupt() : WalkResult::advance();
   });
-  if (walkResult.wasInterrupted()) {
+  if (walkResult.wasInterrupted())
     return failure();
-  }
   // 3. check whether has either extract or insert slice op
   walkResult = forOp->walk(
       [](tensor::ExtractSliceOp) { return WalkResult::interrupt(); });
-  if (walkResult.wasInterrupted()) {
+  if (walkResult.wasInterrupted())
     return success();
-  }
   walkResult = forOp->walk(
       [](tensor::InsertSliceOp) { return WalkResult::interrupt(); });
   return success(walkResult.wasInterrupted());
@@ -690,9 +677,8 @@ static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op,
       // word, all reduction dimensions should not be tiled.
       if (iterType == utils::IteratorType::parallel &&
           (en != iteratorTypes.size() - 1 ||
-           llvm::count(iteratorTypes, utils::IteratorType::reduction))) {
+           llvm::count(iteratorTypes, utils::IteratorType::reduction)))
         defaultTileSize[en] = rewriter.getIndexAttr(1);
-      }
     }
   }
   // If the tile sizes are all zero, no tiling would happen.
@@ -724,14 +710,13 @@ void iterativeTilingAndFusionUntilExhaustion(
     unTiledOps.clear();
     // Pre-order walk through funcOp
     f->walk<WalkOrder::PreOrder>([&unTiledOps](Operation *op) {
-      if (isa<LoopLikeOpInterface>(op)) {
+      if (isa<LoopLikeOpInterface>(op))
         return WalkResult::skip();
-      }
+
       if (isa<TilingInterface>(op) && !op->use_empty()) {
         auto parentLoop = op->getParentOfType<LoopLikeOpInterface>();
-        if (!parentLoop.getOperation()) {
+        if (!parentLoop.getOperation())
           unTiledOps.insert(op);
-        }
       }
       return WalkResult::advance();
     });
@@ -767,9 +752,8 @@ void iterativeTilingAndFusionUntilExhaustion(
         changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
             rewriter, tiledOp, sliceOptions));
       });
-      if (changed) {
+      if (changed)
         (void)mlir::simplifyRegions(rewriter, {f.getRegion()});
-      }
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
       // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
@@ -803,15 +787,15 @@ static OpTileSizeMap defaultTileSizeParser(ArrayRef<std::string> strArgs) {
   for (auto str : strArgs) {
     str.erase(llvm::remove_if(str, llvm::isSpace), str.end());
     size_t pos = str.find(":");
-    if (pos == std::string::npos) {
+    if (pos == std::string::npos)
       llvm_unreachable(warning);
-    }
+
     std::string opType = str.substr(0, pos);
     std::string strTileSize = str.erase(0, pos + 1);
     if (strTileSize.size() <= 2 || strTileSize.front() != '{' ||
-        strTileSize.back() != '}') {
+        strTileSize.back() != '}')
       llvm_unreachable(warning);
-    }
+
     strTileSize = strTileSize.substr(1, strTileSize.size() - 2);
     SmallVector<int64_t> intTileSize;
     while ((pos = strTileSize.find(",")) != std::string::npos) {

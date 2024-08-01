@@ -46,16 +46,18 @@ static std::tuple<OpResult, std::optional<OpOperand *>>
 getUntiledProducerFromSliceSource(OpOperand *source,
                                   ArrayRef<LoopLikeOpInterface> loops) {
   std::optional<OpOperand *> destinationIterArg;
-  auto loopIt = loops.rbegin();
-  while (auto iterArg = dyn_cast<BlockArgument>(source->get())) {
-    auto loop = *loopIt;
-    if (iterArg.getOwner()->getParentOp() != loop)
-      break;
-    source = loop.getTiedLoopInit(iterArg);
-    loopIt++;
+  if (!loops.empty()) {
+    auto loopIt = loops.rbegin();
+    while (auto iterArg = dyn_cast<BlockArgument>(source->get())) {
+      auto loop = *loopIt;
+      if (iterArg.getOwner()->getParentOp() != loop)
+        break;
+      source = loop.getTiedLoopInit(iterArg);
+      loopIt++;
+    }
+    if (loopIt == loops.rend())
+      destinationIterArg = source;
   }
-  if (loopIt == loops.rend())
-    destinationIterArg = source;
   return {dyn_cast<OpResult>(source->get()), destinationIterArg};
 }
 
@@ -190,8 +192,8 @@ tileAndFuseProducerOfSliceImpl(RewriterBase &rewriter,
 /// @return OpResult Producer : %0 = producer
 FailureOr<OpResult> mlir::scfX::getRealProducerOfExtractSliceOp(
     Operation *candidateSliceOp,
-    SmallVector<tensor::ExtractSliceOp> &backwardSlice, int curDepth,
-    int maxDepth) {
+    SmallVector<tensor::ExtractSliceOp> &backwardSlice, unsigned curDepth,
+    unsigned maxDepth) {
   if (!isa<tensor::ExtractSliceOp>(candidateSliceOp))
     return failure();
   // control recursive time in avoid of stack overflow
@@ -322,8 +324,8 @@ mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
 FailureOr<SmallVector<OpOperand *>>
 mlir::scfX::getRealConsumersFromInsertSliceOp(
     Operation *candidateSliceOp,
-    SmallVector<OffsetSizeAndStrideOpInterface> &forwardSlice, int curDepth,
-    int maxDepth) {
+    SmallVector<OffsetSizeAndStrideOpInterface> &forwardSlice,
+    unsigned curDepth, unsigned maxDepth) {
   if (!isa<tensor::InsertSliceOp, tensor::ParallelInsertSliceOp>(
           candidateSliceOp))
     return failure();
@@ -410,7 +412,8 @@ checkAssumptionForFusingConsumer(tensor::InsertSliceOp candidateSliceOp) {
 }
 
 /// Fetches the FIRST OpOperand of the tilable user (and use) of the value `val`
-/// which implements `TilingInterface` and `DestinationStyleOpInterface`.
+/// within the same block, which implements `TilingInterface` and
+/// `DestinationStyleOpInterface` and has non-empty user list.
 /// Returns failure otherwise.
 static FailureOr<OpOperand *> getConsumerFromUses(Value val,
                                                   Block *containingOpBlock) {
@@ -458,9 +461,8 @@ static LogicalResult isForOpYieldResultOfInnerLoop(LoopLikeOpInterface loop) {
 }
 
 /// Fetch the untiled consumer of a scf.for's result which is yielded by a
-/// tensor.insert_slice. This function makes the following assumptions :
-/// 1.  tensor.insert_slice has scf.yield as its only user.
-/// 2.  scf.for's corresponding result has only one use.
+/// tensor.insert_slice. This function makes the following assumptions that
+/// tensor.insert_slice has scf.yield as its only user.
 static FailureOr<OpOperand *>
 getUntiledConsumerFromSlice(tensor::InsertSliceOp candidateSliceOp) {
   if (failed(checkAssumptionForFusingConsumer(candidateSliceOp)))
@@ -564,15 +566,14 @@ static LogicalResult checkAssumptionForLoop(Operation *loopOp,
     // `ParallelInsertSlice` located inside `InParallelOp` has no same parent
     // block with any other types of operation. Thus, just redirecting to its
     // parent `InParallelOp`.
-    if (isa<tensor::ParallelInsertSliceOp>(userOp)) {
+    if (isa<tensor::ParallelInsertSliceOp>(userOp))
       userOp = userOp->getParentOfType<scf::InParallelOp>();
-    }
-    if (parentBlock != userOp->getBlock()) {
+
+    if (parentBlock != userOp->getBlock())
       return failure();
-    }
-    if (userOp->isBeforeInBlock(firstUserOfLoop)) {
+
+    if (userOp->isBeforeInBlock(firstUserOfLoop))
       firstUserOfLoop = userOp;
-    }
   }
   // Find the last define of consumer
   for (Value operand : consumerOp->getOperands()) {
@@ -582,12 +583,10 @@ static LogicalResult checkAssumptionForLoop(Operation *loopOp,
     auto defineOp = operand.getDefiningOp();
     if (defineOp == loopOp)
       continue;
-    if (!defineOp || parentBlock != defineOp->getBlock()) {
+    if (!defineOp || parentBlock != defineOp->getBlock())
       return failure();
-    }
-    if (lastDefOfConsumer->isBeforeInBlock(defineOp)) {
+    if (lastDefOfConsumer->isBeforeInBlock(defineOp))
       lastDefOfConsumer = defineOp;
-    }
   }
   if (firstUserOfLoop->isBeforeInBlock(lastDefOfConsumer)) {
     // Try to move if possible
