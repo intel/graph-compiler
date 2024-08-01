@@ -62,8 +62,8 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 
   brgemm_desc_t &desc = brgemm_desc_list.back();
   auto &kernel = brgemm_kernel_list.back();
- 
-  auto dnnl_dtypeA = static_cast<dnnl_data_type_t>(dtypeA); 
+
+  auto dnnl_dtypeA = static_cast<dnnl_data_type_t>(dtypeA);
   auto dnnl_dtypeB = static_cast<dnnl_data_type_t>(dtypeB);
   int64_t dtypeA_size = dnnl::impl::types::data_type_size(dnnl_dtypeA);
   int64_t dtypeB_size = dnnl::impl::types::data_type_size(dnnl_dtypeB);

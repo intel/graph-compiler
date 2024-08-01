@@ -90,7 +90,7 @@ static int naive_brgemm_execute_fp32(brgemm_params_t params, void *A,
     Abuf += params.stride_a;
     Bbuf += params.stride_b;
   }
-  
+
   return 0;
 }
 
