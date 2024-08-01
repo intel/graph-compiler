@@ -35,8 +35,11 @@ def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
 
   let summary = "CPURuntime memory allocation operation in a stack way.";
   let description = [{
-    The `cpuruntime.alloc` operation allocates a region of memory on the CPU. It is
-    similar to the `std.alloc` op.
+    The `cpuruntime.alloc` operation allocates a region of memory on the CPU. Unlike the memref.alloc operation,
+    which is more general-purpose, cpuruntime.alloc must adhere to a First-In-Last-Out (FILO) order, similar to a
+    stack's behavior. This means that memory must be freed in the reverse order of allocation. Additionally,
+    `thread_local` is a performance hint, indicating that the allocated memory is intended for use by a single
+    thread within a parallel context to avoid synchronization overhead.
 
     Example:
 
@@ -51,7 +54,7 @@ def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
     %memref = cpuruntime.alloc [%symbol_value] (%width) : memref<64x?xf32, affine_map<(d0, d1)[s0] -> (d0 + s0, d1)>
 
     // For thread local alloc
-    %memref = cpuruntime.alloc threadLocal () : memref<64x32xf32>
+    %memref = cpuruntime.alloc thread_local () : memref<64x32xf32>
     ```
   }];
 
@@ -59,7 +62,7 @@ def CPURuntime_AllocOp : CPURuntime_Op<"alloc", [
   let results = (outs Res<AnyMemRef, "", [MemAlloc<DefaultResource, 0, FullEffect>]>:$memref);
 
   let assemblyFormat = [{
-    (`threadLocal` $threadLocal^)? `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
+    (`thread_local` $threadLocal^)? `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
   }];
 }
 
@@ -72,13 +75,13 @@ def CPURuntime_DeallocOp : CPURuntime_Op<"dealloc", [
   let description = [{
     The `cpuruntime.dealloc` operation frees the region of memory referenced by a
     memref which was originally created by the `cpuruntime.alloc` operation.
-    It is similar to the `std.dealloc` op.
+    It is similar to the `memref.dealloc` op.
   }];
 
-  let arguments = (ins Arg<AnyMemRef, "", [MemFree]>:$memref);
+  let arguments = (ins Arg<AnyMemRef, "", [MemFree]>:$memref, UnitAttr:$threadLocal);
 
 
-  let assemblyFormat = [{ $memref attr-dict `:` type($memref) }];
+  let assemblyFormat = [{ (`thread_local` $threadLocal^)? $memref attr-dict `:` type($memref) }];
 }
 
 #endif // CPURUNTIME_OPS

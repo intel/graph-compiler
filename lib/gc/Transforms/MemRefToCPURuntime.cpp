@@ -66,19 +66,14 @@ struct AlignedDeallocLowering : public OpRewritePattern<memref::DeallocOp> {
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     Value memref = op.getMemref();
-    rewriter.create<cpuruntime::DeallocOp>(loc, memref);
+    cpuruntime::DeallocOp newDeallocOp =
+        rewriter.create<cpuruntime::DeallocOp>(loc, memref);
+    if (hasParallelParent(op))
+      newDeallocOp.setThreadLocal(true);
     rewriter.eraseOp(op);
     return success();
   }
 };
-
-/// Given a memref value, return the "base" value by skipping over all
-/// ViewLikeOpInterface ops (if any) in the reverse use-def chain.
-static Value getViewBase(Value value) {
-  while (auto viewLikeOp = value.getDefiningOp<ViewLikeOpInterface>())
-    value = viewLikeOp.getViewSource();
-  return value;
-}
 
 struct ConvertMemRefToCPURuntime
     : public impl::ConvertMemRefToCPURuntimeBase<ConvertMemRefToCPURuntime> {
@@ -96,8 +91,7 @@ struct ConvertMemRefToCPURuntime
         if (op->hasTrait<OpTrait::ReturnLike>()) {
           for (Value operand : op->getOperands()) {
             if (isa<MemRefType>(operand.getType())) {
-              Value v = getViewBase(operand);
-              auto aliases = analysis.resolveReverse(v);
+              auto aliases = analysis.resolveReverse(operand);
               // Check if any of the returned memref is allocated within scope.
               for (auto &&alias : aliases) {
                 if (Operation *allocOp =
