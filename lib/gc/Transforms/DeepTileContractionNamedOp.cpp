@@ -168,10 +168,11 @@ static FailureOr<DtypeLegalizeResult>
 matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
                     bool needCopyInit = true, bool needFurtherFuse = false) {
   linalg::LinalgOp linalgOp = dyn_cast<linalg::LinalgOp>(op);
-  Location loc = linalgOp->getLoc();
-  DtypeLegalizeResult result;
   if (!linalgOp)
     return failure();
+
+  Location loc = linalgOp->getLoc();
+  DtypeLegalizeResult result;
 
   if (needToLegalizeDtype(linalgOp)) {
     rewriter.setInsertionPoint(linalgOp);
@@ -449,15 +450,15 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
           }
         }
       } else {
-        TilingInterface tilingInterface =
-            cast<TilingInterface>(currentOp.getOperation());
-        FailureOr<linalg::ForallTilingResult> tilingResult =
-            linalg::tileToForallOpUsingTileSizes(b, tilingInterface, tileSizes,
-                                                 std::nullopt);
+        scf::SCFTilingOptions tileOption;
+        tileOption.setTileSizes(tileSizes);
+        tileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
+        FailureOr<scf::SCFTilingResult> tilingResult = scf::tileUsingSCF(
+            b, cast<TilingInterface>(currentOp.getOperation()), tileOption);
         if (failed(tilingResult))
           return failure();
-        b.replaceOp(currentOp, tilingResult->tileOp);
-        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOp);
+        b.replaceOp(currentOp, tilingResult->replacements);
+        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
       }
     }
   }
@@ -499,8 +500,8 @@ NOuterBlock: (PN + 1) * NOuterBlock] CSlice2 = CSlice[PK, PM * MOuterBlock: (PM
     for([om, on, ok]: [MNumBlock, NNumBlock, KNumBlock]) {
       ASlice2 = ASlice[om * MBlock: (om + 1) * MBlock, ok * KBlock: (ok + 1) *
 KBlock]
-      BSlice2 = BSlice[0, om * MBlock: (om + 1) * MBlock, ok * KBlock: (ok +
-1) * KBlock]
+      BSlice2 = BSlice[0, ok * KBlock: (ok + 1) * KBlock, on * NBlock: (on +
+1) * NBlock]
       CSlice3 = CSlice2[0, om * MBlock: (om + 1) * MBlock, on * NBlock:
 (on + 1) * NBlock] (init with 0 when ok == 0)
       MNumInnerBlock = MBlock / iim_block_
@@ -539,11 +540,13 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     size_t NFirstDim = *getConstantIntValue(loopRange[NDimPos[0]].size);
 
     size_t KParallelBlockSize =
-        KDimPos.size() > 1
-            ? llvm::divideCeil(KFirstDim, cfg.KThreads)
-            : llvm::divideCeil(llvm::divideCeil(KFirstDim, cfg.KBlock),
-                               cfg.KThreads) *
-                  cfg.KBlock;
+        cfg.KThreads == 1
+            ? 0
+            : (KDimPos.size() > 1
+                   ? llvm::divideCeil(KFirstDim, cfg.KThreads)
+                   : llvm::divideCeil(llvm::divideCeil(KFirstDim, cfg.KBlock),
+                                      cfg.KThreads) *
+                         cfg.KBlock);
     size_t MParallelBlockSize =
         MDimPos.size() > 1
             ? llvm::divideCeil(MFirstDim, cfg.MThreads)
