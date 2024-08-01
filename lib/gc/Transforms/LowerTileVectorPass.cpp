@@ -51,6 +51,10 @@ namespace {
       linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
       linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp
 
+#define SUPPORT_TENSOR_OP                                                      \
+  tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::BitcastOp,           \
+      tensor::ConcatOp
+
 bool is_innermost_ir(Operation *op) {
   bool inner_most = true;
   op->walk([&inner_most](Operation *p) {
@@ -429,10 +433,7 @@ LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op) {
 }
 
 bool is_required_tensorOp(Operation *operation) {
-  return llvm::isa<tensor::ExpandShapeOp>(operation) ||
-         llvm::isa<tensor::CollapseShapeOp>(operation) ||
-         llvm::isa<tensor::BitcastOp>(operation) ||
-         llvm::isa<tensor::ConcatOp>(operation);
+  return isa<SUPPORT_TENSOR_OP>(operation);
 }
 
 template <class T = linalg::LinalgOp>
@@ -526,12 +527,16 @@ struct LowerTileVectorPass
     //
     auto *ctx = &getContext();
     RewritePatternSet patterns(ctx);
+    auto funcOp = getOperation();
 
     tensor::ControlFoldFn defaultControlFn = [](OpOperand *fusedOperand) {
       Operation *producer = fusedOperand->get().getDefiningOp();
       return producer && producer->hasOneUse();
     };
+    // some operation convert as constant, this pattern can help us to improve
+    // the performance
     tensor::populateRewriteAsConstantPatterns(patterns, defaultControlFn);
+    // remove unnessary operation
     tensor::populateReassociativeReshapeFoldingPatterns(patterns);
     tensor::populateFoldTensorSubsetOpPatterns(patterns);
     tensor::populateFoldTensorEmptyPatterns(patterns, true);
@@ -539,17 +544,16 @@ struct LowerTileVectorPass
     populateLowerToTileVectorPatterns(patterns);
     linalg::populatePadOpVectorizationPatterns(patterns);
 
+    // ensure read and write on last dimension
     vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
+    // remove unnessary broadcast operation
     vector::populateSinkVectorBroadcastPatterns(patterns);
     vector::TransferReadOp::getCanonicalizationPatterns(patterns, ctx);
     vector::TransferWriteOp::getCanonicalizationPatterns(patterns, ctx);
 
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
-    // clean up useless IR
-    auto curOp = getOperation();
-    IRRewriter reWriter(curOp);
-    DominanceInfo domInfo(curOp);
-    eliminateCommonSubExpressions(reWriter, domInfo, curOp);
+    GreedyRewriteConfig config;
+    config.strictMode = GreedyRewriteStrictness::ExistingOps;
+    (void)applyPatternsAndFoldGreedily(funcOp, std::move(patterns), config);
   }
 };
 } // namespace
