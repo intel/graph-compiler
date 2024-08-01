@@ -37,6 +37,9 @@ set(gc_opt_libs
 
 if(GC_USE_GPU)
   add_definitions(-DGC_USE_GPU=1)
+  if (IMEX_ENABLE_L0_RUNTIME)
+    add_definitions(-DIMEX_ENABLE_L0_RUNTIME=1)
+  endif()
   get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
   include_directories(${IMEX_INCLUDES})
   list(APPEND gc_opt_libs IMEXGPUXDialect IMEXXeTileDialect IMEXRegionDialect IMEXRegionTransforms

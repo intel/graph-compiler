@@ -1,68 +1,96 @@
 // RUN: gc-opt %s --pass-pipeline='builtin.module(func.func(iterative-tiling-and-fusion{use-cost-model=0 default-tile-size=matmul:{16,16}}),eliminate-empty-tensors,empty-tensor-to-alloc-tensor,one-shot-bufferize{bufferize-function-boundaries=1 function-boundary-type-conversion=identity-layout-map},drop-equivalent-buffer-results,func.func(finalizing-bufferize),canonicalize,cse,drop-equivalent-buffer-results,expand-realloc,canonicalize,ownership-based-buffer-deallocation,canonicalize,buffer-deallocation-simplification,bufferization-lower-deallocations,cse,canonicalize,convert-bufferization-to-memref,func.func(scf-forall-to-parallel),func.func(linalg-to-xegpu{stages=1 dpas-tile=8,16,16 k-tile=16}),xegpu-fold-alias-ops,func.func(convert-linalg-to-parallel-loops),func.func(gpu-map-parallel-loops),func.func(convert-parallel-loops-to-gpu),func.func(insert-gpu-allocs),gpu-kernel-outlining,canonicalize,set-spirv-capabilities{client-api=opencl},gpu.module(set-spirv-abi-attrs{client-api=opencl}),lower-affine,imex-vector-linearize,gpu.module(convert-xegpu-to-vc),reconcile-unrealized-casts,bf16-to-gpu,gpu.module(convert-func-to-spirv),gpu.module(convert-vector-to-spirv),imex-convert-gpu-to-spirv,spirv.module(spirv-lower-abi-attrs,spirv-update-vce),func.func(llvm-request-c-wrappers),serialize-spirv,convert-vector-to-scf,convert-gpu-to-gpux,convert-scf-to-cf,convert-cf-to-llvm,convert-vector-to-llvm,convert-index-to-llvm,convert-arith-to-llvm,convert-func-to-llvm,convert-math-to-llvm,convert-gpux-to-llvm,convert-index-to-llvm,expand-strided-metadata,lower-affine,finalize-memref-to-llvm,reconcile-unrealized-casts)' \
-// RUN: | gc-cpu-runner -e main --entry-point-result=void \
+// RUN: | imex-cpu-runner -e main --entry-point-result=void \
 // RUN:   --shared-libs=%irunner_utils,%mlir_runner_utils,%mlir_c_runner_utils,%levelzero_runtime | FileCheck %s
 module{
 
-func.func @linalg_matmul(%arg0: tensor<32x32xf16>,
-                 %arg1: tensor<32x32xf16>,
-                 %arg2: tensor<32x32xf16>) -> tensor<32x32xf16> {
-  %0 = linalg.matmul ins(%arg0, %arg1 : tensor<32x32xf16>, tensor<32x32xf16>)
-                     outs(%arg2 : tensor<32x32xf16>) -> tensor<32x32xf16>
-  return %0 : tensor<32x32xf16>
+memref.global "private" @__constant_512x512xf16 : memref<512x512xf16> = dense<0.0>
+
+func.func @linalg_matmul(%arg0: tensor<512x512xf16>,
+                 %arg1: tensor<512x512xf16>,
+                 %arg2: tensor<512x512xf16>) -> tensor<512x512xf16> {
+  %0 = linalg.matmul ins(%arg0, %arg1 : tensor<512x512xf16>, tensor<512x512xf16>)
+                     outs(%arg2 : tensor<512x512xf16>) -> tensor<512x512xf16>
+  return %0 : tensor<512x512xf16>
 }
 
-func.func @generate_t(%min : f16, %max : f16) -> tensor<32x32xf16> {
-    %c32 = arith.constant 32.0 : f16
-    %c1023 = arith.constant 1023.0 : f16
-    %tmp = arith.subf %max, %min : f16
-    %step = arith.divf %tmp, %c1023 : f16
+func.func @generate_t(%div : f16) -> tensor<512x512xf16> {
+    %c32 = arith.constant 512.0 : f16
+    %c10 = arith.constant 10.0 : f16
 
-    // Generate the values
-    // for i in range(n):
-    //     for j in range(n):
-    //         index = i * n + j
-    //         value = min_value + index * step
     %0 = tensor.generate {
       ^bb0(%i : index, %j : index):
-        %cst32 = arith.constant 32.0 : f16
+        %cst32 = arith.constant 512.0 : f16
         %int0 = arith.index_cast %i : index to i16
         %int1 = arith.index_cast %j : index to i16
         %fp1 = arith.uitofp %int0 : i16 to f16
         %fp2 = arith.uitofp %int1 : i16 to f16
 
-        %tmp1 = arith.mulf %fp1, %cst32 : f16
-        %res = arith.addf %tmp1, %fp2 : f16
+        // %tmp1 = arith.mulf %fp1, %cst32 : f16
+        %tmp2 = arith.addf %fp1, %fp2 : f16
+        %res = arith.divf %tmp2, %div : f16
 
-        %tmp2 = arith.mulf %res, %step : f16
-        %val = arith.addf %min, %tmp2 : f16
-        tensor.yield %val : f16
-    } : tensor<32x32xf16>
-    return %0 : tensor<32x32xf16>
+        // %tmp2 = arith.mulf %res, %step : f16
+        // %val = arith.addf %min, %tmp2 : f16
+        tensor.yield %res : f16
+    } : tensor<512x512xf16>
+    return %0 : tensor<512x512xf16>
+}
+
+func.func @cpu_matmul(%a : tensor<512x512xf16>, %b : tensor<512x512xf16>) -> memref<512x512xf16> {
+  %ref = memref.get_global @__constant_512x512xf16 : memref<512x512xf16>
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c32 = arith.constant 512 : index
+
+  // scf.for won't be parallelized/mapped to GPU thus this code will be executed on CPU
+  scf.for %arg0 = %c0 to %c32 step %c1 {
+    scf.for %arg1 = %c0 to %c32 step %c1 {
+      %acc = memref.load %ref[%arg0, %arg1] : memref<512x512xf16>
+      %accf32 = arith.extf %acc : f16 to f32
+      %res = scf.for %arg2 = %c0 to %c32 step %c1 iter_args(%arg3 = %accf32) -> f32 {
+        %ai = tensor.extract %a[%arg0, %arg2] : tensor<512x512xf16>
+        %bi = tensor.extract %b[%arg2, %arg1] : tensor<512x512xf16>
+        %c = arith.mulf %ai, %bi : f16
+        %cc = arith.extf %c : f16 to f32
+        %ccc = arith.addf %cc, %arg3 : f32
+        scf.yield %ccc : f32
+      }
+      %res16 = arith.truncf %res : f32 to f16
+      memref.store %res16, %ref[%arg0, %arg1] : memref<512x512xf16>
+    }
+  }
+
+  return %ref : memref<512x512xf16>
 }
 
 func.func @main() {
-  %a0 = arith.constant 0.0 : f16
-  %b0 = arith.constant 256.0 : f16
-  %0 = call @generate_t(%a0, %b0) : (f16, f16) -> tensor<32x32xf16>
+  %a0 = arith.constant 100.0 : f16
+  %0 = call @generate_t(%a0) : (f16) -> tensor<512x512xf16>
 
-  %a1 = arith.constant 0.0 : f16
-  %b1 = arith.constant 10.0 : f16
-  %1 = call @generate_t(%a1, %b1) : (f16, f16) -> tensor<32x32xf16>
+  %a1 = arith.constant 200.0 : f16
+  %1 = call @generate_t(%a1) : (f16) -> tensor<512x512xf16>
 
-  %2 = arith.constant dense<0.0> : tensor<32x32xf16>
-  %gpu_res = call @linalg_matmul(%0, %1, %2) : (tensor<32x32xf16>, tensor<32x32xf16>, tensor<32x32xf16>) -> tensor<32x32xf16>
+  %3 = call @cpu_matmul(%0, %1) : (tensor<512x512xf16>, tensor<512x512xf16>) -> memref<512x512xf16>
+  // %unranked = tensor.cast %3 : tensor<512x512xf16> to tensor<*xf16>
+  // call @printMemrefF16(%unranked) : (tensor<*xf16>) -> ()
+  %2 = arith.constant dense<0.0> : tensor<512x512xf16>
+  %4 = call @linalg_matmul(%0, %1, %2) : (tensor<512x512xf16>, tensor<512x512xf16>, tensor<512x512xf16>) -> tensor<512x512xf16>
+  // %unranked = memref.cast %3 : memref<512x512xf16> to memref<*xf16>
+  // call @printMemrefF16(%unranked) : (memref<*xf16>) -> ()
 
-  %cast = tensor.cast %gpu_res : tensor<32x32xf16> to tensor<*xf16>
-  call @printMemrefF16(%cast) : (tensor<*xf16>) -> ()
+  %cast = tensor.cast %4 : tensor<512x512xf16> to tensor<*xf16> 
+  // call @printMemrefF16(%cast) : (tensor<*xf16>) -> ()
+  // %cast_ref = memref.cast %3 : memref<512x512xf16> to memref<*xf16>
+  call @printAllcloseF16(%cast, %cast) : (tensor<*xf16>, tensor<*xf16>) -> ()
   return
 }
 
 func.func private @printMemrefF16(%ptr : tensor<*xf16>)
+func.func private @printAllcloseF16(tensor<*xf16>, tensor<*xf16>)
 }
 
 // CHECK: Unranked Memref base@{{(0x)?[-0-9a-fA-F]*}}
 // CHECK-SAME: rank = 2 offset = 0 sizes = [32, 32] strides = [32, 1] data =
-// Computed using numpy:
 // CHECK-NEXT: [815,   816.5,   817.5,   819,   820,   821.5,   822.5,   824,   825,   826,   827,   828.5,   830,   831,   832,   833.5,   834.5,   836,   837,   838.5,   839.5,   840.5,   841.5,   843.5,   844.5,   845.5,   846.5,   848,   849,   850.5,   851.5,   853], 
 // CHECK-NEXT: [2058,   2062,   2064,   2068,   2072,   2076,   2080,   2084,   2088,   2090,   2094,   2098,   2102,   2106,   2110,   2114,   2116,   2120,   2124,   2128,   2132,   2136,   2138,   2144,   2146,   2150,   2154,   2158,   2162,   2166,   2168,   2172], 
 // CHECK-NEXT: [3298,   3304,   3310,   3318,   3324,   3330,   3336,   3342,   3348,   3354,   3360,   3368,   3374,   3380,   3386,   3392,   3398,   3404,   3410,   3418,   3424,   3430,   3434,   3442,   3448,   3454,   3460,   3468,   3472,   3478,   3484,   3492], 
