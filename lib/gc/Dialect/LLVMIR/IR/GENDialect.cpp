@@ -34,10 +34,13 @@ LogicalResult GENDialect::verifyOperationAttribute(Operation *op,
 }
 
 void GENDialect::initialize() {
+  // clang-tidy is confused by the registration mechanism
+  // NOLINTBEGIN
   addAttributes<
 #define GET_ATTRDEF_LIST
 #include "gc/Dialect/LLVMIR/GenOpsAttributes.cpp.inc"
       >();
+  // NOLINTEND
 
   allowUnknownOperations();
   declarePromisedInterface<gpu::TargetAttrInterface, GenTargetAttr>();
