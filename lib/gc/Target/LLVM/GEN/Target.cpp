@@ -196,8 +196,8 @@ GenSerializer::moduleToObject(llvm::Module &llvmModule) {
     getOperation().emitError() << "Failed translating the module to Binary.";
     return std::nullopt;
   }
-
-  return compileToBinary(*serializedSPIRVBinary);
+  auto& spvStr = *serializedSPIRVBinary;
+  return SmallVector<char, 0>{spvStr.begin(), spvStr.end()};
 }
 
 std::optional<SmallVector<char, 0>>

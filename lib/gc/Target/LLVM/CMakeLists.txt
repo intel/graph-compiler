@@ -14,4 +14,5 @@ add_mlir_dialect_library(MLIRGENTarget
   MLIRGPUDialect
   MLIRTargetLLVM
   MLIRGENToLLVMIRTranslation
+  LLVMSPIRVCodeGen
   )

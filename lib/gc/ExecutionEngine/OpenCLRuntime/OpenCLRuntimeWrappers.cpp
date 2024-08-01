@@ -414,11 +414,13 @@ extern "C" OCL_RUNTIME_EXPORT void mgpuStreamDestroy(GPUCLQUEUE *queue) {
 
 extern "C" OCL_RUNTIME_EXPORT void *
 mgpuMemAlloc(uint64_t size, GPUCLQUEUE *queue, bool isShared) {
+  if(!queue) queue = getDefaultQueue();
   lastQueue = queue;
   return allocDeviceMemory(queue, size, /*alignment*/ 64, isShared);
 }
 
 extern "C" OCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, GPUCLQUEUE *queue) {
+  if(!queue) queue = getDefaultQueue();
   lastQueue = queue;
   if (ptr) {
     deallocDeviceMemory(queue, ptr);
@@ -431,12 +433,14 @@ extern "C" OCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, GPUCLQUEUE *queue) {
 // functions. This is ugly and error-prone. We might need another workaround.
 extern "C" OCL_RUNTIME_EXPORT cl_program mgpuModuleLoad(const void *data,
                                                         size_t gpuBlobSize) {
+  if(!lastQueue) lastQueue = getDefaultQueue();
   return loadModule(lastQueue, (const unsigned char *)data, gpuBlobSize, false);
 }
 
 extern "C" OCL_RUNTIME_EXPORT cl_kernel
 mgpuModuleGetFunction(cl_program module, const char *name) {
   // we need to push the kernel to lastQueue to avoid cl_kernel resource leak
+  if(!lastQueue) lastQueue = getDefaultQueue();
   return getKernel(lastQueue, module, name);
 }
 
@@ -449,6 +453,7 @@ mgpuLaunchKernel(cl_kernel kernel, size_t gridX, size_t gridY, size_t gridZ,
                  size_t blockX, size_t blockY, size_t blockZ,
                  size_t sharedMemBytes, GPUCLQUEUE *queue, void **params,
                  void ** /*extra*/, size_t paramsCount) {
+  if(!queue) queue = getDefaultQueue();
   launchKernel(
       queue, kernel, gridX, gridY, gridZ, blockX, blockY, blockZ,
       sharedMemBytes,
@@ -464,5 +469,6 @@ mgpuLaunchKernel(cl_kernel kernel, size_t gridX, size_t gridY, size_t gridZ,
 }
 
 extern "C" OCL_RUNTIME_EXPORT void mgpuStreamSynchronize(GPUCLQUEUE *queue) {
+  if(!queue) queue = getDefaultQueue();
   CL_SAFE_CALL(clFinish(queue->queue_));
 }

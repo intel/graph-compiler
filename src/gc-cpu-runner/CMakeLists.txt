@@ -55,6 +55,10 @@ endif()
 set(gc_cpu_runner_libs
         ${MLIR_LINK_COMPONENTS}
         GCCpuRuntime)
+if(GC_USE_GPU)
+        list(APPEND gc_cpu_runner_libs
+        MLIRGENTarget)
+endif()
 add_mlir_tool(gc-cpu-runner
         gc-cpu-runner.cpp
 )
