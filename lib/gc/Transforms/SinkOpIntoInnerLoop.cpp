@@ -29,9 +29,8 @@ public:
     getOperation()->walk([&](LoopLikeOpInterface loop) {
       SmallVector<Region *> regionsToSink;
       // Get the regions are that known to be executed at most once.
-      for (auto &it : loop->getRegions()) {
+      for (auto &it : loop->getRegions())
         regionsToSink.push_back(&it);
-      }
       // Sink side-effect free operations.
       controlFlowSink(
           regionsToSink, domInfo,

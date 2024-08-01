@@ -13,4 +13,4 @@ gc_add_mlir_library(GcAnalysis
     ${mlir_dialect_libs}
     ${MLIR_LINK_COMPONENTS}
     GcInterface
-  )
+)
