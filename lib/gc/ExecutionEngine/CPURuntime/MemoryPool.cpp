@@ -48,10 +48,6 @@ static constexpr size_t alignTo(size_t x, size_t y) {
   return (x + y - 1) / y * y;
 }
 
-static constexpr size_t divideAndCeil(size_t x, size_t y) {
-  return alignTo(x, y) / y;
-}
-
 // The chunk of memory that is allocated to the user
 struct MemoryChunk {
   static constexpr uint64_t magicCheckNum = 0xc0ffeebeef0102ff;
@@ -174,7 +170,7 @@ size_t FILOMemoryPool::getBlockSize(size_t sz) const {
   // the allocated size should include the aligned header size
   sz = sz + header_size;
   if (sz > blockSize) {
-    return divideAndCeil(sz, getOsPageSize()) * getOsPageSize();
+    return alignTo(sz, getOsPageSize());
   } else {
     return blockSize;
   }
