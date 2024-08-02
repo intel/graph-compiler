@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
   mlir::registerAllToLLVMIRTranslations(registry);
   mlir::gen::registerGenTargetInterfaceExternalModels(registry);
   mlir::registerGENDialectTranslation(registry);
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);

@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRGENDialect
+gc_add_mlir_dialect_library(MLIRGENDialect
   IR/GENDialect.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -17,5 +17,4 @@ add_mlir_dialect_library(MLIRGENDialect
   MLIRLLVMDialect
   MLIRSideEffectInterfaces
   GcInterface
-  )
-set_property(GLOBAL APPEND PROPERTY GC_DIALECT_LIBS MLIRGENDialect)
+)
