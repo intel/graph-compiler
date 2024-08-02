@@ -48,7 +48,7 @@ target_link_libraries(gc-opt PRIVATE
 
 if(GC_ENABLE_IMEX)
   include(imex)
-  target_compile_options(gc-opt PRIVATE -DGC_USE_IMEX)
+  target_compile_options(gc-opt PRIVATE -DGC_ENABLE_IMEX)
   get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
   target_include_directories(gc-opt PRIVATE ${IMEX_INCLUDES})
   target_link_libraries(gc-opt PRIVATE
