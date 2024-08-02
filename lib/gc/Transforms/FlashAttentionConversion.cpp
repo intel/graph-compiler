@@ -53,8 +53,8 @@ static FlashAttentionConfig
 getDefaultFlashAttentionConfig(linalgx::ScaledDotProductAttentionOp &sdpaOp) {
   // TODO: allow tuning
   FlashAttentionConfig cfg;
-  cfg.RowBlockSize = 32;
-  cfg.ColumnBlockSize = 32;
+  cfg.RowBlockSize = 64;
+  cfg.ColumnBlockSize = 64;
   return cfg;
 }
 
@@ -109,15 +109,19 @@ struct MHAToFlashAttention
     sizes[2] = rewriter.getIndexAttr(cfg.RowBlockSize);
     sizes[3] = rewriter.getIndexAttr(headDim);
     SmallVector<OpFoldResult> strides(4, rewriter.getIndexAttr(1));
-    Value QSlice = rewriter.create<tensor::ExtractSliceOp>(loc, Q, offsets,
-                                                           sizes, strides);
-    SmallVector<ReassociationIndices> reassocIndices{{0, 1, 2}, {3}};
-    Value collapsedQSlice =
-        rewriter.create<tensor::CollapseShapeOp>(loc, QSlice, reassocIndices);
+    SmallVector<int64_t> QSliceShape{1, cfg.RowBlockSize, headDim};
+    SmallVector<int64_t> KVSliceShape{1, cfg.ColumnBlockSize, headDim};
+    Value QSliceShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, QSliceShape, dtype);
+    Value KVSliceShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, KVSliceShape, dtype);
+    Value QSlice = rewriter.create<tensor::ExtractSliceOp>(
+        loc, cast<RankedTensorType>(QSliceShapeOut.getType()), Q, offsets,
+        sizes, strides);
     Value OSlice = rewriter.create<tensor::ExtractSliceOp>(
         loc, destinationTensors[0], offsets, sizes, strides);
-    Value collapsedOSlice =
-        rewriter.create<tensor::CollapseShapeOp>(loc, OSlice, reassocIndices);
+    Value collapsedOSlice = rewriter.create<tensor::CollapseShapeOp>(
+        loc, OSlice, SmallVector<ReassociationIndices>{{0, 1, 2}, {3}});
     SmallVector<int64_t> blockShape(1, cfg.RowBlockSize);
     Value maxSlice = rewriter.create<tensor::EmptyOp>(loc, blockShape, dtype);
     Value sumSlice = rewriter.create<tensor::EmptyOp>(loc, blockShape, dtype);
@@ -159,44 +163,40 @@ struct MHAToFlashAttention
     // adjust offsets and sizes
     offsets[2] = getAsOpFoldResult(ivs[3]);
     sizes[2] = rewriter.getIndexAttr(cfg.ColumnBlockSize);
-    Value KSlice = rewriter.create<tensor::ExtractSliceOp>(loc, K, offsets,
-                                                           sizes, strides);
-    Value VSlice = rewriter.create<tensor::ExtractSliceOp>(loc, V, offsets,
-                                                           sizes, strides);
+    Value KSlice = rewriter.create<tensor::ExtractSliceOp>(
+        loc, cast<RankedTensorType>(KVSliceShapeOut.getType()), K, offsets,
+        sizes, strides);
+    Value VSlice = rewriter.create<tensor::ExtractSliceOp>(
+        loc, cast<RankedTensorType>(KVSliceShapeOut.getType()), V, offsets,
+        sizes, strides);
     offsets[2] = getAsOpFoldResult(ivs[2]);
     offsets[3] = getAsOpFoldResult(ivs[3]);
     sizes[2] = rewriter.getIndexAttr(cfg.RowBlockSize);
     sizes[3] = rewriter.getIndexAttr(cfg.ColumnBlockSize);
+    SmallVector<int64_t> maskSliceShape{cfg.RowBlockSize, cfg.ColumnBlockSize};
+    Value QKShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, maskSliceShape, dtype);
     Value maskSlice = rewriter.create<tensor::ExtractSliceOp>(
-        loc, mask, offsets, sizes, strides);
-    // collapse
-    Value collapsedKSlice =
-        rewriter.create<tensor::CollapseShapeOp>(loc, KSlice, reassocIndices);
-    Value collapsedVSlice =
-        rewriter.create<tensor::CollapseShapeOp>(loc, VSlice, reassocIndices);
-    Value collapsedMaskSlice = rewriter.create<tensor::CollapseShapeOp>(
-        loc, maskSlice, reassocIndices);
+        loc, cast<RankedTensorType>(QKShapeOut.getType()), mask, offsets, sizes,
+        strides);
     // transpose K
-    SmallVector<int64_t> transposedShape{headDim, cfg.RowBlockSize};
+    SmallVector<int64_t> transposedShape{1, headDim, cfg.RowBlockSize};
     Value transposedShapeOut =
         rewriter.create<tensor::EmptyOp>(loc, transposedShape, dtype);
-    SmallVector<int64_t> transPerm{1, 0};
-    Value transposedK =
-        rewriter
-            .create<linalg::TransposeOp>(loc, collapsedKSlice,
-                                         transposedShapeOut, transPerm)
-            ->getResult(0);
+    SmallVector<int64_t> transPerm{0, 2, 1};
+    Value transposedKSlice = rewriter
+                                 .create<linalg::TransposeOp>(
+                                     loc, KSlice, transposedShapeOut, transPerm)
+                                 ->getResult(0);
     // matmul QK
-    SmallVector<int64_t> QKShape{cfg.RowBlockSize, cfg.ColumnBlockSize};
-    Value QKShapeOut = rewriter.create<tensor::EmptyOp>(loc, QKShape, dtype);
     Value matmulQKOutFilled =
         rewriter.create<linalg::FillOp>(loc, zero, QKShapeOut).getResult(0);
-    Value matmulQK =
-        rewriter
-            .create<linalg::MatmulOp>(loc, matmulQKOutFilled.getType(),
-                                      ValueRange{collapsedQSlice, transposedK},
-                                      ValueRange{matmulQKOutFilled})
-            .getResult(0);
+    Value matmulQK = rewriter
+                         .create<linalg::BatchReduceMatmulOp>(
+                             loc, matmulQKOutFilled.getType(),
+                             ValueRange{QSlice, transposedKSlice},
+                             ValueRange{matmulQKOutFilled})
+                         .getResult(0);
     // scale & add mask
     float rsqrtHead = 1 / sqrt(headDim);
     SmallVector<AffineMap, 2> indexingMaps;
@@ -220,7 +220,7 @@ struct MHAToFlashAttention
             .getResult(0);
     Value add = rewriter
                     .create<linalg::AddOp>(loc, QKShapeOut.getType(),
-                                           ValueRange{mul, collapsedMaskSlice},
+                                           ValueRange{mul, maskSlice},
                                            ValueRange{QKShapeOut})
                     .getResult(0);
     // tiling softmax
@@ -310,12 +310,20 @@ struct MHAToFlashAttention
     Value VShapeOut = rewriter.create<tensor::EmptyOp>(loc, VShape, dtype);
     Value matmulVOutFilled =
         rewriter.create<linalg::FillOp>(loc, zero, VShapeOut).getResult(0);
-    Value matmulV =
-        rewriter
-            .create<linalg::MatmulOp>(loc, matmulVOutFilled.getType(),
-                                      ValueRange{PSlice, collapsedVSlice},
-                                      ValueRange{matmulVOutFilled})
-            .getResult(0);
+    SmallVector<OpFoldResult> expandedPSliceShape{
+        rewriter.getIndexAttr(1), rewriter.getIndexAttr(cfg.RowBlockSize),
+        rewriter.getIndexAttr(cfg.ColumnBlockSize)};
+    Value expandedPSliceShapeOut =
+        rewriter.create<tensor::EmptyOp>(loc, expandedPSliceShape, dtype);
+    Value expandedPSlice = rewriter.create<tensor::ExpandShapeOp>(
+        loc, expandedPSliceShapeOut.getType(), PSlice,
+        SmallVector<ReassociationIndices>{{0, 1}, {2}}, expandedPSliceShape);
+    Value matmulV = rewriter
+                        .create<linalg::BatchReduceMatmulOp>(
+                            loc, matmulVOutFilled.getType(),
+                            ValueRange{expandedPSlice, VSlice},
+                            ValueRange{matmulVOutFilled})
+                        .getResult(0);
     Value newSumSliceRecipBroadcasted =
         rewriter
             .create<linalg::BroadcastOp>(loc, newSumSliceRecip, VShapeOut,
