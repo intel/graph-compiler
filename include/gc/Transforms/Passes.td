@@ -32,6 +32,17 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   ];
 }
 
+def FlashAttentionConversion
+    : Pass<"flash-attention-conversion", "func::FuncOp"> {
+  let summary = "Flash Attention Conversion";
+  let description =
+      [{The pass converts MHA to flash attention implementation.}];
+  let dependentDialects = [
+    "func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
+    "tensor::TensorDialect"
+  ];
+}
+
 #ifdef GC_USE_GPU
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";

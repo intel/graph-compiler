@@ -106,6 +106,7 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
