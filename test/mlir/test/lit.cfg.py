@@ -33,7 +33,7 @@ config.substitutions.append(("%gclibdir", config.gc_obj_root + "/lib/"))
 config.substitutions.append(('%mlir_runner_utils', config.mlir_runner_utils))
 config.substitutions.append(('%mlir_c_runner_utils', config.mlir_c_runner_utils))
 
-if config.gc_use_gpu:
+if config.gc_use_imex:
     config.substitutions.append(('%opencl_runtime', config.opencl_runtime))
     config.substitutions.append(('%irunner_utils', config.imex_runner_utils))
 
