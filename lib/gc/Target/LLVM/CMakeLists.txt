@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRGENTarget
+gc_add_mlir_dialect_library(MLIRGENTarget
   GEN/Target.cpp
 
   OBJECT
@@ -14,4 +14,5 @@ add_mlir_dialect_library(MLIRGENTarget
   MLIRGPUDialect
   MLIRTargetLLVM
   MLIRGENToLLVMIRTranslation
+  GcInterface
   )

@@ -16,5 +16,6 @@ add_mlir_dialect_library(MLIRGENDialect
   MLIRIR
   MLIRLLVMDialect
   MLIRSideEffectInterfaces
+  GcInterface
   )
 set_property(GLOBAL APPEND PROPERTY GC_DIALECT_LIBS MLIRGENDialect)

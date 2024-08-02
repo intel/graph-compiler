@@ -1,4 +1,4 @@
-add_mlir_translation_library(MLIRGENToLLVMIRTranslation
+gc_add_mlir_translation_library(MLIRGENToLLVMIRTranslation
   GENToLLVMIRTranslation.cpp
 
   DEPENDS
@@ -13,4 +13,5 @@ add_mlir_translation_library(MLIRGENToLLVMIRTranslation
   MLIRGENDialect
   MLIRSupport
   MLIRTargetLLVMIRExport
+  GcInterface
   )
