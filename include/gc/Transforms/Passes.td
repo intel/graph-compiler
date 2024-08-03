@@ -58,7 +58,7 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   ];
 }
 
-def LowerToTileVector : Pass<"lower-to-tile-vector"> {
+def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
   let summary = "Lower tensor to tile vector.";
   let description = [{
     Lower tensor to tile vector form.

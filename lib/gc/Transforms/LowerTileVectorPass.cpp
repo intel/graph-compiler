@@ -512,6 +512,32 @@ struct TensorOpConvertVectorPass : public RewritePattern {
   }
 };
 
+struct EliminateWriteReadOpPass
+    : public OpRewritePattern<vector::TransferReadOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(vector::TransferReadOp op,
+                                PatternRewriter &rewriter) const override {
+    auto sourceOp = op->getOperand(0).getDefiningOp();
+    if (isa_and_nonnull<vector::TransferWriteOp>(sourceOp)) {
+      rewriter.replaceOp(op, sourceOp->getOperand(0));
+      return success();
+    }
+    return failure();
+  }
+};
+
+void eliminateWriteReadOperation(Operation *op) {
+  if (!isa_and_nonnull<vector::TransferReadOp>(op)) {
+    return;
+  }
+  auto sourceOp = op->getOperand(0).getDefiningOp();
+  if (isa_and_nonnull<vector::TransferWriteOp>(sourceOp)) {
+    IRRewriter rewriter(op);
+    rewriter.replaceOp(op, sourceOp->getOperand(0));
+  }
+}
+
 /// Pass that lower to tile vector.
 void populateLowerToTileVectorPatterns(RewritePatternSet &patterns) {
   patterns.add<OperationConvertTileVectorPass<linalg::LinalgOp>,
@@ -535,25 +561,39 @@ struct LowerTileVectorPass
     };
     // some operation convert as constant, this pattern can help us to improve
     // the performance
-    tensor::populateRewriteAsConstantPatterns(patterns, defaultControlFn);
+    // tensor::populateRewriteAsConstantPatterns(patterns, defaultControlFn);
     // remove unnessary operation
-    tensor::populateReassociativeReshapeFoldingPatterns(patterns);
-    tensor::populateFoldTensorSubsetOpPatterns(patterns);
-    tensor::populateFoldTensorEmptyPatterns(patterns, true);
-    tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
+    // tensor::populateReassociativeReshapeFoldingPatterns(patterns);
+    // tensor::populateFoldTensorSubsetOpPatterns(patterns);
+    // tensor::populateFoldTensorEmptyPatterns(patterns, true);
+    // tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
     populateLowerToTileVectorPatterns(patterns);
     linalg::populatePadOpVectorizationPatterns(patterns);
-
-    // ensure read and write on last dimension
-    vector::populateVectorTransferPermutationMapLoweringPatterns(patterns);
-    // remove unnessary broadcast operation
-    vector::populateSinkVectorBroadcastPatterns(patterns);
-    vector::TransferReadOp::getCanonicalizationPatterns(patterns, ctx);
-    vector::TransferWriteOp::getCanonicalizationPatterns(patterns, ctx);
 
     GreedyRewriteConfig config;
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
     (void)applyPatternsAndFoldGreedily(funcOp, std::move(patterns), config);
+    // error case:
+    // due to insert slice tensor<1x32xf32> to tensor<1x128x1x32xf32>
+    // linalg.copy : <1x32xf32>
+    // -> transfer_write : permutation map = (d0, d1, d2, d3) -> (d0, d3)
+    // Inorder to avoid the fold greedily bug (fold wrong permution map for the
+    // transfer_write operation). Give it the new full IR to fold second time
+    // can fold correctly.
+    RewritePatternSet secondPattern(ctx);
+    // secondPattern.add<EliminateWriteReadOpPass>(patterns.getContext());
+    // ensure read and write on last dimension
+    vector::populateVectorTransferPermutationMapLoweringPatterns(secondPattern);
+    // remove unnessary broadcast operation
+    // vector::populateSinkVectorBroadcastPatterns(secondPattern);
+    // vector::TransferReadOp::getCanonicalizationPatterns(secondPattern, ctx);
+    // vector::TransferWriteOp::getCanonicalizationPatterns(secondPattern, ctx);
+    // tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(patterns);
+
+    (void)applyPatternsAndFoldGreedily(funcOp, std::move(secondPattern));
+    DominanceInfo domInfo;
+    IRRewriter rewriter(funcOp);
+    eliminateCommonSubExpressions(rewriter, domInfo, funcOp);
   }
 };
 } // namespace
