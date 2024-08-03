@@ -13,6 +13,8 @@ gc_add_mlir_library(GcPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   TileNamed.cpp
+  LowerTileVectorPass.cpp
+  CPUPhysicalResigterPass.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

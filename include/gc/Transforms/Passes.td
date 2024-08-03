@@ -61,4 +61,34 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
 }
 #endif
 
+def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
+  let summary = "Lower tensor to tile vector.";
+  let description = [{
+    Lower tensor to tile vector form.
+  }];
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::vector::VectorDialect",
+  ];
+}
+
+def CPUPhysicalRegisterPass : Pass<"CPU-physical-register-pass", "func::FuncOp"> {
+  let summary = "Lower operation to cpu pysical register size.";
+  let description = [{
+    Physical register size lowering pass.
+  }];
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::vector::VectorDialect",
+    "::mlir::scf::SCFDialect",
+  ];
+}
+
 #endif // GC_DIALECT_GC_PASSES
