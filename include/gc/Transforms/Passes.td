@@ -17,6 +17,7 @@ def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
       ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
 }
 
+#ifdef GC_HAS_ONEDNN_DIALECT
 def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   let summary = "Lower the operations from the oneDNN Graph dialect into Linalg";
   let description = [{
@@ -31,6 +32,7 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
       "linalgx::LinalgxDialect"
   ];
 }
+#endif
 
 def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::FuncOp"> {
   let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
@@ -43,7 +45,7 @@ def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::Func
   ];
 }
 
-#ifdef GC_USE_GPU
+#ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";
   let description = [{
