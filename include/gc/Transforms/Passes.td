@@ -61,4 +61,23 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
 }
 #endif
 
+def GpuLegalizeModule: Pass<"gc-gpu-legalize-module", ""> {
+  let summary = "Legalizes a GPU module for spirv conversion.";
+  let description = [{
+    Update all the nested gpu modules with an appropriate spirv target
+    information that is used further down in the pipeline.
+  }];
+  let dependentDialects = ["gpu::GPUDialect", "spirv::SPIRVDialect"];
+}
+
+def ConvertGpuSignaturesToLLVM: Pass<"gc-gpu-signatures-to-llvm", "gpu::GPUModuleOp"> {
+  let summary = "Legalize GPU kernel signatures for runtime code conversion.";
+  let dependentDialects = ["gpu::GPUDialect", "memref::MemRefDialect"];
+}
+
+def GpuGenAttachTarget: Pass<"gc-attach-gen-target", ""> {
+  let summary = "Attaches Gen target to a GPU module.";
+  let dependentDialects = ["gpu::GPUDialect", "gen::GENDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES

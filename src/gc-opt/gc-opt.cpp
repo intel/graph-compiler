@@ -18,14 +18,19 @@
  */
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Dialect/LLVMIR/GENDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Target/LLVM/GEN/Target.h"
+#include "gc/Target/LLVMIR/Dialect/GEN/GENToLLVMIRTranslation.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 #ifdef GC_USE_IMEX
@@ -35,6 +40,7 @@
 
 namespace mlir::gc {
 void registerCPUPipeline();
+void registerGPUPipeline();
 } // namespace mlir::gc
 
 int main(int argc, char *argv[]) {
@@ -49,6 +55,7 @@ int main(int argc, char *argv[]) {
 #endif
   mlir::registerAllPasses();
   mlir::gc::registerCPUPipeline();
+  mlir::gc::registerGPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
@@ -58,7 +65,16 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   registry.insert<mlir::microkernel::MicrokernelDialect>();
+  registry.insert<mlir::gen::GENDialect>();
   mlir::registerAllDialects(registry);
+  // covers lowerings for weird dialects like ub
+  // TODO: avoid `registerALL` to remove this
+  mlir::registerAllExtensions(registry);
+  // Adds missing `LLVMTranslationDialectInterface` registration for dialect for
+  // gpu.module op
+  mlir::registerAllToLLVMIRTranslations(registry);
+  mlir::gen::registerGenTargetInterfaceExternalModels(registry);
+  mlir::registerGENDialectTranslation(registry);
 #ifdef GC_USE_IMEX
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif

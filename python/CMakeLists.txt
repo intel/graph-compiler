@@ -99,7 +99,9 @@ add_mlir_python_common_capi_library(GcPythonCAPI
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources.Core
 )
-target_link_libraries(GcPythonCAPI PUBLIC GcInterface)
+# todo: replace with a gpu rutnime library once we have an appropriate target
+get_property(gc_passes_libs GLOBAL PROPERTY GC_PASS_LIBS)
+target_link_libraries(GcPythonCAPI PUBLIC GcInterface ${gc_passes_libs})
 
 ################################################################################
 # Instantiation of all Python modules

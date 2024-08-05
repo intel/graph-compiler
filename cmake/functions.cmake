@@ -111,9 +111,16 @@ endfunction()
 
 function(gc_add_mlir_dialect_library name)
     add_mlir_dialect_library(${ARGV})
-    target_link_libraries(obj.${name} PUBLIC GcInterface)
     set_property(GLOBAL APPEND PROPERTY GC_DIALECT_LIBS ${name})
 
+    if(GcInterface IN_LIST ARGN)
+        target_link_libraries(obj.${name} PUBLIC GcInterface)
+    endif()
+endfunction()
+
+function(gc_add_mlir_translation_library name)
+    add_mlir_translation_library(${ARGV})
+    set_property(GLOBAL APPEND PROPERTY GC_MLIR_LIBS ${name})
     if(GcInterface IN_LIST ARGN)
         target_link_libraries(obj.${name} PUBLIC GcInterface)
     endif()

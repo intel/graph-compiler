@@ -24,9 +24,12 @@ set(GC_DNNL_SOURCES
   JsonParser.cpp
   dnnl_graph_compiler.cpp
 )
+# todo: replace with a gpu rutnime library once we have an appropriate target
+get_property(gc_passes_libs GLOBAL PROPERTY GC_PASS_LIBS)
 set(GC_DNNL_LINKED_LIBS
   GcJitWrapper
   GcCpuRuntime
+  ${gc_passes_libs}
 )
 gc_add_mlir_library(GcDnnl SHARED
   ${GC_DNNL_SOURCES}

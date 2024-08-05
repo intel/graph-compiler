@@ -20,19 +20,23 @@ if(NOT GC_ENABLE_OPT)
   return()
 endif()
 
+# todo: this needs further cleanup
 if(GC_DEV_LINK_LLVM_DYLIB)
   set(MLIR_LINK_COMPONENTS
     MLIR
   )
   get_property(dialect_libs GLOBAL PROPERTY GC_DIALECT_LIBS)
-  get_property(conversion_libs GLOBAL PROPERTY GC_PASS_LIBS)
 else()
   set(MLIR_LINK_COMPONENTS
     MLIROptLib
+    MLIRToLLVMIRTranslationRegistration
   )
   get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-  get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 endif()
+
+get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
+get_property(gc_passes_libs GLOBAL PROPERTY GC_PASS_LIBS)
 
 add_llvm_executable(gc-opt gc-opt.cpp)
 llvm_update_compile_flags(gc-opt)
@@ -42,8 +46,9 @@ target_link_libraries(gc-opt PUBLIC GcInterface)
 target_link_libraries(gc-opt PRIVATE
   ${dialect_libs}
   ${conversion_libs}
+  ${extension_libs}
   ${MLIR_LINK_COMPONENTS}
-  GcPasses
+  ${gc_passes_libs}
 )
 
 if(GC_ENABLE_IMEX)
@@ -52,7 +57,7 @@ if(GC_ENABLE_IMEX)
   get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
   target_include_directories(gc-opt PRIVATE ${IMEX_INCLUDES})
   target_link_libraries(gc-opt PRIVATE
-    GcGpuPasses
+    GcGpuIMEXPasses
     IMEXGPUXDialect
     IMEXXeTileDialect
     IMEXRegionDialect

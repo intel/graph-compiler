@@ -25,6 +25,4 @@ gc_add_mlir_library(GcPasses
     GcInterface
   )
 
-if(GC_ENABLE_IMEX)
-  add_subdirectory(GPU)
-endif()
+add_subdirectory(GPU)
