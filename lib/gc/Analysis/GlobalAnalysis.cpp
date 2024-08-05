@@ -55,13 +55,16 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
   return ss;
 }
 
-// inferring the relationship of two indexing map
-// j -> i, means j is represented as the same symbol as i
-// we don't allow duplicate in symbols
-// e.g. if 2 j corresponding to 1 i, then return failure
+// infer the relation between two indexing maps
+// returns target dim -> base dim, means target is the same as input
+// we don't allow duplication, e.g. 2 target corresponding to 1 base
 static FailureOr<DenseMap<int64_t, int64_t>>
 inferIndexingMapRelation(AffineMap indexingMapBase,
                          AffineMap indexingMapTarget) {
+  // symbols are not allowed to occur
+  if (indexingMapBase.getNumSymbols() != 0 ||
+      indexingMapTarget.getNumSymbols() != 0)
+    return failure();
   DenseMap<int64_t, int64_t> res;
   ArrayRef<AffineExpr> resultsBase = indexingMapBase.getResults();
   ArrayRef<AffineExpr> resultsTarget = indexingMapTarget.getResults();
@@ -70,6 +73,7 @@ inferIndexingMapRelation(AffineMap indexingMapBase,
       auto base = dyn_cast<AffineDimExpr>(resultsBase[i]);
       auto target = dyn_cast<AffineDimExpr>(resultsTarget[j]);
       if (base && target && base.getPosition() == target.getPosition()) {
+        // dim j already mapped to certain i
         if (res.find(j) != res.end())
           return failure();
         res[j] = i;
@@ -91,7 +95,7 @@ inferIndexingMapRelation(AffineMap indexingMapBase,
   return res;
 }
 
-// given j --> i and max rank of i, return i --> j
+// given target --> base and max rank of base, return base --> target
 static DenseMap<int64_t, int64_t>
 getReversedIndexMap(const DenseMap<int64_t, int64_t> &indexMap,
                     size_t maxRank) {
@@ -109,7 +113,7 @@ getReversedIndexMap(const DenseMap<int64_t, int64_t> &indexMap,
   return res;
 }
 
-static FailureOr<TensorLayout>
+static TensorLayout
 inferTargetLayout(TensorLayout layoutBase,
                   const DenseMap<int64_t, int64_t> &indexMap) {
   SmallVector<int64_t> baseOuterAxis = layoutBase.getOuterAxis();
@@ -177,6 +181,39 @@ getPackingAxis(int64_t numRank, bool transposed) {
   return std::make_pair(outerAxisPerm, innerAxisPos);
 }
 
+// copied from mlir
+static SmallVector<int64_t>
+projectToInnerMostNonUnitDimsPos(ArrayRef<int64_t> dimsPos,
+                                 ArrayRef<ReassociationIndices> reassocIndices,
+                                 ArrayRef<int64_t> targetShape) {
+  SmallVector<int64_t> projectedDimsPos;
+  for (auto pos : dimsPos) {
+    // In the case all dims are unit, this will return the inner-most one.
+    int64_t projectedPos = reassocIndices[pos].back();
+    for (auto i : llvm::reverse(reassocIndices[pos])) {
+      int64_t dim = targetShape[i];
+      if (dim > 1 || ShapedType::isDynamic(dim)) {
+        projectedPos = i;
+        break;
+      }
+    }
+    projectedDimsPos.push_back(projectedPos);
+  }
+  return projectedDimsPos;
+}
+
+/// Check if all dims in dimsPos are divisible by the corresponding tile sizes.
+static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
+                                       ArrayRef<int64_t> shape,
+                                       ArrayRef<int64_t> tileSizes) {
+  for (auto [pos, tileSize] : llvm::zip_equal(dimsPos, tileSizes)) {
+    int64_t dim = shape[pos];
+    if (ShapedType::isDynamic(dim) || (dim % tileSize) != 0)
+      return false;
+  }
+  return true;
+}
+
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   root->walk([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
@@ -198,9 +235,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       }
       // ------ Get Current Op's Suggested Layout & Do Propagation ------
       IRRewriter rewriter(linalgOp);
-      // TODO: extend to packed/vnni matmul ops
       if (supportedContractionNamedOpList(linalgOp)) {
-        // get input and output rank
+        // infer layout for linalg contraction named ops
         auto ARank = cast<ShapedType>(linalgOp.getDpsInputs()[0].getType())
                          .getShape()
                          .size();
@@ -242,29 +278,36 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         OperatorLayout suggestedLayout({ALayout, BLayout}, {CLayout});
         layoutCache[linalgOp] = suggestedLayout;
       } else if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
+                 !mlir::linalg::isaConvolutionOpInterface(linalgOp) &&
                  !supportedContractionNamedOpList(linalgOp)) {
+        // infer layout for non-contraction/non-convolution linalg named ops
+        // and linalg generic ops
         SmallVector<TensorLayout> inputLayouts, outputLayouts;
         size_t targetIdx = getTargetInputIdx(curInputLayouts);
-        // TODO(yifei): wisely choose the input format basis
-        // Let's only refer to input[0] for now
         for (size_t i = 0; i < curInputs.size(); ++i) {
           // getMatchingIndexingMap
           if (i != targetIdx) {
-            auto res = inferIndexingMapRelation(
+            auto indexRelation = inferIndexingMapRelation(
                 linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
                 linalgOp.getMatchingIndexingMap(curInputs[i]));
+            if (failed(indexRelation)) {
+              return WalkResult::skip();
+            }
             TensorLayout inputLayout =
-                *inferTargetLayout(curInputLayouts[targetIdx], *res);
+                inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
             inputLayouts.push_back(inputLayout);
           } else {
             inputLayouts.push_back(curInputLayouts[targetIdx]);
           }
         }
-        auto res_out = inferIndexingMapRelation(
+        auto indexRelation = inferIndexingMapRelation(
             linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
             linalgOp.getIndexingMapMatchingResult(curResults[0]));
+        if (failed(indexRelation)) {
+          return WalkResult::skip();
+        }
         TensorLayout outputLayout =
-            *inferTargetLayout(curInputLayouts[targetIdx], *res_out);
+            inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
         outputLayouts.push_back(outputLayout);
         OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
         layoutCache[linalgOp] = suggestedLayout;
@@ -283,7 +326,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[padOp] = suggestedLayout;
     } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
-      auto reassociation = expandShapeOp.getReassociation();
+      SmallVector<ReassociationIndices> reassocIndices =
+          expandShapeOp.getReassociationIndices();
       auto staticOutputShape = expandShapeOp.getStaticOutputShape();
       auto parent = expandShapeOp.getSrc().getDefiningOp();
       auto inputShape = expandShapeOp.getSrcType().getShape();
@@ -291,44 +335,35 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           layoutCache.find(parent) != layoutCache.end()
               ? layoutCache[parent].getOutputLayout(0)
               : TensorLayout::createPlainLayout(inputShape.size());
-      DenseMap<int64_t, int64_t> outputInputIdxMapping, inputOutputIndexMapping;
-      int64_t accumulationOffset = 0;
-      for (int64_t i = 0; i < static_cast<int64_t>(reassociation.size()); ++i) {
-        auto subReassociation = llvm::cast<ArrayAttr>(reassociation[i]);
-        for (int64_t j = 0; j < static_cast<int64_t>(subReassociation.size());
-             ++j) {
-          if (staticOutputShape[accumulationOffset + j] == inputShape[i]) {
-            outputInputIdxMapping[accumulationOffset + j] = i;
-            inputOutputIndexMapping[i] = accumulationOffset + j;
-          }
-        }
-        accumulationOffset += subReassociation.size();
+      SmallVector<int64_t> innerTileSizes;
+      auto intTileSizes = getConstantIntValues(curInputLayout.getTileSizes());
+      if (intTileSizes) {
+        innerTileSizes = *intTileSizes;
       }
-      auto inputOuterAxis = curInputLayout.getOuterAxis();
-      auto inputInnerAxis = curInputLayout.getInnerAxis();
-      int64_t diffDifference = staticOutputShape.size() - inputShape.size();
-      int64_t startIdx = 0;
-      SmallVector<int64_t> outputOuterAxis, outputInnerAxis;
-      for (int64_t i = 0; i < static_cast<int64_t>(staticOutputShape.size());
-           ++i) {
-        if (outputInputIdxMapping.find(i) != outputInputIdxMapping.end()) {
-          outputOuterAxis.push_back(inputOuterAxis[outputInputIdxMapping[i]] +
-                                    diffDifference);
-        } else {
-          outputOuterAxis.push_back(startIdx++);
-        }
+      ArrayRef<int64_t> innerDimsPos = curInputLayout.getInnerAxis();
+      ArrayRef<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
+      SmallVector<int64_t> projectedInnerDimsPos =
+          projectToInnerMostNonUnitDimsPos(curInputLayout.getInnerAxis(),
+                                           reassocIndices, staticOutputShape);
+
+      if (!isDimsDivisibleByTileSizes(projectedInnerDimsPos, staticOutputShape,
+                                      innerTileSizes)) {
+        return WalkResult::skip();
       }
-      for (int64_t i = 0; i < static_cast<int64_t>(inputInnerAxis.size());
-           ++i) {
-        outputInnerAxis.push_back(inputOutputIndexMapping[inputInnerAxis[i]]);
+      SmallVector<int64_t> newOuterDimsPerm;
+      for (auto outerPos : outerDimsPerm) {
+        newOuterDimsPerm.insert(newOuterDimsPerm.end(),
+                                reassocIndices[outerPos].begin(),
+                                reassocIndices[outerPos].end());
       }
-      TensorLayout outputLayout(outputOuterAxis, outputInnerAxis,
+      TensorLayout outputLayout(newOuterDimsPerm, projectedInnerDimsPos,
                                 curInputLayout.getTileSizes());
       SmallVector<TensorLayout> inputLayouts{curInputLayout},
           outputLayouts{outputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[expandShapeOp] = suggestedLayout;
     }
+    return WalkResult::advance();
   });
 }
 
