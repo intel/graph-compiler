@@ -34,7 +34,7 @@ config.gc_src_root = "@PROJECT_SOURCE_DIR@"
 config.gc_obj_root = "@PROJECT_BINARY_DIR@"
 config.gc_lib_dir = os.path.join(config.gc_obj_root, "lib")
 config.mlir_obj_dir = "@MLIR_BINARY_DIR@"
-config.gc_enable_imex = "@GC_ENABLE_IMEX@" in ["ON", "1"]
+config.gc_use_imex = "@GC_ENABLE_IMEX@" in ["ON", "1"]
 config.enable_bindings_python = @GC_ENABLE_BINDINGS_PYTHON@
 config.imex_enable_l0_runtime = "@IMEX_ENABLE_L0_RUNTIME@" in ["ON", "1"]
 config.llvm_shlib_dir = "@SHLIBDIR@"
@@ -44,7 +44,6 @@ config.mlir_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_util
 config.mlir_c_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_utils_dir, config.shlib_prefix + "mlir_c_runner_utils" + config.llvm_shlib_ext))
 
 config.opencl_runtime = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "GcOpenclRuntime" + config.llvm_shlib_ext))
-config.imex_runner_utils = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "imex_runner_utils" + config.llvm_shlib_ext))
 config.levelzero_runtime = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "level-zero-runtime" + config.llvm_shlib_ext))
 
 import lit.llvm
