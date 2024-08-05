@@ -43,6 +43,7 @@ config.mlir_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_util
 config.mlir_c_runner_utils = os.path.normpath(os.path.join(config.mlir_runner_utils_dir, config.shlib_prefix + "mlir_c_runner_utils" + config.llvm_shlib_ext))
 
 config.opencl_runtime = os.path.normpath(os.path.join(config.gc_lib_dir, config.shlib_prefix + "GcOpenclRuntime" + config.llvm_shlib_ext))
+config.gc_use_dnnl = "@GC_ENABLE_DNNL@"  in ["ON", "1"]
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)
