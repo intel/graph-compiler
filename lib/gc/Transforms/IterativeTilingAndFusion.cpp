@@ -46,15 +46,14 @@ getClosestExtractSliceOfOperand(OpOperand &operand) {
   }
 
   Operation *defineOp = operand.get().getDefiningOp();
-  if (auto sliceOp = dyn_cast<tensor::ExtractSliceOp>(defineOp)) {
+  if (auto sliceOp = dyn_cast<tensor::ExtractSliceOp>(defineOp))
     return sliceOp;
-  } else if (isa<linalg::FillOp, tensor::ExpandShapeOp,
-                 tensor::CollapseShapeOp>(defineOp)) {
-    // For downstream cases
+  // For downstream cases
+  if (isa<linalg::FillOp, tensor::ExpandShapeOp, tensor::CollapseShapeOp>(
+          defineOp))
     return getClosestExtractSliceOfOperand(defineOp->getOpOperand(0));
-  } else {
-    return failure();
-  }
+
+  return failure();
 }
 
 static FailureOr<OffsetSizeAndStrideOpInterface>
@@ -104,9 +103,8 @@ struct CandidateDefOrUse {
 using CandidateSliceFilter = std::function<LogicalResult(
     RewriterBase &, OffsetSizeAndStrideOpInterface, CandidateDefOrUse)>;
 
-using CandidateSliceComparer =
-    std::function<int(RewriterBase &, OffsetSizeAndStrideOpInterface,
-                      OffsetSizeAndStrideOpInterface, CandidateDefOrUse)>;
+using CandidateSliceComparer = std::function<int(
+    OffsetSizeAndStrideOpInterface, OffsetSizeAndStrideOpInterface)>;
 
 static LogicalResult
 noTilingOnReductionFilter(RewriterBase &rewriter,
@@ -205,10 +203,9 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
   return success();
 }
 
-static LogicalResult
-alreadyTiledOpFilter(RewriterBase &rewriter,
-                     OffsetSizeAndStrideOpInterface candidate,
-                     CandidateDefOrUse defOrUse) {
+static LogicalResult unTiledOpFilter(RewriterBase &rewriter,
+                                     OffsetSizeAndStrideOpInterface candidate,
+                                     CandidateDefOrUse defOrUse) {
   // In general tiledOp would not have uses any more.
   return failure(defOrUse.ownerOp->use_empty());
 }
@@ -294,7 +291,7 @@ struct CandidateSliceFilterPipeLine
 
   SmallVector<CandidateSliceFilter> getDefaultPipeLine() {
     return SmallVector<CandidateSliceFilter>{
-        alreadyTiledOpFilter, NonContractionOpFilter, noTilingOnReductionFilter,
+        unTiledOpFilter, NonContractionOpFilter, noTilingOnReductionFilter,
         exactTilingOnPackUnPackFilter, SingleCandidateInBlockFilter};
   }
 
@@ -325,10 +322,8 @@ computeTileSizeProductOfCandidate(OffsetSizeAndStrideOpInterface candidate) {
   return totalSize;
 }
 
-static int TilingSizeComparer(RewriterBase &rewriter,
-                              OffsetSizeAndStrideOpInterface candidateA,
-                              OffsetSizeAndStrideOpInterface candidateB,
-                              CandidateDefOrUse defOrUse) {
+static int TilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
+                              OffsetSizeAndStrideOpInterface candidateB) {
   FailureOr<int64_t> sizeProductA =
                          computeTileSizeProductOfCandidate(candidateA),
                      sizeProductB =
@@ -336,11 +331,10 @@ static int TilingSizeComparer(RewriterBase &rewriter,
   if (failed(sizeProductA) || failed(sizeProductB))
     return 0;
   // deal with equality
-  if (*sizeProductA == *sizeProductB) {
+  if (*sizeProductA == *sizeProductB)
     return 0;
-  } else {
-    return *sizeProductA < *sizeProductB ? -1 : 1;
-  }
+
+  return *sizeProductA < *sizeProductB ? -1 : 1;
 }
 
 struct CandidateSliceComparerPipeLine
@@ -352,17 +346,15 @@ struct CandidateSliceComparerPipeLine
     return SmallVector<CandidateSliceComparer>{TilingSizeComparer};
   }
 
-  bool compare(RewriterBase &rewriter,
-               OffsetSizeAndStrideOpInterface candidateA,
-               OffsetSizeAndStrideOpInterface candidateB,
-               CandidateDefOrUse defOrUse) const {
+  bool compare(OffsetSizeAndStrideOpInterface candidateA,
+               OffsetSizeAndStrideOpInterface candidateB) const {
     // deal with weak order
     int cmpResult = -1;
-    for (auto &fn : candidateProcessFn) {
-      cmpResult = fn(rewriter, candidateA, candidateB, defOrUse);
-      if (cmpResult != 0)
-        break;
-    }
+    llvm::any_of(candidateProcessFn, [&cmpResult, &candidateA, &candidateB](
+                                         const CandidateSliceComparer &fn) {
+      cmpResult = fn(candidateA, candidateB);
+      return cmpResult != 0;
+    });
     return cmpResult == -1;
   }
 };
@@ -389,6 +381,29 @@ struct CandidateSliceOptions {
   }
 };
 
+static FailureOr<OffsetSizeAndStrideOpInterface> filterAndSelectCandidate(
+    RewriterBase &rewriter,
+    ArrayRef<OffsetSizeAndStrideOpInterface> candidateSliceList,
+    const CandidateDefOrUse &defOrUse, const CandidateSliceOptions &options) {
+  SmallVector<OffsetSizeAndStrideOpInterface> validCandidates =
+      llvm::to_vector(llvm::make_filter_range(
+          candidateSliceList,
+          [&rewriter, &options,
+           &defOrUse](const OffsetSizeAndStrideOpInterface &candidate) {
+            return succeeded(
+                options.filterPipeLine.filter(rewriter, candidate, defOrUse));
+          }));
+  if (validCandidates.empty())
+    return failure();
+
+  OffsetSizeAndStrideOpInterface bestCandidate = *llvm::min_element(
+      validCandidates, [&options](OffsetSizeAndStrideOpInterface &candidateA,
+                                  OffsetSizeAndStrideOpInterface &candidateB) {
+        return options.comparerPipeLine.compare(candidateA, candidateB);
+      });
+  return bestCandidate;
+}
+
 std::optional<scf::SCFFuseProducerOfSliceResult>
 tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
                                const CandidateSliceOptions &options) {
@@ -412,31 +427,20 @@ tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
     return std::nullopt;
 
   CandidateDefOrUse defOrUse{*realProducer};
-  // d. Filter out invalid candidates
-  SmallVector<tensor::ExtractSliceOp> validCandidates =
-      llvm::to_vector(llvm::make_filter_range(
-          backwardSlice,
-          [&rewriter, &options, &defOrUse](tensor::ExtractSliceOp &candidate) {
-            return succeeded(options.filterPipeLine.filter(
-                rewriter,
-                cast<OffsetSizeAndStrideOpInterface>(candidate.getOperation()),
-                defOrUse));
-          }));
-  if (validCandidates.empty())
+  // d. Filter out invalid candidates and select best candidates
+  SmallVector<OffsetSizeAndStrideOpInterface> ossBackwardSlice =
+      llvm::map_to_vector(backwardSlice,
+                          [](tensor::ExtractSliceOp &extractSlice) {
+                            return cast<OffsetSizeAndStrideOpInterface>(
+                                extractSlice.getOperation());
+                          });
+  FailureOr<OffsetSizeAndStrideOpInterface> bestCandidate =
+      filterAndSelectCandidate(rewriter, ossBackwardSlice, defOrUse, options);
+  if (failed(bestCandidate))
     return std::nullopt;
-  // e. Select best candidates by Cost Model
-  tensor::ExtractSliceOp bestCandidate = *llvm::min_element(
-      validCandidates,
-      [&rewriter, &options, &defOrUse](tensor::ExtractSliceOp &candidateA,
-                                       tensor::ExtractSliceOp &candidateB) {
-        return options.comparerPipeLine.compare(
-            rewriter,
-            cast<OffsetSizeAndStrideOpInterface>(candidateA.getOperation()),
-            cast<OffsetSizeAndStrideOpInterface>(candidateB.getOperation()),
-            defOrUse);
-      });
-  // f. call tiling interface
-  return scfX::tileAndFuseProducerOfSlice(rewriter, bestCandidate);
+
+  // e. call tiling interface
+  return scfX::tileAndFuseProducerOfSlice(rewriter, *bestCandidate);
 }
 
 std::optional<SmallVector<scf::SCFFuseConsumerOfSliceResult>>
@@ -464,28 +468,15 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       continue;
 
     CandidateDefOrUse defOrUse{useOperand};
-    // d. Filter out invalid candidates
-    SmallVector<OffsetSizeAndStrideOpInterface> validCandidates =
-        llvm::to_vector(llvm::make_filter_range(
-            forwardSlice, [&rewriter, &options, &defOrUse](
-                              const OffsetSizeAndStrideOpInterface &candidate) {
-              return succeeded(
-                  options.filterPipeLine.filter(rewriter, candidate, defOrUse));
-            }));
-    if (validCandidates.empty())
+    // d. Filter out invalid candidates and select best candidates
+    FailureOr<OffsetSizeAndStrideOpInterface> bestCandidate =
+        filterAndSelectCandidate(rewriter, forwardSlice, defOrUse, options);
+    if (failed(bestCandidate))
       continue;
 
-    // e. Select best candidates by Cost Model
-    OffsetSizeAndStrideOpInterface bestCandidate = *llvm::min_element(
-        validCandidates, [&rewriter, &options, &defOrUse](
-                             const OffsetSizeAndStrideOpInterface &candidateA,
-                             const OffsetSizeAndStrideOpInterface &candidateB) {
-          return options.comparerPipeLine.compare(rewriter, candidateA,
-                                                  candidateB, defOrUse);
-        });
-    // f. call tiling interface
+    // e. call tiling interface
     FailureOr<scf::SCFFuseConsumerOfSliceResult> fusedResult =
-        scfX::tileAndFuseConsumerOfSlice(rewriter, bestCandidate);
+        scfX::tileAndFuseConsumerOfSlice(rewriter, *bestCandidate);
 
     if (succeeded(fusedResult)) {
       fusedResultList.push_back(*fusedResult);
@@ -496,7 +487,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       };
       SmallVector<LoopLikeOpInterface> outerLoops =
           scfX::getOuterNestLoopsWhile(
-              bestCandidate->getParentOfType<LoopLikeOpInterface>(),
+              (*bestCandidate)->getParentOfType<LoopLikeOpInterface>(),
               whileProducerOutOfLoopBlock);
       // g. Manually run cse on region which contains top-level loop of
       // candidate slice in avoid of conflict with subsequent
@@ -506,11 +497,10 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
                                   {*outerLoops.front()->getParentRegion()});
     }
   }
-  if (fusedResultList.empty()) {
+  if (fusedResultList.empty())
     return std::nullopt;
-  } else {
-    return fusedResultList;
-  }
+
+  return fusedResultList;
 }
 
 /// Target at following general topology:
@@ -527,7 +517,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
 LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
     RewriterBase &rewriter, Operation *tiledOp,
     const CandidateSliceOptions &options) {
-  int numTiledOps = 0;
+  unsigned numTiledOps = 0;
   std::deque<Operation *> tiledOpList = {tiledOp};
   while (!tiledOpList.empty()) {
     tiledOp = tiledOpList.front();
@@ -552,7 +542,7 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
   return success(numTiledOps > 1);
 }
 
-/// What is single tiled op in loop?
+/// What is self tiled op compared with other fused op?
 /// E.g.
 /// %1 = scf.for(){
 ///   %2 = scf.for(){
@@ -562,7 +552,7 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
 ///       yield %5
 ///   }
 /// }
-static LogicalResult isSingleTiledOpInLoop(Operation *targetOp) {
+static LogicalResult isSelfTiledOp(Operation *targetOp) {
   // 0. check tilable
   if (!isa<TilingInterface>(targetOp))
     return failure();
@@ -694,16 +684,15 @@ static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   if (succeeded(tilingResult)) {
     rewriter.replaceOp(op, tilingResult->replacements);
     return true;
-  } else {
-    return false;
   }
+  return false;
 }
 
 void iterativeTilingAndFusionUntilExhaustion(
     RewriterBase &rewriter, func::FuncOp &f,
     const CandidateSliceOptions &sliceOptions, const OpTileSizeMap &tsMap) {
   // Collect untiled and tiled ops respectively
-  llvm::SetVector<Operation *> singleTiledOpInLoop, unTiledOps;
+  llvm::SetVector<Operation *> selfTiledOp, unTiledOps;
 
   auto collectUnTiledOps = [&f, &unTiledOps]() -> bool {
     // Reset
@@ -712,8 +701,7 @@ void iterativeTilingAndFusionUntilExhaustion(
     f->walk<WalkOrder::PreOrder>([&unTiledOps](Operation *op) {
       if (isa<LoopLikeOpInterface>(op))
         return WalkResult::skip();
-
-      if (isa<TilingInterface>(op) && !op->use_empty()) {
+      if (isa<TilingInterface>(op)) {
         auto parentLoop = op->getParentOfType<LoopLikeOpInterface>();
         if (!parentLoop.getOperation())
           unTiledOps.insert(op);
@@ -723,32 +711,32 @@ void iterativeTilingAndFusionUntilExhaustion(
     return !unTiledOps.empty();
   };
 
-  auto collectSingleTiledOpInLoop = [&f, &singleTiledOpInLoop]() -> bool {
+  auto collectSelfTiledOp = [&f, &selfTiledOp]() -> bool {
     // Reset
-    singleTiledOpInLoop.clear();
+    selfTiledOp.clear();
     // Walk through funcOp
-    f->walk([&singleTiledOpInLoop](Operation *op) {
+    f->walk([&selfTiledOp](Operation *op) {
       // Target at certain kind of tiled op, such as matmul/conv implemented
       // by multiple level of nest loops and candidate slices for better
       // utilization of parallelism and memory hierarchy.
-      if (succeeded(isSingleTiledOpInLoop(op))) {
-        singleTiledOpInLoop.insert(op);
+      if (succeeded(isSelfTiledOp(op))) {
+        selfTiledOp.insert(op);
       }
     });
-    return !singleTiledOpInLoop.empty();
+    return !selfTiledOp.empty();
   };
 
   // Iterative tiling and fusion until exhaustion.
   while (collectUnTiledOps()) {
     // If existing tiled op before tiling.
-    if (collectSingleTiledOpInLoop()) {
+    if (collectSelfTiledOp()) {
       // Sort by topology
-      mlir::topologicalSort(singleTiledOpInLoop);
+      mlir::topologicalSort(selfTiledOp);
       // Record if any fusion happens
       bool changed = false;
       // Iteratively fuse in forward and backward fashion.
-      llvm::for_each(singleTiledOpInLoop, [&rewriter, &sliceOptions,
-                                           &changed](Operation *tiledOp) {
+      llvm::for_each(selfTiledOp, [&rewriter, &sliceOptions,
+                                   &changed](Operation *tiledOp) {
         changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
             rewriter, tiledOp, sliceOptions));
       });
@@ -774,7 +762,7 @@ void iterativeTilingAndFusionUntilExhaustion(
                                                    std::cref(tsMap)));
                        })) {
         // If no op can be tiled
-        break;
+        return;
       }
     }
   }

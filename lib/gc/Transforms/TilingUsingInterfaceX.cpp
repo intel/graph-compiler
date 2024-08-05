@@ -212,8 +212,8 @@ FailureOr<OpResult> mlir::scfX::getRealProducerOfExtractSliceOp(
         continue;
       }
       return failure();
-    } else if (auto sliceOp =
-                   rootSource.getDefiningOp<tensor::ExtractSliceOp>()) {
+    }
+    if (auto sliceOp = rootSource.getDefiningOp<tensor::ExtractSliceOp>()) {
       // walk up loop to find larger candidate extractSliceOp
       return getRealProducerOfExtractSliceOp(sliceOp, backwardSlice,
                                              curDepth + 1);
@@ -270,10 +270,8 @@ std::optional<scf::SCFFuseProducerOfSliceResult>
 mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
                                        Operation *candidateSliceOp) {
   SmallVector<tensor::ExtractSliceOp> backwardSlice;
-  if (failed(
-          getRealProducerOfExtractSliceOp(candidateSliceOp, backwardSlice))) {
+  if (failed(getRealProducerOfExtractSliceOp(candidateSliceOp, backwardSlice)))
     return std::nullopt;
-  }
 
   std::optional<scf::SCFFuseProducerOfSliceResult> fuseProducerResult;
   // reverse from outer to inner
@@ -296,9 +294,8 @@ mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
                                whileProducerOutOfLoopBlock);
     fuseProducerResult =
         tileAndFuseProducerOfSliceImpl(rewriter, sliceOp, outerLoops);
-    if (!fuseProducerResult) {
+    if (!fuseProducerResult)
       return std::nullopt;
-    }
   }
   return fuseProducerResult;
 }
@@ -369,7 +366,8 @@ mlir::scfX::getRealConsumersFromInsertSliceOp(
               dyn_cast<OffsetSizeAndStrideOpInterface>(useOperand.getOwner())) {
         return getRealConsumersFromInsertSliceOp(sliceOp, forwardSlice,
                                                  curDepth + 1);
-      } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOperand.getOwner())) {
+      }
+      if (auto yieldOp = dyn_cast<scf::YieldOp>(useOperand.getOwner())) {
         // walk through outer loop
         auto forOp = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp());
         if (!forOp)
@@ -439,9 +437,9 @@ static FailureOr<OpOperand *> getConsumerFromUses(Value val,
       break;
     }
   }
-  if (!operand) {
+  if (!operand)
     return failure();
-  }
+
   return operand;
 }
 
@@ -674,6 +672,19 @@ fixTerminatorSCFInParallel(RewriterBase &rewriter, scf::ForallOp newForallOp,
 
 /// Implementation of fusing consumer of a single slice by computing the
 /// slice of the consumer in-place for scf loop.
+/// As for `insertSlice`, it also supports nest outer loop structure without
+/// any other slice inside. E.g.
+///
+/// ```
+/// scf.for()
+///   scf.for()
+///      scf.for()
+///         ...
+///         insert_slice
+///         yield
+///      yield
+///   yield
+/// ```
 static FailureOr<scf::SCFFuseConsumerOfSliceResult>
 tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
                                Operation *candidateSliceOp) {

@@ -25,8 +25,8 @@ FailureOr<OpResult> getRealProducerOfExtractSliceOp(
 
 FailureOr<SmallVector<OpOperand *>> getRealConsumersFromInsertSliceOp(
     Operation *candidateSliceOp,
-    SmallVector<OffsetSizeAndStrideOpInterface> &forwardSlice, unsigned curDepth = 0,
-    unsigned maxDepth = 5);
+    SmallVector<OffsetSizeAndStrideOpInterface> &forwardSlice,
+    unsigned curDepth = 0, unsigned maxDepth = 5);
 
 // Extension for upstream `tileAndFuseProducerOfSlice`
 std::optional<scf::SCFFuseProducerOfSliceResult>

@@ -50,17 +50,17 @@ module attributes {
                   %extracted_slice_5 = tensor.extract_slice %extracted_slice_2[%arg12, %arg16] [32, 512] [1, 1] : tensor<64x512xbf16> to tensor<32x512xbf16>
                   %extracted_slice_6 = tensor.extract_slice %extracted_slice_3[%arg16, %arg14] [512, 32] [1, 1] : tensor<512x128xbf16> to tensor<512x32xbf16>
                   %extracted_slice_7 = tensor.extract_slice %arg17[%arg12, %arg14] [32, 32] [1, 1] : tensor<64x128xbf16> to tensor<32x32xbf16>
-                  /// CHECK: tensor.unpack
-                  /// CHECK: linalg.fill
-                  /// CHECK: tensor.expand_shape
-                  /// CHECK: tensor.expand_shape
+                  /// CHECK: %[[UNPACK_OUT:.*]] = tensor.unpack
+                  /// CHECK: %[[FILL_OUT:.*]] = linalg.fill
+                  /// CHECK: %[[EXPAND_OUT_1:.*]] = tensor.expand_shape
+                  /// CHECK: %[[EXPAND_OUT_2:.*]] = tensor.expand_shape
                   %expanded = tensor.expand_shape %extracted_slice_5 [[0, 1], [2]] output_shape [1, 32, 512] : tensor<32x512xbf16> into tensor<1x32x512xbf16>
                   %expanded_8 = tensor.expand_shape %extracted_slice_6 [[0, 1], [2]] output_shape [1, 32, 512] : tensor<512x32xbf16> into tensor<1x512x32xbf16>
-                  /// CHECK: linalg.batch_reduce_matmul
+                  /// CHECK: %[[MATMUL_OUT:.*]] = linalg.batch_reduce_matmul ins(%[[EXPAND_OUT_1]], %[[EXPAND_OUT_2]] :
                   %17 = linalg.batch_reduce_matmul ins(%expanded, %expanded_8 : tensor<1x32x512xbf16>, tensor<1x512x32xbf16>) outs(%extracted_slice_7 : tensor<32x32xbf16>) -> tensor<32x32xbf16>
-                  /// CHECK: linalg.broadcast
-                  /// CHECK: linalg.add
-                  /// CHECK: linalg.exp
+                  /// CHECK: %[[BROADCAST_OUT:.*]] = linalg.broadcast
+                  /// CHECK: %[[ADD_OUT:.*]] = linalg.add ins(%[[MATMUL_OUT]], %[[BROADCAST_OUT]] :
+                  /// CHECK: %[[EXP_OUT:.*]] = linalg.exp ins(%[[ADD_OUT]] :
                   %inserted_slice_9 = tensor.insert_slice %17 into %arg17[%arg12, %arg14] [32, 32] [1, 1] : tensor<32x32xbf16> into tensor<64x128xbf16>
                   /// CHECK: scf.yield {{.*}}, {{.*}}, {{.*}} : tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x128xbf16>
                   scf.yield %inserted_slice_9 : tensor<64x128xbf16>
@@ -135,10 +135,10 @@ module attributes {
           %extracted_slice_4 = tensor.extract_slice %arg10[%arg7, %arg9] [64, 64] [1, 1] : tensor<128x128xf32> to tensor<64x64xf32>
           %extracted_slice_5 = tensor.extract_slice %extracted_slice_2[%arg7, 0] [64, 512] [1, 1] : tensor<128x512xf32> to tensor<64x512xf32>
           %extracted_slice_6 = tensor.extract_slice %extracted_slice_3[0, %arg9] [512, 64] [1, 1] : tensor<512x128xf32> to tensor<512x64xf32>
-          /// CHECK: linalg.matmul
+          /// CHECK: %[[MATMUL_OUT:.*]] = linalg.matmul
           %4 = linalg.matmul ins(%extracted_slice_5, %extracted_slice_6 : tensor<64x512xf32>, tensor<512x64xf32>) outs(%extracted_slice_4 : tensor<64x64xf32>) -> tensor<64x64xf32>
-          /// CHECK: linalg.mul
-          /// CHECK: linalg.add
+          /// CHECK: %[[MUL_OUT:.*]] = linalg.mul ins(%[[MATMUL_OUT]],
+          /// CHECK: %[[ADD_OUT:.*]] = linalg.add ins(%[[MATMUL_OUT]],
           %insert_slice = tensor.insert_slice %4 into %arg10[%arg7, %arg9] [64, 64] [1, 1] : tensor<64x64xf32> into tensor<128x128xf32>
           /// CHECK: scf.yield {{.*}}, {{.*}}, {{.*}}  : tensor<128x128xf32>, tensor<128x128xf32>, tensor<128x128xf32>
           scf.yield %insert_slice : tensor<128x128xf32>
@@ -188,16 +188,16 @@ module attributes {
       %extracted_slice_1 = tensor.extract_slice %arg5[%iv0, %iv1] [128, 256] [1, 1] : tensor<256x256xf32> to tensor<128x256xf32>
       %extracted_slice_2 = tensor.extract_slice %arg0[%iv0, 0] [128, 512] [1, 1] : tensor<256x512xf32> to tensor<128x512xf32>
       %extracted_slice_3 = tensor.extract_slice %arg1[0, %iv1] [512, 256] [1, 1] : tensor<512x256xf32> to tensor<512x256xf32>
-      /// CHECK: scf.for
+      /// CHECK: %[[FOR_RESULT:.*]]:2 = scf.for
       /// CHECK: scf.for
       %2 = scf.for %arg6 = %c0 to %c128 step %c64 iter_args(%arg7 = %extracted_slice_1) -> (tensor<128x256xf32>) {
         %3 = scf.for %arg8 = %c0 to %c256 step %c64 iter_args(%arg9 = %arg7) -> (tensor<128x256xf32>) {
           %extracted_slice_4 = tensor.extract_slice %arg9[%arg6, %arg8] [64, 64] [1, 1] : tensor<128x256xf32> to tensor<64x64xf32>
           %extracted_slice_5 = tensor.extract_slice %extracted_slice_2[%arg6, 0] [64, 512] [1, 1] : tensor<128x512xf32> to tensor<64x512xf32>
           %extracted_slice_6 = tensor.extract_slice %extracted_slice_3[0, %arg8] [512, 64] [1, 1] : tensor<512x256xf32> to tensor<512x64xf32>
-          /// CHECK: linalg.matmul
+          /// CHECK: %[[MATMUL_OUT:.*]] = linalg.matmul
           %4 = linalg.matmul ins(%extracted_slice_5, %extracted_slice_6 : tensor<64x512xf32>, tensor<512x64xf32>) outs(%extracted_slice_4 : tensor<64x64xf32>) -> tensor<64x64xf32>
-          /// CHECK: linalg.add
+          /// CHECK: %[[ADD_OUT:.*]] = linalg.add ins(%[[MATMUL_OUT]],
           %insert_slice = tensor.insert_slice %4 into %arg9[%arg6, %arg8] [64, 64] [1, 1] : tensor<64x64xf32> into tensor<128x256xf32>
           /// CHECK: scf.yield {{.*}}, {{.*}} : tensor<128x256xf32>, tensor<128x256xf32>
           scf.yield %insert_slice : tensor<128x256xf32>
@@ -205,7 +205,7 @@ module attributes {
         /// CHECK: scf.yield {{.*}}, {{.*}} : tensor<128x256xf32>, tensor<128x256xf32>
         scf.yield %3 : tensor<128x256xf32>
       }
-      /// CHECK: linalg.reduce
+      /// CHECK:  %[[REDUCE_OUT:.*]] = linalg.reduce { arith.addf } ins(%[[FOR_RESULT]]#1 :
       scf.forall.in_parallel {
         /// CHECK: tensor.parallel_insert_slice
         /// CHECK: tensor.parallel_insert_slice
@@ -241,9 +241,9 @@ module attributes {
     /// CHECK: tensor.extract_slice {{.*}} [1, 256, 1] [1, 1, 1]
     /// CHECK: tensor.extract_slice {{.*}} [1, 256, 1] [1, 1, 1]
     /// CHECK: tensor.extract_slice {{.*}} [1, 256, 1] [1, 1, 1]
-    /// CHECK: linalg.add
+    /// CHECK: %[[ADD_OUT:.*]] = linalg.add
     /// CHECK: tensor.extract_slice {{.*}} [1, 1] [1, 1]
-    /// CHECK: linalg.reduce
+    /// CHECK: %[[REDUCE_OUT:.*]] = linalg.reduce { arith.addf } ins(%[[ADD_OUT]] :
     %1 = linalg.reduce { arith.addf } ins(%0 : tensor<128x256x256xf32>) outs(%dest1 : tensor<128x256xf32>) dimensions = [1]
     /// CHECK: scf.forall.in_parallel
     /// CHECK: tensor.parallel_insert_slice
