@@ -20,13 +20,13 @@ from typing import List
 
 import ml_dtypes
 import numpy as np
-from enhanced_np_to_memref import (
+from gc_mlir import ir
+from gc_mlir.dialects import arith, func, memref
+from gc_mlir.runtime.np_to_memref import (
     BF16,
     get_ranked_memref_descriptor,
     make_nd_memref_descriptor,
 )
-from gc_mlir import ir
-from gc_mlir.dialects import arith, func, memref
 
 MLIR_TYPE_TO_NUMPY_TYPE = {
     "bf16": ml_dtypes.bfloat16,

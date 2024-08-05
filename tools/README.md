@@ -2,7 +2,6 @@
 ## Pre-requisites
 ### Enable python binding
 * Enable MLIR python binding, [README](https://github.com/intel/graph-compiler/blob/main/python/README.md)
-* Install `/tools/requirements.txt`
 ### Set env
 * **PYTHONPATH**=*${BUILD_DIR}*/python_packages/gc_mlir_core
 * **LD_PRELOAD**=path/to/libiomp5.so
