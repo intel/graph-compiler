@@ -15,6 +15,19 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
+if(GC_ENABLE_BINDINGS_PYTHON)
+  if(NOT MLIR_ENABLE_BINDINGS_PYTHON)
+    message(STATUS "Failed to enable Python API due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
+    set(GC_ENABLE_BINDINGS_PYTHON OFF CACHE BOOL "" FORCE)
+    return()
+  endif()
+  message(STATUS "Enabling Python API")
+else()
+  return()
+endif()
+
+include(MLIRDetectPythonEnv)
+mlir_configure_python_dev_packages()
 include(AddMLIRPython)
 
 # Specifies that all MLIR packages are co-located under the `gc_mlir`
@@ -87,6 +100,7 @@ add_mlir_python_common_capi_library(GcPythonCAPI
     MLIRPythonSources.Dialects.linalg
     MLIRPythonSources.ExecutionEngine
 )
+target_link_libraries(GcPythonCAPI PUBLIC GcInterface)
 
 ################################################################################
 # Instantiation of all Python modules

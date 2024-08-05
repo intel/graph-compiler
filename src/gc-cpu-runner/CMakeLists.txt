@@ -15,6 +15,11 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
+if(NOT GC_ENABLE_TOOLS)
+  message(STATUS "Cpu runner is not enabled.")
+  return()
+endif()
+
 if(GC_DEV_LINK_LLVM_DYLIB)
   set(LLVM_LINK_COMPONENTS
     LLVM
@@ -47,18 +52,15 @@ else()
   )
 endif()
 
-if(GC_MLIR_CXX_FLAGS)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GC_MLIR_CXX_FLAGS}")
-endif()
-
 #LLVM_LINK_COMPONENTS is processed by LLVM cmake in add_llvm_executable
 set(gc_cpu_runner_libs
         ${MLIR_LINK_COMPONENTS}
-        GCCpuRuntime)
+        GcCpuRuntime)
 add_mlir_tool(gc-cpu-runner
         gc-cpu-runner.cpp
+
 )
 llvm_update_compile_flags(gc-cpu-runner)
 
-target_link_libraries(gc-cpu-runner PRIVATE ${gc_cpu_runner_libs})
+target_link_libraries(gc-cpu-runner PRIVATE GcInterface ${gc_cpu_runner_libs})
 mlir_check_all_link_libraries(gc-cpu-runner)
