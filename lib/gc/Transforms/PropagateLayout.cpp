@@ -76,6 +76,21 @@ static SmallVector<int64_t> getPackedPermAxes(ArrayRef<int64_t> plainPermAxes,
   return result;
 }
 
+static int64_t applyPermutationAndReindexReassoc(
+    SmallVector<ReassociationIndices> &reassocIndices,
+    ArrayRef<int64_t> permutation) {
+  if (!permutation.empty())
+    applyPermutationToVector<ReassociationIndices>(reassocIndices, permutation);
+  int64_t nextPos = 0;
+  for (ReassociationIndices &indices : reassocIndices) {
+    for (auto &index : indices) {
+      index = nextPos;
+      nextPos += 1;
+    }
+  }
+  return nextPos;
+}
+
 // extends linalg::pack(...) for named ops
 FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
                                           linalg::LinalgOp linalgOp,
@@ -250,26 +265,10 @@ public:
   void runOnOperation() final;
 };
 
-LogicalResult graphAlreadyPacked(MLIRContext *ctx, mlir::Operation *graph) {
-  IRRewriter rewriter(ctx);
-  auto walk = graph->walk([&](Operation *op) {
-    if (mlir::gc::utils::isPackableNamedOp(op) && op->hasAttr("packed")) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Graph already packed. Stop layout propagation.\n");
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
-  if (walk.wasInterrupted()) {
-    return failure();
-  }
-  return success();
-}
-
 LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
                                        ControlPackNamedOpsFn controlFn) {
   IRRewriter rewriter(ctx);
-  auto walk = graph->walk([&](Operation *op) {
+  graph->walk([&](Operation *op) {
     if (mlir::gc::utils::isPackableNamedOp(op)) {
       LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName() << " visited.\n");
       FailureOr<OperatorLayout> opLayout = controlFn(op);
@@ -300,38 +299,44 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
             packNamedOp(rewriter, linalgOp, *opLayout);
         if (failed(packedOp)) {
           return WalkResult::skip();
-        } else {
-          packedOp->packedLinalgOp->setAttr("packed",
-                                            rewriter.getBoolAttr(true));
         }
       } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
-        // Location loc = expandShapeOp->getLoc();
-        // auto inputLayout = opLayout->getSupportedInputLayouts()[0];
-        // auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
-        // Value dest = tensor::PackOp::createDestinationTensor(
-        //     rewriter, loc, expandShapeOp.getSrc(),
-        //     inputLayout.getTileSizes(), inputLayout.getInnerAxis(),
-        //     inputLayout.getOuterAxis());
-        // Value packedSource = rewriter.create<tensor::PackOp>(
-        //     loc, expandShapeOp.getSrc(), dest, inputLayout.getInnerAxis(),
-        //     inputLayout.getTileSizes(), std::nullopt,
-        //     inputLayout.getOuterAxis());
-        // auto resultType = RankedTensorType::get(
-        //     expandShapeOp.getStaticOutputShape(),
-        //     expandShapeOp.getSrcType().getElementType());
-        // RankedTensorType resultPackType = tensor::PackOp::inferPackedType(
-        //     resultType, vector::getAsIntegers(outputLayout.getTileSizes()),
-        //     outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
-        // auto reassocExpand = getReassociationIndicesForReshape(
-        //     cast<ShapedType>(dest.getType()), resultPackType);
-        // auto packedExpandShape = rewriter.create<tensor::ExpandShapeOp>(
-        //     loc, expandShapeOp.getSrcType().getElementType(), packedSource,
-        //     *reassocExpand);
-        // Value result = rewriter.create<tensor::UnPackOp>(
-        //     packedExpandShape->getLoc(), packedExpandShape,
-        //     packedExpandShape, outputLayout.getInnerAxis(),
-        //     outputLayout.getTileSizes(), outputLayout.getOuterAxis());
-        // rewriter.replaceOp(expandShapeOp, result);
+        Location loc = expandShapeOp->getLoc();
+        auto inputLayout = opLayout->getSupportedInputLayouts()[0];
+        auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
+        LLVM_DEBUG(llvm::dbgs() << "Input layout: " << inputLayout << ".\n");
+        LLVM_DEBUG(llvm::dbgs() << "Output layout: " << outputLayout << ".\n");
+        Value curSrc = expandShapeOp.getSrc();
+        Value curDst = expandShapeOp.getResult();
+        Value dest = tensor::PackOp::createDestinationTensor(
+            rewriter, loc, curSrc, inputLayout.getTileSizes(),
+            inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
+        Value packedSource = rewriter.create<tensor::PackOp>(
+            loc, curSrc, dest, inputLayout.getInnerAxis(),
+            inputLayout.getTileSizes(), std::nullopt,
+            inputLayout.getOuterAxis());
+        SmallVector<ReassociationIndices> newReassocIndices =
+            expandShapeOp.getReassociationIndices();
+        int64_t nextPos = applyPermutationAndReindexReassoc(
+            newReassocIndices, inputLayout.getOuterAxis());
+        // Then add direct mapping for the inner tile dims.
+        for (size_t i = 0; i < inputLayout.getInnerAxis().size(); ++i) {
+          newReassocIndices.push_back({nextPos});
+          nextPos += 1;
+        }
+        RankedTensorType newExpandType = tensor::PackOp::inferPackedType(
+            dyn_cast<RankedTensorType>(curDst.getType()),
+            *getConstantIntValues(outputLayout.getTileSizes()),
+            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
+        Value packedExpandShape = rewriter.create<tensor::ExpandShapeOp>(
+            loc, newExpandType, packedSource, newReassocIndices);
+        auto unpackDst = tensor::UnPackOp::createDestinationTensor(
+            rewriter, loc, packedExpandShape, outputLayout.getTileSizes(),
+            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
+        auto newUnPackOp = rewriter.create<tensor::UnPackOp>(
+            loc, packedExpandShape, unpackDst, outputLayout.getInnerAxis(),
+            outputLayout.getTileSizes(), outputLayout.getOuterAxis());
+        rewriter.replaceOp(expandShapeOp, newUnPackOp);
       }
     }
     return WalkResult::advance();
@@ -619,9 +624,6 @@ struct UpliftPackOverBroadcast : public OpRewritePattern<tensor::PackOp> {
 void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   mlir::Operation *graph = getOperation();
-  // stage0: check if the graph has been packed
-  if (failed(graphAlreadyPacked(ctx, graph)))
-    return;
   // stage1: pack matmul
   RewritePatternSet packMatmulPatterns(&getContext());
   mlir::linalg::ControlBlockPackMatmulFn packMatmulControlFn =
