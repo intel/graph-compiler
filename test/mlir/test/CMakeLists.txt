@@ -25,9 +25,6 @@ set(GC_OPT_TEST_DEPENDS
 
 if(GC_ENABLE_IMEX)
         include(imex)
-        if (IMEX_ENABLE_L0_RUNTIME)
-                list(APPEND GC_OPT_TEST_DEPENDS level-zero-runtime)
-        endif()
         list(APPEND GC_OPT_TEST_DEPENDS GcOpenclRuntime)
 endif()
 

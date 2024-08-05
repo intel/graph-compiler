@@ -36,9 +36,6 @@ config.substitutions.append(('%mlir_c_runner_utils', config.mlir_c_runner_utils)
 if config.gc_use_imex:
     config.substitutions.append(('%opencl_runtime', config.opencl_runtime))
 
-if config.imex_enable_l0_runtime:
-    config.substitutions.append(('%levelzero_runtime', config.levelzero_runtime))
-
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 
 llvm_config.use_default_substitutions()
