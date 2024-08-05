@@ -17,6 +17,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 
+#include "llvm/IR/CallingConv.h"
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
@@ -51,7 +52,12 @@ public:
       return failure();
     // todo; note: migth not need it as we'll have storage classes translated
     // already
+    llvm::LLVMContext &llvmContext = moduleTranslation.getLLVMContext();
+    llvm::Function *llvmFunc = moduleTranslation.lookupFunction(func.getName());
 
+    if (attribute.getName() == gen::GENDialect::getKernelFuncAttrName()) {
+      llvmFunc->setCallingConv(llvm::CallingConv::SPIR_KERNEL);
+    }
     return success();
   }
 };
