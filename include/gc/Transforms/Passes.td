@@ -32,7 +32,7 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   ];
 }
 
-def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime"> {
+def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::FuncOp"> {
   let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
   let description = [{
     Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
