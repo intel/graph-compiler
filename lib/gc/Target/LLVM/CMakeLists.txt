@@ -13,6 +13,7 @@ gc_add_mlir_dialect_library(MLIRGENTarget
   MLIRSupport
   MLIRGPUDialect
   MLIRTargetLLVM
+  LLVMSPIRVCodeGen
   MLIRGENToLLVMIRTranslation
   GcInterface
   )
