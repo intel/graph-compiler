@@ -595,6 +595,11 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     auto NOuterBlockSize = NDimPos.size() > 1
                                ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
                                : cfg.NBlock;
+    // Outermost Numa loop
+    option.nestedTileSizes.emplace_back(
+        SmallVector<size_t>{uint32_t(MFirstDim / 2)});
+    option.loopType.emplace_back(OuterLoopGenerationOption::LoopType::ForallOp);
+    option.loopDim.emplace_back(SmallVector<size_t>{MDimPos[0]});
     // Outer
     option.nestedTileSizes.emplace_back(SmallVector<size_t>{
         MParallelBlockSize, NParallelBlockSize, KParallelBlockSize});
@@ -1003,9 +1008,8 @@ struct tileReduce : public OpRewritePattern<linalg::ReduceOp> {
           rewriter.replaceOp(currentOp, tilingResult->replacements);
           currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
           if (loopType == scf::SCFTilingOptions::LoopType::ForallOp)
-              loopType = scf::SCFTilingOptions::LoopType::ForOp;
+            loopType = scf::SCFTilingOptions::LoopType::ForOp;
         }
-        
       }
       cnt++;
     }
