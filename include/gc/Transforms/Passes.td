@@ -86,4 +86,14 @@ def AnyTilableFusion : Pass<"any-tilable-fusion",
                            "tensor::TensorDialect"];
 }
 
+def DecomposeOpsForBufferize : Pass<"decompose-ops-for-bufferize", "func::FuncOp"> {
+  let summary = "Decompose complex ops into sequences of basic ops";
+  let description = [{
+    Decompose complex ops into sequences of basic ops, so as to further bufferize the complex ops.
+  }];
+  let dependentDialects = [
+      "tensor::TensorDialect"
+  ];
+}
+
 #endif // GC_DIALECT_GC_PASSES
