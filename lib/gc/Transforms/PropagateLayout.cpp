@@ -36,11 +36,13 @@ using namespace mlir::tensor;
 
 static SmallVector<int64_t> getPackedAxes(ArrayRef<int64_t> dimensions,
                                           TensorLayout targetLayout) {
-  SmallVector<int64_t> result(dimensions);
+  SmallVector<int64_t> result;
   // permuting on outer axis
   auto outerPerm = targetLayout.getOuterAxis();
   for (size_t i = 0; i < dimensions.size(); ++i) {
-    result[i] = outerPerm[dimensions[i]];
+    auto pos = std::find(outerPerm.begin(), outerPerm.end(), dimensions[i]);
+    assert(pos != outerPerm.end() && "dimension must be within output perm.");
+    result.push_back(std::distance(outerPerm.begin(), pos));
   }
   // inserting inner axis
   auto innerPos = targetLayout.getInnerAxis();

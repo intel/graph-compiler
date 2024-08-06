@@ -138,6 +138,8 @@ inferTargetLayout(TensorLayout layoutBase,
       newDimAxis.push_back(pair.first);
     }
   }
+  // TODO(yifei): double consider the performance, whether to push all new axis
+  // at the beginning of outer perm
   targetOuterAxis.insert(targetOuterAxis.begin(), newDimAxis.begin(),
                          newDimAxis.end());
   for (auto &&[ia, ts] : llvm::zip(baseInnerAxis, baseTileSizes)) {
