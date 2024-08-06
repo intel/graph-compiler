@@ -1,10 +1,5 @@
 find_package(OpenMP REQUIRED)
 
-if ("iomp" IN_LIST OpenMP_C_LIB_NAMES OR "omp" IN_LIST OpenMP_C_LIB_NAMES OR "omp5" IN_LIST OpenMP_C_LIB_NAMES)
-else()
-  add_definitions("-DGC_NEEDS_OMP_WRAPPER=1")
-endif()
-
 file(GLOB_RECURSE MICROKERNEL_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Microkernel/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Microkernel/*.c
@@ -18,14 +13,12 @@ endif()
 
 include(onednn)
 
-get_property(DNNL_INCLUDES GLOBAL PROPERTY DNNL_INCLUDES)
-get_property(DNNL_LIB_DEPS GLOBAL PROPERTY DNNL_LIB_DEPS)
+get_property(DNNL_INCLUDES GLOBAL PROPERTY GC_DNNL_INCLUDES)
+get_property(DNNL_LIB_DEPS GLOBAL PROPERTY GC_DNNL_LIB_DEPS)
 
 include_directories(${DNNL_INCLUDES})
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
-add_mlir_library(GCCpuRuntime
+gc_add_mlir_library(GcCpuRuntime
     SHARED
     Parallel.cpp
     ${MICROKERNEL_RUNTIME_SOURCES}
@@ -36,5 +29,17 @@ add_mlir_library(GCCpuRuntime
     LINK_LIBS PRIVATE
     ${DNNL_LIB_DEPS}
 
+    LINK_LIBS PUBLIC
+    GcInterface
+
     EXCLUDE_FROM_LIBMLIR
-  )
+)
+
+if ("iomp" IN_LIST OpenMP_C_LIB_NAMES OR "omp" IN_LIST OpenMP_C_LIB_NAMES OR "omp5" IN_LIST OpenMP_C_LIB_NAMES)
+else()
+  target_compile_options(GcCpuRuntime PRIVATE "-DGC_NEEDS_OMP_WRAPPER")
+endif()
+
+string(REPLACE " " ";" flags "${OpenMP_C_FLAGS} ${OpenMP_CXX_FLAGS}")
+target_compile_options(GcCpuRuntime PUBLIC ${flags})
+target_link_options(GcCpuRuntime PUBLIC ${flags})

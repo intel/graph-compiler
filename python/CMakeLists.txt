@@ -15,6 +15,19 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
+if(GC_ENABLE_BINDINGS_PYTHON)
+  if(NOT MLIR_ENABLE_BINDINGS_PYTHON)
+    message(STATUS "Failed to enable Python API due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
+    set(GC_ENABLE_BINDINGS_PYTHON OFF CACHE BOOL "" FORCE)
+    return()
+  endif()
+  message(STATUS "Enabling Python API")
+else()
+  return()
+endif()
+
+include(MLIRDetectPythonEnv)
+mlir_configure_python_dev_packages()
 include(AddMLIRPython)
 
 # Specifies that all MLIR packages are co-located under the `gc_mlir`
@@ -43,23 +56,25 @@ declare_mlir_python_sources(GcPythonSources.Common
 # Dialect bindings
 ################################################################################
 
-declare_mlir_dialect_python_bindings(
+if(GC_ENABLE_DNNL)
+  declare_mlir_dialect_python_bindings(
     ADD_TO_PARENT GcPythonSources
     ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
     TD_FILE dialects/OneDNNGraphOps.td
     SOURCES 
       dialects/onednn_graph.py
     DIALECT_NAME onednn_graph
-    )
+  )
+endif()
 
-    declare_mlir_dialect_python_bindings(
-      ADD_TO_PARENT GcPythonSources
-      ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
-      TD_FILE dialects/CPURuntimeOps.td
-      SOURCES 
-        dialects/cpuruntime.py
-      DIALECT_NAME cpuruntime
-      )
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT GcPythonSources
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
+  TD_FILE dialects/CPURuntimeOps.td
+  SOURCES 
+    dialects/cpuruntime.py
+  DIALECT_NAME cpuruntime
+)
 
 declare_mlir_python_extension(GcPythonSources.Extension
   MODULE_NAME _gc_mlir
@@ -84,6 +99,7 @@ add_mlir_python_common_capi_library(GcPythonCAPI
     MLIRPythonExtension.RegisterEverything
     MLIRPythonSources.Core
 )
+target_link_libraries(GcPythonCAPI PUBLIC GcInterface)
 
 ################################################################################
 # Instantiation of all Python modules

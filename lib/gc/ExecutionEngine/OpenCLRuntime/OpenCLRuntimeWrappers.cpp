@@ -13,7 +13,9 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <mutex>
+#include <stdexcept>
 #include <vector>
 
 #ifdef _WIN32

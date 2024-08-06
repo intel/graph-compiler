@@ -18,100 +18,112 @@
 cmake_minimum_required(VERSION 3.20)
 project(GraphCompiler VERSION "0.1.0" LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+############################# Cmake options ####################################
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-
-option(GC_LEGACY_ENABLE ON)
-option(GC_TEST_ENABLE "Build the tests" ON)
-option(GC_USE_GPU "Enable GPU backend" OFF)
-option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
-option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
-option(GC_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend, mainly for debug purpose." OFF)
-
-if(GC_LEGACY_ENABLE)
-    add_subdirectory(legacy/core)
-endif()
-
-find_package(MLIR REQUIRED CONFIG)
-
-message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-
-set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
-set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
-set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
-
-list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}")
-list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
-
-include(TableGen)
-include(AddLLVM)
-include(AddMLIR)
-include(HandleLLVMOptions)
-
-if(GC_USE_GPU)
-  include(imex)
-  if(GC_DEV_LINK_LLVM_DYLIB)
-    message(WARN "GPU backend may not be compatible with dynamic linking to LLVM")
-  endif()
-endif()
-
-if(GC_ENABLE_BINDINGS_PYTHON AND NOT MLIR_ENABLE_BINDINGS_PYTHON)
-  message(STATUS "Failed to enable Python API due to the 'MLIR_ENABLE_BINDINGS_PYTHON' for LLVM is not ON.")
-  set(GC_ENABLE_BINDINGS_PYTHON OFF CACHE BOOL "" FORCE)
-endif()
-
-if(GC_ENABLE_BINDINGS_PYTHON)
-  include(MLIRDetectPythonEnv)
-  mlir_configure_python_dev_packages()
-endif()
-
-include_directories(
-        ${LLVM_INCLUDE_DIRS}
-        ${MLIR_INCLUDE_DIRS}
-        ${PROJECT_BINARY_DIR}/include
-        ${PROJECT_SOURCE_DIR}/include
-)
-
-# The paths are added in the subfolders using the gc_add_path() function.
-# These lists are also used by tests.
-set(GC_LIB_SOURCES CACHE INTERNAL "The graph_compiler library source paths")
-set(GC_LIB_INCLUDES CACHE INTERNAL "The graph_compiler library include paths")
-
-add_definitions(${LLVM_DEFINITIONS})
-
-set(GC_MLIR_CXX_FLAGS "")
 # Silence a false positive GCC -Wunused-but-set-parameter warning in constexpr
 # cases, by marking SelectedCase as used. See
 # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85827 for details. The issue is
 # fixed in GCC 10.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
   check_cxx_compiler_flag("-Wno-unused-but-set-parameter" CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER)
-  append_if(CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER "-Wno-unused-but-set-parameter" GC_MLIR_CXX_FLAGS)
+  append_if(CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER "-Wno-unused-but-set-parameter" CMAKE_CXX_FLAGS)
 endif()
-include("cmake/version.cmake")
+################################################################################
+
+############################ Build options #####################################
+option(GC_ENABLE_LEGACY ON)
+option(GC_ENABLE_DNNL "Enable the oneDNN library integration" ON)
+option(GC_ENABLE_TEST "Build the tests" ON)
+option(GC_ENABLE_TEST_DNNL "Build the dnnl tests" ${GC_ENABLE_DNNL})
+option(GC_ENABLE_TEST_MLIR "Build the mlir tests" ON)
+option(GC_ENABLE_TOOLS "Build the tools" ON)
+option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
+option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR" OFF)
+option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
+option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
+option(GC_ENABLE_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend for debug purpose." OFF)
+
+if(GC_ENABLE_LEGACY)
+  add_subdirectory(legacy/core)
+endif()
+
+if(GC_ENABLE_DNNL)
+  set(GC_ONEDNN_DIALECT_LIB_NAME MLIROneDNNGraph)
+endif()
+################################################################################
+
+############################## Targets #########################################
+# All common options, includes etc. are added to this interface target.
+add_library(GcInterface INTERFACE)
+target_compile_features(GcInterface INTERFACE cxx_std_17)
+target_include_directories(GcInterface INTERFACE
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+include(functions)
+include(version)
+include(mlir)
 
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
-if(GC_ENABLE_BINDINGS_PYTHON)
-  message(STATUS "Enabling Python API")
-  add_subdirectory(python)
-endif()
-
-set(GC_LIB_LINKED_LIBS
-        GCJitWrapper
-        GCCpuRuntime
-)
-add_mlir_library(graph_compiler SHARED ${GC_LIB_SOURCES})
-target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
-target_compile_options(graph_compiler PRIVATE -fvisibility=hidden -fexceptions)
-target_link_options(graph_compiler PRIVATE -Wl,--gc-sections)
-target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
-
+add_subdirectory(python)
 add_subdirectory(test)
+################################################################################
+
+############################### Install ########################################
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ TYPE INCLUDE)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/include/ TYPE INCLUDE
+  REGEX "CMake.*|.*cmake" EXCLUDE)
+
+# Export the targets
+get_property(GC_TOOLS GLOBAL PROPERTY GC_TOOLS)
+get_property(GC_MLIR_LIBS GLOBAL PROPERTY GC_MLIR_LIBS)
+get_property(GC_PASS_LIBS GLOBAL PROPERTY GC_PASS_LIBS)
+get_property(GC_DIALECT_LIBS GLOBAL PROPERTY GC_DIALECT_LIBS)
+install(TARGETS
+  GcInterface
+  ${GC_TOOLS}
+  ${GC_MLIR_LIBS}
+  ${GC_PASS_LIBS}
+  ${GC_DIALECT_LIBS}
+  EXPORT ${PROJECT_NAME}Targets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+export(EXPORT ${PROJECT_NAME}Targets
+  FILE "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake"
+)
+install(EXPORT ${PROJECT_NAME}Targets
+  FILE ${PROJECT_NAME}Targets.cmake
+  DESTINATION lib/cmake/${PROJECT_NAME}
+)
+
+# Generate the config files
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  ${PROJECT_SOURCE_DIR}/cmake/Config.cmake.in
+  "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+  INSTALL_DESTINATION "lib/cmake/${PROJECT_NAME}"
+  NO_SET_AND_CHECK_MACRO
+  NO_CHECK_REQUIRED_COMPONENTS_MACRO
+)
+write_basic_package_version_file(
+  "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+  COMPATIBILITY AnyNewerVersion
+)
+install(FILES
+  ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+  ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
+  DESTINATION "lib/cmake/${PROJECT_NAME}"
+)
+################################################################################
