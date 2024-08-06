@@ -155,8 +155,9 @@ static void tppPopulateSimplifyPacking(RewritePatternSet &patterns) {
   scf::ForallOp::getCanonicalizationPatterns(patterns, ctx);
   // Propagate packs/unpacks only through expand shapes at this point.
   // This captures the transformation scope of the replaced downstream pass.
-  linalg::populateDataLayoutPropagationPatterns(
-      patterns, [](Operation *op) { return isa<tensor::ExpandShapeOp>(op); });
+  linalg::populateDataLayoutPropagationPatterns(patterns, [](OpOperand *op) {
+    return isa<tensor::ExpandShapeOp>(op->getOwner());
+  });
   ctx->getLoadedDialect<tensor::TensorDialect>()->getCanonicalizationPatterns(
       patterns);
   // patterns.add<FoldUnPackIntoInsertSlice>(ctx);
