@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "gc/Analysis/TargetDescriptionAnalysis.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Dialect/DLTI/Traits.h"
@@ -579,62 +580,6 @@ static LogicalResult isSelfTiledOp(Operation *targetOp) {
   return success(walkResult.wasInterrupted());
 }
 
-struct SystemDesc {
-  // get runtime OMP_NUM_THREADS
-  uint32_t getNumThreads() {
-    std::optional<Attribute> numThreads = layout.getDevicePropertyValue(
-        Builder(ctx).getStringAttr("CPU" /* device ID*/),
-        Builder(ctx).getStringAttr("num_threads"));
-    if (numThreads && isa<IntegerAttr>(*numThreads)) {
-      return dyn_cast<IntegerAttr>(*numThreads).getInt();
-    }
-    return 1;
-  }
-  // get cache size by cacheLevel
-  size_t getCacheSize(uint8_t cacheLevel) {
-    if (cacheLevel == 1) {
-      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
-          Builder(ctx).getStringAttr("CPU" /* device ID*/),
-          Builder(ctx).getStringAttr("L1_cache_size_in_bytes"));
-      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
-        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
-      }
-    } else if (cacheLevel == 2) {
-      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
-          Builder(ctx).getStringAttr("CPU" /* device ID*/),
-          Builder(ctx).getStringAttr("L2_cache_size_in_bytes"));
-      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
-        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
-      }
-    } else if (cacheLevel == 3) {
-      std::optional<Attribute> cacheSize = layout.getDevicePropertyValue(
-          Builder(ctx).getStringAttr("CPU" /* device ID*/),
-          Builder(ctx).getStringAttr("L3_cache_size_in_bytes"));
-      if (cacheSize && isa<IntegerAttr>(*cacheSize)) {
-        return dyn_cast<IntegerAttr>(*cacheSize).getInt();
-      }
-    }
-    return 0;
-  }
-
-  // get the maximum vector length in bits
-  size_t getMaxVectorLength() {
-    std::optional<Attribute> maxVectorLength = layout.getDevicePropertyValue(
-        Builder(ctx).getStringAttr("CPU" /* device ID*/),
-        Builder(ctx).getStringAttr("max_vector_width"));
-    if (maxVectorLength && isa<IntegerAttr>(*maxVectorLength)) {
-      return dyn_cast<IntegerAttr>(*maxVectorLength).getInt();
-    }
-    return 512;
-  }
-
-  SystemDesc(ModuleOp m) : layout(m), ctx(m->getContext()) {}
-
-private:
-  DataLayout layout;
-  MLIRContext *ctx;
-};
-
 using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
 
 template <typename OpTy>
@@ -806,7 +751,8 @@ public:
     // Get funcOp
     func::FuncOp func = getOperation();
     // Get system descriptor
-    SystemDesc sysDesc(func->getParentOfType<ModuleOp>());
+    CPUTargetDescriptionAnalysis sysDesc =
+        getAnalysis<CPUTargetDescriptionAnalysis>();
     // Flexible options to control which candidate slice would be selected from
     // the view of both validity and performance.
     CandidateSliceOptions sliceOptions;
