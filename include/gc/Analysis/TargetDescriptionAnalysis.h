@@ -52,6 +52,9 @@ public:
   template <typename T>
   void emitNotFoundWarning(Location loc, StringRef key, T value);
 
+  // set the emit warning flag
+  void setEmitWarning(bool emit) { emitWarning = emit; }
+
   // the map from device type to device string
   static llvm::DenseMap<DeviceType, std::string> DeviceKeyMap;
 
@@ -60,6 +63,7 @@ private:
   DeviceType device;
   DataLayout layout;
   Location loc;
+  bool emitWarning = false;
 };
 
 class CPUTargetDescriptionAnalysis : public TargetDescriptionAnalysisBase {
