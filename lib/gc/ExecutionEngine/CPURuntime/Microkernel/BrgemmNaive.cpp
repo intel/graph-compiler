@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <mutex>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,10 +68,20 @@ struct brgemm_params_t {
 
 }; // namespace
 
-static int naive_brgemm_execute_fp32(brgemm_params_t params, void *A,
-                                     uint64_t A_offset, void *B,
-                                     uint64_t B_offset, void *C,
-                                     uint64_t C_offset, int num) {
+template <typename C_type>
+static void naive_brgemm_init(const brgemm_params_t &params, void *C,
+                              uint64_t C_offset) {
+  C_type *Cbuf = (C_type *)C;
+  Cbuf += C_offset;
+  for (int i = 0; i < params.M * params.N; i++) {
+    Cbuf[i] = C_type(0);
+  }
+}
+
+static void naive_brgemm_execute_fp32(const brgemm_params_t &params, void *A,
+                                      uint64_t A_offset, void *B,
+                                      uint64_t B_offset, void *C,
+                                      uint64_t C_offset, int num) {
   float *Abuf = (float *)A;
   float *Bbuf = (float *)B;
   float *Cbuf = (float *)C;
@@ -90,11 +101,9 @@ static int naive_brgemm_execute_fp32(brgemm_params_t params, void *A,
     Abuf += params.stride_a;
     Bbuf += params.stride_b;
   }
-
-  return 0;
 }
 
-static void naive_brgemm_execute_bf16(brgemm_params_t params, void *A,
+static void naive_brgemm_execute_bf16(const brgemm_params_t &params, void *A,
                                       uint64_t A_offset, void *B,
                                       uint64_t B_offset, void *C,
                                       uint64_t C_offset, int num) {
@@ -126,7 +135,7 @@ static void naive_brgemm_execute_bf16(brgemm_params_t params, void *A,
 }
 
 template <typename TA, typename TB>
-static void naive_brgemm_execute_int8(brgemm_params_t params, void *A,
+static void naive_brgemm_execute_int8(const brgemm_params_t &params, void *A,
                                       uint64_t A_offset, void *B,
                                       uint64_t B_offset, void *C,
                                       uint64_t C_offset, int num) {
@@ -165,7 +174,8 @@ static void naive_brgemm_execute_int8(brgemm_params_t params, void *A,
   }
 }
 
-static std::vector<brgemm_params_t> brgemm_list;
+static std::mutex g_brgemm_mutex;
+static std::vector<brgemm_params_t> g_brgemm_list;
 
 extern "C" {
 
@@ -173,6 +183,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t LDB, int64_t LDC, int64_t stride_a,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
+  std::lock_guard g(g_brgemm_list);
   // simply store the given parameters for naive BRGEMM
   brgemm_list.emplace_back(brgemm_params_t(M, N, K, LDA, LDB, LDC, stride_a,
                                            stride_b, beta, dtypeA, dtypeB));
@@ -186,9 +197,27 @@ void dnnl_brgemm_tilerelease() { return; }
 void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
                          uint64_t B_offset, void *C, uint64_t C_offset,
                          int num) {
-  assert(kernel >= 0 && kernel < (int64_t)brgemm_list.size() &&
-         "Invalid kernel handler");
-  brgemm_params_t &params = brgemm_list[kernel];
+  brgemm_params_t params;
+  {
+    std::lock_guard g(g_brgemm_list);
+    assert(kernel >= 0 && kernel < (int64_t)g_brgemm_list.size() &&
+           "Invalid kernel handler");
+    params = brgemm_list[kernel];
+  }
+
+  if (params.beta == 0.0f) {
+    if ((params.dtypeA == static_cast<int64_t>(dnnl_f32) ||
+         params.dtypeA == static_cast<int64_t>(dnnl_bf16)) &&
+        (params.dtypeB == static_cast<int64_t>(dnnl_f32) ||
+         params.dtypeB == static_cast<int64_t>(dnnl_bf16)))
+      naive_brgemm_init<float>(params, C, C_offset);
+    else if ((params.dtypeA == static_cast<int64_t>(dnnl_s8) ||
+              params.dtypeA == static_cast<int64_t>(dnnl_u8)) &&
+             (params.dtypeB == static_cast<int64_t>(dnnl_s8) ||
+              params.dtypeB == static_cast<int64_t>(dnnl_u8)))
+      naive_brgemm_init<int32_t>(params, C, C_offset);
+  }
+
   if (params.dtypeA == static_cast<int64_t>(dnnl_f32) &&
       params.dtypeB == static_cast<int64_t>(dnnl_f32)) {
     naive_brgemm_execute_fp32(params, A, A_offset, B, B_offset, C, C_offset,

@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <mutex>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,9 +43,10 @@ __attribute__((weak)) void print_verbose_header() {}
 } // namespace dnnl
 
 static constexpr int PALETTE_SIZE = 64;
-static std::vector<brgemm_desc_t> brgemm_desc_list;
-static std::vector<brgemm_kernel_t *> brgemm_kernel_list;
-static std::vector<char *> brgemm_palette;
+static std::mutex g_brgemm_mutex;
+static std::vector<brgemm_desc_t> g_brgemm_desc_list;
+static std::vector<brgemm_kernel_t *> g_brgemm_kernel_list;
+static std::vector<char *> g_brgemm_palette;
 
 // TODO(haixin): use syscall to determine page size?
 static constexpr size_t SCRATCH_SIZE = 2 * 4096;
@@ -57,11 +59,8 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t LDB, int64_t LDC, int64_t stride_a,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
-  brgemm_desc_list.emplace_back();
-  brgemm_kernel_list.emplace_back(nullptr);
-
-  brgemm_desc_t &desc = brgemm_desc_list.back();
-  auto &kernel = brgemm_kernel_list.back();
+  brgemm_desc_t desc;
+  brgemm_kernel_t *kernel;
 
   auto dnnl_dtypeA = static_cast<dnnl_data_type_t>(dtypeA);
   auto dnnl_dtypeB = static_cast<dnnl_data_type_t>(dtypeB);
@@ -71,8 +70,9 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 
   dnnl::impl::status_t status = brgemm_desc_init(
       &desc, cpu_isa_t::isa_undef, brgemm_batch_kind_t::brgemm_strd,
-      dnnl_dtypeA, dnnl_dtypeB, false, false, brgemm_layout_t::brgemm_row_major,
-      1.0f, beta, LDA, LDB, LDC, M, N, K, &stride_info);
+      dnnl_dtypeA, dnnl_dtypeB, /*transA=*/false, /*transB=*/false,
+      brgemm_layout_t::brgemm_row_major, 1.0f, beta, LDA, LDB, LDC, M, N, K,
+      &stride_info);
   assert(status == dnnl::impl::status::success &&
          "Failed to initialize BRGEMM descriptor");
 
@@ -84,31 +84,37 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   brgemm_desc_set_attr(&desc, dnnl_attrs);
 
   // TODO(haixin): Reuse identical palettes across kernels
+  char *palette_buffer = nullptr;
   if (desc.is_tmm) {
-    brgemm_palette.push_back(new char[PALETTE_SIZE]);
-    dnnl::impl::status_t status =
-        brgemm_init_tiles(desc, brgemm_palette.back());
+    palette_buffer = new char[PALETTE_SIZE];
+    dnnl::impl::status_t status = brgemm_init_tiles(desc, palette_buffer);
     assert(status == dnnl::impl::status::success &&
            "Failed to initialize palette for BRGEMM");
-  } else {
-    brgemm_palette.push_back(nullptr);
   }
 
-  return brgemm_desc_list.size() - 1;
+  std::lock_guard g(g_brgemm_mutex);
+  g_brgemm_desc_list.push_back(desc);
+  g_brgemm_kernel_list.push_back(kernel);
+  g_brgemm_palette.push_back(palette_buffer);
+
+  return g_brgemm_desc_list.size() - 1;
 }
 
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
-  assert(kernel_idx >= 0 && kernel_idx < (int64_t)brgemm_desc_list.size() &&
-         "Invalid kernel handler");
-
-  brgemm_desc_t &desc = brgemm_desc_list[kernel_idx];
-  if (!desc.is_tmm) {
-    return;
+  char *palette_buffer = nullptr;
+  {
+    std::lock_guard g(g_brgemm_mutex);
+    assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
+           "Invalid kernel handler");
+    brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
+    if (!desc.is_tmm) {
+      return;
+    }
+    palette_buffer = g_brgemm_palette[kernel_idx];
   }
 
-  assert(brgemm_palette[kernel_idx] != nullptr &&
-         "Invalid palette for BRGEMM kernel");
-  amx_tile_configure(brgemm_palette[kernel_idx]);
+  assert(palette_buffer != nullptr && "Invalid palette for BRGEMM kernel");
+  amx_tile_configure(palette_buffer);
 }
 
 void dnnl_brgemm_tilerelease() {
@@ -122,19 +128,24 @@ void dnnl_brgemm_tilerelease() {
 void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
                          void *B, uint64_t B_offset, void *C, uint64_t C_offset,
                          int num) {
-  assert(kernel_idx >= 0 && kernel_idx < (int64_t)brgemm_desc_list.size() &&
-         "Invalid kernel handler");
+  brgemm_kernel_t *kernel = nullptr;
+  size_t A_offset_in_bytes;
+  size_t B_offset_in_bytes;
+  size_t C_offset_in_bytes;
+  {
+    std::lock_guard g(g_brgemm_mutex);
+    assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
+           "Invalid kernel handler");
 
-  brgemm_desc_t &desc = brgemm_desc_list[kernel_idx];
-  brgemm_kernel_t *kernel = brgemm_kernel_list[kernel_idx];
+    brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
+    kernel = g_brgemm_kernel_list[kernel_idx];
 
-  size_t A_offset_in_bytes =
-      dnnl::impl::types::data_type_size(desc.dt_a) * A_offset;
-  size_t B_offset_in_bytes =
-      dnnl::impl::types::data_type_size(desc.dt_b) * B_offset;
-  size_t C_offset_in_bytes =
-      dnnl::impl::types::data_type_size(desc.dt_c) * C_offset;
+    A_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_a) * A_offset;
+    B_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_b) * B_offset;
+    C_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_c) * C_offset;
+  }
 
+  assert(kernel && "Invalid brgemm kernel pointer");
   char *A_arith = (char *)A;
   char *B_arith = (char *)B;
   char *C_arith = (char *)C;
