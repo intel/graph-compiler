@@ -15,6 +15,7 @@ gc_add_mlir_library(GcPasses
   TileNamed.cpp
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
+  VerifyTargetDescription.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

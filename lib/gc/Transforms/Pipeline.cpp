@@ -133,6 +133,8 @@ void populateLLVMPasses(mlir::OpPassManager &pm) {
 }
 
 void populateCPUPipeline(mlir::OpPassManager &pm) {
+  // verify the target description attribute
+  pm.addNestedPass<func::FuncOp>(createVerifyTargetDescription());
   // front-end, oneDNN graph dialect
   populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects

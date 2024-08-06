@@ -9,6 +9,7 @@ function(add_mlir_unittest test_dirname)
   add_unittest(GCUnitTests ${test_dirname} ${ARGN})
 endfunction()
 
+add_subdirectory(Analysis)
 add_subdirectory(Example)
 add_subdirectory(ExecutionEngine)
 
