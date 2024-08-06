@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Analysis/MatmulConfigAnalysis.h"
+#include "gc/Analysis/TargetDescriptionAnalysis.h"
 #include <limits>
 #include <llvm/Support/Debug.h>
 
@@ -64,7 +65,8 @@ getCandidate(uint32_t num, uint32_t floor,
 }
 
 // check if the threads are valid
-bool validateThreads(ArrayRef<uint32_t> threads, SystemDesc &sysDesc) {
+bool validateThreads(ArrayRef<uint32_t> threads,
+                     CPUTargetDescriptionAnalysis &sysDesc) {
   uint32_t numThreads = sysDesc.getNumThreads();
   uint32_t actualThreads = 1U;
   for (uint32_t t : threads)
@@ -77,24 +79,25 @@ bool validateThreads(ArrayRef<uint32_t> threads, SystemDesc &sysDesc) {
 double vectorRegEfficiencyCost(linalg::LinalgOp &linalgOp,
                                ArrayRef<uint32_t> shape,
                                const MatmulConfig &config,
-                               SystemDesc &sysDesc) {
+                               CPUTargetDescriptionAnalysis &sysDesc) {
   size_t dtypeSize = DataLayout().getTypeSizeInBits(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
-  size_t maxVectorLength = sysDesc.getMaxVectorLength() / dtypeSize;
+  size_t maxVectorWidth = sysDesc.getMaxVectorWidth() / dtypeSize;
   // TODO: take matrix register like amx into account
-  double cost = (maxVectorLength - config.innerMostMBlock % maxVectorLength) %
-                    maxVectorLength * 1.0 / config.innerMostMBlock +
-                (maxVectorLength - config.innerMostKBlock % maxVectorLength) %
-                    maxVectorLength * 1.0 / config.innerMostKBlock +
-                (maxVectorLength - config.innerMostNBlock % maxVectorLength) %
-                    maxVectorLength * 1.0 / config.innerMostNBlock;
+  double cost = (maxVectorWidth - config.innerMostMBlock % maxVectorWidth) %
+                    maxVectorWidth * 1.0 / config.innerMostMBlock +
+                (maxVectorWidth - config.innerMostKBlock % maxVectorWidth) %
+                    maxVectorWidth * 1.0 / config.innerMostKBlock +
+                (maxVectorWidth - config.innerMostNBlock % maxVectorWidth) %
+                    maxVectorWidth * 1.0 / config.innerMostNBlock;
   return cost;
 }
 
 // calculate the cost of the workload balance
 double workloadBalancedCost(linalg::LinalgOp &linalgOp,
                             ArrayRef<uint32_t> shape,
-                            const MatmulConfig &config, SystemDesc &sysDesc) {
+                            const MatmulConfig &config,
+                            CPUTargetDescriptionAnalysis &sysDesc) {
   if (shape.size() < 3) {
     // Has an invalid shape
     return 0;
@@ -118,7 +121,7 @@ double workloadBalancedCost(linalg::LinalgOp &linalgOp,
 double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
                                      ArrayRef<uint32_t> shape,
                                      const MatmulConfig &config,
-                                     SystemDesc &sysDesc) {
+                                     CPUTargetDescriptionAnalysis &sysDesc) {
   if (shape.size() < 3) {
     // Has an invalid shape
     return 0;
@@ -141,7 +144,7 @@ double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
 double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
                                      ArrayRef<uint32_t> shape,
                                      const MatmulConfig &config,
-                                     SystemDesc &sysDesc) {
+                                     CPUTargetDescriptionAnalysis &sysDesc) {
   double fullLoadRatio = 0.7;
   uint32_t L2Cache = sysDesc.getCacheSize(2);
   size_t dtypeSize = DataLayout().getTypeSize(
@@ -157,16 +160,17 @@ double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
   return 1 / computationIntensity;
 }
 
-using CostModelFn =
-    std::function<double(linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
-                         MatmulConfig cfg, SystemDesc &sysDesc)>;
+using CostModelFn = std::function<double(
+    linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape, MatmulConfig cfg,
+    CPUTargetDescriptionAnalysis &sysDesc)>;
 
 // filter the config by the cost model
 std::vector<MatmulConfig>
 filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
                         linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
-                        SystemDesc &sysDesc, const CostModelFn &costModel,
-                        float preserveRatio = 0.5, float threshold = -1) {
+                        CPUTargetDescriptionAnalysis &sysDesc,
+                        const CostModelFn &costModel, float preserveRatio = 0.5,
+                        float threshold = -1) {
   std::vector<MatmulConfig> result;
   std::vector<float> costs;
   std::vector<size_t> idx;
@@ -196,7 +200,7 @@ filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
 
 // prepare the config candidates
 std::vector<MatmulConfig>
-prepareConfigCandidates(Operation *root, SystemDesc &sysDesc,
+prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                         ArrayRef<uint32_t> shape,
                         ArrayRef<uint32_t> givenInnermostBlock) {
   if (shape.size() < 3) {
@@ -347,7 +351,7 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
 // previous matmul
 MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
-    SystemDesc sysDesc(root->getParentOfType<ModuleOp>());
+    CPUTargetDescriptionAnalysis sysDesc(root);
     SmallVector<SmallVector<DimType>> oprandDimType =
         *getOprandDimType(linalgOp);
     // get the origin M,N,K size
