@@ -1,8 +1,8 @@
 include_guard()
-include(functions)
 
 gc_fetch_content(
-        GTest
-        v1.14.0
-        https://github.com/google/googletest.git
+  GTest
+  v1.14.0
+  https://github.com/google/googletest.git
+  SET INSTALL_GTEST=OFF
 )

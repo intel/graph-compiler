@@ -26,7 +26,9 @@
 extern "C" {
 #endif
 
+#ifdef GC_HAS_ONEDNN_DIALECT
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(OneDNNGraph, onednn_graph);
+#endif
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(CPURuntime, cpuruntime);
 
 #ifdef __cplusplus

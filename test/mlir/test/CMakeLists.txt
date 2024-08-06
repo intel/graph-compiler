@@ -23,9 +23,9 @@ set(GC_OPT_TEST_DEPENDS
         GCUnitTests
 )
 
-if(GC_USE_GPU)
+if(GC_ENABLE_IMEX)
         include(imex)
-        list(APPEND GC_OPT_TEST_DEPENDS mlir_opencl_runtime)
+        list(APPEND GC_OPT_TEST_DEPENDS GcOpenclRuntime)
 endif()
 
 if(GC_ENABLE_BINDINGS_PYTHON)

@@ -29,7 +29,7 @@ PYBIND11_MODULE(_gc_mlir, m) {
   //===----------------------------------------------------------------------===//
   // OneDNNGraph
   //===----------------------------------------------------------------------===//
-
+#ifdef GC_HAS_ONEDNN_DIALECT
   auto onednn_graphM = m.def_submodule("onednn_graph");
   onednn_graphM.def(
       "register_dialect",
@@ -41,6 +41,7 @@ PYBIND11_MODULE(_gc_mlir, m) {
         }
       },
       py::arg("context") = py::none(), py::arg("load") = true);
+#endif
 
   //===----------------------------------------------------------------------===//
   // CPURuntime
