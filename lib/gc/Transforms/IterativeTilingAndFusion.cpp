@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Dialect/DLTI/Traits.h"
@@ -68,17 +69,21 @@ getClosestInsertSliceOfResult(OpResult result) {
       sliceOp =
           dyn_cast<OffsetSizeAndStrideOpInterface>(useOfResult.getOwner());
     } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOfResult.getOwner())) {
-      if (auto loop = dyn_cast<LoopLikeOpInterface>(yieldOp->getParentOp()))
+      if (isa<LoopLikeOpInterface, scf::IfOp>(yieldOp->getParentOp())) {
         return getClosestInsertSliceOfResult(
-            loop->getResult(useOfResult.getOperandNumber()));
+            yieldOp->getParentOp()->getResult(useOfResult.getOperandNumber()));
+      }
+    } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(
+                   useOfResult.getOwner())) {
+      return getClosestInsertSliceOfResult(
+          useOfResult.getOwner()->getResult(useOfResult.getOperandNumber()));
     }
   }
 
   if (!llvm::detail::isPresent(sliceOp))
     return failure();
-  else {
-    return sliceOp;
-  }
+
+  return sliceOp;
 }
 
 struct CandidateDefOrUse {
@@ -543,7 +548,13 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
   return success(numTiledOps > 1);
 }
 
-/// What is self tiled op compared with other fused op?
+/// This is a workaround to deal with LinalgXOp
+static bool isTilableLinalgXOp(Operation *op) {
+  return isa<linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,
+             linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp>(op);
+}
+
+/// Check if tiled op inside a loop?
 /// E.g.
 /// %1 = scf.for(){
 ///   %2 = scf.for(){
@@ -553,25 +564,17 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
 ///       yield %5
 ///   }
 /// }
-static LogicalResult isSelfTiledOp(Operation *targetOp) {
-  // 0. check tilable
-  if (!isa<TilingInterface>(targetOp))
+static LogicalResult isTiledOpInLoop(Operation *targetOp) {
+  // 1. check tilable
+  if (!isa<TilingInterface>(targetOp) && !isTilableLinalgXOp(targetOp))
     return failure();
-  // 1. check parentOp
+  // 2. check parentOp
   auto forOp = targetOp->getParentOfType<LoopLikeOpInterface>();
   if (!forOp)
     return failure();
-  // 2. check single one tiling interface in loop body
-  auto walkResult = forOp->walk([&targetOp](TilingInterface op) {
-    // some special op maybe already deal with in template
-    if (isa<linalg::FillOp, linalg::CopyOp>(op))
-      return WalkResult::skip();
-    return op != targetOp ? WalkResult::interrupt() : WalkResult::advance();
-  });
-  if (walkResult.wasInterrupted())
-    return failure();
+
   // 3. check whether has either extract or insert slice op
-  walkResult = forOp->walk(
+  auto walkResult = forOp->walk(
       [](tensor::ExtractSliceOp) { return WalkResult::interrupt(); });
   if (walkResult.wasInterrupted())
     return success();
@@ -583,11 +586,12 @@ static LogicalResult isSelfTiledOp(Operation *targetOp) {
 using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
 
 template <typename OpTy>
-static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op,
-                                const OpTileSizeMap &tsMap) {
+static FailureOr<scf::SCFTilingResult>
+defaultTilingOfType(RewriterBase &rewriter, Operation *op,
+                    const OpTileSizeMap &tsMap) {
   // a. Check <OpTy>
   if (!isa<TilingInterface>(op) || !isa<OpTy>(op))
-    return false;
+    return failure();
   auto tilingInterfaceOp = cast<TilingInterface>(op);
 
   scf::SCFTilingOptions options;
@@ -618,7 +622,7 @@ static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   }
   // If the tile sizes are all zero, no tiling would happen.
   if (llvm::all_of(defaultTileSize, isZeroIndex))
-    return false;
+    return failure();
 
   options.setTileSizes(defaultTileSize);
   // c. Set loop type
@@ -628,16 +632,19 @@ static bool defaultTilingOfType(RewriterBase &rewriter, Operation *op,
       scf::tileUsingSCF(rewriter, tilingInterfaceOp, options);
   if (succeeded(tilingResult)) {
     rewriter.replaceOp(op, tilingResult->replacements);
-    return true;
+    return tilingResult;
   }
-  return false;
+  return failure();
 }
+
+using DefaultTilingFn = std::function<FailureOr<scf::SCFTilingResult>(
+    RewriterBase &, Operation *, const OpTileSizeMap &)>;
 
 void iterativeTilingAndFusionUntilExhaustion(
     RewriterBase &rewriter, func::FuncOp &f,
     const CandidateSliceOptions &sliceOptions, const OpTileSizeMap &tsMap) {
   // Collect untiled and tiled ops respectively
-  llvm::SetVector<Operation *> selfTiledOp, unTiledOps;
+  llvm::SetVector<Operation *> tiledOps, unTiledOps;
 
   auto collectUnTiledOps = [&f, &unTiledOps]() -> bool {
     // Reset
@@ -656,59 +663,53 @@ void iterativeTilingAndFusionUntilExhaustion(
     return !unTiledOps.empty();
   };
 
-  auto collectSelfTiledOp = [&f, &selfTiledOp]() -> bool {
-    // Reset
-    selfTiledOp.clear();
-    // Walk through funcOp
-    f->walk([&selfTiledOp](Operation *op) {
-      // Target at certain kind of tiled op, such as matmul/conv implemented
-      // by multiple level of nest loops and candidate slices for better
-      // utilization of parallelism and memory hierarchy.
-      if (succeeded(isSelfTiledOp(op))) {
-        selfTiledOp.insert(op);
-      }
-    });
-    return !selfTiledOp.empty();
-  };
+  // Walk through funcOp
+  f->walk([&tiledOps](Operation *op) {
+    if (succeeded(isTiledOpInLoop(op))) {
+      tiledOps.insert(op);
+    }
+  });
 
   // Iterative tiling and fusion until exhaustion.
   while (collectUnTiledOps()) {
     // If existing tiled op before tiling.
-    if (collectSelfTiledOp()) {
+    if (!tiledOps.empty()) {
       // Sort by topology
-      mlir::topologicalSort(selfTiledOp);
+      mlir::topologicalSort(tiledOps);
       // Record if any fusion happens
       bool changed = false;
       // Iteratively fuse in forward and backward fashion.
-      llvm::for_each(selfTiledOp, [&rewriter, &sliceOptions,
-                                   &changed](Operation *tiledOp) {
-        changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
-            rewriter, tiledOp, sliceOptions));
-      });
+      llvm::for_each(
+          tiledOps, [&rewriter, &sliceOptions, &changed](Operation *tiledOp) {
+            changed |= succeeded(iterativelyFuseProducerAndConsumerOfTiledOp(
+                rewriter, tiledOp, sliceOptions));
+          });
+      tiledOps.clear();
       if (changed)
         (void)mlir::simplifyRegions(rewriter, {f.getRegion()});
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
       // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
-      SmallVector<std::function<bool(RewriterBase &, Operation *,
-                                     const OpTileSizeMap &)>>
-          priorityTilingPipeLine = {
-              defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
-              defaultTilingOfType<mlir::linalg::ReduceOp>,
-              defaultTilingOfType<mlir::linalg::LinalgOp>};
-      if (llvm::all_of(priorityTilingPipeLine,
-                       [&rewriter, &tsMap, &unTiledOps](
-                           function_ref<bool(RewriterBase &, Operation *,
-                                             const OpTileSizeMap &)>
-                               tilingFn) {
-                         return !llvm::any_of(
-                             unTiledOps, std::bind(tilingFn, std::ref(rewriter),
-                                                   std::placeholders::_1,
-                                                   std::cref(tsMap)));
-                       })) {
-        // If no op can be tiled
-        return;
+      SmallVector<DefaultTilingFn> priorityTilingPipeLine = {
+          defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
+          defaultTilingOfType<mlir::linalg::ReduceOp>,
+          defaultTilingOfType<TilingInterface>};
+
+      for (auto &tilingFn : priorityTilingPipeLine) {
+        for (auto &op : unTiledOps) {
+          FailureOr<scf::SCFTilingResult> tilingResult =
+              tilingFn(rewriter, op, tsMap);
+          if (succeeded(tilingResult)) {
+            tiledOps.insert(tilingResult->tiledOps[0]);
+            break;
+          }
+        }
+        if (!tiledOps.empty())
+          break;
       }
+      // If no op can be tiled
+      if (tiledOps.empty())
+        return;
     }
   }
 }
