@@ -28,8 +28,11 @@ python3 -m benchgc --verbose 0 --driver linalg --case vecmat --md 0:512xf32 --md
 
 # binary
 python3 -m benchgc --verbose 0 --driver linalg --case add --md 0:1x32x4096xf32 --md 1:1x32x4096xf32 --md 2:1x32x4096xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case sub --md 0:1x32x4096xf32 --md 1:1x32x4096xf32 --md 2:1x32x4096xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case mul --md 0:1x32x4096xf32 --md 1:1x32x4096xf32 --md 2:1x32x4096xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case div --md 0:1x32x4096xf32 --md 1:1x32x4096xf32 --md 2:1x32x4096xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case max --md 0:1024x1024xf32 --md 1:1024x1024xf32 --md 2:1024x1024xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case min --md 0:1024x1024xf32 --md 1:1024x1024xf32 --md 2:1024x1024xf32 || FAIL=1
 
 # element wise
 python3 -m benchgc --verbose 0 --driver linalg --case abs --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
@@ -39,6 +42,11 @@ python3 -m benchgc --verbose 0 --driver linalg --case floor --md 0:32x4096xf32 -
 python3 -m benchgc --verbose 0 --driver linalg --case log --md 0:4096x32xf32 --md 1:4096x32xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case negf --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case exp --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case round --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
+# python3 -m benchgc --verbose 0 --driver linalg --case rsqrt --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case sqrt --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case square --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case tanh --md 0:128x128xf32 --md 1:128x128xf32 || FAIL=1
 
 # softmax
 # python3 -m benchgc --verbose 0 --driver linalg --case softmax --md 0:32x4096xf32 --md 1:32x4096xf32 --dimension 1 || FAIL=1

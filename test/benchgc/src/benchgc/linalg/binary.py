@@ -75,6 +75,33 @@ def mlir_div(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
         ),
     )
 
+def ref_max(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.max(var[cache.opr[0]], var[cache.opr[1]])
+
+
+def mlir_max(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i2o1_module(
+        args[0],
+        args[1],
+        args[2],
+        lambda ctx, arg0, arg1: linalg.max(
+            arg0, arg1, outs=[args[2].get_empty_op(ctx)]
+        ),
+    )
+
+def ref_min(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.min(var[cache.opr[0]], var[cache.opr[1]])
+
+
+def mlir_min(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i2o1_module(
+        args[0],
+        args[1],
+        args[2],
+        lambda ctx, arg0, arg1: linalg.min(
+            arg0, arg1, outs=[args[2].get_empty_op(ctx)]
+        ),
+    )
 
 def ref_mul(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] = torch.mul(var[cache.opr[0]], var[cache.opr[1]])
@@ -89,3 +116,18 @@ def mlir_mul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
             arg0, arg1, outs=[args[2].get_empty_op(ctx)]
         ),
     )
+
+def ref_sub(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.sub(var[cache.opr[0]], var[cache.opr[1]])
+
+
+def mlir_sub(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i2o1_module(
+        args[0],
+        args[1],
+        args[2],
+        lambda ctx, arg0, arg1: linalg.sub(
+            arg0, arg1, outs=[args[2].get_empty_op(ctx)]
+        ),
+    )
+

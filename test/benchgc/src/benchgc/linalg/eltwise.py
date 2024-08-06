@@ -102,3 +102,64 @@ def mlir_exp(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
         args[1],
         lambda ctx, arg0: linalg.negf(arg0, outs=[args[1].get_empty_op(ctx)]),
     )
+
+def ref_round(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.round(var[cache.opr[0]])
+
+
+def mlir_round(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.round(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_rsqrt(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.rsqrt(var[cache.opr[0]])
+
+
+def mlir_rsqrt(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.rsqrt(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_sqrt(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.sqrt(var[cache.opr[0]])
+
+
+def mlir_sqrt(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.sqrt(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_square(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.square(var[cache.opr[0]])
+
+
+def mlir_square(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.square(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_tanh(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.tanh(var[cache.opr[0]])
+
+
+def mlir_tanh(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.tanh(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+
+
+
+
+

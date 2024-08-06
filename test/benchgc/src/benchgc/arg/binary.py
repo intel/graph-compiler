@@ -23,7 +23,7 @@ from typing import List, Dict, Tuple, Set
 
 # op should use this filling
 
-op: Set[str] = set(["linalg.add", "linalg.div", "linalg.mul"])
+op: Set[str] = set(["linalg.add", "linalg.div", "linalg.mul", "linalg.max", "linalg.min", "linalg.sub"])
 
 # params format: [src0 | src1, src0 dt, src1 dt, dst dt]
 

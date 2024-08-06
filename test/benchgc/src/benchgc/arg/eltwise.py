@@ -26,7 +26,7 @@ from typing import List, Tuple, Set
 
 # op should use this filling
 
-op: Set[str] = set(["linalg.abs", "linalg.negf", "linalg.exp", "linalg.ceil", "linalg.erf", "linalg.floor", "linalg.log"])
+op: Set[str] = set(["linalg.abs", "linalg.negf", "linalg.exp", "linalg.ceil", "linalg.erf", "linalg.floor", "linalg.log", "linalg.round", "linalg.rsqrt", "linalg.sqrt", "linalg.square", "linalg.tanh"])
 
 
 def default_fill(
@@ -37,10 +37,12 @@ def default_fill(
     if arg.index > 0:
         raise Exception("eltwise fill: dst filling is not allowed")
     arg.fill_param = ["eltwise", flags.case]
-    if flags.driver == "linalg" and flags.case in ["abs", "exp", "ceil", "erf", "floor", "log"]:
+    if flags.driver == "linalg" and flags.case in ["abs", "exp", "ceil", "erf", "floor", "log", "round", "sqrt", "square", "tanh"]:
         arg.fill_param.extend(["", ""])
-    elif flags.driver == "linalg" and flags.case in ["negf"]:
+    elif flags.driver == "linalg" and flags.case == "negf":
         arg.fill_param.extend(["-1", "0"])
+    elif flags.driver == "linalg" and flags.case == "rsqrt":
+        arg.fill_param.extend(["1", "-0.5"])
     arg.fill_type = "D"
 
 
