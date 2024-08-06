@@ -28,6 +28,7 @@ op: Set[str] = set(["linalg.softmax"])
 
 # params format: [reduce dimension]
 
+
 def default_fill(
     flags: argparse.Namespace,
     arg: Arg,
@@ -60,18 +61,27 @@ def default_compare(
     arglist: List[Arg],
 ):
     arg.cmp_type = "D"
-    arg.cmp_param = ["softmax", arg.dtype, flags.case, str(arg.shape[int(flags.dimension)])]
+    arg.cmp_param = [
+        "softmax",
+        arg.dtype,
+        flags.case,
+        str(arg.shape[int(flags.dimension)]),
+    ]
+
 
 def compare(
-    param: List[str],
-    ref: torch.Tensor, res: torch.Tensor, verbose: int
+    param: List[str], ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
     dtype = benchgc.util.get_dtype(param[0])
     ref = ref.to(torch.float)
     res = res.to(torch.float)
 
     reduce_size = int(param[2])
-    nzeros = reduce_size - 1 if dtype == torch.int8 or dtype == torch.uint8 else max(0, reduce_size - 8)
+    nzeros = (
+        reduce_size - 1
+        if dtype == torch.int8 or dtype == torch.uint8
+        else max(0, reduce_size - 8)
+    )
 
     return p2p(
         benchgc.util.get_eps(dtype) * (5.0 if dtype == torch.float else 1.0),

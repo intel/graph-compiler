@@ -26,7 +26,22 @@ from typing import List, Tuple, Set
 
 # op should use this filling
 
-op: Set[str] = set(["linalg.abs", "linalg.negf", "linalg.exp", "linalg.ceil", "linalg.erf", "linalg.floor", "linalg.log", "linalg.round", "linalg.rsqrt", "linalg.sqrt", "linalg.square", "linalg.tanh"])
+op: Set[str] = set(
+    [
+        "linalg.abs",
+        "linalg.negf",
+        "linalg.exp",
+        "linalg.ceil",
+        "linalg.erf",
+        "linalg.floor",
+        "linalg.log",
+        "linalg.round",
+        "linalg.rsqrt",
+        "linalg.sqrt",
+        "linalg.square",
+        "linalg.tanh",
+    ]
+)
 
 
 def default_fill(
@@ -37,7 +52,18 @@ def default_fill(
     if arg.index > 0:
         raise Exception("eltwise fill: dst filling is not allowed")
     arg.fill_param = ["eltwise", flags.case]
-    if flags.driver == "linalg" and flags.case in ["abs", "exp", "ceil", "erf", "floor", "log", "round", "sqrt", "square", "tanh"]:
+    if flags.driver == "linalg" and flags.case in [
+        "abs",
+        "exp",
+        "ceil",
+        "erf",
+        "floor",
+        "log",
+        "round",
+        "sqrt",
+        "square",
+        "tanh",
+    ]:
         arg.fill_param.extend(["", ""])
     elif flags.driver == "linalg" and flags.case == "negf":
         arg.fill_param.extend(["-1", "0"])
@@ -117,7 +143,9 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
     value = ((rand_int + rand_uni) * coeff + bias).to(dtype=dtype)
     return value.reshape(shape)
 
+
 # param: dtype, case
+
 
 def default_compare(
     flags: argparse.Namespace,
@@ -129,8 +157,7 @@ def default_compare(
 
 
 def compare(
-    param: List[str],
-    ref: torch.Tensor, res: torch.Tensor, verbose: int
+    param: List[str], ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
     dtype = benchgc.util.get_dtype(param[0])
     ref = ref.to(torch.float)

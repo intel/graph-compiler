@@ -63,7 +63,7 @@ def p2p(
     ref: torch.Tensor,
     res: torch.Tensor,
     verbose: int,
-    init_check: torch.Tensor | None = None
+    init_check: torch.Tensor | None = None,
 ) -> Tuple[bool, bool | None]:
 
     if verbose >= benchgc.util.COMPARE_VERBOSE:

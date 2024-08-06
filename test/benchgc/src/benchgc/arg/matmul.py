@@ -146,6 +146,7 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
 
     return value.to(dtype)
 
+
 def default_compare(
     flags: argparse.Namespace,
     arg: Arg,
@@ -154,12 +155,18 @@ def default_compare(
     arg.cmp_type = "D"
     arg.cmp_param = ["matmul", arg.dtype, flags.case]
 
+
 def compare(
-    param: List[str],
-    ref: torch.Tensor, res: torch.Tensor, verbose: int
+    param: List[str], ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
     dtype = benchgc.util.get_dtype(param[0])
 
     ref = ref.to(torch.float)
     res = res.to(torch.float)
-    return p2p(1e-6 if dtype == torch.float else benchgc.util.get_eps(dtype), 90.0, ref, res, verbose)
+    return p2p(
+        1e-6 if dtype == torch.float else benchgc.util.get_eps(dtype),
+        90.0,
+        ref,
+        res,
+        verbose,
+    )

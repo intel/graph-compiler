@@ -33,7 +33,7 @@ onednn_module = {
     "binary": binary,
     "eltwise": eltwise,
     "matmul": matmul,
-    "softmax": softmax
+    "softmax": softmax,
 }
 
 

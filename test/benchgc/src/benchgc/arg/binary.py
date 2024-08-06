@@ -23,7 +23,9 @@ from typing import List, Dict, Tuple, Set
 
 # op should use this filling
 
-op: Set[str] = set(["linalg.add", "linalg.div", "linalg.mul", "linalg.max", "linalg.min", "linalg.sub"])
+op: Set[str] = set(
+    ["linalg.add", "linalg.div", "linalg.mul", "linalg.max", "linalg.min", "linalg.sub"]
+)
 
 # params format: [src0 | src1, src0 dt, src1 dt, dst dt]
 
@@ -65,7 +67,9 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
         values = torch.where(values == 0.0, 1, values)
     return values.to(dtype=dtype)
 
+
 # compare param: dtype, case
+
 
 def default_compare(
     flags: argparse.Namespace,
@@ -77,8 +81,7 @@ def default_compare(
 
 
 def compare(
-    param: List[str],
-    ref: torch.Tensor, res: torch.Tensor, verbose: int
+    param: List[str], ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
     dtype = benchgc.util.get_dtype(param[0])
 
@@ -91,11 +94,4 @@ def compare(
     else:
         init_check = None
 
-    return p2p(
-        benchgc.util.get_eps(dtype),
-        30.0,
-        ref,
-        res,
-        verbose,
-        init_check
-    )
+    return p2p(benchgc.util.get_eps(dtype), 30.0, ref, res, verbose, init_check)
