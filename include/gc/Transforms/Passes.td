@@ -19,17 +19,12 @@ def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
 
 #ifdef GC_HAS_ONEDNN_DIALECT
 def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
-  let summary = "Lower the operations from the oneDNN Graph dialect into Linalg";
-  let description = [{
-    Lowers the `onednn_graph` ops to `linalg` ops.
-  }];
+  let summary =
+      "Lower the operations from the oneDNN Graph dialect into Linalg";
+  let description = [{Lowers the `onednn_graph` ops to `linalg` ops.}];
   let dependentDialects = [
-      "func::FuncDialect",
-      "math::MathDialect",
-      "arith::ArithDialect",
-      "tensor::TensorDialect",
-      "linalg::LinalgDialect",
-      "linalgx::LinalgxDialect"
+    "func::FuncDialect", "math::MathDialect", "arith::ArithDialect",
+    "tensor::TensorDialect", "linalg::LinalgDialect", "linalgx::LinalgxDialect"
   ];
 }
 #endif
@@ -37,24 +32,17 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
 #ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";
-  let description = [{
-    Lower linalg ops to XeGPU dialect.
-  }];
-  let dependentDialects = ["linalg::LinalgDialect",
-                           "gpu::GPUDialect",
-                           "xegpu::XeGPUDialect",
-                           "scf::SCFDialect",
-                           "memref::MemRefDialect",
-                           "arith::ArithDialect",
-                           "math::MathDialect",
-                           "vector::VectorDialect"];
+  let description = [{Lower linalg ops to XeGPU dialect.}];
+  let dependentDialects = [
+    "linalg::LinalgDialect", "gpu::GPUDialect", "xegpu::XeGPUDialect",
+    "scf::SCFDialect", "memref::MemRefDialect", "arith::ArithDialect",
+    "math::MathDialect", "vector::VectorDialect"
+  ];
   let options = [
     Option<"kTile", "k-tile", "int64_t",
-           /*default=*/"32",
-           "GEMM tile size for reduction dimension.">,
+           /*default=*/"32", "GEMM tile size for reduction dimension.">,
     Option<"stages", "stages", "int64_t",
-           /*default=*/"1",
-           "Number of cooperative prefetch stages.">,
+           /*default=*/"1", "Number of cooperative prefetch stages.">,
     ListOption<"dpasTile", "dpas-tile", "int64_t",
                "DPAS register block sizes MxNxK">,
   ];
@@ -90,6 +78,19 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
            "Decide if enable cost model to control iterative fusion.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
            "Set default TileSize for the certain type of op, saying matmul:{32,32}">,
+  ];
+}
+
+def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
+  let summary = "Verify the target description from ModuleOp DLTI attribute.";
+  let description = [{
+    Verify the target description from ModuleOp DLTI attribute. Raise error for unexpected input(such as a negative number of num_threads), and raise warn for missing fields, and provide a default value(such as 32K for L1_cache_size).
+  }];
+  let dependentDialects = ["DLTIDialect"];
+  let options = [
+    Option<"device", "device", "std::string",
+           /*default=*/"\"CPU\"",
+           "The device to verify. Supported device: CPU, ">,
   ];
 }
 

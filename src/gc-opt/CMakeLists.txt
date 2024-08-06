@@ -44,6 +44,7 @@ target_link_libraries(gc-opt PRIVATE
   ${conversion_libs}
   ${MLIR_LINK_COMPONENTS}
   GcPasses
+  GcAnalysis
 )
 
 if(GC_ENABLE_IMEX)
