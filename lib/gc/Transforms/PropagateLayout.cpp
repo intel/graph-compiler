@@ -304,8 +304,6 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
         Location loc = expandShapeOp->getLoc();
         auto inputLayout = opLayout->getSupportedInputLayouts()[0];
         auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
-        LLVM_DEBUG(llvm::dbgs() << "Input layout: " << inputLayout << ".\n");
-        LLVM_DEBUG(llvm::dbgs() << "Output layout: " << outputLayout << ".\n");
         Value curSrc = expandShapeOp.getSrc();
         Value curDst = expandShapeOp.getResult();
         Value dest = tensor::PackOp::createDestinationTensor(

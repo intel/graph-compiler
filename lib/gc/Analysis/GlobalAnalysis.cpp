@@ -44,13 +44,15 @@ bool TensorLayout::operator==(const TensorLayout &layout) {
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                               const OperatorLayout &opLayout) {
-  for (auto &&[idx, layoutCache] :
-       llvm::enumerate(opLayout.getSupportedInputLayouts())) {
-    ss << "input " << idx << "'s layout: " << layoutCache << "\n";
+  if (!opLayout.getSupportedInputLayouts().empty()) {
+    ss << "Input layouts: ";
+    llvm::interleave(opLayout.getSupportedInputLayouts(), ss, "; ");
+    ss << ". ";
   }
-  for (auto &&[idx, layoutCache] :
-       llvm::enumerate(opLayout.getSupportedOutputLayouts())) {
-    ss << "output " << idx << "'s layout: " << layoutCache << "\n";
+  if (!opLayout.getSupportedOutputLayouts().empty()) {
+    ss << "Output layouts: ";
+    llvm::interleave(opLayout.getSupportedOutputLayouts(), ss, "; ");
+    ss << ". ";
   }
   return ss;
 }
@@ -217,8 +219,6 @@ static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   root->walk([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Inferring layout of op: " << op->getName() << "\n");
       auto curInputs = linalgOp.getDpsInputOperands();
       auto curResults = linalgOp.getOperation()->getResults();
       // ---------------- Get Current Input Layouts -------------------
@@ -277,8 +277,11 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
                                       rewriter.getIndexAttr(iin)});
         OperatorLayout suggestedLayout({ALayout, BLayout}, {CLayout});
         layoutCache[linalgOp] = suggestedLayout;
+        LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
+                                << " is: " << suggestedLayout << "\n");
       } else if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
-                 !mlir::linalg::isaConvolutionOpInterface(linalgOp) &&
+                 !isa<linalg::ConvolutionOpInterface>(
+                     linalgOp.getOperation()) &&
                  !supportedContractionNamedOpList(linalgOp)) {
         // infer layout for non-contraction/non-convolution linalg named ops
         // and linalg generic ops
@@ -311,6 +314,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         outputLayouts.push_back(outputLayout);
         OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
         layoutCache[linalgOp] = suggestedLayout;
+        LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
+                                << " is: " << suggestedLayout << "\n");
       }
     } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
       auto inputOperand = padOp.getSource();
@@ -325,6 +330,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           outputLayouts{curInputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[padOp] = suggestedLayout;
+      LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
+                              << " is: " << suggestedLayout << "\n");
     } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
       SmallVector<ReassociationIndices> reassocIndices =
           expandShapeOp.getReassociationIndices();
@@ -343,8 +350,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       ArrayRef<int64_t> innerDimsPos = curInputLayout.getInnerAxis();
       ArrayRef<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
       SmallVector<int64_t> projectedInnerDimsPos =
-          projectToInnerMostNonUnitDimsPos(curInputLayout.getInnerAxis(),
-                                           reassocIndices, staticOutputShape);
+          projectToInnerMostNonUnitDimsPos(innerDimsPos, reassocIndices,
+                                           staticOutputShape);
 
       if (!isDimsDivisibleByTileSizes(projectedInnerDimsPos, staticOutputShape,
                                       innerTileSizes)) {
@@ -362,6 +369,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           outputLayouts{outputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[expandShapeOp] = suggestedLayout;
+      LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
+                              << " is: " << suggestedLayout << "\n");
     }
     return WalkResult::advance();
   });
