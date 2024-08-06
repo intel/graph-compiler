@@ -473,7 +473,7 @@ LogicalResult splitSingleMM(Operation *op, PatternRewriter &rewriter) {
       isTransA ? 0 : 1);
   std::cout << "M: " << M << ", N: " << N << ", K: " << K << std::endl;
 
-  int64_t target_dim = N / K >= 2 ? 1 : 0;
+  int64_t target_dim = N / K >= 2 ? 1 : 1;
   SmallVector<Value> splites_res;
   if (target_dim == 1) {
     SplitMMonN(op, splites_res, input_tensors, resultTy, isTransA, isTransB,

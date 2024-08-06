@@ -906,8 +906,8 @@ struct deepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
            llvm::isa<linalgx::Mm2DVnniOp>(linalgOp) ||
            llvm::isa<linalgx::Mm4DVnniOp>(linalgOp) ||
            llvm::isa<linalgx::MultiBatchMatmulOp>(linalgOp) ||
-           llvm::isa<linalg::BatchMatmulOp>(linalgOp) ||
-           llvm::isa<linalg::GenericOp>(linalgOp);
+           llvm::isa<linalg::BatchMatmulOp>(linalgOp);
+    // || llvm::isa<linalg::GenericOp>(linalgOp);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,

@@ -28,8 +28,8 @@
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 
-#include <string>
 #include <iostream>
+#include <string>
 
 namespace mlir::gc {
 #define GEN_PASS_DEF_LINALGLOWERTOLOOP
@@ -83,7 +83,8 @@ void populateFrontendPasses(mlir::PassManager &pm) {
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
 void populateTensorPasses(mlir::PassManager &pm) {
-  pm.addNestedPass<func::FuncOp>(createSplitComputeIntensivePatterns());
+  // pm.addNestedPass<func::FuncOp>(createSplitComputeIntensivePatterns());
+  pm.addNestedPass<func::FuncOp>(createDecomposeOpsForBufferize());
   // todo: padding propagation pass
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
@@ -226,12 +227,11 @@ public:
     PassManager pm{ctx};
     populateCPUPipeline(pm);
     // pm.enableIRPrinting();
-  
-  // std::string pipeline;
-  // llvm::raw_string_ostream pipelineStream(pipeline);
-  // pm.printAsTextualPipeline(pipelineStream);
-  // std::cout << "pipeline= " << pipeline << std::endl;
 
+    // std::string pipeline;
+    // llvm::raw_string_ostream pipelineStream(pipeline);
+    // pm.printAsTextualPipeline(pipelineStream);
+    // std::cout << "pipeline= " << pipeline << std::endl;
 
     // TODO(longsheng): add a option to
     // disable threading and enable pm.enableIRPrinting();
