@@ -13,6 +13,8 @@ gc_add_mlir_library(GcPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   TileNamed.cpp
+  IterativeTilingAndFusion.cpp
+  TilingUsingInterfaceX.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

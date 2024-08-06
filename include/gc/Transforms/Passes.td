@@ -61,4 +61,36 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
 }
 #endif
 
+def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
+                                        "func::FuncOp"> {
+  let summary = "Iterative tiling and fusion for any tilable operation";
+  let description = [{
+    The pass tries to fuse any MLIR operation which can be tiled. Moreover, this pass aims to support:
+      1. Matmul fusion with element-wise/reduce/broadcast ops.
+      2. Pre-op and post-op fusion.
+      3. Multi-consumer and multi-producer support.
+      4. Multiple level of nest loops and candidates.
+      5. Flexible option to control the boundary of iterative process.
+      6. Cost-model to determine whether to fuse or not.
+
+    It intends to control the granularity of fusion by `fusion-level`, E.g.
+    * `0`: disable any fusion.
+    * `1`:[Default] enable both producer and consumer fusion, covering any tilable operation including tensor.pack/tensor.fill/linalg.reduce etc but excluding branches forked by multiple uses.
+    * `2`: `LEVEL 1` + extend to any topology including branches.
+  }];
+  let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
+                           "tensor::TensorDialect"];
+
+  let options = [
+    Option<"fusionLevel", "fusion-level", "int64_t",
+           /*default=*/"1",
+           "Control the granularity of fusion.">,
+    Option<"useCostModel", "use-cost-model", "bool",
+           /*default=*/"false",
+           "Decide if enable cost model to control iterative fusion.">,
+    ListOption<"defaultTileSize", "default-tile-size", "std::string",
+           "Set default TileSize for the certain type of op, saying matmul:{32,32}">,
+  ];
+}
+
 #endif // GC_DIALECT_GC_PASSES

@@ -57,23 +57,25 @@ declare_mlir_python_sources(GcPythonSources.Common
 # Dialect bindings
 ################################################################################
 
-declare_mlir_dialect_python_bindings(
+if(GC_ENABLE_DNNL)
+  declare_mlir_dialect_python_bindings(
     ADD_TO_PARENT GcPythonSources
     ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
     TD_FILE dialects/OneDNNGraphOps.td
     SOURCES 
       dialects/onednn_graph.py
     DIALECT_NAME onednn_graph
-    )
+  )
+endif()
 
 declare_mlir_dialect_python_bindings(
-    ADD_TO_PARENT GcPythonSources
-    ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
-    TD_FILE dialects/CPURuntimeOps.td
-    SOURCES 
-      dialects/cpuruntime.py
-    DIALECT_NAME cpuruntime
-    )
+  ADD_TO_PARENT GcPythonSources
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"
+  TD_FILE dialects/CPURuntimeOps.td
+  SOURCES 
+    dialects/cpuruntime.py
+  DIALECT_NAME cpuruntime
+)
 
 declare_mlir_python_extension(GcPythonSources.Extension
   MODULE_NAME _gc_mlir
