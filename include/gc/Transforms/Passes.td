@@ -80,4 +80,9 @@ def GpuGenAttachTarget: Pass<"gc-attach-gen-target", ""> {
   let dependentDialects = ["gpu::GPUDialect", "gen::GENDialect"];
 }
 
+def GpuAttachAddrSpaces: Pass<"gc-attach-addr-spaces", "gpu::GPUModuleOp"> {
+  let summary = "Attach addr spaces to memrefs";
+  let dependentDialects = ["gpu::GPUDialect", "memref::MemRefDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES

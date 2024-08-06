@@ -2,6 +2,7 @@ gc_add_mlir_library(GcGpuPasses
   GPULegalizeModule.cpp
   ConvertGpuSignaturesToLLVM.cpp
   GPUAttachGenTarget.cpp
+  GPUAttachAddrSpaces.cpp
 
   PARTIAL_SOURCES_INTENDED
   DEPENDS
