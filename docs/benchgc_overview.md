@@ -1,6 +1,6 @@
 # BenchGC Overview
 
-BenchGC is a testing tool for the Graph Compiler project, focusing on tuning performance and verifying the correctness of the Graph Compiler. The benchmark and validation work will be supported on both CPU and GPU . 
+BenchGC is a testing tool for the Graph Compiler project, focusing on tuning performance and verifying the correctness of the Graph Compiler. The benchmark and validation work will be supported on both CPU and GPU. 
 
 BenchGC will also be part of the CI test and checking the regular correctness check for each PR. 
 
