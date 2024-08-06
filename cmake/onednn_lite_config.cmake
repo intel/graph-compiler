@@ -47,7 +47,7 @@ endif()
 
 if(UNIX OR MINGW)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 endif()
 
 ########## from cmake/options.cmake
@@ -349,5 +349,5 @@ set_property(TARGET dnnl_brgemm PROPERTY POSITION_INDEPENDENT_CODE ON
 # set_property(GLOBAL APPEND PROPERTY DNNL_SUBDIR_EXTRA_STATIC_LIBS $<BUILD_INTERFACE:dnnl_brgemm>)
 # set_property(GLOBAL APPEND PROPERTY DNNL_SUBDIR_EXTRA_SHARED_LIBS dnnl_brgemm)
 # Currently build objs only
-set_property(GLOBAL APPEND PROPERTY DNNL_LIB_DEPS
+set_property(GLOBAL APPEND PROPERTY GC_DNNL_LIB_DEPS
     $<TARGET_OBJECTS:dnnl_brgemm>)

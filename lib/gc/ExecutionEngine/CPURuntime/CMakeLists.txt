@@ -5,7 +5,7 @@ file(GLOB_RECURSE MICROKERNEL_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Microkernel/*.c
     )
 
-if (GC_RUNTIME_NAIVE_BRGEMM)
+if (GC_ENABLE_RUNTIME_NAIVE_BRGEMM)
     string(REPLACE "${CMAKE_CURRENT_SOURCE_DIR}/Microkernel/BrgemmOnednn.cpp" "" MICROKERNEL_RUNTIME_SOURCES "${MICROKERNEL_RUNTIME_SOURCES}")
 else()
     string(REPLACE "${CMAKE_CURRENT_SOURCE_DIR}/Microkernel/BrgemmNaive.cpp" "" MICROKERNEL_RUNTIME_SOURCES "${MICROKERNEL_RUNTIME_SOURCES}")
@@ -13,10 +13,10 @@ endif()
 
 include(onednn)
 
-get_property(DNNL_INCLUDES GLOBAL PROPERTY GC_DNNL_INCLUDES)
-get_property(DNNL_LIB_DEPS GLOBAL PROPERTY GC_DNNL_LIB_DEPS)
+get_property(GC_DNNL_INCLUDES GLOBAL PROPERTY GC_DNNL_INCLUDES)
+get_property(GC_DNNL_LIB_DEPS GLOBAL PROPERTY GC_DNNL_LIB_DEPS)
 
-include_directories(${DNNL_INCLUDES})
+include_directories(${GC_DNNL_INCLUDES})
 
 gc_add_mlir_library(GcCpuRuntime
     SHARED
@@ -27,7 +27,7 @@ gc_add_mlir_library(GcCpuRuntime
     dnnl_brgemm
 
     LINK_LIBS PRIVATE
-    ${DNNL_LIB_DEPS}
+    ${GC_DNNL_LIB_DEPS}
 
     LINK_LIBS PUBLIC
     GcInterface

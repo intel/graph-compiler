@@ -59,6 +59,7 @@ struct brgemm_params_t {
   int64_t stride_a, stride_b;
   float beta;
   int64_t dtypeA, dtypeB;
+  brgemm_params_t() {}
   brgemm_params_t(int64_t m, int64_t n, int64_t k, int64_t lda, int64_t ldb,
                   int64_t ldc, int64_t sa, int64_t sb, float b, int64_t da,
                   int64_t db)
@@ -183,11 +184,11 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t LDB, int64_t LDC, int64_t stride_a,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
-  std::lock_guard g(g_brgemm_list);
+  std::lock_guard g(g_brgemm_mutex);
   // simply store the given parameters for naive BRGEMM
-  brgemm_list.emplace_back(brgemm_params_t(M, N, K, LDA, LDB, LDC, stride_a,
-                                           stride_b, beta, dtypeA, dtypeB));
-  return brgemm_list.size() - 1;
+  g_brgemm_list.emplace_back(brgemm_params_t(M, N, K, LDA, LDB, LDC, stride_a,
+                                             stride_b, beta, dtypeA, dtypeB));
+  return g_brgemm_list.size() - 1;
 }
 
 void dnnl_brgemm_tileconfig(int64_t kernel) { return; }
@@ -199,10 +200,10 @@ void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
                          int num) {
   brgemm_params_t params;
   {
-    std::lock_guard g(g_brgemm_list);
+    std::lock_guard g(g_brgemm_mutex);
     assert(kernel >= 0 && kernel < (int64_t)g_brgemm_list.size() &&
            "Invalid kernel handler");
-    params = brgemm_list[kernel];
+    params = g_brgemm_list[kernel];
   }
 
   if (params.beta == 0.0f) {
