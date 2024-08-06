@@ -27,68 +27,43 @@ static LogicalResult verifyCPUTargetDescription(RewriterBase &rewriter,
   Location loc = op->getLoc();
 
   // Check if the num_threads is existed and greater than 0
-  std::optional<Attribute> numThreadsAttr =
-      cpuTargetDesc.getPropertyValue(CPUTargetDescriptionAnalysis::kNumThreads);
-  if (numThreadsAttr) {
-    if (!isa<IntegerAttr>(*numThreadsAttr) ||
-        cpuTargetDesc.getNumThreads() < 1) {
-      mlir::emitError(loc)
-          << "num_threads must be a greater than 0 integer, but get "
-          << *numThreadsAttr;
-      return failure();
-    }
+  if (cpuTargetDesc.getNumThreads() < 1) {
+    mlir::emitError(loc)
+        << "num_threads must be a greater than 0 integer, but get "
+        << cpuTargetDesc.getNumThreads();
+    return failure();
   }
 
   // Check if the L1 cache size is existed and greater than 0
-  std::optional<Attribute> l1CacheSizeAttr = cpuTargetDesc.getPropertyValue(
-      CPUTargetDescriptionAnalysis::kL1CacheSize);
-  if (l1CacheSizeAttr) {
-    if (!isa<IntegerAttr>(*l1CacheSizeAttr) ||
-        cpuTargetDesc.getCacheSize(1) < 1) {
-      mlir::emitError(loc)
-          << "L1_cache_size_in_bytes must be a greater than 0 integer, but get "
-          << *l1CacheSizeAttr;
-      return failure();
-    }
+  if (cpuTargetDesc.getCacheSize(1) < 1) {
+    mlir::emitError(loc)
+        << "L1_cache_size_in_bytes must be a greater than 0 integer, but get "
+        << cpuTargetDesc.getCacheSize(1);
+    return failure();
   }
 
   // Check if the L2 cache size is existed and greater than 0
-  std::optional<Attribute> l2CacheSizeAttr = cpuTargetDesc.getPropertyValue(
-      CPUTargetDescriptionAnalysis::kL2CacheSize);
-  if (l2CacheSizeAttr) {
-    if (!isa<IntegerAttr>(*l2CacheSizeAttr) ||
-        cpuTargetDesc.getCacheSize(2) < 1) {
-      mlir::emitError(loc)
-          << "L2_cache_size_in_bytes must be a greater than 0 integer, but get "
-          << *l2CacheSizeAttr;
-      return failure();
-    }
+  if (cpuTargetDesc.getCacheSize(2) < 1) {
+    mlir::emitError(loc)
+        << "L2_cache_size_in_bytes must be a greater than 0 integer, but get "
+        << cpuTargetDesc.getCacheSize(2);
+    return failure();
   }
 
   // Check if the L3 cache size is existed and greater than 0
-  std::optional<Attribute> l3CacheSizeAttr = cpuTargetDesc.getPropertyValue(
-      CPUTargetDescriptionAnalysis::kL3CacheSize);
-  if (l3CacheSizeAttr) {
-    if (!isa<IntegerAttr>(*l3CacheSizeAttr) ||
-        cpuTargetDesc.getCacheSize(3) < 1) {
-      mlir::emitError(loc)
-          << "L3_cache_size_in_bytes must be a greater than 0 integer, but get "
-          << *l3CacheSizeAttr;
-      return failure();
-    }
+  if (cpuTargetDesc.getCacheSize(3) < 1) {
+    mlir::emitError(loc)
+        << "L3_cache_size_in_bytes must be a greater than 0 integer, but get "
+        << cpuTargetDesc.getCacheSize(3);
+    return failure();
   }
 
   // Check if the max_vector_width is existed and greater than 0
-  std::optional<Attribute> maxVectorWidthAttr = cpuTargetDesc.getPropertyValue(
-      CPUTargetDescriptionAnalysis::kMaxVectorWidth);
-  if (maxVectorWidthAttr) {
-    if (!isa<IntegerAttr>(*maxVectorWidthAttr) ||
-        cpuTargetDesc.getMaxVectorWidth() < 1) {
-      mlir::emitError(loc)
-          << "max_vector_width must be a greater than 0 integer, but get "
-          << *maxVectorWidthAttr;
-      return failure();
-    }
+  if (cpuTargetDesc.getMaxVectorWidth() < 1) {
+    mlir::emitError(loc)
+        << "max_vector_width must be a greater than 0 integer, but get "
+        << cpuTargetDesc.getMaxVectorWidth();
+    return failure();
   }
   return success();
 }

@@ -71,16 +71,13 @@ public:
   static constexpr StringLiteral kNumThreads = "num_threads";
 
   // get runtime OMP_NUM_THREADS
-  size_t getNumThreads();
+  unsigned getNumThreads();
 
   // get cache size by cacheLevel
-  size_t getCacheSize(uint8_t cacheLevel);
+  unsigned getCacheSize(uint8_t cacheLevel);
 
   // get the maximum vector length in bits
-  size_t getMaxVectorWidth();
-
-  // get the default value map(attr key, default value)
-  static llvm::DenseMap<StringRef, int64_t> CPUTargetDeafultValueMap;
+  unsigned getMaxVectorWidth();
 
   CPUTargetDescriptionAnalysis(Operation *op)
       : TargetDescriptionAnalysisBase(op, DeviceType::CPU) {}

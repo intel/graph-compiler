@@ -21,16 +21,6 @@ llvm::DenseMap<DeviceType, std::string>
         {CPU, "CPU"},
 };
 
-// default values for properties
-llvm::DenseMap<StringRef, int64_t>
-    CPUTargetDescriptionAnalysis::CPUTargetDeafultValueMap = {
-        {CPUTargetDescriptionAnalysis::kNumThreads, 1},
-        {CPUTargetDescriptionAnalysis::kL1CacheSize, 32 * 1024},
-        {CPUTargetDescriptionAnalysis::kL2CacheSize, 1024 * 1024},
-        {CPUTargetDescriptionAnalysis::kL3CacheSize, 32 * 1024 * 1024},
-        {CPUTargetDescriptionAnalysis::kMaxVectorWidth, 512},
-};
-
 template <typename T>
 void TargetDescriptionAnalysisBase::emitNotFoundWarning(Location loc,
                                                         StringRef key,
@@ -66,18 +56,23 @@ TargetDescriptionAnalysisBase::getPropertyValue(StringRef key) {
       Builder(getContext()).getStringAttr(key));
 }
 
-size_t CPUTargetDescriptionAnalysis::getNumThreads() {
+unsigned CPUTargetDescriptionAnalysis::getNumThreads() {
+  static const unsigned defaultNumThreads = 1;
   std::optional<Attribute> numThreads = getPropertyValue(kNumThreads);
 
   if (numThreads)
     return getIntFromAttribute(*numThreads);
-  emitNotFoundWarning(getLocation(), kNumThreads,
-                      CPUTargetDeafultValueMap[kNumThreads]);
-  return CPUTargetDeafultValueMap[kNumThreads];
+  emitNotFoundWarning(getLocation(), kNumThreads, defaultNumThreads);
+  return defaultNumThreads;
 }
 
-size_t CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) {
+unsigned CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) {
   assert(cacheLevel > 0 && cacheLevel < 4 && "Invalid cache level");
+  llvm::DenseMap<StringRef, unsigned> CPUTargetCacheSizeValueMap = {
+      {CPUTargetDescriptionAnalysis::kL1CacheSize, 32 * 1024},
+      {CPUTargetDescriptionAnalysis::kL2CacheSize, 1024 * 1024},
+      {CPUTargetDescriptionAnalysis::kL3CacheSize, 32 * 1024 * 1024},
+  };
   StringLiteral key = "";
   if (cacheLevel == 1)
     key = kL1CacheSize;
@@ -90,17 +85,17 @@ size_t CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) {
   if (cacheSize)
     return getIntFromAttribute(*cacheSize);
 
-  emitNotFoundWarning(getLocation(), key, CPUTargetDeafultValueMap[key]);
-  return CPUTargetDeafultValueMap[key];
+  emitNotFoundWarning(getLocation(), key, CPUTargetCacheSizeValueMap[key]);
+  return CPUTargetCacheSizeValueMap[key];
 }
 
-size_t CPUTargetDescriptionAnalysis::getMaxVectorWidth() {
+unsigned CPUTargetDescriptionAnalysis::getMaxVectorWidth() {
+  static const unsigned defaultMaxVectorWidth = 512;
   std::optional<Attribute> maxVectorWidth = getPropertyValue(kMaxVectorWidth);
   if (maxVectorWidth)
     return getIntFromAttribute(*maxVectorWidth);
-  emitNotFoundWarning(getLocation(), kMaxVectorWidth,
-                      CPUTargetDeafultValueMap[kMaxVectorWidth]);
-  return CPUTargetDeafultValueMap[kMaxVectorWidth];
+  emitNotFoundWarning(getLocation(), kMaxVectorWidth, defaultMaxVectorWidth);
+  return defaultMaxVectorWidth;
 }
 
 } // namespace gc
