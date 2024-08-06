@@ -26,12 +26,14 @@ from typing import List, Tuple
 import benchgc.arg.binary as binary
 import benchgc.arg.eltwise as eltwise
 import benchgc.arg.matmul as matmul
+import benchgc.arg.softmax as softmax
 
 
 onednn_module = {
     "binary": binary,
     "eltwise": eltwise,
     "matmul": matmul,
+    "softmax": softmax
 }
 
 
@@ -147,6 +149,6 @@ def compare_tensor(
     elif arg.cmp_type == "D" and len(arg.cmp_param) > 0:  # driver check
         driver: str = arg.cmp_param[0]
         driver_module = onednn_module[driver]
-        return driver_module.compare(ref, res, verbose)
+        return driver_module.compare(arg.cmp_param[1:], ref, res, verbose)
     else:
         raise Exception("invalid compare type or compare parameter")

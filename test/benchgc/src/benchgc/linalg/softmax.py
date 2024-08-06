@@ -16,23 +16,24 @@
 
 import torch
 import argparse
-import importlib
 import gc_mlir.ir
+
 from benchgc.mlir.util import MLIRCache
+from benchgc.mlir.module import init_i1o1_module
+
+from gc_mlir.dialects import linalg
+
 from benchgc.arg import Arg
-from typing import Dict, Callable, List
+from typing import Dict, List
 
-ref_op: Dict[
-    str, Callable[[MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]], None]
-] = {}
-mlir_op: Dict[str, Callable[[argparse.Namespace, List[Arg]], gc_mlir.ir.Module]] = {}
+def ref_softmax(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    dimension: gc_mlir.ir.IntegerAttr = op.attributes["dimension"]
+    var[cache.res[0]] = torch.softmax(var[cache.opr[0]], dimension.value)
 
-for dri in ["binary", "matmul", "eltwise", "misc", "generic", "softmax"]:
-    mod = importlib.import_module("benchgc.linalg.%s" % dri)
-    for key in mod.__dict__:
-        if key.startswith("ref_"):
-            op: str = key.removeprefix("ref_")
-            ref_op[op] = mod.__dict__[key]
-        if key.startswith("mlir_"):
-            op: str = key.removeprefix("mlir_")
-            mlir_op[op] = mod.__dict__[key]
+
+def mlir_softmax(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.softmax(result=[args[1].get_ranked_tensor_type(ctx)], input=arg0, output=args[1].get_empty_op(ctx), dimension=flags.dimension),
+    )

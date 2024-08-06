@@ -14,88 +14,69 @@
 # limitations under the License.
 ################################################################################
 
+from functools import reduce
+import operator
 import torch
 import benchgc.util
 from benchgc.arg.arg import Arg
 from benchgc.arg.compare import p2p
 import argparse
-from typing import List, Dict, Tuple, Set
+from typing import List, Tuple, Set
 
-# op should use this filling
+op: Set[str] = set(["linalg.softmax"])
 
-op: Set[str] = set(["linalg.add", "linalg.div", "linalg.mul"])
 
-# params format: [src0 | src1, src0 dt, src1 dt, dst dt]
-
+# params format: [reduce dimension]
 
 def default_fill(
     flags: argparse.Namespace,
     arg: Arg,
     arglist: List[Arg],
 ):
-    if arg.index > 1:
-        raise Exception("binary fill: dst filling is not allowed")
+    if arg.index > 0:
+        raise Exception("softmax fill: dst filling is not allowed")
     arg.fill_type = "D"
-    arg.fill_param = [
-        "binary",
-        "src0" if arg.index == 0 else "src1",
-        arglist[0].dtype,
-        arglist[1].dtype,
-        arglist[2].dtype,
-    ]
+    arg.fill_param = ["softmax", str(flags.dimension)]
 
 
 def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
-    name, _, _, _ = params
+    dimension: int = int(params[0])
 
-    accept_name: Dict[str, int] = {"src0": 1, "src1": 2}
-    if name in accept_name:
-        arg: int = accept_name[name]
-    else:
-        raise Exception("unknown arg name %s", name)
+    outer: int = reduce(operator.mul, shape[:dimension], 1)
+    inner: int = reduce(operator.mul, shape[dimension + 1 :], 1)
+    benchgc.util.torch_seed()
+    sign = torch.randint(0, 1, size=[1, shape[dimension], 1]) * 2 - 1
+    value = torch.randint(87, 90, size=[outer, shape[dimension], inner])
+    value = torch.where(value == 87, 0, value)
+    value = value * sign
+    value = torch.where(value == 0, torch.finfo(dtype).min, value)
+    return value.reshape(shape).to(dtype)
 
-    range_: int = 16
-    f_min = 0 if dtype == torch.uint8 else -range_ // 2
 
-    idx: torch.Tensor = torch.arange(
-        benchgc.util.nelem(shape), dtype=torch.int
-    ).reshape(shape)
-    values: torch.Tensor = (f_min + (12 * idx + 5 * arg + 16) % (range_ + 1)) * 1.25
-    if arg == 2:
-        values = torch.where(values == 0.0, 1, values)
-    return values.to(dtype=dtype)
-
-# compare param: dtype, case
-
+# param: dtype, case, reduce size
 def default_compare(
     flags: argparse.Namespace,
     arg: Arg,
     arglist: List[Arg],
 ):
     arg.cmp_type = "D"
-    arg.cmp_param = ["binary", arg.dtype, flags.case]
-
+    arg.cmp_param = ["softmax", arg.dtype, flags.case, str(arg.shape[int(flags.dimension)])]
 
 def compare(
     param: List[str],
     ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
     dtype = benchgc.util.get_dtype(param[0])
-
     ref = ref.to(torch.float)
     res = res.to(torch.float)
 
-    if param[1] in ["div", "div_unsigned"]:
-        abs_diff = (ref.to(torch.float) - res.to(torch.float)).abs()
-        init_check = abs_diff < benchgc.util.get_eps(dtype)
-    else:
-        init_check = None
+    reduce_size = int(param[2])
+    nzeros = reduce_size - 1 if dtype == torch.int8 or dtype == torch.uint8 else max(0, reduce_size - 8)
 
     return p2p(
-        benchgc.util.get_eps(dtype),
-        30.0,
+        benchgc.util.get_eps(dtype) * (5.0 if dtype == torch.float else 1.0),
+        100.0 * nzeros / reduce_size,
         ref,
         res,
         verbose,
-        init_check
     )

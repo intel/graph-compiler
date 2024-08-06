@@ -63,6 +63,7 @@ def p2p(
     ref: torch.Tensor,
     res: torch.Tensor,
     verbose: int,
+    init_check: torch.Tensor | None = None
 ) -> Tuple[bool, bool | None]:
 
     if verbose >= benchgc.util.COMPARE_VERBOSE:
@@ -70,7 +71,10 @@ def p2p(
     f32_ref = ref.to(torch.float32)
     f32_res = res.to(torch.float32)
 
-    check = torch.tensor(False)
+    if init_check is None:
+        check = torch.tensor(False)
+    else:
+        check = init_check
 
     check = check.bitwise_or(torch.bitwise_and(f32_ref.isnan(), f32_res.isnan()))
     check = check.bitwise_or(torch.bitwise_and(f32_ref.isneginf(), f32_res.isneginf()))

@@ -107,6 +107,19 @@ try:
         choices=["cast_signed", "cast_unsigned"],
         type=str,
     )
+
+    # single dimension index
+    # linalg.softmax
+    parser.add_argument(
+        "--dimension",
+        required=False,
+        default=None,
+        help="define the dimension attribute in linalg op",
+        type=int,
+    )
+
+    # multiple dimensions array
+    # linalg.broadcast / linalg.reduce
     parser.add_argument(
         "--dimensions",
         required=False,

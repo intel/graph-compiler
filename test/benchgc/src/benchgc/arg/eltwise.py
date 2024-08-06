@@ -26,7 +26,7 @@ from typing import List, Tuple, Set
 
 # op should use this filling
 
-op: Set[str] = set(["linalg.abs", "linalg.negf", "linalg.exp"])
+op: Set[str] = set(["linalg.abs", "linalg.negf", "linalg.exp", "linalg.ceil", "linalg.erf", "linalg.floor", "linalg.log"])
 
 
 def default_fill(
@@ -37,7 +37,7 @@ def default_fill(
     if arg.index > 0:
         raise Exception("eltwise fill: dst filling is not allowed")
     arg.fill_param = ["eltwise", flags.case]
-    if flags.driver == "linalg" and flags.case in ["abs", "exp"]:
+    if flags.driver == "linalg" and flags.case in ["abs", "exp", "ceil", "erf", "floor", "log"]:
         arg.fill_param.extend(["", ""])
     elif flags.driver == "linalg" and flags.case in ["negf"]:
         arg.fill_param.extend(["-1", "0"])
@@ -115,6 +115,7 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
     value = ((rand_int + rand_uni) * coeff + bias).to(dtype=dtype)
     return value.reshape(shape)
 
+# param: dtype, case
 
 def default_compare(
     flags: argparse.Namespace,
@@ -122,18 +123,24 @@ def default_compare(
     arglist: List[Arg],
 ):
     arg.cmp_type = "D"
-    arg.cmp_param = ["eltwise"]
+    arg.cmp_param = ["eltwise", arg.dtype, flags.case]
 
 
 def compare(
+    param: List[str],
     ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
-    dtype = ref.dtype
+    dtype = benchgc.util.get_dtype(param[0])
     ref = ref.to(torch.float)
     res = res.to(torch.float)
+
+    threshold = 4e-6 if dtype == torch.float else benchgc.util.get_eps(dtype)
+    if dtype == torch.float and param[1] in ["tanh", "log"]:
+        threshold = 4e-5
+
     return p2p(
-        4e-6 if dtype == torch.float else benchgc.util.get_eps(dtype),
-        65 if dtype.is_signed else 99.0,
+        threshold,
+        65.0 if dtype.is_floating_point else 100.0,
         ref,
         res,
         verbose,

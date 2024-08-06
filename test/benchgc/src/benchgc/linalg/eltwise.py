@@ -26,9 +26,62 @@ from gc_mlir.dialects import linalg
 from benchgc.arg import Arg
 from typing import Dict, List
 
+def ref_abs(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.abs(var[cache.opr[0]])
 
-def ref_negf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
-    var[cache.res[0]] = torch.neg(var[cache.opr[0]])
+
+def mlir_abs(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.abs(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_ceil(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.ceil(var[cache.opr[0]])
+
+
+def mlir_ceil(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.ceil(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_floor(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.floor(var[cache.opr[0]])
+
+
+def mlir_floor(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.floor(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def ref_erf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.erf(var[cache.opr[0]])
+
+
+def mlir_erf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    linalg.erf.op_def.metadata.cpp_class_name = "erfOp"
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.erf(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+def mlir_log(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+    return init_i1o1_module(
+        args[0],
+        args[1],
+        lambda ctx, arg0: linalg.log(arg0, outs=[args[1].get_empty_op(ctx)]),
+    )
+
+
+
+def ref_log(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.log(var[cache.opr[0]])
 
 
 def mlir_negf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
