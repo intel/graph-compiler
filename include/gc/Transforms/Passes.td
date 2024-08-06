@@ -92,6 +92,12 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
            /*default=*/"\"CPU\"",
            "The device to verify. Supported device: CPU, ">,
   ];
+
+def DecomposeAggregatedOps : Pass<"decompose-aggregated-ops", "func::FuncOp"> {
+  let summary = "Decompose aggregated operations.";
+  let description = [{
+    Decompose operations that implement the `AggregatedOpInterface`.
+  }];
 }
 
 #endif // GC_DIALECT_GC_PASSES
