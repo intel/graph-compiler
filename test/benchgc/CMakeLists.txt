@@ -27,6 +27,7 @@ foreach(PY_SCRIPT ${PYTHON_SCRIPTS})
   configure_file(${PY_SCRIPT} ${CMAKE_BINARY_DIR} COPYONLY)
 endforeach()
 
+find_package(Python 3.10 REQUIRED COMPONENTS Interpreter NumPy REQUIRED)
 add_custom_target(benchgc
     COMMAND ${Python_EXECUTABLE} setup.py bdist_wheel
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/test/benchgc/"
