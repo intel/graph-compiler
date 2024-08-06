@@ -54,6 +54,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  // copied from tpp project
+  pm.addNestedPass<func::FuncOp>(createDecomposeAggregatedOps());
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
