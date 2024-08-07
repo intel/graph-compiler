@@ -69,7 +69,8 @@ getClosestInsertSliceOfResult(OpResult result) {
       sliceOp =
           dyn_cast<OffsetSizeAndStrideOpInterface>(useOfResult.getOwner());
     } else if (auto yieldOp = dyn_cast<scf::YieldOp>(useOfResult.getOwner())) {
-      if (isa<LoopLikeOpInterface, scf::IfOp>(yieldOp->getParentOp())) {
+      if (isa<LoopLikeOpInterface, RegionBranchOpInterface>(
+              yieldOp->getParentOp())) {
         return getClosestInsertSliceOfResult(
             yieldOp->getParentOp()->getResult(useOfResult.getOperandNumber()));
       }
@@ -160,12 +161,12 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
   if (auto packOp = dyn_cast<tensor::PackOp>(defOrUse.ownerOp)) {
     // tileSize comes from OpResult
     if (defOrUse.isDef()) {
-      targetInnerTileSizes = packOp.getInnerTiles();
+      targetInnerTileSizes = packOp.getMixedTiles();
       targetTileSizes = llvm::to_vector(
           ArrayRef(tileSizes).take_back(targetInnerTileSizes.size()));
     } else {
       // tileSize comes from OpOperand
-      targetTileSizes = llvm::to_vector(tileSizes);
+      targetTileSizes = tileSizes;
       DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
           packOp.getDimAndTileMapping();
       targetInnerTileSizes.resize(dimAndTileMapping.size());
@@ -176,7 +177,7 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(defOrUse.ownerOp)) {
     // tileSize comes from OpResult
     if (defOrUse.isDef()) {
-      targetTileSizes = llvm::to_vector(tileSizes);
+      targetTileSizes = tileSizes;
       DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
           unPackOp.getDimAndTileMapping();
       targetInnerTileSizes.resize(dimAndTileMapping.size());
@@ -185,7 +186,7 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
       }
     } else {
       // tileSize comes from OpOperand
-      targetInnerTileSizes = unPackOp.getInnerTiles();
+      targetInnerTileSizes = unPackOp.getMixedTiles();
       targetTileSizes = llvm::to_vector(
           ArrayRef(tileSizes).take_back(targetInnerTileSizes.size()));
     }
