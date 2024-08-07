@@ -68,7 +68,6 @@ def ref_erf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor
 
 
 def mlir_erf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
-    linalg.erf.op_def.metadata.cpp_class_name = "erfOp"
     return init_i1o1_module(
         args[0],
         args[1],

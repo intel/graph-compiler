@@ -46,11 +46,6 @@ def ref_powf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tenso
 
 
 def mlir_powf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
-    # This is a workaround fix.
-    # see https://github.com/llvm/llvm-project/blob/a355c2d07464f020c9a66cbd6189c22a42c2be2e/mlir/python/mlir/dialects/linalg/opdsl/lang/dsl.py#L140-L142
-    # python binding will deduce cpp_class_name based on the function
-    # powf will be translated into PowfOp, which is not equal to PowFOp.
-    linalg.powf.op_def.metadata.cpp_class_name = "PowFOp"
     return init_i2o1_module(
         args[0],
         args[1],
