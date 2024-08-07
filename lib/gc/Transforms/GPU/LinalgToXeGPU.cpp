@@ -1388,7 +1388,7 @@ private:
   LinalgToXeGPUOptions options;
 };
 
-// Create XeGPU kernel out of elementwise operation.
+// Create XeGPU kernel out of memory fill operation.
 LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
                                      PatternRewriter &rewriter) {
   Location loc = linalgOp.getLoc();
@@ -1399,9 +1399,7 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
   auto outputType = cast<ShapedType>(output.getType());
   auto outputShape = outputType.getShape();
 
-  // Extract SIMD sized sub-tiles from loaded tiles.
-  // Take at least one whole row plus as many extra rows as can fit into
-  // a single SIMD instruction.
+  // Extract SIMD sized sub-tiles
   int maxSizeSIMD = 256;
   int64_t subTileCols = outputShape[1];
   int64_t subTileRows = std::min(outputShape[0], maxSizeSIMD / subTileCols);
@@ -1437,7 +1435,7 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
   return success();
 }
 
-// Convert a named elementwise operation to an XeGPU kernel.
+// Convert a named fill operation to an XeGPU kernel.
 template <typename LinalgOpTy>
 struct ConvertMemoryFillToXeGPU : public OpRewritePattern<LinalgOpTy> {
   using OpRewritePattern<LinalgOpTy>::OpRewritePattern;
