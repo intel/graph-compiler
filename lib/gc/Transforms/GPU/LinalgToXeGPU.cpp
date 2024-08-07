@@ -350,7 +350,7 @@ static std::optional<Value> lowerEltwiseOp(linalg::LinalgOp linalgOp,
         // Unhandled type. Bail out.
         return std::nullopt;
       })
-      .Case([&](linalg::NegfOp negfOp) -> std::optional<Value> {
+      .Case([&](linalg::NegFOp negFOp) -> std::optional<Value> {
         assert(operands.size() == 1 && "Invalid number of operands for negf");
         return rewriter.create<arith::NegFOp>(loc, resType, operands[0])
             .getResult();
@@ -732,9 +732,9 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
 
   VectorType vecLoadType =
       VectorType::get(tileType.getShape(), tileType.getElementType());
-  IntegerAttr vnniAxisAttr = nullptr;
+  UnitAttr vnniAxisAttr = nullptr;
   if (vnniConf) {
-    vnniAxisAttr = IntegerAttr::get(rewriter.getI64Type(), vnniConf->vnniAxis);
+    vnniAxisAttr = UnitAttr::get(rewriter.getContext());
     vecLoadType = getVnniVector(tileType.getShape(), tileType.getElementType(),
                                 *vnniConf);
   }
@@ -742,7 +742,7 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
   SmallVector<Value> loadVec;
   for (auto tile : loadTiles) {
     auto loadOp = rewriter.create<xegpu::LoadNdOp>(
-        loc, vecLoadType, tile, vnniAxisAttr, transpose,
+        loc, vecLoadType, tile, vnniAxisAttr, transpose, nullptr,
         /*l1_hint=*/hint,
         /*l2_hint=*/hint, /*l3_hint=*/hint);
     loadVec.push_back(loadOp);
@@ -1390,7 +1390,7 @@ void populateLinalgEltwiseToXeGPUPatterns(RewritePatternSet &patterns,
                ConvertNamedEltwiseToXeGPU<linalg::FloorOp>,
                ConvertNamedEltwiseToXeGPU<linalg::MaxOp>,
                ConvertNamedEltwiseToXeGPU<linalg::MulOp>,
-               ConvertNamedEltwiseToXeGPU<linalg::NegfOp>,
+               ConvertNamedEltwiseToXeGPU<linalg::NegFOp>,
                ConvertNamedEltwiseToXeGPU<linalg::SubOp>>(patterns.getContext(),
                                                           options);
 }
