@@ -275,19 +275,22 @@ static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
     SmallVector<OpFoldResult> mixedOffsets = extractSlice.getMixedOffsets();
     SmallVector<OpFoldResult> mixedSizes = extractSlice.getMixedSizes();
     SmallVector<OpFoldResult> mixedStrides = extractSlice.getMixedStrides();
+    auto targetTensor = mlir::RankedTensorType::get(
+        SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
+        extractSlice.getResult().getType().getElementType());
     for (auto &&[i, s] : llvm::enumerate(size))
       mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
-    if (shrinDimNum > 0)
-      rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
-          extractSlice,
-          mlir::RankedTensorType::get(
-              SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
-              extractSlice.getResult().getType().getElementType()),
-          extractSlice.getSource(), mixedOffsets, mixedSizes, mixedStrides);
-    else
-      rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
-          extractSlice, extractSlice.getSource(), mixedOffsets, mixedSizes,
-          mixedStrides);
+    Operation *newExtractSliceOp = rewriter.create<tensor::ExtractSliceOp>(
+        extractSlice->getLoc(), extractSlice.getSource(), mixedOffsets,
+        mixedSizes, mixedStrides);
+    if (shrinDimNum > 0) {
+      rewriter.setInsertionPointAfter(newExtractSliceOp);
+      Value viewResult = tensorViewRankedTensor(
+          rewriter, targetTensor, newExtractSliceOp->getResult(0));
+      rewriter.replaceOp(extractSlice, viewResult);
+    } else {
+      rewriter.replaceOp(extractSlice, newExtractSliceOp);
+    }
   }
 }
 
@@ -304,9 +307,12 @@ static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
     SmallVector<OpFoldResult> mixedStrides = insertSlice.getMixedStrides();
     for (auto &&[i, s] : llvm::enumerate(size))
       mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
+    auto targetTensor = mlir::RankedTensorType::get(
+        size, insertSlice.getDest().getType().getElementType());
+    Value viewResult = tensorViewRankedTensor(rewriter, targetTensor, source);
     rewriter.replaceOpWithNewOp<tensor::InsertSliceOp>(
-        insertSlice, source, insertSlice.getDest(), mixedOffsets, mixedSizes,
-        mixedStrides);
+        insertSlice, viewResult, insertSlice.getDest(), mixedOffsets,
+        mixedSizes, mixedStrides);
   }
 }
 

@@ -55,10 +55,13 @@ func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<12
     // CHECK: tensor.extract_slice {{.*}} [1, 8, 32, 32] [1, 1, 1, 1]
     // CHECK: tensor.extract_slice {{.*}} [1, 8, 32, 32] [1, 1, 1, 1]
     // CHECK: scf.for
-    // CHECK: tensor.extract_slice {{.*}} [1, 8, 32, 32] [1, 1, 1, 1]
+    // CHECK: tensor.collapse_shape {{.*}} tensor<1x8x32x32xbf16> into tensor<8x32x32xbf16>
     // CHECK: tensor.extract_slice {{.*}} [1, 8, 16, 32, 2] [1, 1, 1, 1, 1]
+    // CHECK: tensor.collapse_shape {{.*}} tensor<1x8x16x32x2xbf16> into tensor<8x16x32x2xbf16>
     // CHECK: tensor.extract_slice {{.*}} [1, 1, 32, 32] [1, 1, 1, 1]
+    // CHECK: tensor.collapse_shape {{.*}} tensor<1x1x32x32xf32> into tensor<32x32xf32>
     // CHECK: tensor.extract_slice {{.*}} [1, 1, 32, 32] [1, 1, 1, 1]
+    // CHECK: tensor.collapse_shape {{.*}} tensor<1x1x32x32xbf16> into tensor<32x32xbf16>
     // CHECK: scf.if
     // CHECK: linalg.fill
     // CHECK: linalgx.batch_reduce_matmul_vnni
@@ -92,6 +95,7 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
     // CHECK: tensor.extract_slice {{.*}} [32, 256] [1, 1]
     // CHECK: scf.for
     // CHECK: tensor.extract_slice {{.*}} [1, 8, 16, 32, 2] [1, 1, 1, 1, 1]
+    // CHECK: tensor.collapse_shape {{.*}} tensor<1x8x16x32x2xbf16> into tensor<8x16x32x2xbf16>
     // CHECK: tensor.extract_slice {{.*}} [32, 32] [1, 1]
     // CHECK: linalg.transpose {{.*}} permutation = [1, 0, 2]
     // CHECK: scf.if
