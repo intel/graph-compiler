@@ -53,7 +53,7 @@ FailureOr<linalg::ContractionDimensions>
 customInferContractionDims(linalg::LinalgOp linalgOp) {
   auto dims = linalg::inferContractionDims(linalgOp);
   if (failed(dims))
-    return dims;
+    return failure();
   if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp)) {
     // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
     // linalg utils because they form complex affine in operand A; Manually add
@@ -77,24 +77,22 @@ static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
   auto secondKPosDim = getAffineDimExpr(dimPos[1], linalgOp.getContext());
   // An K affine result for VNNI should be this format:
   // d{kPos[0]} * s{kPos[1]} + d{kPos[1]} (k0 * K_vnni + k1)
-  if (auto add = dyn_cast<AffineBinaryOpExpr>(expr)) {
-    if (add.getKind() == AffineExprKind::Add) {
-      auto lhs = add.getLHS();
-      auto rhs = add.getRHS();
-      if (rhs == secondKPosDim) {
-        auto mul = dyn_cast<AffineBinaryOpExpr>(lhs);
-        if (mul && mul.getKind() == AffineExprKind::Mul &&
-            mul.getLHS() == firstDim) {
-          if (auto cst_affine = dyn_cast<AffineConstantExpr>(mul.getRHS())) {
-            if (cst_affine.getValue() == 2 || cst_affine.getValue() == 4) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-  }
-  return false;
+  auto add = dyn_cast<AffineBinaryOpExpr>(expr);
+  if (!add)
+    return false;
+  if (add.getKind() != AffineExprKind::Add)
+    return false;
+  auto lhs = add.getLHS();
+  auto rhs = add.getRHS();
+  if (rhs != secondKPosDim)
+    return false;
+  auto mul = dyn_cast<AffineBinaryOpExpr>(lhs);
+  if (!mul || mul.getKind() != AffineExprKind::Mul || mul.getLHS() != firstDim)
+    return false;
+  auto cst_affine = dyn_cast<AffineConstantExpr>(mul.getRHS());
+  if (!cst_affine || (cst_affine.getValue() != 2 && cst_affine.getValue() != 4))
+    return false;
+  return true;
 }
 
 // Return the position of `dim` in the codomain of `operand`.
