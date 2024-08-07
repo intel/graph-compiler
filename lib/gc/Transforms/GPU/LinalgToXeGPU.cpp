@@ -732,9 +732,9 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
 
   VectorType vecLoadType =
       VectorType::get(tileType.getShape(), tileType.getElementType());
-  IntegerAttr vnniAxisAttr = nullptr;
+  UnitAttr vnniAxisAttr = nullptr;
   if (vnniConf) {
-    vnniAxisAttr = IntegerAttr::get(rewriter.getI64Type(), vnniConf->vnniAxis);
+    vnniAxisAttr = UnitAttr::get(rewriter.getContext());
     vecLoadType = getVnniVector(tileType.getShape(), tileType.getElementType(),
                                 *vnniConf);
   }
@@ -742,7 +742,7 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
   SmallVector<Value> loadVec;
   for (auto tile : loadTiles) {
     auto loadOp = rewriter.create<xegpu::LoadNdOp>(
-        loc, vecLoadType, tile, vnniAxisAttr, transpose,
+        loc, vecLoadType, tile, vnniAxisAttr, transpose, nullptr,
         /*l1_hint=*/hint,
         /*l2_hint=*/hint, /*l3_hint=*/hint);
     loadVec.push_back(loadOp);

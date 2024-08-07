@@ -11,23 +11,27 @@ print_usage() {
     cat <<EOF
 Usage:
 $(basename "$0")
-    [ -d | --dev   ] Dev build, build LLVM in current env and place all to 'external' dir
-    [ -l | --dyn   ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
-    [ -c | --clean ] Delete the build artifacts from the previous build
-    [ -h | --help  ] Print this message
+    [ -d | --dev     ] Dev build, build LLVM in current env and place all to 'external' dir
+    [ -l | --dyn     ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
+    [ -r | --release ] Release build, requires rebuild of LLVM in Release mode, activates 'dev' option
+    [ -c | --clean   ] Delete the build artifacts from the previous build
+    [ -h | --help    ] Print this message
 EOF
 }
 
-DEV_BUILD=false
-DYN_LINK=false
+DYN_LINK=OFF
 for arg in "$@"; do
     case $arg in
         -d | --dev)   
             DEV_BUILD=true 
             ;;
         -l | --dyn)
-            DEV_BUILD=true 
-            DYN_LINK=true 
+            DYN_LINK=ON
+            DEV_BUILD=true
+            ;;
+        -r | --release)
+            REL_BUILD=true
+            DEV_BUILD=true
             ;;
         -c | --clean)
             CLEANUP=true
@@ -44,6 +48,19 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+if [ ! -z "$REL_BUILD" ]; then
+    BUILD_TYPE=Release
+elif [ ! -z "$DEV_BUILD" ]; then
+    BUILD_TYPE=Debug
+else
+    BUILD_TYPE=RelWithDebInfo
+fi
+
+if [ -z "$MAX_JOBS" ]; then
+    MAX_JOBS=$(($(nproc) - 2))  # Do not use all CPUs
+    [ $MAX_JOBS -gt 0 ] || MAX_JOBS=1
+fi
 
 cd $(dirname "$0")/..
 PROJECT_DIR=$PWD
@@ -73,20 +90,30 @@ build_llvm() {
     fi
 
     git checkout ${LLVM_HASH}
-
-    dylib=OFF
-    if [ "$DYN_LINK" = 'true' ]; then 
-        dylib=ON
-    fi
-
     [ -z "$CLEANUP" ] || rm -rf build
+
+    [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
+
     cmake -G Ninja llvm -B build \
-        -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
-        -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir"\
-        -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true \
-        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLLVM_INSTALL_GTEST=ON \
-        -DLLVM_BUILD_LLVM_DYLIB=$dylib -DLLVM_LINK_LLVM_DYLIB=$dylib
-    cmake --build build
+        -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+        -DCMAKE_CXX_FLAGS="$CXX_FLAGS" \
+        -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DLLVM_ENABLE_ASSERTIONS=ON \
+        -DLLVM_ENABLE_PROJECTS="mlir"\
+        -DLLVM_TARGETS_TO_BUILD="X86" \
+        -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV" \
+        -DLLVM_BUILD_LLVM_DYLIB=$DYN_LINK \
+        -DLLVM_LINK_LLVM_DYLIB=$DYN_LINK \
+        -DLLVM_INCLUDE_RUNTIMES=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_INCLUDE_DOCS=OFF \
+        -DLLVM_INSTALL_UTILS=ON \
+        -DLLVM_INSTALL_GTEST=ON \
+        -DMLIR_ENABLE_BINDINGS_PYTHON=ON
+    cmake --build build --parallel $MAX_JOBS
 
     MLIR_DIR="$PWD/build/lib/cmake/mlir"
     cd ..
@@ -94,7 +121,7 @@ build_llvm() {
 
 # MLIR_DIR is set on all passes
 get_llvm() {
-    if [ "$DEV_BUILD" = 'true' ]; then
+    if [ ! -z "$DEV_BUILD" ]; then
         mkdir -p externals
         cd externals
         build_llvm 
@@ -113,25 +140,18 @@ get_llvm() {
 
 get_llvm
 
-FETCH_DIR=$PROJECT_DIR/build/_deps
-DYLIB=OFF
 # written in this form to set LIT_PATH in any case
-if ! LIT_PATH=$(which lit) ; then
-    if [ "$DEV_BUILD" != 'true' ]; then
-        echo "========Warning======="
-        echo "   Lit not found.     "
-        echo "======================"
-    fi
+if ! LIT_PATH=$(which lit) && [ -z "$DEV_BUILD" ]; then
+    echo "========Warning======="
+    echo "   Lit not found.     "
+    echo "======================"
 fi
-if [ "$DEV_BUILD" = 'true' ]; then
-    BUILD_TYPE=Debug
+
+if [ -z "$DEV_BUILD" ]; then
+    FETCH_DIR=$PROJECT_DIR/build/_deps
+else
     FETCH_DIR=$PROJECT_DIR/externals
     LIT_PATH=$PROJECT_DIR/externals/llvm-project/build/bin/llvm-lit
-else
-    BUILD_TYPE=RelWithDebInfo
-fi
-if [ "$DYN_LINK" = 'true' ]; then 
-    DYLIB=ON
 fi
 
 [ -z "$CLEANUP" ] || rm -rf build
@@ -140,6 +160,6 @@ cmake -S . -G Ninja -B build \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
-    -DGC_DEV_LINK_LLVM_DYLIB=$DYLIB
+    -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK
 
-cmake --build build --parallel $(nproc)
+cmake --build build --parallel $MAX_JOBS

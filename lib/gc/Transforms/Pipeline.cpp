@@ -27,14 +27,18 @@
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#endif
 #include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
 
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::OpPassManager &pm) {
+#ifdef GC_HAS_ONEDNN_DIALECT
   pm.addPass(createConvertOneDNNGraphToLinalg());
+#endif
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
@@ -43,7 +47,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
   // todo: linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
-  // todo: fine-grain fusion pass
+  // Fine-grain fusion pass
+  pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
@@ -128,6 +133,8 @@ void populateLLVMPasses(mlir::OpPassManager &pm) {
 }
 
 void populateCPUPipeline(mlir::OpPassManager &pm) {
+  // verify the target description attribute
+  pm.addPass(createVerifyTargetDescription());
   // front-end, oneDNN graph dialect
   populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects
