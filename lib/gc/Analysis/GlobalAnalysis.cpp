@@ -10,6 +10,8 @@
 
 #include "gc/Analysis/GlobalAnalysis.h"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
+#include "llvm/ADT/SetOperations.h"
+#include "llvm/ADT/SetVector.h"
 
 namespace mlir {
 namespace gc {
@@ -345,14 +347,16 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
               ? layoutCache[parent].getOutputLayout(0)
               : TensorLayout::createPlainLayout(inputShape.size());
       SmallVector<int64_t> innerTileSizes;
-      auto intTileSizes = getConstantIntValues(curInputLayout.getTileSizes());
-      if (intTileSizes) {
-        innerTileSizes = *intTileSizes;
+      auto tileSizes = getConstantIntValues(curInputLayout.getTileSizes());
+      if (tileSizes) {
+        innerTileSizes = *tileSizes;
+      } else {
+        return WalkResult::skip();
       }
-      ArrayRef<int64_t> innerDimsPos = curInputLayout.getInnerAxis();
+      ArrayRef<int64_t> innerPosPos = curInputLayout.getInnerAxis();
       ArrayRef<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
       SmallVector<int64_t> projectedInnerDimsPos =
-          projectToInnerMostNonUnitDimsPos(innerDimsPos, reassocIndices,
+          projectToInnerMostNonUnitDimsPos(innerPosPos, reassocIndices,
                                            staticOutputShape);
 
       if (!isDimsDivisibleByTileSizes(projectedInnerDimsPos, staticOutputShape,
@@ -371,6 +375,73 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           outputLayouts{outputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[expandShapeOp] = suggestedLayout;
+      LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
+                              << " is: " << suggestedLayout << "\n");
+    } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
+      SmallVector<ReassociationIndices> reassocIndices =
+          collapseShapeOp.getReassociationIndices();
+      auto parent = collapseShapeOp.getSrc().getDefiningOp();
+      auto inputShape = collapseShapeOp.getSrcType().getShape();
+      TensorLayout curInputLayout =
+          layoutCache.find(parent) != layoutCache.end()
+              ? layoutCache[parent].getOutputLayout(0)
+              : TensorLayout::createPlainLayout(inputShape.size());
+      auto innerPos = curInputLayout.getInnerAxis();
+      llvm::SetVector<int64_t> innerPosSet(innerPos.begin(), innerPos.end());
+      for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
+        // For each reassociation, figure out which dimensions get packed if
+        // any.
+        llvm::SetVector<int64_t> collapseDimPos(indices.begin(), indices.end());
+        llvm::SetVector<int64_t> packedDims =
+            llvm::set_intersection(innerPosSet, collapseDimPos);
+        // only one of the collapsed indices can be packed
+        if (packedDims.size() > 1)
+          return WalkResult::skip();
+        // Only the inner-most expanded dimension should be packed. Otherwise,
+        // elements order will be affected after operation reordering.
+        if (!packedDims.empty() && packedDims[0] != indices.back())
+          return WalkResult::skip();
+      }
+
+      // Project pack.inner_dims_pos to positions before shape expansion.
+      SmallVector<int64_t> projectedInnerDimsPos;
+      for (auto pos : innerPos) {
+        for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
+          if (llvm::any_of(indices, [&](int64_t collapseDim) {
+                return collapseDim == pos;
+              })) {
+            projectedInnerDimsPos.push_back(idx);
+            break;
+          }
+        }
+      }
+      assert(projectedInnerDimsPos.size() == innerPos.size() &&
+             "Invalid dim pos projection");
+
+      // outerPerm shall be a permutation of reassocIndices
+      auto outerPerm = curInputLayout.getOuterAxis();
+      SmallVector<int64_t> newOuterDimsPerm;
+      int64_t axisIdx = 0;
+      while (axisIdx < outerPerm.size()) {
+        for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
+          if (llvm::any_of(indices, [&](int64_t collapseDim) {
+                return collapseDim == outerPerm[axisIdx];
+              })) {
+            for (auto collapseDim : indices) {
+              if (collapseDim != outerPerm[axisIdx++])
+                return WalkResult::skip();
+            }
+            newOuterDimsPerm.push_back(idx);
+            break;
+          }
+        }
+      }
+      TensorLayout outputLayout(newOuterDimsPerm, projectedInnerDimsPos,
+                                curInputLayout.getTileSizes());
+      SmallVector<TensorLayout> inputLayouts{curInputLayout},
+          outputLayouts{outputLayout};
+      OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+      layoutCache[collapseShapeOp] = suggestedLayout;
       LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
                               << " is: " << suggestedLayout << "\n");
     }

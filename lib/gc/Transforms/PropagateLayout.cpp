@@ -337,6 +337,41 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
             loc, packedExpandShape, unpackDst, outputLayout.getInnerAxis(),
             outputLayout.getTileSizes(), outputLayout.getOuterAxis());
         rewriter.replaceOp(expandShapeOp, newUnPackOp);
+      } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
+        Location loc = collapseShapeOp->getLoc();
+        auto inputLayout = opLayout->getSupportedInputLayouts()[0];
+        auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
+        Value curSrc = collapseShapeOp.getSrc();
+        Value curDst = collapseShapeOp.getResult();
+        Value dest = tensor::PackOp::createDestinationTensor(
+            rewriter, loc, curSrc, inputLayout.getTileSizes(),
+            inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
+        Value packedSource = rewriter.create<tensor::PackOp>(
+            loc, curSrc, dest, inputLayout.getInnerAxis(),
+            inputLayout.getTileSizes(), std::nullopt,
+            inputLayout.getOuterAxis());
+        SmallVector<ReassociationIndices> newReassocIndices =
+            collapseShapeOp.getReassociationIndices();
+        int64_t nextPos = applyPermutationAndReindexReassoc(
+            newReassocIndices, outputLayout.getOuterAxis());
+        // Then add direct mapping for the inner tile dims.
+        for (size_t i = 0; i < inputLayout.getInnerAxis().size(); ++i) {
+          newReassocIndices.push_back({nextPos});
+          nextPos += 1;
+        }
+        RankedTensorType newCollapseType = tensor::PackOp::inferPackedType(
+            dyn_cast<RankedTensorType>(curDst.getType()),
+            *getConstantIntValues(outputLayout.getTileSizes()),
+            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
+        Value packedCollapseShape = rewriter.create<tensor::CollapseShapeOp>(
+            loc, newCollapseType, packedSource, newReassocIndices);
+        auto unpackDst = tensor::UnPackOp::createDestinationTensor(
+            rewriter, loc, packedCollapseShape, outputLayout.getTileSizes(),
+            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
+        auto newUnPackOp = rewriter.create<tensor::UnPackOp>(
+            loc, packedCollapseShape, unpackDst, outputLayout.getInnerAxis(),
+            outputLayout.getTileSizes(), outputLayout.getOuterAxis());
+        rewriter.replaceOp(collapseShapeOp, newUnPackOp);
       }
     }
     return WalkResult::advance();
