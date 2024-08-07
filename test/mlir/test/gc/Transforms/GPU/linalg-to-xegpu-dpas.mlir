@@ -18,7 +18,7 @@ func.func @matmul(%arg0: memref<32x32xf16>, %arg1: memref<32x32xf16>, %arg2: mem
 
 // Create output initial value load tiles.
 // CHECK: %[[rootC:.+]] = xegpu.create_nd_tdesc %[[C]]
-// CHECK: %[[tC:.+]] = xegpu.update_nd_offset %[[rootC]], [0, 0]
+// CHECK: %[[tC:.+]] = xegpu.update_nd_offset %[[rootC]], [%c0, %c0]
 // CHECK-COUNT-7: xegpu.update_nd_offset %[[rootC]]
 
 // Load initial accumulator values.
@@ -31,9 +31,9 @@ func.func @matmul(%arg0: memref<32x32xf16>, %arg1: memref<32x32xf16>, %arg2: mem
 
 // Create input load tiles.
 // CHECK: %[[rootA:.+]] = xegpu.create_nd_tdesc %[[A]]
-// CHECK: %[[tA:.+]] = xegpu.update_nd_offset %[[rootA]], [0, 0]
+// CHECK: %[[tA:.+]] = xegpu.update_nd_offset %[[rootA]], [%c0, %c0]
 // CHECK: %[[rootB:.+]] = xegpu.create_nd_tdesc %[[B]]
-// CHECK: %[[tB:.+]] = xegpu.update_nd_offset %[[rootB]], [0, 0]
+// CHECK: %[[tB:.+]] = xegpu.update_nd_offset %[[rootB]], [%c0, %c0]
 // CHECK-COUNT-1: xegpu.update_nd_offset %[[rootB]]
 
 // Create DPAS computation loop over tiled reduction dimension.
@@ -63,7 +63,7 @@ func.func @matmul(%arg0: memref<32x32xf16>, %arg1: memref<32x32xf16>, %arg2: mem
 
 // Extract DPAS-sized chunks from larger loaded tile A.
 // Tile B is already in the correct shape.
-// CHECK:   %[[vA_flat:.+]] = vector.shape_cast %[[vA]] : vector<32x8x2xf16> to vector<512xf16>
+// CHECK:   %[[vA_flat:.+]] = vector.shape_cast %[[vA]] : vector<32x16xf16> to vector<512xf16>
 // CHECK:   %[[vA_dpas_flat:.+]] = vector.extract_strided_slice{{.*}}: vector<512xf16> to vector<128xf16>
 // CHECK:   %[[vA_dpas:.+]] = vector.shape_cast %[[vA_dpas_flat]] : vector<128xf16> to vector<8x8x2xf16>
 // CHECK-COUNT-3: vector.extract_strided_slice
