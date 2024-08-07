@@ -37,7 +37,7 @@ python3 -m benchgc --verbose 0 --driver linalg --case min --md 0:1024x1024xf32 -
 # element wise
 python3 -m benchgc --verbose 0 --driver linalg --case abs --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case ceil --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
-python3 -m benchgc --verbose 0 --driver linalg --case erf --md 0:1024x512f32 --md 1:1024x512xf32 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case erf --md 0:1024x512xf32 --md 1:1024x512xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case floor --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case log --md 0:4096x32xf32 --md 1:4096x32xf32 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case negf --md 0:32x4096xf32 --md 1:32x4096xf32 || FAIL=1

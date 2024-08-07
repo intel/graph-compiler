@@ -96,6 +96,10 @@ def mlir_negf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
     )
 
 
+def ref_negf(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
+    var[cache.res[0]] = torch.neg(var[cache.opr[0]])
+
+
 def ref_exp(cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]):
     var[cache.res[0]] = torch.exp(var[cache.opr[0]])
 
