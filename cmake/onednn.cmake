@@ -18,9 +18,9 @@ if (NOT DEFINED GC_DNNL_INCLUDES)
     # This allows to generate headers from *.in without adding the library to the build.
     # If the build is required, remove this and the SKIP_ADD option above.
     if (DEFINED CMAKE_GENERATOR)
-        set(GENERATOR_FLAG "-G ${CMAKE_GENERATOR}")
+        set(GENERATOR_FLAG "${CMAKE_GENERATOR}")
     endif ()
-    execute_process(COMMAND ${CMAKE_COMMAND} ${GENERATOR_FLAG}
+    execute_process(COMMAND ${CMAKE_COMMAND} -G ${GENERATOR_FLAG}
             -Wno-dev
             -S ${dnnl_SOURCE_DIR}
             -B ${dnnl_BINARY_DIR}
