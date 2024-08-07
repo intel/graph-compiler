@@ -129,6 +129,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
 void populateLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(memref::createExpandOpsPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
+  pm.addPass(createLowerAffinePass());
   populateLoweringToLLVMPasses(pm);
 }
 
