@@ -24,6 +24,7 @@ namespace {
 static LogicalResult verifyCPUTargetDescription(RewriterBase &rewriter,
                                                 Operation *op) {
   CPUTargetDescriptionAnalysis cpuTargetDesc(op);
+  cpuTargetDesc.setEmitWarning(true);
   Location loc = op->getLoc();
 
   // Check if the num_threads is existed and greater than 0

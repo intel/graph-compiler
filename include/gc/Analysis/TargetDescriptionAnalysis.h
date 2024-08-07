@@ -55,11 +55,15 @@ public:
   // the map from device type to device string
   static llvm::DenseMap<DeviceType, std::string> DeviceKeyMap;
 
+  // set the emit warning flag
+  void setEmitWarning(bool emit) { emitWarning = emit; }
+
 private:
   MLIRContext *ctx;
   DeviceType device;
   DataLayout layout;
   Location loc;
+  bool emitWarning = false;
 };
 
 class CPUTargetDescriptionAnalysis : public TargetDescriptionAnalysisBase {
