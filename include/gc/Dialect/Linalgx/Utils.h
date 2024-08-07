@@ -17,18 +17,19 @@
 namespace mlir {
 namespace linalgx {
 
-enum class VnniOpType {
+enum class PackingType {
   NONE = 0,
-  MM2D,
-  MM4D,
-  BRMM3D,
+  MM4D,        // MKmk x NKkn
+  VNNI_MM2D,   // MK x NKknV
+  VNNI_MM4D,   // MKmk x NKknV
+  VNNI_BRMM3D, // BMK x BKNV
 };
 
 FailureOr<linalg::GenericOp>
-makeGenericVnniMatmulOp(OpBuilder &builder, Location loc, VnniOpType opType,
-                        ValueRange inputs, ValueRange outputs);
+makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
+                          ValueRange inputs, ValueRange outputs);
 
-bool isGenericVnniMatmulOp(Operation *op, VnniOpType opType);
+bool isGenericPackedMatmulOp(Operation *op, PackingType opType);
 
 } // namespace linalgx
 } // namespace mlir
