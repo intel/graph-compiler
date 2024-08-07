@@ -751,7 +751,10 @@ tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
   OpBuilder::InsertionGuard g(rewriter);
 
   // 2.b Check consumer is not using scf loop's output as init.
-  auto dstOp = cast<DestinationStyleOpInterface>(consumerOp);
+  auto dstOp = dyn_cast<DestinationStyleOpInterface>(consumerOp);
+  if (!dstOp)
+    return rewriter.notifyMatchFailure(consumerOp,
+                                       "consumer op is not DPS operation");
   SmallVector<Value> dpsInits =
       llvm::map_to_vector(dstOp.getDpsInits(), [](Value v) { return v; });
   if (llvm::is_contained(dpsInits, oldTopLevelLoop->getResult(resultNumber))) {

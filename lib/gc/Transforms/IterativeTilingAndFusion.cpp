@@ -655,7 +655,9 @@ void iterativeTilingAndFusionUntilExhaustion(
         return WalkResult::skip();
       if (isa<TilingInterface>(op)) {
         auto parentLoop = op->getParentOfType<LoopLikeOpInterface>();
-        if (!parentLoop.getOperation())
+        auto parentGeneric = op->getParentOfType<linalg::GenericOp>();
+        if (!llvm::detail::isPresent(parentLoop) &&
+            !llvm::detail::isPresent(parentGeneric))
           unTiledOps.insert(op);
       }
       return WalkResult::advance();
