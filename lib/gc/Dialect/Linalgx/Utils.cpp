@@ -24,10 +24,7 @@
 namespace mlir {
 namespace linalgx {
 
-//****************************************************************************//
-//                      Packed Matmul Structs                                 //
-//****************************************************************************//
-
+/// Packed Matmul Structs
 struct BatchDimMap {
 public:
   BatchDimMap() = default;
@@ -87,6 +84,7 @@ private:
 };
 
 struct PackingAttr {
+  bool isVnni = false;
   int64_t weightDims = 0;
   BatchDimMap batchDimMap;
   SmallVector<PackingMap> mPacking;
@@ -94,19 +92,13 @@ struct PackingAttr {
   SmallVector<PackingMap> kPacking;
 };
 
-//****************************************************************************//
-//                          Common Utils                                      //
-//****************************************************************************//
-
+/// Common Utils
 LogicalResult emitError(StringRef msg) {
   llvm::errs() << "Linalgx Utils Error: " << msg << "\n";
   return failure();
 }
 
-//****************************************************************************//
-//                           Verify Utils                                     //
-//****************************************************************************//
-
+/// Verify Utils
 bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
                    const PackingAttr &attr) {
   // check rank
@@ -204,10 +196,7 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
   return true;
 }
 
-//****************************************************************************//
-//                      IteratorTypes Utils                                   //
-//****************************************************************************//
-
+/// IteratorTypes Utils
 SmallVector<utils::IteratorType>
 getIteratorTypesArray(const PackingAttr &attr) {
   SmallVector<utils::IteratorType> iteratorTypes;
@@ -233,10 +222,7 @@ getIteratorTypesArray(const PackingAttr &attr) {
   return iteratorTypes;
 }
 
-//****************************************************************************//
-//                     IndexingMaps Utils                                     //
-//****************************************************************************//
-
+/// IndexingMaps Utils
 unsigned getPackingDimsExpr(MLIRContext *context,
                             SmallVector<SmallVector<AffineExpr>> &exprsArr,
                             ShapedType shapeA, ShapedType shapeB,
@@ -244,9 +230,8 @@ unsigned getPackingDimsExpr(MLIRContext *context,
   SmallVector<AffineExpr> exprsA(shapeA.getRank());
   SmallVector<AffineExpr> exprsB(shapeB.getRank());
   SmallVector<AffineExpr> exprsC(shapeC.getRank());
-  // dims count from 0
   unsigned dims = 0;
-  //
+  // dims count from 0
   auto getBatchExprs = [&](const BatchDimMap &batchDimMap) {
     for (; (int64_t)dims < batchDimMap.getBatchNum(); dims++) {
       auto curr = getAffineDimExpr(dims, context);
@@ -260,16 +245,16 @@ unsigned getPackingDimsExpr(MLIRContext *context,
                              ArrayRef<ShapedType> types,
                              ArrayRef<SmallVector<AffineExpr> *> exprs) {
     for (auto &packingMap : mapArray) {
-      auto srcIndex = packingMap.getPackingSrcIndex();
-      auto dstIndex = packingMap.getPackingDstIndex();
-      auto srcDims = packingMap.getPackingSrcDims();
-      auto dstDims = packingMap.getPackingDstDims();
-      auto &dstExprs = *exprs[dstIndex];
-      auto &srcExprs = *exprs[srcIndex];
-      auto compound = getAffineConstantExpr(0, context);
+      unsigned srcIndex = packingMap.getPackingSrcIndex();
+      unsigned dstIndex = packingMap.getPackingDstIndex();
+      ArrayRef<int64_t> srcDims = packingMap.getPackingSrcDims();
+      ArrayRef<int64_t> dstDims = packingMap.getPackingDstDims();
+      SmallVector<AffineExpr> &dstExprs = *exprs[dstIndex];
+      SmallVector<AffineExpr> &srcExprs = *exprs[srcIndex];
+      AffineExpr compound = getAffineConstantExpr(0, context);
       for (auto dim : dstDims) {
-        auto curr = getAffineDimExpr(dims++, context);
-        auto constant =
+        AffineExpr curr = getAffineDimExpr(dims++, context);
+        AffineExpr constant =
             getAffineConstantExpr(types[dstIndex].getDimSize(dim), context);
         compound = compound * constant + curr;
         dstExprs[dim] = curr;
@@ -303,10 +288,7 @@ SmallVector<AffineMap> getIndexingMaps(OpBuilder &builder, ShapedType shapeA,
   return {mapA, mapB, mapC};
 }
 
-//****************************************************************************//
-//                     Vnni Shape Utils                                       //
-//****************************************************************************//
-
+/// Packing Shape Utils
 int64_t getVnniBlockDimSize(Type elemType) {
   if (elemType.isBF16()) {
     return 2;
@@ -316,32 +298,40 @@ int64_t getVnniBlockDimSize(Type elemType) {
   return -1;
 }
 
-bool isWeightShapeVnni(ShapedType weightShape, int64_t weightDims) {
+bool verifyVnniWeight(ShapedType weightShape, int64_t weightDims, bool isVnni) {
+  if (!isVnni)
+    return true;
   return weightShape.hasRank() && (weightShape.getRank() == weightDims) &&
          (weightShape.getDimSize(weightDims - 1) ==
           getVnniBlockDimSize(weightShape.getElementType()));
 }
 
-//****************************************************************************//
-//                      Vnni Attr Utils                                       //
-//****************************************************************************//
-
-PackingAttr getVnniPackingAttr(VnniOpType opType) {
+/// Packing Attr Utils
+PackingAttr getPackingAttr(PackingType opType) {
   PackingAttr attr;
   switch (opType) {
-  case VnniOpType::MM2D: {
+  case PackingType::MM4D: {
+    attr.weightDims = 4;
+    attr.mPacking = {PackingMap{{0}, {0}}, PackingMap{{2}, {2}}};
+    attr.nPacking = {PackingMap{{0}, {1}}, PackingMap{{3}, {3}}};
+    attr.kPacking = {PackingMap{{1}, {1}}, PackingMap{{3}, {2}}};
+  } break;
+  case PackingType::VNNI_MM2D: {
+    attr.isVnni = true;
     attr.weightDims = 5;
     attr.mPacking = {PackingMap{{0}, {0}}};
     attr.nPacking = {PackingMap{{0, 3}, {1}}};
     attr.kPacking = {PackingMap{{1}, {1, 2, 4}}};
   } break;
-  case VnniOpType::MM4D: {
+  case PackingType::VNNI_MM4D: {
+    attr.isVnni = true;
     attr.weightDims = 5;
     attr.mPacking = {PackingMap{{0}, {0}}, PackingMap{{2}, {2}}};
     attr.nPacking = {PackingMap{{0}, {1}}, PackingMap{{3}, {3}}};
     attr.kPacking = {PackingMap{{1}, {1}}, PackingMap{{3}, {2, 4}}};
   } break;
-  case VnniOpType::BRMM3D: {
+  case PackingType::VNNI_BRMM3D: {
+    attr.isVnni = true;
     attr.weightDims = 4;
     attr.batchDimMap = {{0}, {0}, {}};
     attr.mPacking = {PackingMap{{1}, {0}}};
@@ -354,10 +344,7 @@ PackingAttr getVnniPackingAttr(VnniOpType opType) {
   return attr;
 }
 
-//****************************************************************************//
-//                      Vnni Matmul Utils                                     //
-//****************************************************************************//
-
+/// Packing Matmul Utils
 Value createMatmulCalc(OpBuilder &b, Location loc, ValueRange args) {
   assert(args.size() == 3 && "Matmul region expects 3 args.");
   // Get data type
@@ -388,8 +375,8 @@ Value createMatmulCalc(OpBuilder &b, Location loc, ValueRange args) {
 }
 
 FailureOr<linalg::GenericOp>
-makeGenericVnniMatmulOp(OpBuilder &builder, Location loc, VnniOpType opType,
-                        ValueRange inputs, ValueRange outputs) {
+makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
+                          ValueRange inputs, ValueRange outputs) {
   // Check input/output size
   if (inputs.size() != 2 || outputs.size() != 1) {
     return emitError("input/output size must be 2/1!");
@@ -399,16 +386,16 @@ makeGenericVnniMatmulOp(OpBuilder &builder, Location loc, VnniOpType opType,
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
   // Attr of packed matmul
-  auto vnniAttr = getVnniPackingAttr(opType);
+  auto packingAttr = getPackingAttr(opType);
   // Verify dims and shape is valid
-  if (!verifyPacking(shapeA, shapeB, shapeC, vnniAttr) ||
-      !isWeightShapeVnni(shapeB, vnniAttr.weightDims)) {
-    return emitError("Failed to verify vnni packing!");
+  if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
+      !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
+    return emitError("Failed to verify packing!");
   }
   // Get attrs for GenericOp
   auto indexingMaps = getIndexingMaps(builder, //
-                                      shapeA, shapeB, shapeC, vnniAttr);
-  auto iteratorTypes = getIteratorTypesArray(vnniAttr);
+                                      shapeA, shapeB, shapeC, packingAttr);
+  auto iteratorTypes = getIteratorTypesArray(packingAttr);
   // Make the GenericOp
   return builder.create<linalg::GenericOp>(
       loc, shapeC, inputs, outputs, indexingMaps, iteratorTypes,
@@ -418,27 +405,29 @@ makeGenericVnniMatmulOp(OpBuilder &builder, Location loc, VnniOpType opType,
       });
 }
 
-bool isGenericVnniMatmulOp(Operation *op, VnniOpType opType) {
+bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
   // Check for generic op
   if (!isa<linalg::GenericOp>(op)) {
     return false;
   }
   // Check for matmul body
   linalg::GenericOp genericOp = cast<linalg::GenericOp>(op);
-  if (!linalg::detail::isContractionBody<arith::MulFOp, arith::AddFOp,
-                                         arith::MulIOp, arith::AddIOp>(
-          *genericOp.getBlock())) {
+  if (!linalg::detail::isContractionBody(
+          *genericOp.getBlock(), [](Operation *first, Operation *second) {
+            return ((isa<arith::MulFOp>(first) && isa<arith::AddFOp>(second)) ||
+                    (isa<arith::MulIOp>(first) && isa<arith::AddIOp>(second)));
+          })) {
     return false;
   }
-  // Check for vnni packing
+  // Check for packing
   ValueRange inputs = genericOp.getDpsInputs();
   ValueRange outputs = genericOp.getDpsInits();
   auto shapeA = cast<ShapedType>(inputs.front().getType());
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
-  auto vnniAttr = getVnniPackingAttr(opType);
-  if (!verifyPacking(shapeA, shapeB, shapeC, vnniAttr) ||
-      !isWeightShapeVnni(shapeB, vnniAttr.weightDims)) {
+  auto packingAttr = getPackingAttr(opType);
+  if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
+      !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
     return false;
   }
   // Pass all checks
