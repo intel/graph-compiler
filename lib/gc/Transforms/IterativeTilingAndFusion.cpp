@@ -180,6 +180,8 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
       targetTileSizes = tileSizes;
       DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
           unPackOp.getDimAndTileMapping();
+      if (dimAndTileMapping.empty())
+        return failure();
       targetInnerTileSizes.resize(dimAndTileMapping.size());
       for (const auto &dimAndTile : dimAndTileMapping) {
         targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
@@ -487,21 +489,10 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
 
     if (succeeded(fusedResult)) {
       fusedResultList.push_back(*fusedResult);
-      auto whileProducerOutOfLoopBlock =
-          [&fusedResult](LoopLikeOpInterface loop) -> LogicalResult {
-        Block &body = loop->getRegion(0).front();
-        return failure(fusedResult.value().tiledOps[0]->getBlock() == &body);
-      };
-      SmallVector<LoopLikeOpInterface> outerLoops =
-          scfX::getOuterNestLoopsWhile(
-              (*bestCandidate)->getParentOfType<LoopLikeOpInterface>(),
-              whileProducerOutOfLoopBlock);
-      // g. Manually run cse on region which contains top-level loop of
-      // candidate slice in avoid of conflict with subsequent
-      // `tileAndFuseConsumerOfSlice` get nest loops between next candidate
-      // sliceOp and tiled producer.
-      (void)mlir::simplifyRegions(rewriter,
-                                  {*outerLoops.front()->getParentRegion()});
+      // f. Manually run cse on region which contains original consumer op in
+      // avoid of conflict with subsequent `tileAndFuseConsumerOfSlice` get nest
+      // loops between next candidate sliceOp and tiled producer.
+      (void)mlir::simplifyRegions(rewriter, {*consumer->getParentRegion()});
     }
   }
   if (fusedResultList.empty())
@@ -689,7 +680,7 @@ void iterativeTilingAndFusionUntilExhaustion(
           });
       tiledOps.clear();
       if (changed)
-        (void)mlir::simplifyRegions(rewriter, {f.getRegion()});
+        (void)mlir::simplifyRegions(rewriter, f->getRegions());
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
       // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
