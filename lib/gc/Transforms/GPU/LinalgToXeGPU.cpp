@@ -1453,9 +1453,10 @@ struct ConvertMemoryFillToXeGPU : public OpRewritePattern<LinalgOpTy> {
       return rewriter.notifyMatchFailure(
           linalgOp, "Expect static shape when mapping to GPU");
     }
-    auto isInputValid = linalgOp.isScalar(linalgOp.getDpsInputOperand(0));
-    if (!isInputValid)
-      return success(isInputValid);
+    auto isInputValid =
+        success(linalgOp.isScalar(linalgOp.getDpsInputOperand(0)));
+    if (failed(isInputValid))
+      return isInputValid;
 
     auto isOutputValid =
         isValidMemrefOperand(linalgOp, linalgOp.getDpsInits()[0], rewriter);
