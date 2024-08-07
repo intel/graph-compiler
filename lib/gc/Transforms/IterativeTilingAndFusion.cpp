@@ -630,11 +630,11 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   // d. Use builtin tiling interface
   FailureOr<scf::SCFTilingResult> tilingResult =
       scf::tileUsingSCF(rewriter, tilingInterfaceOp, options);
-  if (succeeded(tilingResult)) {
-    rewriter.replaceOp(op, tilingResult->replacements);
-    return tilingResult;
-  }
-  return failure();
+
+  if (failed(tilingResult))
+    return failure();
+
+  return tilingResult;
 }
 
 using DefaultTilingFn = std::function<FailureOr<scf::SCFTilingResult>(
@@ -701,6 +701,7 @@ void iterativeTilingAndFusionUntilExhaustion(
               tilingFn(rewriter, op, tsMap);
           if (succeeded(tilingResult)) {
             tiledOps.insert(tilingResult->tiledOps[0]);
+            rewriter.replaceOp(op, tilingResult->replacements);
             break;
           }
         }
