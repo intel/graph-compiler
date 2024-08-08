@@ -111,6 +111,7 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
@@ -133,6 +134,8 @@ void populateLLVMPasses(mlir::OpPassManager &pm) {
 }
 
 void populateCPUPipeline(mlir::OpPassManager &pm) {
+  // verify the target description attribute
+  pm.addPass(createVerifyTargetDescription());
   // front-end, oneDNN graph dialect
   populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects

@@ -1,6 +1,7 @@
 set(GC_ALL_LIBS
   ${GC_ONEDNN_DIALECT_LIB_NAME}
   GcPasses
+  GcAnalysis
   MLIRCPURuntimeTransforms)
 
 if(GC_ENABLE_IMEX)

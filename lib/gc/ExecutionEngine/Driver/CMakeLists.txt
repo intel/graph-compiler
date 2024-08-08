@@ -27,7 +27,7 @@ else()
 endif()
 
 set(GC_PASSES GcInterface GcPasses)
-if(GC_UNABLE_GPU)
+if(GC_ENABLE_IMEX)
   list(APPEND GC_PASSES GcGpuPasses)
 endif()
 
@@ -39,4 +39,5 @@ gc_add_mlir_library(GcJitWrapper
     ${dialect_libs}
     ${conversion_libs}
     ${GC_PASSES}
+    GcAnalysis
   )
