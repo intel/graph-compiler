@@ -11,6 +11,12 @@
 
 include "mlir/Pass/PassBase.td"
 
+def LowerPackAndUnpack : Pass<"lower-pack-and-unpack", "func::FuncOp"> {
+  let summary = "Lower tensor.pack and tensor.unpack operations.";
+  let dependentDialects =
+      ["linalg::LinalgDialect", "tensor::TensorDialect"];
+}
+
 def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
   let summary = "Tile linalg named operations.";
   let dependentDialects =

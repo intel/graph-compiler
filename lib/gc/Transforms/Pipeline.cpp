@@ -43,6 +43,7 @@ void populateFrontendPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
 void populateTensorPasses(mlir::OpPassManager &pm) {
+  pm.addNestedPass<func::FuncOp>(createLowerPackAndUnpack());
   // todo: padding propagation pass
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
