@@ -107,6 +107,8 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
+
+  pm.addPass(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
 }
 

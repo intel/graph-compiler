@@ -3,6 +3,7 @@ find_package(OpenMP REQUIRED)
 gc_add_mlir_library(GcCpuRuntime
     SHARED
     Parallel.cpp
+    MemoryPool.cpp
 
     LINK_LIBS PUBLIC
     GcInterface

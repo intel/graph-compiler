@@ -109,6 +109,82 @@ public:
   }
 };
 
+class AlignedAllocRewriter : public ConvertOpToLLVMPattern<AllocOp> {
+public:
+  using ConvertOpToLLVMPattern<AllocOp>::ConvertOpToLLVMPattern;
+
+  LogicalResult
+  matchAndRewrite(AllocOp runtimeOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Operation *op = runtimeOp;
+    MLIRContext *context = op->getContext();
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    auto loc = op->getLoc();
+    auto memRefType =
+        dyn_cast_or_null<MemRefType>(op->getResults().front().getType());
+    if (!memRefType) {
+      return failure();
+    }
+    mlir::Type llvmIntPtr = IntegerType::get(
+        context, this->getTypeConverter()->getPointerBitwidth(0));
+    mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
+    auto allocFunc = getOrDefineFunction(
+        moduleOp, loc, rewriter,
+        adaptor.getThreadLocal() ? "gcThreadAlignedMalloc" : "gcAlignedMalloc",
+        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr},
+                                    /*isVarArg*/ false));
+
+    auto operands = adaptor.getOperands();
+    SmallVector<Value, 4> shape;
+    SmallVector<Value, 4> strides;
+    Value sizeBytes;
+    this->getMemRefDescriptorSizes(loc, memRefType, operands, rewriter, shape,
+                                   strides, sizeBytes);
+
+    Type elementPtrType = this->getElementPtrType(memRefType);
+    SmallVector<Value, 1> appendFormatArgs = {sizeBytes};
+    LLVM::CallOp allocater =
+        rewriter.create<LLVM::CallOp>(loc, allocFunc, appendFormatArgs);
+    Value allocatedPtr = allocater.getResult();
+    allocatedPtr =
+        rewriter.create<LLVM::BitcastOp>(loc, elementPtrType, allocatedPtr);
+
+    Value alignedPtr = allocatedPtr;
+
+    auto memRefDescriptor = this->createMemRefDescriptor(
+        loc, memRefType, allocatedPtr, alignedPtr, shape, strides, rewriter);
+
+    rewriter.replaceOp(op, {memRefDescriptor});
+    return success();
+  }
+};
+
+class AlignedFreeRewriter : public ConvertOpToLLVMPattern<DeallocOp> {
+public:
+  using ConvertOpToLLVMPattern<DeallocOp>::ConvertOpToLLVMPattern;
+  LogicalResult
+  matchAndRewrite(DeallocOp runtimeOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Operation *op = runtimeOp;
+    MLIRContext *context = op->getContext();
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    auto loc = op->getLoc();
+    mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
+    mlir::Type llvmVoidType = LLVM::LLVMVoidType::get(context);
+    auto deallocFunc = getOrDefineFunction(
+        moduleOp, loc, rewriter,
+        adaptor.getThreadLocal() ? "gcThreadAlignedFree" : "gcAlignedFree",
+        LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ false));
+    Value pointer =
+        MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);
+    auto casted = rewriter.create<LLVM::BitcastOp>(loc, i8Ptr, pointer);
+    SmallVector<Value, 1> appendFormatArgs = {casted};
+    rewriter.create<LLVM::CallOp>(loc, deallocFunc, appendFormatArgs);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class CPURuntimeToLLVM : public impl::CPURuntimeToLLVMBase<CPURuntimeToLLVM> {
 public:
   using Base::Base;
@@ -146,6 +222,8 @@ struct CPURuntimeToDialectInterface : public ConvertToLLVMPatternInterface {
 void populateCPURuntimeToLLVMConversionPatterns(LLVMTypeConverter &converter,
                                                 RewritePatternSet &patterns) {
   patterns.add<PrintfRewriter>(converter);
+  patterns.add<AlignedAllocRewriter>(converter);
+  patterns.add<AlignedFreeRewriter>(converter);
 }
 
 void registerConvertCPURuntimeToLLVMInterface(DialectRegistry &registry) {
