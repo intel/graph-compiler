@@ -1,4 +1,4 @@
-if (NOT GC_ENABLE_TEST OR NOT GC_ENABLE_TEST_DNNL OR NOT GC_ENABLE_DNNL_API)
+if (NOT GC_ENABLE_TEST OR NOT GC_ENABLE_TEST_DNNL_API OR NOT GC_ENABLE_DNNL_API)
     message(STATUS "The dnnl tests are not enabled.")
     return()
 endif ()

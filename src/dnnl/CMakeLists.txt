@@ -37,7 +37,7 @@ target_include_directories(GcDnnlApi PUBLIC ${GC_DNNL_INCLUDES})
 target_compile_options(GcDnnlApi PRIVATE -fvisibility=hidden -fexceptions)
 target_link_options(GcDnnlApi PRIVATE -Wl,--gc-sections)
 
-if(GC_ENABLE_TEST_DNNL)
+if(GC_ENABLE_TEST_DNNL_API)
   # Static graph compiler library to be used in tests
   gc_add_mlir_library(GcDnnlApiStatic STATIC
     ${GC_DNNL_SOURCES}
