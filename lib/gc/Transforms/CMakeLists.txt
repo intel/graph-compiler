@@ -16,6 +16,11 @@ gc_add_mlir_library(GcPasses
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
+  ConstantSubgraphAnalysis.cpp
+  ConstantTensorFolding.cpp
+
+  ADDITIONAL_HEADER_DIRS
+    ${PROJECT_SOURCE_DIR}/include
 
   DEPENDS
     GraphCompilerPassIncGen
@@ -26,6 +31,7 @@ gc_add_mlir_library(GcPasses
     ${MLIR_LINK_COMPONENTS}
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
+    GcAnalysis
   )
 
 if(GC_ENABLE_IMEX)

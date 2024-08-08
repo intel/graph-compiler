@@ -87,4 +87,24 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
   ];
 }
 
+def ConstantSubgraphAnalysis : Pass<"constant-subgraph-analysis"> {
+  let summary = "Constant Subgraph Analysis";
+  let description = [{
+    This pass implements a constant subgraph analysis.
+  }];
+  let constructor = "mlir::gc::createConstantSubgraphAnalysisPass()";
+}
+
+def ConstantTensorFolding : Pass<"constant-tensor-folding"> {
+  let summary = "Constant Tensor Folding Transform";
+  let description = [{
+    This pass implements a constant tensor folding transform.
+  }];
+  let constructor = "mlir::gc::createConstantTensorFoldingPass()";
+  let dependentDialects = [
+      "tensor::TensorDialect",
+      "linalg::LinalgDialect",
+      "LLVM::LLVMDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
