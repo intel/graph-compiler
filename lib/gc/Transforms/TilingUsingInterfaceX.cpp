@@ -545,6 +545,8 @@ getUntiledConsumerFromSlice(tensor::ParallelInsertSliceOp candidateSliceOp) {
 /// %1 = firstUserOfLoop(%0)
 /// ```
 ///
+/// Besides, `consumerOp` should not be the user of `firstUserOfLoop`.
+///
 /// @param loopOp: loop operation
 /// @param consumerOp: consumer operation
 /// @param insertPointBefore: which operation we clone the looOp right before
@@ -556,51 +558,60 @@ static LogicalResult checkAssumptionForLoop(Operation *loopOp,
   if (loopOp->getBlock() != parentBlock)
     return failure();
 
-  Operation *firstUserOfLoop = consumerOp, *lastDefOfConsumer = loopOp;
-  // Find the first user of loopOp
-  for (Operation *userOp : loopOp->getUsers()) {
-    if (userOp == consumerOp)
-      continue;
-    // `ParallelInsertSlice` located inside `InParallelOp` has no same parent
-    // block with any other types of operation. Thus, just redirecting to its
-    // parent `InParallelOp`.
-    if (isa<tensor::ParallelInsertSliceOp>(userOp))
-      userOp = userOp->getParentOfType<scf::InParallelOp>();
+  *insertPointBefore = nullptr;
+  do {
+    Operation *firstUserOfLoop = consumerOp, *lastDefOfConsumer = loopOp;
+    // Find the first user of loopOp
+    for (Operation *userOp : loopOp->getUsers()) {
+      if (userOp == consumerOp)
+        continue;
+      // `ParallelInsertSlice` located inside `InParallelOp` has no same parent
+      // block with any other types of operation. Thus, just redirecting to its
+      // parent `InParallelOp`.
+      if (isa<tensor::ParallelInsertSliceOp>(userOp))
+        userOp = userOp->getParentOfType<scf::InParallelOp>();
 
-    if (parentBlock != userOp->getBlock())
-      return failure();
+      if (parentBlock != userOp->getBlock())
+        return failure();
 
-    if (userOp->isBeforeInBlock(firstUserOfLoop))
-      firstUserOfLoop = userOp;
-  }
-  // Find the last define of consumer
-  for (Value operand : consumerOp->getOperands()) {
-    // If the operand is `BlockArgument`, auto skip.
-    if (isa<BlockArgument>(operand))
-      continue;
-    auto defineOp = operand.getDefiningOp();
-    if (defineOp == loopOp)
-      continue;
-    if (!defineOp || parentBlock != defineOp->getBlock())
-      return failure();
-    if (lastDefOfConsumer->isBeforeInBlock(defineOp))
-      lastDefOfConsumer = defineOp;
-  }
-  if (firstUserOfLoop->isBeforeInBlock(lastDefOfConsumer)) {
-    // Try to move if possible
-    if (llvm::all_of(firstUserOfLoop->getUsers(),
-                     [&lastDefOfConsumer, &parentBlock](Operation *userOp) {
-                       return userOp->getBlock() == parentBlock &&
-                              lastDefOfConsumer->isBeforeInBlock(userOp);
-                     })) {
-      // Safely moving
-      firstUserOfLoop->moveAfter(lastDefOfConsumer);
-    } else {
-      return failure();
+      if (userOp->isBeforeInBlock(firstUserOfLoop))
+        firstUserOfLoop = userOp;
     }
-  }
-  // Set InsertPoint
-  *insertPointBefore = firstUserOfLoop;
+
+    // Find the last define of consumer
+    for (Value operand : consumerOp->getOperands()) {
+      // If the operand is `BlockArgument`, auto skip.
+      if (isa<BlockArgument>(operand))
+        continue;
+      auto defineOp = operand.getDefiningOp();
+      if (defineOp == loopOp)
+        continue;
+      if (!defineOp || parentBlock != defineOp->getBlock())
+        return failure();
+      if (lastDefOfConsumer->isBeforeInBlock(defineOp))
+        lastDefOfConsumer = defineOp;
+    }
+    if (firstUserOfLoop->isBeforeInBlock(lastDefOfConsumer)) {
+      // Try to move if possible
+      if (llvm::all_of(firstUserOfLoop->getUsers(),
+                       [&lastDefOfConsumer, &parentBlock](Operation *userOp) {
+                         return userOp->getBlock() == parentBlock &&
+                                lastDefOfConsumer->isBeforeInBlock(userOp);
+                       })) {
+        // Safely moving
+        firstUserOfLoop->moveAfter(lastDefOfConsumer);
+      } else {
+        return failure();
+      }
+    } else {
+      // Check consumerOp is not the user of firstUserOfLoop
+      if (firstUserOfLoop == lastDefOfConsumer)
+        return failure();
+      // Set InsertPoint
+      *insertPointBefore = firstUserOfLoop;
+    }
+  } while (!(*insertPointBefore));
+
   return success();
 }
 
@@ -751,7 +762,10 @@ tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
   OpBuilder::InsertionGuard g(rewriter);
 
   // 2.b Check consumer is not using scf loop's output as init.
-  auto dstOp = cast<DestinationStyleOpInterface>(consumerOp);
+  auto dstOp = dyn_cast<DestinationStyleOpInterface>(consumerOp);
+  if (!dstOp)
+    return rewriter.notifyMatchFailure(consumerOp,
+                                       "consumer op is not DPS operation");
   SmallVector<Value> dpsInits =
       llvm::map_to_vector(dstOp.getDpsInits(), [](Value v) { return v; });
   if (llvm::is_contained(dpsInits, oldTopLevelLoop->getResult(resultNumber))) {
