@@ -29,6 +29,8 @@
 #include <cpu/x64/brgemm/brgemm_types.hpp>
 #include <cpu/x64/cpu_isa_traits.hpp>
 
+#include "gc/ExecutionEngine/CPURuntime/Microkernel/BrgemmInterface.h"
+
 using namespace dnnl::impl::cpu::x64;
 
 namespace dnnl {

@@ -16,6 +16,8 @@
 
 #include "oneapi/dnnl/dnnl_types.h"
 
+#include "gc/ExecutionEngine/CPURuntime/Microkernel/BrgemmInterface.h"
+
 namespace {
 
 struct bf16_t {
