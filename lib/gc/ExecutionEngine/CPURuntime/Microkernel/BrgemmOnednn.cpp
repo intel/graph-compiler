@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <memory>
 #include <mutex>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,7 +49,7 @@ static constexpr int PALETTE_SIZE = 64;
 static std::mutex g_brgemm_mutex;
 static std::vector<brgemm_desc_t> g_brgemm_desc_list;
 static std::vector<brgemm_kernel_t *> g_brgemm_kernel_list;
-static std::vector<char *> g_brgemm_palette;
+static std::vector<std::unique_ptr<char[]>> g_brgemm_palette;
 
 // TODO(haixin): use syscall to determine page size?
 static constexpr size_t SCRATCH_SIZE = 2 * 4096;
@@ -97,7 +98,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   std::lock_guard g(g_brgemm_mutex);
   g_brgemm_desc_list.push_back(desc);
   g_brgemm_kernel_list.push_back(kernel);
-  g_brgemm_palette.push_back(palette_buffer);
+  g_brgemm_palette.emplace_back(palette_buffer);
 
   return g_brgemm_desc_list.size() - 1;
 }
@@ -112,7 +113,7 @@ void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
     if (!desc.is_tmm) {
       return;
     }
-    palette_buffer = g_brgemm_palette[kernel_idx];
+    palette_buffer = g_brgemm_palette[kernel_idx].get();
   }
 
   assert(palette_buffer != nullptr && "Invalid palette for BRGEMM kernel");
