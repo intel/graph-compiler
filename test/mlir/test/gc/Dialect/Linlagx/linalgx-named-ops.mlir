@@ -25,6 +25,20 @@ func.func @mm4d_vnni(%arg0: tensor<2x8x32x32xbf16>, %arg1: tensor<4x8x16x32x2xbf
   return %0 : tensor<2x4x32x32xbf16>
 }
 
+// CHECK-LABEL: @packed_matmul
+#m_packing_vnni = [#linalgx.packing_map<[0] -> [0]>, #linalgx.packing_map<[2] -> [2]>]
+#n_packing_vnni = [#linalgx.packing_map<[0] -> [1]>, #linalgx.packing_map<[3] -> [3]>]
+#k_packing_vnni = [#linalgx.packing_map<[1] -> [1]>, #linalgx.packing_map<[3] -> [2, 4]>]
+func.func @packed_matmul(%A: tensor<2x8x32x32xbf16>, %B: tensor<4x8x16x32x2xbf16>, 
+                      %C: tensor<2x4x32x32xbf16>) -> tensor<2x4x32x32xbf16> {
+  // CHECK: linalgx.packed_matmul
+  %0 = linalgx.packed_matmul 
+        {m_packing = #m_packing_vnni, n_packing = #n_packing_vnni, k_packing = #k_packing_vnni}
+        ins(%A, %B : tensor<2x8x32x32xbf16>, tensor<4x8x16x32x2xbf16>)
+        outs(%C : tensor<2x4x32x32xbf16>) -> tensor<2x4x32x32xbf16>
+  return %0 : tensor<2x4x32x32xbf16>
+}
+
 // CHECK-LABEL: @batch_reduce_matmul_vnni
 func.func @batch_reduce_matmul_vnni(%arg0: tensor<512x32x64xbf16>, %arg1: tensor<512x32x128x2xbf16>, 
                       %arg2: tensor<32x128xf32>) -> tensor<32x128xf32> {

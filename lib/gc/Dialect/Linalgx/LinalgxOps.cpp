@@ -366,6 +366,218 @@ LogicalResult Mm4DVnniOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PackedMatmulOp
+//===----------------------------------------------------------------------===//
+
+SmallVector<utils::IteratorType> PackedMatmulOp::getIteratorTypesArray() {
+  SmallVector<utils::IteratorType> iteratorTypes;
+  // get packing num for each packing map
+  auto getPackingIteratorTypes = [&](ArrayAttr packingMaps,
+                                     utils::IteratorType iterTy) {
+    for (auto &attr : packingMaps) {
+      auto packingNum =
+          llvm::cast<PackingMapAttr>(attr).getPackingDstDims().size();
+      iteratorTypes.insert(iteratorTypes.end(), packingNum, iterTy);
+    }
+  };
+  // Process order: m, n, k packing
+  getPackingIteratorTypes(getMPacking(), utils::IteratorType::parallel);
+  getPackingIteratorTypes(getNPacking(), utils::IteratorType::parallel);
+  getPackingIteratorTypes(getKPacking(), utils::IteratorType::reduction);
+  return iteratorTypes;
+}
+
+unsigned getPackingDimsExpr(PackedMatmulOp self,
+                            SmallVector<SmallVector<AffineExpr>> &exprsArr) {
+  MLIRContext *context = self.getContext();
+  auto typeA = cast<ShapedType>(self.getDpsInputOperand(0)->get().getType());
+  auto typeB = cast<ShapedType>(self.getDpsInputOperand(1)->get().getType());
+  auto typeC = cast<ShapedType>(self.getDpsInitOperand(0)->get().getType());
+  SmallVector<AffineExpr> exprsA(typeA.getRank());
+  SmallVector<AffineExpr> exprsB(typeB.getRank());
+  SmallVector<AffineExpr> exprsC(typeC.getRank());
+  // dims count from 0
+  unsigned dims = 0;
+  //
+  auto getPackingExprs = [&](ArrayAttr attrArray, ArrayRef<ShapedType> types,
+                             ArrayRef<SmallVector<AffineExpr> *> exprs) {
+    for (auto &attr : attrArray) {
+      auto packingMap = cast<PackingMapAttr>(attr);
+      auto srcIndex = packingMap.getPackingSrcIndex();
+      auto dstIndex = packingMap.getPackingDstIndex();
+      auto srcDims = packingMap.getPackingSrcDims();
+      auto dstDims = packingMap.getPackingDstDims();
+      auto &dstExprs = *exprs[dstIndex];
+      auto &srcExprs = *exprs[srcIndex];
+      auto compound = getAffineConstantExpr(0, context);
+      for (auto dim : dstDims) {
+        auto curr = getAffineDimExpr(dims++, context);
+        auto constant =
+            getAffineConstantExpr(types[dstIndex].getDimSize(dim), context);
+        compound = compound * constant + curr;
+        dstExprs[dim] = curr;
+      }
+      srcExprs[srcDims.front()] = compound;
+    }
+  };
+  // Process order: m, n, k packing, kept same as packing iterator types
+  getPackingExprs(self.getMPacking(), ArrayRef{typeA, typeC},
+                  ArrayRef{&exprsA, &exprsC});
+  getPackingExprs(self.getNPacking(), ArrayRef{typeB, typeC},
+                  ArrayRef{&exprsB, &exprsC});
+  getPackingExprs(self.getKPacking(), ArrayRef{typeA, typeB},
+                  ArrayRef{&exprsA, &exprsB});
+  exprsArr.emplace_back(exprsA);
+  exprsArr.emplace_back(exprsB);
+  exprsArr.emplace_back(exprsC);
+  return dims;
+}
+
+ArrayAttr PackedMatmulOp::getIndexingMaps() {
+  static const char memoizeAttr[] = "linalg.memoized_indexing_maps";
+  ArrayAttr cached = getOperation()->getAttrOfType<ArrayAttr>(memoizeAttr);
+  if (cached)
+    return cached;
+
+  SmallVector<SmallVector<AffineExpr>> exprsArr;
+  auto dims = getPackingDimsExpr(*this, exprsArr);
+
+  MLIRContext *context = getContext();
+  auto mapA = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[0], context));
+  auto mapB = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[1], context));
+  auto mapC = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[2], context));
+
+  cached = Builder(context).getAffineMapArrayAttr({mapA, mapB, mapC});
+  getOperation()->setAttr(memoizeAttr, cached);
+  return cached;
+}
+
+void PackedMatmulOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                                   ArrayRef<NamedAttribute> attrs) {
+  assert(3 > 0 && block.getNumArguments() == 3 &&
+         "PackedMatmulOp regionBuilder expects 3 (>=0) args");
+  RegionBuilderHelper helper(b, block);
+  SmallVector<Value> yields;
+
+  Value value1 =
+      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
+                         block.getArgument(0));
+  Value value2 =
+      helper.buildTypeFn(TypeFn::cast_signed, block.getArgument(2).getType(),
+                         block.getArgument(1));
+  Value value3 = helper.buildBinaryFn(BinaryFn::mul, value1, value2);
+  Value value4 =
+      helper.buildBinaryFn(BinaryFn::add, block.getArgument(2), value3);
+  yields.push_back(value4);
+  helper.yieldOutputs(yields);
+}
+
+ParseResult PackedMatmulOp::parse(OpAsmParser &parser, OperationState &result) {
+  return ::parseNamedStructuredOp(parser, result,
+                                  PackedMatmulOp::getNumRegionArgs(),
+                                  PackedMatmulOp::getRegionBuilder());
+}
+
+void PackedMatmulOp::print(OpAsmPrinter &p) {
+  ::printNamedStructuredOp(p, getOperation(), getInputs(), getOutputs());
+}
+
+LogicalResult PackedMatmulOp::fold(FoldAdaptor,
+                                   SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void PackedMatmulOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  if (hasPureTensorSemantics())
+    return;
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+}
+
+LogicalResult PackedMatmulOp::verify() {
+  // A[M, K]
+  // B[K, N]
+  // C[M, N]
+  // mPacking = A -> C
+  // nPacking = B -> C
+  // kPacking = A -> B
+  auto shapeA = cast<ShapedType>(getDpsInputOperand(0)->get().getType());
+  auto shapeB = cast<ShapedType>(getDpsInputOperand(1)->get().getType());
+  auto shapeC = cast<ShapedType>(getDpsInitOperand(0)->get().getType());
+  auto mPacking = getMPacking();
+  auto nPacking = getNPacking();
+  auto kPacking = getKPacking();
+
+  // check rank
+  bool hasRank = shapeA.hasRank() && shapeB.hasRank() && shapeC.hasRank();
+  if (!hasRank)
+    return emitOpError() << "input/output shape must have rank.";
+
+  // check packing axis
+  auto getAxisSet = [](ArrayAttr arrayAttr,
+                       llvm::SmallSet<uint64_t, 8> &firstIndexSet,
+                       llvm::SmallSet<uint64_t, 8> &secondIndexSet) {
+    for (auto &attr : arrayAttr) {
+      auto packingMap = cast<PackingMapAttr>(attr);
+      auto firstDims = packingMap.getFirst();
+      firstIndexSet.insert(firstDims.begin(), firstDims.end());
+      auto secondDims = packingMap.getSecond();
+      secondIndexSet.insert(secondDims.begin(), secondDims.end());
+    }
+  };
+  llvm::SmallSet<uint64_t, 8> indexSetA;
+  llvm::SmallSet<uint64_t, 8> indexSetB;
+  llvm::SmallSet<uint64_t, 8> indexSetC;
+  getAxisSet(mPacking, indexSetA, indexSetC);
+  getAxisSet(nPacking, indexSetB, indexSetC);
+  getAxisSet(kPacking, indexSetA, indexSetB);
+  bool checkAxis = (shapeA.getRank() == (int64_t)indexSetA.size()) &&
+                   (shapeB.getRank() == (int64_t)indexSetB.size()) &&
+                   (shapeC.getRank() == (int64_t)indexSetC.size());
+  if (!checkAxis)
+    return emitOpError() << "input/output must match packing axis.";
+
+  // check packing dims match
+  auto matchDims = [](ArrayAttr arrayAttr, ShapedType firstShape,
+                      ShapedType secondShape) {
+    for (auto &attr : arrayAttr) {
+      auto packingMap = cast<PackingMapAttr>(attr);
+      bool isDynamic = false;
+      int64_t firstSize = 1;
+      auto firstDims = packingMap.getFirst();
+      for (auto dim : firstDims) {
+        auto size = firstShape.getDimSize(dim);
+        if (size == ShapedType::kDynamic)
+          isDynamic = true;
+        firstSize *= size;
+      }
+      int64_t secondSize = 1;
+      auto secondDims = packingMap.getSecond();
+      for (auto dim : secondDims) {
+        auto size = secondShape.getDimSize(dim);
+        if (size == ShapedType::kDynamic)
+          isDynamic = true;
+        secondSize *= size;
+      }
+      if (isDynamic)
+        continue;
+      if (firstSize != secondSize)
+        return false;
+    }
+    return true;
+  };
+  bool matchM = matchDims(mPacking, shapeA, shapeC);
+  bool matchN = matchDims(nPacking, shapeB, shapeC);
+  bool matchK = matchDims(kPacking, shapeA, shapeB);
+  bool checkMatch = matchM && matchN && matchK;
+  if (!checkMatch)
+    return emitOpError() << "input/output must match packing dim size.";
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // BatchReduceMatmulVnniOp
 //===----------------------------------------------------------------------===//
 

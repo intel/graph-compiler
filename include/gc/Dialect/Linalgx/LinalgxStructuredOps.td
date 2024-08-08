@@ -211,6 +211,62 @@ def Linalgx_Mm4DVnniOp
   }];
 }
 
+def Linalgx_PackedMatmulOp 
+    : LinalgxStructuredBase_Op<"packed_matmul", [AttrSizedOperandSegments]> {
+  let summary = "matmul with packed data format";
+  let description = [{
+    Use m_packing, n_packing and k_packing to define relation shape between C[M, N] = A[M, K] * B[K, N].
+  }];
+  let arguments = (ins
+      Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$outputs,
+      PackingMapArrayAttr:$m_packing,
+      PackingMapArrayAttr:$n_packing,
+      PackingMapArrayAttr:$k_packing
+      );
+  let results = (outs Variadic<TensorOrMemref>:$results);
+  let regions = (region AnyRegion:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+      OpBuilder<
+      (ins 
+        "TypeRange":$resultTensorTypes, 
+        "ValueRange":$inputs,
+        "ValueRange":$outputs,
+        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes),
+      [{
+        buildStructuredOp($_builder, $_state, resultTensorTypes,
+          inputs, outputs, attributes, PackedMatmulOp::getRegionBuilder());
+      }]>
+  ];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasFolder = 1;
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = structuredOpsBaseDecls # [{
+    // Declare functions necessary for LinalgStructuredInterface.
+    SmallVector<utils::IteratorType> getIteratorTypesArray();
+    ArrayAttr getIndexingMaps();
+    static unsigned getNumRegionArgs() { return 3; }
+    std::string getLibraryCallName() {
+      return "op_has_no_registered_library_name";
+    }
+
+    // Implement functions necessary for DestinationStyleOpInterface.
+    MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
+
+    static void regionBuilder(ImplicitLocOpBuilder &b,
+                              Block &block, ArrayRef<NamedAttribute> attrs);
+    static std::function<void(ImplicitLocOpBuilder &,
+                              Block &, ArrayRef<NamedAttribute>)>
+    getRegionBuilder() {
+      return regionBuilder;
+    }
+  }];
+}
+
 def Linalgx_BatchReduceMatmulVnniOp 
     : LinalgxStructuredBase_Op<"batch_reduce_matmul_vnni", [AttrSizedOperandSegments]> {
   let summary = "Batch reduced matmul with 3d batch input and vnni packed weights";

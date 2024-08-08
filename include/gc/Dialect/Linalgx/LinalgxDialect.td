@@ -10,6 +10,11 @@
 #define LINALGX_DIALECT
 
 include "mlir/IR/OpBase.td"
+include "mlir/IR/EnumAttr.td"
+include "mlir/IR/BuiltinTypes.td"
+include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/CommonAttrConstraints.td"
+include "mlir/IR/CommonTypeConstraints.td"
 
 //===----------------------------------------------------------------------===//
 // Linalgx dialect definition.
@@ -32,6 +37,7 @@ def LinalgxDialect : Dialect {
         "tensor::TensorDialect",
     ];
 
+    let useDefaultAttributePrinterParser = 1;
     let extraClassDeclaration = [{
         /// Attribute name used to memoize indexing maps for named ops.
         constexpr const static ::llvm::StringLiteral
@@ -46,5 +52,45 @@ def LinalgxDialect : Dialect {
         llvm::StringMap<RegionBuilderFunType> namedStructuredOpRegionBuilders;
     }];
 }
+
+class Linalgx_Attr<string name, string attrMnemonic, list<Trait> traits = []>
+    : AttrDef<LinalgxDialect, name, traits> {
+  let mnemonic = attrMnemonic;
+}
+
+def PackingMapAttr : Linalgx_Attr<"PackingMap", "packing_map"> {
+  let summary = "An Attribute containing a map between index of matmul input/output";
+  let description = [{
+    A map between index of matmul input/output.
+  }];
+
+  let cppNamespace = "::mlir::linalgx";
+  let parameters = (ins ArrayRefParameter<"uint64_t">:$first,
+                        ArrayRefParameter<"uint64_t">:$second);
+
+  let assemblyFormat = "`<` `[` $first `]` `->` `[` $second `]` `>`";
+
+  let extraClassDeclaration = [{
+    /// Index first is 0; Index second is 1
+    unsigned getPackingSrcIndex() {
+      return getFirst().size() == 1 ? 0 : 1;
+    }
+    unsigned getPackingDstIndex() {
+      return getFirst().size() == 1 ? 1 : 0;
+    }
+    /// SrcDims.size() == 1; DstDims.size() >= 1
+    ArrayRef<uint64_t> getPackingSrcDims() {
+      return getPackingSrcIndex() == 0 ? getFirst()
+                                       : getSecond();
+    }
+    ArrayRef<uint64_t> getPackingDstDims() {
+      return getPackingDstIndex() == 0 ? getFirst()
+                                       : getSecond();
+    }
+  }];
+}
+
+def PackingMapArrayAttr : TypedArrayAttrBase<PackingMapAttr,
+  "packing_map array attr.">;
 
 #endif // LINALGX_DIALECT
