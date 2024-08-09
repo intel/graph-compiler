@@ -56,7 +56,7 @@ declare_mlir_python_sources(GcPythonSources.Common
 # Dialect bindings
 ################################################################################
 
-if(GC_ENABLE_DNNL)
+if(GC_ENABLE_DNNL_API)
   declare_mlir_dialect_python_bindings(
     ADD_TO_PARENT GcPythonSources
     ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gc_mlir"

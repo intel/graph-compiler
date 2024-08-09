@@ -51,6 +51,7 @@ int main(int argc, char *argv[]) {
   mlir::gc::registerCPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
+
   mlir::DialectRegistry registry;
 #ifdef GC_HAS_ONEDNN_DIALECT
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();

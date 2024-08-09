@@ -1,4 +1,4 @@
-if (NOT GC_ENABLE_DNNL)
+if (NOT GC_ENABLE_DNNL_API)
     return()
 endif ()
 

@@ -1,4 +1,4 @@
-if (NOT GC_ENABLE_TEST OR NOT GC_ENABLE_TEST_DNNL OR NOT GC_ENABLE_DNNL)
+if (NOT GC_ENABLE_TEST OR NOT GC_ENABLE_TEST_DNNL_API OR NOT GC_ENABLE_DNNL_API)
     message(STATUS "The dnnl tests are not enabled.")
     return()
 endif ()
@@ -15,10 +15,10 @@ foreach (TEST_SOURCE ${TEST_SOURCES})
     add_executable(${TEST_NAME} ${TEST_SOURCE})
     if (${TEST_NAME} MATCHES "^TestApi.*")
         # The API tests are linked with the shared lib
-        target_link_libraries(${TEST_NAME} PRIVATE LLVMSupport GcDnnl)
+        target_link_libraries(${TEST_NAME} PRIVATE LLVMSupport GcDnnlApi)
     else ()
         # The other tests are linked with the static lib and have non-public includes
-        target_link_libraries(${TEST_NAME} PRIVATE GcDnnlStatic)
+        target_link_libraries(${TEST_NAME} PRIVATE GcDnnlApiStatic)
         target_include_directories(${TEST_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/src/dnnl)
     endif ()
     target_link_libraries(${TEST_NAME} PRIVATE gtest gtest_main)
