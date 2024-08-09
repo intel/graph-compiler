@@ -45,6 +45,7 @@ option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
 option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
+option(GC_BENCH_ENABLE "Build benchgc. Only available when GC_TEST_ENABLE and GC_ENABLE_BINDINGS_PYTHON is enabled" ON)
 
 if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)

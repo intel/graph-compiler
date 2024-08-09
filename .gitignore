@@ -3,3 +3,4 @@
 build/
 externals/
 compile_commands.json
+__pycache__
