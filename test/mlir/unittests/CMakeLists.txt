@@ -12,4 +12,5 @@ endfunction()
 add_subdirectory(Analysis)
 add_subdirectory(Example)
 add_subdirectory(ExecutionEngine)
+add_subdirectory(Linalgx)
 
