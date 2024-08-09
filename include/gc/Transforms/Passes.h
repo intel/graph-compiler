@@ -28,12 +28,19 @@ class OpenMPDialect;
 namespace linalg {
 class LinalgDialect;
 }
+namespace linalgx {
+class LinalgxDialect;
+}
 
 namespace MemRef {
 class MemRefDialect;
 }
 
-class PassManager;
+namespace xegpu {
+class XeGPUDialect;
+}
+
+class OpPassManager;
 
 namespace bufferization {
 class BufferizationDialect;
@@ -41,8 +48,8 @@ class BufferizationDialect;
 
 namespace gc {
 
-void populateFrontendPasses(mlir::PassManager &);
-void populateCPUPipeline(mlir::PassManager &);
+void populateFrontendPasses(mlir::OpPassManager &);
+void populateCPUPipeline(mlir::OpPassManager &);
 
 std::unique_ptr<Pass> createBufferNestedParallelLoopHoistingPass();
 

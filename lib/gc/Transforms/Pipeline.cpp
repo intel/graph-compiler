@@ -7,38 +7,48 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/DialectRegistry.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
+#endif
 #include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
 
 // linalg + linalgX + tensor
-void populateFrontendPasses(mlir::PassManager &pm) {
-  // pm.addPass(onednn_graph::createConvertOneDNNGraphToLinalg());
+void populateFrontendPasses(mlir::OpPassManager &pm) {
+#ifdef GC_HAS_ONEDNN_DIALECT
+  pm.addPass(createConvertOneDNNGraphToLinalg());
+#endif
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm + tensor.pack/unpack
-void populateTensorPasses(mlir::PassManager &pm) {
+void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
   // todo: linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
-  // todo: fine-grain fusion pass
+  // Fine-grain fusion pass
+  pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
@@ -47,16 +57,25 @@ void populateTensorPasses(mlir::PassManager &pm) {
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
-void populateVectorPasses(mlir::PassManager &pm) {
-  // todo: bf16 promotion pass, device dependent pass
-  // todo: bf16 cast elimilation pass, fast-math kind pass, designed to support
+void populateVectorPasses(mlir::OpPassManager &pm) {
+  // Do promotion for math / arith ops
+  pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
+  // sourceTypeStrs can be extended
+  arith::ArithEmulateUnsupportedFloatsOptions options;
+  std::array<std::string, 1> typeStr = {"bf16"};
+  options.sourceTypeStrs = typeStr;
+  options.targetTypeStr = "f32";
+  pm.addNestedPass<func::FuncOp>(
+      arith::createArithEmulateUnsupportedFloats(options));
+  // Bf16 cast elimilation pass
+  pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
 }
 
 // scf + arith + math + vector + memref + linalg.brgemm
-void populateBufferizationPasses(mlir::PassManager &pm) {
+void populateBufferizationPasses(mlir::OpPassManager &pm) {
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
   options.setFunctionBoundaryTypeConversion(
@@ -76,7 +95,7 @@ void populateBufferizationPasses(mlir::PassManager &pm) {
 }
 
 // scf + arith + math + vector + memref + func/microkernel
-void populateMicroKernelPasses(mlir::PassManager &pm) {
+void populateMicroKernelPasses(mlir::OpPassManager &pm) {
   // todo: ConvertLinalgToMicrokernel pass
   // todo: CleanupInvalidMicrokernel pass
   // todo: InvariantMicrokernelMotion pass
@@ -86,19 +105,19 @@ void populateMicroKernelPasses(mlir::PassManager &pm) {
   // todo: DispatchMicrokernel
 }
 
-void populateCPURuntimePasses(mlir::PassManager &pm) {
+void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
   pm.addPass(createConvertSCFToOpenMPPass());
 }
 
-void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
+void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
-  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
@@ -108,13 +127,15 @@ void populateLoweringToLLVMPasses(mlir::PassManager &pm) {
   pm.addPass(createSymbolDCEPass());
 }
 
-void populateLLVMPasses(mlir::PassManager &pm) {
+void populateLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(memref::createExpandOpsPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
   populateLoweringToLLVMPasses(pm);
 }
 
-void populateCPUPipeline(mlir::PassManager &pm) {
+void populateCPUPipeline(mlir::OpPassManager &pm) {
+  // verify the target description attribute
+  pm.addPass(createVerifyTargetDescription());
   // front-end, oneDNN graph dialect
   populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects
@@ -132,22 +153,10 @@ void populateCPUPipeline(mlir::PassManager &pm) {
   populateLLVMPasses(pm);
 }
 
-#define GEN_PASS_DEF_GCCPUPIPELINE
-#include "gc/Transforms/Passes.h.inc"
-namespace {
+void registerCPUPipeline() {
+  PassPipelineRegistration<>("gc-cpu-pipeline",
+                             "The CPU pipeline for Graph Compiler",
+                             populateCPUPipeline);
+}
 
-class GCCPUPipeline : public impl::GCCPUPipelineBase<GCCPUPipeline> {
-public:
-  friend struct PassHelper;
-  using impl::GCCPUPipelineBase<GCCPUPipeline>::GCCPUPipelineBase;
-  void runOnOperation() final {
-    auto op = getOperation();
-    PassManager pm{op->getContext()};
-    populateCPUPipeline(pm);
-    if (failed(pm.run(op)))
-      signalPassFailure();
-  }
-};
-
-} // namespace
 } // namespace mlir::gc

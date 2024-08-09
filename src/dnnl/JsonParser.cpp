@@ -23,6 +23,7 @@
 
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/MLIRContext.h"
@@ -30,8 +31,10 @@
 
 #include "JsonParser.h"
 
-mlir::ModuleOp JsonParser::parse() {
-  std::vector<size_t> inputPorts;
+mlir::ModuleOp
+JsonParser::parse(llvm::SmallVector<size_t> &outputIds,
+                  std::unordered_map<std::size_t, Strides> &strides) {
+  llvm::SmallVector<size_t> inputPorts;
   bool hasInputPorts = false;
   bool hasOutputPorts = false;
   _reader.begin_object();
@@ -57,7 +60,7 @@ mlir::ModuleOp JsonParser::parse() {
       readNumArray(inputPorts);
     } else if (_str == "output_ports") {
       hasOutputPorts = true;
-      readNumArray(_outputIds);
+      readNumArray(outputIds);
     } else if (_str == "graph") {
       _reader.begin_array();
       while (_reader.next_array_item()) {
@@ -87,13 +90,13 @@ mlir::ModuleOp JsonParser::parse() {
 
   if (!hasOutputPorts) {
     // If output_ports is not specified, using the last operation's outputs.
-    _outputIds = _uaS;
+    outputIds.append(_uaS.begin(), _uaS.end());
   }
 
   // The function return values.
-  std::vector<mlir::Value> outputs;
-  outputs.reserve(_outputIds.size());
-  for (auto id : _outputIds) {
+  llvm::SmallVector<mlir::Value> outputs;
+  outputs.reserve(outputIds.size());
+  for (auto id : outputIds) {
     auto entry = _valueMap.find(id);
     if (entry == _valueMap.end()) {
       _str = std::to_string(id);
@@ -103,13 +106,25 @@ mlir::ModuleOp JsonParser::parse() {
   }
   auto ret = _builder.create<mlir::func::ReturnOp>(_loc, outputs);
 
+  // Copying the strides for the inputs and outputs.
+  for (auto &ids : {&_inputIds, &outputIds}) {
+    for (auto id : *ids) {
+      auto entry = _strides.find(id);
+      if (entry != _strides.end()) {
+        strides[id] = entry->second;
+      }
+    }
+  }
+
   // Creating the final function and moving the entry block.
   mlir::OpBuilder builder(_builder.getContext());
   auto module = builder.create<mlir::ModuleOp>(_loc);
   auto func = builder.create<mlir::func::FuncOp>(
-      _loc, "main",
+      _loc, "compute",
       builder.getFunctionType(_entryBlock->getArgumentTypes(),
                               ret->getOperandTypes()));
+  func->setAttr(mlir::LLVM::LLVMDialect::getEmitCWrapperAttrName(),
+                mlir::UnitAttr::get(_builder.getContext()));
   auto entry = func.addEntryBlock();
   _entryBlock->moveBefore(entry);
   entry->erase();
@@ -230,11 +245,11 @@ inline mlir::Attribute JsonParser::readAttr() {
   } else if (_str == "s64[]") {
     _ia64.clear();
     readNumArray(_ia64);
-    attr = _builder.getI64ArrayAttr(_ia64);
+    attr = _builder.getDenseI64ArrayAttr(_ia64);
   } else if (_str == "f32[]") {
     _fa32.clear();
     readNumArray(_fa32);
-    attr = _builder.getF32ArrayAttr(_fa32);
+    attr = _builder.getDenseF32ArrayAttr(_fa32);
   } else if (_str == "string") {
     _reader.read_string(&_str);
     attr = _builder.getStringAttr(_str);
@@ -251,7 +266,9 @@ inline mlir::Attribute JsonParser::readAttr() {
 
 mlir::Type JsonParser::readTensorType() {
   GetTypeFn getTypeFn = nullptr;
+  bool strided = false;
   _ia64.clear();
+  _ia642.clear();
   _reader.begin_object();
 
   while (_reader.next_object_item(&_str)) {
@@ -267,22 +284,17 @@ mlir::Type JsonParser::readTensorType() {
     } else if (_str == "shape") {
       readNumArray(_ia64);
     } else if (_str == "stride") {
-      _ia642.clear();
       readNumArray(_ia642);
-      if ((_ia642.size() > 1) ||
-          ((_ia642.size() == 1) &&
-           (_ia642[0] != std::numeric_limits<int64_t>::min()))) {
-        // TODO: Add support for strides
-        throwErr<std::logic_error>("Unsupported stride value: ");
-      }
     } else if (_str == "layout_type") {
       _reader.read_string(&_str);
-      if ((_str != "undef") && (_str != "any")) {
+      if (_str == "strided") {
+        strided = true;
+      } else if ((_str != "undef") && (_str != "any")) {
         throwErr<std::logic_error>("Unsupported layout_type: ");
       }
     } else if (_str == "property_type") {
       _reader.read_string(&_str);
-      if ((_str != "undef") && (_str != "constant")) {
+      if ((_str != "undef") && (_str != "variable") && (_str != "constant")) {
         throwErr<std::logic_error>("Unsupported property_type: ");
       }
     } else {
@@ -293,6 +305,10 @@ mlir::Type JsonParser::readTensorType() {
   if (getTypeFn == nullptr) {
     _str.clear();
     throwErr<std::invalid_argument>("dtype is not specified");
+  }
+
+  if (strided) {
+    _strides[_uS].assign(_ia642.begin(), _ia642.end());
   }
 
   if ((_ia64.size() == 1) &&
