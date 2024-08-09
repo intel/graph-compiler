@@ -157,57 +157,46 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
 
   SmallVector<OpFoldResult> tileSizes = candidate.getMixedSizes();
   // collect target TileSizes and InnerTileSize to compare
-  SmallVector<OpFoldResult> targetTileSizes, targetInnerTileSizes;
+  SmallVector<OpFoldResult> tileSizesOnInnerDims, innerTiles;
   if (auto packOp = dyn_cast<tensor::PackOp>(defOrUse.ownerOp)) {
+    innerTiles = packOp.getMixedTiles();
     // tileSize comes from OpResult
     if (defOrUse.isDef()) {
-      targetInnerTileSizes = packOp.getMixedTiles();
-      targetTileSizes = llvm::to_vector(
-          ArrayRef(tileSizes).take_back(targetInnerTileSizes.size()));
+      tileSizesOnInnerDims =
+          llvm::to_vector(ArrayRef(tileSizes).take_back(innerTiles.size()));
     } else {
       // tileSize comes from OpOperand
-      targetTileSizes = tileSizes;
-      DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
-          packOp.getDimAndTileMapping();
-      targetInnerTileSizes.resize(dimAndTileMapping.size());
-      for (const auto &dimAndTile : dimAndTileMapping) {
-        targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
+      ArrayRef<int64_t> innerDimPos = packOp.getInnerDimsPos();
+      for (auto &pos : innerDimPos) {
+        tileSizesOnInnerDims.push_back(tileSizes[pos]);
       }
     }
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(defOrUse.ownerOp)) {
+    innerTiles = unPackOp.getMixedTiles();
     // tileSize comes from OpResult
     if (defOrUse.isDef()) {
-      targetTileSizes = tileSizes;
-      DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
-          unPackOp.getDimAndTileMapping();
-      if (dimAndTileMapping.empty())
-        return failure();
-      targetInnerTileSizes.resize(dimAndTileMapping.size());
-      for (const auto &dimAndTile : dimAndTileMapping) {
-        targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
+      ArrayRef<int64_t> innerDimPos = unPackOp.getInnerDimsPos();
+      for (auto &pos : innerDimPos) {
+        tileSizesOnInnerDims.push_back(tileSizes[pos]);
       }
     } else {
       // tileSize comes from OpOperand
-      targetInnerTileSizes = unPackOp.getMixedTiles();
-      targetTileSizes = llvm::to_vector(
-          ArrayRef(tileSizes).take_back(targetInnerTileSizes.size()));
+      tileSizesOnInnerDims =
+          llvm::to_vector(ArrayRef(tileSizes).take_back(innerTiles.size()));
     }
   }
 
   // check tileSizes is full on or multiple of `inner_tile_size`
   for (auto [tile, innerTile] :
-       llvm::zip_equal(targetTileSizes, targetInnerTileSizes)) {
+       llvm::zip_equal(tileSizesOnInnerDims, innerTiles)) {
     if (isEqualConstantIntOrValue(tile, innerTile))
       continue;
     FailureOr<int64_t> cstSize = ValueBoundsConstraintSet::computeConstantBound(
         presburger::BoundType::UB, tile,
         /*stopCondition=*/nullptr, /*closedUB=*/true);
     std::optional<int64_t> cstInnerSize = getConstantIntValue(innerTile);
-    if (!failed(cstSize) && cstInnerSize) {
-      if (*cstSize % *cstInnerSize == 0)
-        continue;
-    }
-    return failure();
+    if (failed(cstSize) || !cstInnerSize || (*cstSize % *cstInnerSize != 0))
+      return failure();
   }
   return success();
 }
@@ -523,8 +512,25 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
   SmallVector<OffsetSizeAndStrideOpInterface> forwardSlice;
   FailureOr<SmallVector<OpOperand *>> realConsumers =
       scfX::getRealConsumersFromInsertSliceOp(*closestSliceOp, forwardSlice);
-  if (failed(realConsumers))
+  if (failed(realConsumers) || realConsumers->empty())
     return std::nullopt;
+
+  auto moveOperandToLastUse = [](OpOperand *operand) -> bool {
+    Value::use_range uses = operand->get().getUses();
+    size_t numberUses = std::distance(uses.begin(), uses.end());
+    if (numberUses == 1)
+      return true;
+    auto iter = llvm::find(uses, *operand);
+    if (iter == uses.end())
+      return false;
+    unsigned index = std::distance(uses.begin(), iter);
+    SmallVector<unsigned> indices =
+        llvm::to_vector(llvm::seq<unsigned>(0, numberUses));
+    indices.push_back(indices[index]);
+    indices.erase(indices.begin() + index);
+    operand->get().shuffleUseList(indices);
+    return true;
+  };
 
   SmallVector<scf::SCFFuseConsumerOfSliceResult> fusedResultList;
   for (auto useOperand : *realConsumers) {
@@ -537,8 +543,11 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
     // d. Filter out invalid candidates and select best candidates
     FailureOr<OffsetSizeAndStrideOpInterface> bestCandidate =
         filterAndSelectCandidate(rewriter, forwardSlice, defOrUse, options);
-    if (failed(bestCandidate))
+    if (failed(bestCandidate)) {
+      if (!moveOperandToLastUse(useOperand))
+        return std::nullopt;
       continue;
+    }
 
     // e. call tiling interface
     FailureOr<scf::SCFFuseConsumerOfSliceResult> fusedResult =
