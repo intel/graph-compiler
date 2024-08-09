@@ -3,7 +3,7 @@ include_guard()
 get_property(DNNL_INCLUDES GLOBAL PROPERTY GC_DNNL_INCLUDES)
 get_property(DNNL_PATH GLOBAL PROPERTY GC_DNNL_SOURCE_DIR)
 if (NOT DEFINED DNNL_INCLUDES)
-    return()
+    message(FATAL_ERROR "DNNL contents not fetched yet, CMake will exit." )
 endif ()
 
 ########## This cmake build lite version of onednn, containing only microkernel related codes
