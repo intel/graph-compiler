@@ -34,6 +34,44 @@ using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::tensor;
 
+// insert pack when innerPosDims is non-empty
+// insert linalg.transpose otherwise
+static Value insertLayoutPack(RewriterBase &rewriter, Location loc, Value input,
+                              Value dest, ArrayRef<int64_t> innerDimsPos,
+                              ArrayRef<OpFoldResult> innerTiles,
+                              ArrayRef<int64_t> outerDimsPerm) {
+  if (!innerDimsPos.empty())
+    return rewriter.create<tensor::PackOp>(
+        loc, input, dest, innerDimsPos, innerTiles,
+        /*padding=*/std::nullopt, outerDimsPerm);
+  else {
+    return rewriter.create<linalg::TransposeOp>(loc, input, dest, outerDimsPerm)
+        .getResults()[0];
+  }
+}
+
+// insert unpack when innerPosDims is non-empty
+// insert linalg.transpose otherwise
+static Value insertLayoutUnpack(RewriterBase &rewriter, Location loc,
+                                Value input, ArrayRef<int64_t> innerDimsPos,
+                                ArrayRef<OpFoldResult> innerTiles,
+                                ArrayRef<int64_t> outerDimsPerm) {
+  Value dest = tensor::UnPackOp::createDestinationTensor(
+      rewriter, loc, input, innerTiles, innerDimsPos, outerDimsPerm);
+  if (!innerDimsPos.empty()) {
+    return rewriter.create<tensor::UnPackOp>(loc, input, dest, innerDimsPos,
+                                             innerTiles, outerDimsPerm);
+  } else {
+    // inverse the permutationVector
+    SmallVector<int64_t> permAxes(outerDimsPerm.size());
+    for (auto [idx, axis] : llvm::enumerate(outerDimsPerm)) {
+      permAxes[axis] = idx;
+    }
+    return rewriter.create<linalg::TransposeOp>(loc, input, dest, permAxes)
+        .getResults()[0];
+  }
+}
+
 static SmallVector<int64_t> getPackedAxes(ArrayRef<int64_t> dimensions,
                                           TensorLayout targetLayout) {
   SmallVector<int64_t> result;
@@ -94,16 +132,15 @@ static int64_t applyPermutationAndReindexReassoc(
 }
 
 // extends linalg::pack(...) for named ops
-FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
-                                          linalg::LinalgOp linalgOp,
-                                          OperatorLayout opLayout) {
+LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
+                           OperatorLayout opLayout) {
   if (linalgOp.hasPureBufferSemantics())
     return rewriter.notifyMatchFailure(linalgOp, "require tensor semantics");
   LLVM_DEBUG(llvm::dbgs() << "Try packing named op "
                           << linalgOp.getOperation()->getName() << ".\n");
   Location loc = linalgOp->getLoc();
-  SmallVector<tensor::PackOp> packOps;
-  SmallVector<tensor::UnPackOp> unPackOps;
+  SmallVector<Value> packOps;
+  SmallVector<Value> unPackOps;
   SmallVector<Value> inputsAndInits, results;
   SmallVector<OpOperand *> initOperands = llvm::to_vector(llvm::map_range(
       linalgOp.getDpsInitsMutable(), [](OpOperand &o) { return &o; }));
@@ -148,17 +185,10 @@ FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
               operandType.getShape(), innerPos,
               cast<ShapedType>(dest.getType()).getShape(), {},
               innerPackSizes)) {
-        packOps.push_back(rewriter.create<tensor::PackOp>(
-            loc, operand, dest, innerPos, innerPackSizes, std::nullopt,
-            outerPerm));
+        packOps.push_back(insertLayoutPack(
+            rewriter, loc, operand, dest, innerPos, innerPackSizes, outerPerm));
       } else {
-        // TODO: value of the padding attribute should be determined by
-        // consumers.
-        auto zeroAttr =
-            rewriter.getZeroAttr(getElementTypeOrSelf(dest.getType()));
-        Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
-        packOps.push_back(rewriter.create<tensor::PackOp>(
-            loc, operand, dest, innerPos, innerPackSizes, zero, outerPerm));
+        return failure();
       }
       inputsAndInits.push_back(packOps.back());
     }
@@ -187,11 +217,10 @@ FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
         transposeOp->getPermutation(), inputLayouts[0], initLayouts[0]);
     packedLinalgOp = rewriter.create<linalg::TransposeOp>(
         loc, inputs[0], inits[0], packedPermAxes);
-  } else if (isa<linalg::SoftmaxOp>(linalgOp) ||
-             isa<linalg::GenericOp>(linalgOp) || isa<linalg::MapOp>(linalgOp) ||
+  } else if (isa<linalg::SoftmaxOp>(linalgOp) || isa<linalg::MapOp>(linalgOp) ||
              isa<linalg::YieldOp>(linalgOp) || isa<linalg::IndexOp>(linalgOp)) {
     return failure(
-        "Packing logic not implemented for SoftMax/Generic/Map/Yield/Index.");
+        "Packing logic not implemented for SoftMax/Map/Yield/Index.");
   } else {
     packedLinalgOp = mlir::clone(
         rewriter, linalgOp, SmallVector<Type>{inputsAndInits.back().getType()},
@@ -201,27 +230,20 @@ FailureOr<linalg::PackResult> packNamedOp(RewriterBase &rewriter,
   // Step 4. Unpack all the op results.
   for (OpResult result : packedLinalgOp->getResults()) {
     int64_t resultNum = result.getResultNumber();
-    tensor::PackOp maybePackedInit =
-        inits[resultNum].getDefiningOp<tensor::PackOp>();
-    if (!maybePackedInit) {
-      results.push_back(result);
-      continue;
-    }
+    assert(resultNum < initLayouts.size() &&
+           "Linalg op results num exceeds inits num.");
     // Build the symmetrical UnPackOp to the existing PackOp.
-    unPackOps.push_back(rewriter.create<tensor::UnPackOp>(
-        packedLinalgOp->getLoc(), result, maybePackedInit.getSource(),
-        maybePackedInit.getInnerDimsPos(), maybePackedInit.getMixedTiles(),
-        maybePackedInit.getOuterDimsPerm()));
+    unPackOps.push_back(
+        insertLayoutUnpack(rewriter, packedLinalgOp->getLoc(), result,
+                           initLayouts[resultNum].getInnerAxis(),
+                           initLayouts[resultNum].getTileSizes(),
+                           initLayouts[resultNum].getOuterAxis()));
     results.push_back(unPackOps.back());
   }
 
   // Step 5. Replace `linalgOp`.
   rewriter.replaceOp(linalgOp, results);
-
-  // Return packedLinalgOp.
-  return linalg::PackResult{
-      packOps, cast<linalg::LinalgOp>(packedLinalgOp.getOperation()),
-      unPackOps};
+  return success();
 }
 
 // check whether the op is already packed or not
@@ -297,9 +319,7 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
         return WalkResult::advance();
       }
       if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-        FailureOr<linalg::PackResult> packedOp =
-            packNamedOp(rewriter, linalgOp, *opLayout);
-        if (failed(packedOp)) {
+        if (failed(packLinalgOp(rewriter, linalgOp, *opLayout))) {
           return WalkResult::skip();
         }
       } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
@@ -311,10 +331,9 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
         Value dest = tensor::PackOp::createDestinationTensor(
             rewriter, loc, curSrc, inputLayout.getTileSizes(),
             inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
-        Value packedSource = rewriter.create<tensor::PackOp>(
-            loc, curSrc, dest, inputLayout.getInnerAxis(),
-            inputLayout.getTileSizes(), std::nullopt,
-            inputLayout.getOuterAxis());
+        Value packedSource = insertLayoutPack(
+            rewriter, loc, curSrc, dest, inputLayout.getInnerAxis(),
+            inputLayout.getTileSizes(), inputLayout.getOuterAxis());
         SmallVector<ReassociationIndices> newReassocIndices =
             expandShapeOp.getReassociationIndices();
         int64_t nextPos = applyPermutationAndReindexReassoc(
@@ -330,11 +349,8 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
             outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
         Value packedExpandShape = rewriter.create<tensor::ExpandShapeOp>(
             loc, newExpandType, packedSource, newReassocIndices);
-        auto unpackDst = tensor::UnPackOp::createDestinationTensor(
-            rewriter, loc, packedExpandShape, outputLayout.getTileSizes(),
-            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
-        auto newUnPackOp = rewriter.create<tensor::UnPackOp>(
-            loc, packedExpandShape, unpackDst, outputLayout.getInnerAxis(),
+        Value newUnPackOp = insertLayoutUnpack(
+            rewriter, loc, packedExpandShape, outputLayout.getInnerAxis(),
             outputLayout.getTileSizes(), outputLayout.getOuterAxis());
         rewriter.replaceOp(expandShapeOp, newUnPackOp);
       } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
@@ -346,10 +362,9 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
         Value dest = tensor::PackOp::createDestinationTensor(
             rewriter, loc, curSrc, inputLayout.getTileSizes(),
             inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
-        Value packedSource = rewriter.create<tensor::PackOp>(
-            loc, curSrc, dest, inputLayout.getInnerAxis(),
-            inputLayout.getTileSizes(), std::nullopt,
-            inputLayout.getOuterAxis());
+        Value packedSource = insertLayoutPack(
+            rewriter, loc, curSrc, dest, inputLayout.getInnerAxis(),
+            inputLayout.getTileSizes(), inputLayout.getOuterAxis());
         SmallVector<ReassociationIndices> newReassocIndices =
             collapseShapeOp.getReassociationIndices();
         int64_t nextPos = applyPermutationAndReindexReassoc(
@@ -365,11 +380,8 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
             outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
         Value packedCollapseShape = rewriter.create<tensor::CollapseShapeOp>(
             loc, newCollapseType, packedSource, newReassocIndices);
-        auto unpackDst = tensor::UnPackOp::createDestinationTensor(
-            rewriter, loc, packedCollapseShape, outputLayout.getTileSizes(),
-            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
-        auto newUnPackOp = rewriter.create<tensor::UnPackOp>(
-            loc, packedCollapseShape, unpackDst, outputLayout.getInnerAxis(),
+        Value newUnPackOp = insertLayoutUnpack(
+            rewriter, loc, packedCollapseShape, outputLayout.getInnerAxis(),
             outputLayout.getTileSizes(), outputLayout.getOuterAxis());
         rewriter.replaceOp(collapseShapeOp, newUnPackOp);
       }
@@ -645,10 +657,9 @@ struct UpliftPackOverBroadcast : public OpRewritePattern<tensor::PackOp> {
     auto dest = tensor::PackOp::createDestinationTensor(
         rewriter, loc, broadcastOp.getDpsInputs()[0], newInnerTileSizes,
         newInnerDimsPos, newOuterDimsPerm);
-    Value packedSource = rewriter.create<tensor::PackOp>(
-        loc, broadcastOp.getDpsInputs()[0], dest, newInnerDimsPos,
-        newInnerTileSizes,
-        /*padding=*/std::nullopt, newOuterDimsPerm);
+    Value packedSource =
+        insertLayoutPack(rewriter, loc, broadcastOp.getDpsInputs()[0], dest,
+                         newInnerDimsPos, newInnerTileSizes, newOuterDimsPerm);
     auto newBroadcastOp = rewriter.create<linalg::BroadcastOp>(
         loc, packedSource, pack.getDest(), packedBroadcastAxis);
     rewriter.replaceOp(pack, newBroadcastOp.getResults());
