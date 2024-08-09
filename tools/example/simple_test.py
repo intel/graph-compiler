@@ -29,20 +29,23 @@ if project_dir not in sys.path:
 
 import ml_dtypes
 import torch
-from bench import py_timeit_bench
-from enhanced_np_to_memref import ranked_memref_to_numpy
 from utils import get_mlir_args
 
+# an example of simple validation
 if __name__ == "__main__":
     with ir.Context() as ctx:
+        ctx.enable_multithreading(False)
         module = ir.Module.parse(
             """
-            module {
-                func.func @main_entry(%arg0:tensor<10x10xbf16>, %arg1:tensor<10x10xbf16>) -> tensor<10x10xbf16> attributes {llvm.emit_c_interface} {
-                    %0 = onednn_graph.matmul %arg0, %arg1: (tensor<10x10xbf16>, tensor<10x10xbf16>) -> tensor<10x10xbf16>
-                    return %0:tensor<10x10xbf16>
-                    }
-                }      
+                module {
+                  func.func @main_entry(%arg0: tensor<10x10xbf16>, %arg1: tensor<10x10xbf16>) -> tensor<10x10xbf16> attributes {llvm.emit_c_interface} {
+                    %cst = arith.constant 0.000000e+00 : bf16
+                    %0 = tensor.empty() : tensor<10x10xbf16>
+                    %1 = linalg.fill ins(%cst : bf16) outs(%0 : tensor<10x10xbf16>) -> tensor<10x10xbf16>
+                    %2 = linalg.matmul ins(%arg0, %arg1 : tensor<10x10xbf16>, tensor<10x10xbf16>) outs(%1 : tensor<10x10xbf16>) -> tensor<10x10xbf16>
+                    return %2 : tensor<10x10xbf16>
+                  }
+                }    
             """
         )
         torch_arg0 = torch.full((10, 10), 1.0, dtype=torch.bfloat16)
@@ -59,7 +62,7 @@ if __name__ == "__main__":
         
         # just run
         compiler = GraphCompiler(passes)
-        engine = compiler.compile_and_jit(module)
+        engine = compiler.compile_and_jit(module, ir_printing=True)
         engine.invoke(entry, *mlir_args)
             
         print(gc_res)
