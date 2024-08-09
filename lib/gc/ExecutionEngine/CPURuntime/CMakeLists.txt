@@ -19,3 +19,7 @@ endif()
 string(REPLACE " " ";" flags "${OpenMP_C_FLAGS} ${OpenMP_CXX_FLAGS}")
 target_compile_options(GcCpuRuntime PUBLIC ${flags})
 target_link_options(GcCpuRuntime PUBLIC ${flags})
+
+include(umf)
+get_property(UMF_INCLUDES GLOBAL PROPERTY UMF_INCLUDES)
+target_include_directories(GcCpuRuntime PRIVATE ${UMF_INCLUDES})
