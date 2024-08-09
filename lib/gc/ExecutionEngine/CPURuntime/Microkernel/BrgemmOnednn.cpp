@@ -9,7 +9,7 @@
 #include <assert.h>
 #include <math.h>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +46,11 @@ __attribute__((weak)) void print_verbose_header() {}
 } // namespace dnnl
 
 static constexpr int PALETTE_SIZE = 64;
-static std::mutex g_brgemm_mutex;
+
+using read_lock_guard_t = std::shared_lock<std::shared_mutex>;
+using write_lock_guard_t = std::unique_lock<std::shared_mutex>;
+static std::shared_mutex g_brgemm_lock;
+
 static std::vector<brgemm_desc_t> g_brgemm_desc_list;
 static std::vector<brgemm_kernel_t *> g_brgemm_kernel_list;
 static std::vector<std::unique_ptr<char[]>> g_brgemm_palette;
@@ -95,7 +99,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
            "Failed to initialize palette for BRGEMM");
   }
 
-  std::lock_guard<std::mutex> g(g_brgemm_mutex);
+  write_lock_guard_t g(g_brgemm_lock);
   g_brgemm_desc_list.push_back(desc);
   g_brgemm_kernel_list.push_back(kernel);
   g_brgemm_palette.emplace_back(palette_buffer);
@@ -106,7 +110,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
   char *palette_buffer = nullptr;
   {
-    std::lock_guard<std::mutex> g(g_brgemm_mutex);
+    read_lock_guard_t g(g_brgemm_lock);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
     brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
@@ -136,7 +140,7 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
   size_t B_offset_in_bytes;
   size_t C_offset_in_bytes;
   {
-    std::lock_guard<std::mutex> g(g_brgemm_mutex);
+    read_lock_guard_t g(g_brgemm_lock);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
 
