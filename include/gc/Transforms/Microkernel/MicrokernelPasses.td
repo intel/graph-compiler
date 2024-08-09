@@ -40,4 +40,15 @@ def ConvertLinalgToMicrokernel: Pass<"convert-linalg-to-microkernel", "::mlir::f
                            "microkernel::MicrokernelDialect"];
 }
 
+def ConvertMicrokernelToDnnlFunc: Pass<"convert-microkernel-to-dnnl-func", "::mlir::ModuleOp"> {
+  let summary = "Lower microkernel dialects to dnnl func call";
+  let description = [{
+    Convert microkernel dialects to runtime function call to oneDNN library.
+  }];
+  let dependentDialects = ["func::FuncDialect",
+                           "memref::MemRefDialect",
+                           "LLVM::LLVMDialect",
+                           "microkernel::MicrokernelDialect"];
+}
+
 #endif // GC_DIALECT_MICROKERNELPASSES
