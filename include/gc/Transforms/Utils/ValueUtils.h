@@ -27,7 +27,8 @@ FailureOr<SmallVector<int64_t>> getStaticStrides(Value val);
 
 // Return the offset and ptr for `val`. Assert if `val`
 // is not a memref.
-std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand);
+std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value val,
+                                        Location loc);
 
 } // namespace utils
 } // namespace mlir

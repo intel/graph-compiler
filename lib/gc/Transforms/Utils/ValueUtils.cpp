@@ -116,34 +116,5 @@ FailureOr<SmallVector<int64_t>> getStaticStrides(Value value) {
   return strides;
 }
 
-std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand) {
-  auto memrefType = dyn_cast<MemRefType>(operand.getType());
-  assert(memrefType && "Expect a memref value");
-
-  Location loc = operand.getDefiningOp()->getLoc();
-  OpBuilder::InsertionGuard guard(builder);
-  // Insert right after operand producer for better opt chances.
-  builder.setInsertionPointAfterValue(operand);
-
-  MemRefType baseMemrefType = MemRefType::get({}, memrefType.getElementType());
-  Type basePtrType = builder.getIndexType();
-  Type offsetType = builder.getIndexType();
-  SmallVector<Type> sizesTypes(memrefType.getRank(), offsetType);
-  SmallVector<Type> stridesTypes(memrefType.getRank(), offsetType);
-  auto meta = builder.create<memref::ExtractStridedMetadataOp>(
-      loc, baseMemrefType, offsetType, sizesTypes, stridesTypes, operand);
-  Value alignedPointerAsIndex =
-      builder.create<memref::ExtractAlignedPointerAsIndexOp>(loc, basePtrType,
-                                                             operand);
-  Value alignedPointerAsI64 = builder.create<arith::IndexCastOp>(
-      loc, builder.getIntegerType(64), alignedPointerAsIndex);
-  // TODO: non-POD will require an LLVMTypeConverter.
-  Value alignedPointer = builder.create<LLVM::IntToPtrOp>(
-      loc, LLVM::LLVMPointerType::get(builder.getContext()),
-      alignedPointerAsI64);
-  Value offset = meta.getOffset();
-  return std::make_pair(alignedPointer, offset);
-}
-
 } // namespace utils
 } // namespace mlir
