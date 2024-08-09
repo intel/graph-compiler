@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <mutex>
 #include <shared_mutex>
 #include <stdint.h>
 #include <stdio.h>
@@ -177,8 +178,8 @@ static void naive_brgemm_execute_int8(const brgemm_params_t &params, void *A,
   }
 }
 
-using read_lock_gurad_t = std::shared_lock<std::shared_mutex>;
-using write_lock_gurad_t = std::unique_lock<std::shared_mutex>;
+using read_lock_guard_t = std::shared_lock<std::shared_mutex>;
+using write_lock_guard_t = std::unique_lock<std::shared_mutex>;
 static std::shared_mutex g_brgemm_lock;
 static std::vector<brgemm_params_t> g_brgemm_list;
 
