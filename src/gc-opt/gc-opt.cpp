@@ -23,6 +23,7 @@
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -51,6 +52,7 @@ int main(int argc, char *argv[]) {
   mlir::gc::registerCPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
+  mlir::microkernel::registerMicrokernelPasses();
 
   mlir::DialectRegistry registry;
 #ifdef GC_HAS_ONEDNN_DIALECT
