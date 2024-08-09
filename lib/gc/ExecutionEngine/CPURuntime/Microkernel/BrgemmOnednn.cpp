@@ -95,7 +95,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
            "Failed to initialize palette for BRGEMM");
   }
 
-  std::lock_guard g(g_brgemm_mutex);
+  std::lock_guard<std::mutex> g(g_brgemm_mutex);
   g_brgemm_desc_list.push_back(desc);
   g_brgemm_kernel_list.push_back(kernel);
   g_brgemm_palette.emplace_back(palette_buffer);
@@ -106,7 +106,7 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
   char *palette_buffer = nullptr;
   {
-    std::lock_guard g(g_brgemm_mutex);
+    std::lock_guard<std::mutex> g(g_brgemm_mutex);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
     brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
@@ -136,7 +136,7 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
   size_t B_offset_in_bytes;
   size_t C_offset_in_bytes;
   {
-    std::lock_guard g(g_brgemm_mutex);
+    std::lock_guard<std::mutex> g(g_brgemm_mutex);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
 

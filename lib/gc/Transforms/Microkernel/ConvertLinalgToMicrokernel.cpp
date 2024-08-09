@@ -89,10 +89,10 @@ static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
   auto mul = dyn_cast<AffineBinaryOpExpr>(lhs);
   if (!mul || mul.getKind() != AffineExprKind::Mul || mul.getLHS() != firstDim)
     return false;
+
   auto cst_affine = dyn_cast<AffineConstantExpr>(mul.getRHS());
-  if (!cst_affine || (cst_affine.getValue() != 2 && cst_affine.getValue() != 4))
-    return false;
-  return true;
+  return cst_affine &&
+         (cst_affine.getValue() == 2 || cst_affine.getValue() == 4);
 }
 
 // Return the position of `dim` in the codomain of `operand`.
