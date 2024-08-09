@@ -643,6 +643,7 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
 
 using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
 
+/// Default Tiling function only effective for certain `OpTy` operation
 template <typename OpTy>
 static FailureOr<scf::SCFTilingResult>
 defaultTilingOfType(RewriterBase &rewriter, Operation *op,
@@ -692,6 +693,17 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   if (failed(tilingResult))
     return failure();
 
+  return tilingResult;
+}
+
+template <typename OpTy1, typename OpTy2, typename... Rest>
+static FailureOr<scf::SCFTilingResult>
+defaultTilingOfType(RewriterBase &rewriter, Operation *op,
+                    const OpTileSizeMap &tsMap) {
+  FailureOr<scf::SCFTilingResult> tilingResult =
+      defaultTilingOfType<OpTy1>(rewriter, op, tsMap);
+  if (failed(tilingResult))
+    return defaultTilingOfType<OpTy2, Rest...>(rewriter, op, tsMap);
   return tilingResult;
 }
 
@@ -749,11 +761,13 @@ void iterativeTilingAndFusionUntilExhaustion(
         (void)mlir::simplifyRegions(rewriter, f->getRegions());
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
-      // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
+      // priority based on OpTy:
+      // `ContractionOp`->`ReductionOp`->`LinalgOp`->`TensorOp`.
       SmallVector<DefaultTilingFn> priorityTilingPipeLine = {
           defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
           defaultTilingOfType<mlir::linalg::ReduceOp>,
-          defaultTilingOfType<TilingInterface>};
+          defaultTilingOfType<mlir::linalg::LinalgOp>,
+          defaultTilingOfType<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>};
 
       for (auto &tilingFn : priorityTilingPipeLine) {
         for (auto &op : unTiledOps) {
