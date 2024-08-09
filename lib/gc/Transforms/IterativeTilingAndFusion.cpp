@@ -274,17 +274,18 @@ SingleCandidateElseTileMatchedFilter(RewriterBase &rewriter,
         FailureOr<SmallVector<OpOperand *>> realConsumers =
             scfX::getRealConsumersFromInsertSliceOp(otherCandidate,
                                                     forwardSlice);
-        // Record operand pointer of same owner.
-        OpOperand *operandOfSameOwner = nullptr;
+        // Record other operand of same owner.
+        OpOperand *otherOperandOfSameOwner = nullptr;
         if (succeeded(realConsumers) &&
             llvm::any_of(*realConsumers,
-                         [&defOrUse, &operandOfSameOwner](OpOperand *use) {
+                         [&defOrUse, &otherOperandOfSameOwner](OpOperand *use) {
                            if (use->getOwner() != defOrUse.ownerOp)
                              return false;
-                           operandOfSameOwner = use;
+                           otherOperandOfSameOwner = use;
                            return true;
                          })) {
-          assert(operandOfSameOwner);
+          assert(otherOperandOfSameOwner &&
+                 "other operand of same owner is not found");
           // In avoid of repeated computation.
           if (iterDomainOffsets.empty() || iterDomainSizes.empty()) {
             // Compute `tileOffset` and `tileSize` on iteration domain based on
@@ -305,7 +306,8 @@ SingleCandidateElseTileMatchedFilter(RewriterBase &rewriter,
           rewriter.setInsertionPointAfter(otherCandidate);
           if (failed(cast<TilingInterface>(defOrUse.ownerOp)
                          .getIterationDomainTileFromOperandTile(
-                             rewriter, operandOfSameOwner->getOperandNumber(),
+                             rewriter,
+                             otherOperandOfSameOwner->getOperandNumber(),
                              otherCandidate.getMixedOffsets(),
                              otherCandidate.getMixedSizes(),
                              otherIterDomainOffsets, otherIterDomainSizes)))

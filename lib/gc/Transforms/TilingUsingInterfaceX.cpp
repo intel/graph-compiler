@@ -720,9 +720,8 @@ static LogicalResult findOtherOperandSlice(
   for (auto &&[en, v] : llvm::enumerate(consumerOp->getOpOperands())) {
     if (en == curOperandNumber)
       continue;
-    if (v.get().getDefiningOp() == loopOp) {
+    if (v.get().getDefiningOp() == loopOp)
       otherUseOfLoop.push_back(&v);
-    }
   }
   if (otherUseOfLoop.empty())
     return success();
