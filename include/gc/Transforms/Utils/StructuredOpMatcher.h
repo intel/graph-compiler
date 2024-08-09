@@ -217,6 +217,26 @@ template <typename T> struct EqualsTo {
 };
 template <typename T> EqualsTo(T) -> EqualsTo<T>;
 
+// Callable object to check if the input is less than or equal to specified
+// `value`.
+struct LessThanOrEqualTo {
+  LessThanOrEqualTo() = delete;
+  explicit LessThanOrEqualTo(size_t value) : value(value){};
+  const size_t value;
+
+  bool operator()(size_t value) const { return value <= this->value; }
+};
+
+// Callable object to check if the input is greater than or equal to specified
+// `value`.
+struct GreaterThanOrEqualTo {
+  GreaterThanOrEqualTo() = delete;
+  explicit GreaterThanOrEqualTo(size_t value) : value(value){};
+  const size_t value;
+
+  bool operator()(size_t value) const { return value >= this->value; }
+};
+
 // Callable object to validate number of init operands for `op`.
 struct NumDpsInits {
   NumDpsInits() = delete;
