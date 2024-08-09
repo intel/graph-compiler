@@ -3,5 +3,6 @@ add_mlir_unittest(GCAnalysisTests
 )
 target_link_libraries(GCAnalysisTests
   PRIVATE
+  GcPasses
   GcAnalysis
   GcJitWrapper)

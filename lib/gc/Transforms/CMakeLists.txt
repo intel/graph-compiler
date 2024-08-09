@@ -12,10 +12,13 @@ get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 gc_add_mlir_library(GcPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
-  TileNamed.cpp
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
+  DeepTileContractionNamedOp.cpp
+  TilingUtil.cpp
+  SinkOpIntoInnerLoop.cpp
+  MergeNestedForall.cpp
   BufferHoist.cpp
 
   DEPENDS

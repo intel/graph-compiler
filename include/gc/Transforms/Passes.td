@@ -11,12 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
-  let summary = "Tile linalg named operations.";
-  let dependentDialects =
-      ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
-}
-
 #ifdef GC_HAS_ONEDNN_DIALECT
 def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   let summary =
@@ -47,7 +41,7 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
                "DPAS register block sizes MxNxK">,
   ];
 }
-#endif
+#endif // GC_USE_IMEX
 
 def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
                                         "func::FuncOp"> {
@@ -59,25 +53,30 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
       3. Multi-consumer and multi-producer support.
       4. Multiple level of nest loops and candidates.
       5. Flexible option to control the boundary of iterative process.
-      6. Cost-model to determine whether to fuse or not.
-
-    It intends to control the granularity of fusion by `fusion-level`, E.g.
-    * `0`: disable any fusion.
-    * `1`:[Default] enable both producer and consumer fusion, covering any tilable operation including tensor.pack/tensor.fill/linalg.reduce etc but excluding branches forked by multiple uses.
-    * `2`: `LEVEL 1` + extend to any topology including branches.
+      6. Default tiling when no op is tiled before fusion.
+      7. Cost-model to determine whether to fuse or not.
   }];
   let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
                            "tensor::TensorDialect"];
 
   let options = [
-    Option<"fusionLevel", "fusion-level", "int64_t",
-           /*default=*/"1",
-           "Control the granularity of fusion.">,
     Option<"useCostModel", "use-cost-model", "bool",
            /*default=*/"false",
            "Decide if enable cost model to control iterative fusion.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
-           "Set default TileSize for the certain type of op, saying matmul:{32,32}">,
+           "Set default TileSize for the certain type of op, saying `matmul:{32,32}`">,
+    ];
+}
+def DeepTileContractionNamedOp
+    : Pass<"deep-tile-contraction-named-op", "func::FuncOp"> {
+  let summary = "Tile linalg contraction named operation deeply";
+  let description =
+      [{The pass tries to tile the linalg contraction named op deeply.}];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "arith::ArithDialect",
+    "tensor::TensorDialect",
+    "linalg::LinalgDialect",
   ];
 }
 
@@ -92,6 +91,19 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
            /*default=*/"\"CPU\"",
            "The device to verify. Supported device: CPU, ">,
   ];
+}
+
+def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
+  let summary = "Sink operations into inner loops";
+  let description = [{The pass tries to sink operations into inner loops as deep as possible to maximize the chance for outer loop optimization.
+  }];
+  let dependentDialects = [];
+}
+
+def MergeNestedForall : Pass<"merge-nested-forall"> {
+  let summary = "Merge nested scf.forall operations";
+  let description = [{The pass tries to merge nested forall operations.}];
+  let dependentDialects = ["scf::SCFDialect"];
 }
 
 def BufferNestedParallelLoopHoisting :
