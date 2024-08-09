@@ -29,26 +29,60 @@ struct ConvertGpuSignatureMemrefs : public OpRewritePattern<gpu::GPUFuncOp> {
 };
 
 LogicalResult
-ConvertGpuSignatureMemrefs::matchAndRewrite(gpu::GPUFuncOp f,
+ConvertGpuSignatureMemrefs::matchAndRewrite(gpu::GPUFuncOp func,
                                             PatternRewriter &rewriter) const {
-  gpu::GPUMemorySpaceMappingAttr global_addr_space_attr =
-      gpu::GPUMemorySpaceMappingAttr::get(f->getContext(),
-                                          gpu::AddressSpace::Global);
 
-  // Aliases are not handled, assuming ssa-like semantics for memrefs.
-  SmallVector<Value, 4> memrefs;
-  // take args, check if memref
-  // go through ops (getBody -> walk) - get additional producers
-  // get uses -> replace (attach attr)
-
-  for (auto [index, argument] :
-       llvm::enumerate(f.getFunctionType().getInputs())) {
-    if (auto memrefType = llvm::dyn_cast<MemRefType>(argument)) {
-      f.setArgAttr(index, global_addr_space_attr.name, global_addr_space_attr);
+  SmallVector<Type, 4> argTypes;
+  for (auto [index, argType] : enumerate(func.getArgumentTypes())) {
+    if (auto memrefType = llvm::dyn_cast<MemRefType>(argType)) {
+      // llvm::errs() << "Found a memref argument of type " << memrefType <<
+      // "\n";
+      auto attr = memrefType.getMemorySpace();
+      if (attr) {
+        // llvm::errs() << "Already has memory space attr attached (" << attr
+        //              << "). Skipping function...\n";
+        return failure();
+      }
+      // llvm::errs() << "Found a memref with no addr space attribute at
+      // position "
+      //              << index << "\n";
+      auto newMemrefType =
+          MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
+                          memrefType.getLayout(),
+                          gpu::GPUMemorySpaceMappingAttr::get(
+                              getContext(), gpu::AddressSpace::Global));
+      argTypes.push_back(newMemrefType);
+    } else {
+      argTypes.push_back(argType);
     }
   }
 
-  return failure();
+  // Update the block args.
+  Block &entryBlock = func.front();
+  for (auto [bbArg, type] : llvm::zip(entryBlock.getArguments(), argTypes)) {
+    if (bbArg.getType() == type)
+      continue;
+
+    // Collect all uses of the bbArg.
+    SmallVector<OpOperand *> bbArgUses;
+    for (OpOperand &use : bbArg.getUses())
+      bbArgUses.push_back(&use);
+
+    // Change the bbArg type to memref with the correct addr space.
+    bbArg.setType(type);
+
+    // Not sure this is needed, just in case for now.
+    rewriter.setInsertionPointToStart(&entryBlock);
+    if (!bbArgUses.empty()) {
+      for (OpOperand *use : bbArgUses)
+        use->set(bbArg);
+    }
+  }
+
+  FunctionType funcType = FunctionType::get(getContext(), argTypes, {});
+  func.setType(funcType);
+
+  return success();
 }
 
 struct GpuAttachAddrSpaces
