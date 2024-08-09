@@ -220,7 +220,7 @@ static LogicalResult unTiledOpFilter(RewriterBase &rewriter,
 }
 
 static LogicalResult
-NonContractionOpFilter(RewriterBase &rewriter,
+nonContractionOpFilter(RewriterBase &rewriter,
                        OffsetSizeAndStrideOpInterface candidate,
                        CandidateDefOrUse defOrUse) {
   // Currently this pass focuses on fine-grained fusion, which does not expect
@@ -243,9 +243,9 @@ NonContractionOpFilter(RewriterBase &rewriter,
 ///
 /// Where we need to ensure their `tileOffset` and `tileSize` are matched well.
 static LogicalResult
-SingleCandidateElseTileMatchedFilter(RewriterBase &rewriter,
-                                     OffsetSizeAndStrideOpInterface candidate,
-                                     CandidateDefOrUse defOrUse) {
+tilingSizesIfMatchedFilter(RewriterBase &rewriter,
+                           OffsetSizeAndStrideOpInterface candidate,
+                           CandidateDefOrUse defOrUse) {
   Block *parent = candidate->getBlock();
   // No matter candidates correspond to which operand or result of operation,
   // align all of them to `tileOffset` and `tileSize` on iteration domain for
@@ -274,17 +274,18 @@ SingleCandidateElseTileMatchedFilter(RewriterBase &rewriter,
         FailureOr<SmallVector<OpOperand *>> realConsumers =
             scfX::getRealConsumersFromInsertSliceOp(otherCandidate,
                                                     forwardSlice);
-        // Record operand pointer of same owner.
-        OpOperand *operandOfSameOwner = nullptr;
+        // Record other operand of same owner.
+        OpOperand *otherOperandOfSameOwner = nullptr;
         if (succeeded(realConsumers) &&
             llvm::any_of(*realConsumers,
-                         [&defOrUse, &operandOfSameOwner](OpOperand *use) {
+                         [&defOrUse, &otherOperandOfSameOwner](OpOperand *use) {
                            if (use->getOwner() != defOrUse.ownerOp)
                              return false;
-                           operandOfSameOwner = use;
+                           otherOperandOfSameOwner = use;
                            return true;
                          })) {
-          assert(operandOfSameOwner);
+          assert(otherOperandOfSameOwner &&
+                 "other operand of same owner is not found");
           // In avoid of repeated computation.
           if (iterDomainOffsets.empty() || iterDomainSizes.empty()) {
             // Compute `tileOffset` and `tileSize` on iteration domain based on
@@ -305,7 +306,8 @@ SingleCandidateElseTileMatchedFilter(RewriterBase &rewriter,
           rewriter.setInsertionPointAfter(otherCandidate);
           if (failed(cast<TilingInterface>(defOrUse.ownerOp)
                          .getIterationDomainTileFromOperandTile(
-                             rewriter, operandOfSameOwner->getOperandNumber(),
+                             rewriter,
+                             otherOperandOfSameOwner->getOperandNumber(),
                              otherCandidate.getMixedOffsets(),
                              otherCandidate.getMixedSizes(),
                              otherIterDomainOffsets, otherIterDomainSizes)))
@@ -355,8 +357,8 @@ struct CandidateSliceFilterPipeLine
 
   SmallVector<CandidateSliceFilter> getDefaultPipeLine() {
     return SmallVector<CandidateSliceFilter>{
-        unTiledOpFilter, NonContractionOpFilter, noTilingOnReductionFilter,
-        exactTilingOnPackUnPackFilter, SingleCandidateElseTileMatchedFilter};
+        unTiledOpFilter, nonContractionOpFilter, noTilingOnReductionFilter,
+        exactTilingOnPackUnPackFilter, tilingSizesIfMatchedFilter};
   }
 
   LogicalResult filter(RewriterBase &rewriter,
@@ -386,7 +388,7 @@ computeTileSizeProductOfCandidate(OffsetSizeAndStrideOpInterface candidate) {
   return totalSize;
 }
 
-static int TilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
+static int tilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
                               OffsetSizeAndStrideOpInterface candidateB) {
   FailureOr<int64_t> sizeProductA =
                          computeTileSizeProductOfCandidate(candidateA),
@@ -407,7 +409,7 @@ struct CandidateSliceComparerPipeLine
   CandidateSliceComparerPipeLine() : CandidateSliceProcessPipeLine() {}
 
   SmallVector<CandidateSliceComparer> getDefaultPipeLine() {
-    return SmallVector<CandidateSliceComparer>{TilingSizeComparer};
+    return SmallVector<CandidateSliceComparer>{tilingSizeComparer};
   }
 
   bool compare(OffsetSizeAndStrideOpInterface candidateA,
