@@ -5,35 +5,28 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <iostream>
 #include <numeric>
 
-#include "gc/Transforms/Transforms.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
-#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
+#include "gc/Transforms/Transforms.h"
+
 namespace mlir {
 namespace gc {
 #define GEN_PASS_DEF_POSTPROCESSPACKUNPACK
 #include "gc/Transforms/Passes.h.inc"
 
-#define DEBUG_TYPE "post-process-pack-unpack"
-
 using namespace mlir;
 
-// Helper pattern - lower tensor.pack operations that pack constants.
+// copied from tpp - lower tensor.pack operations that pack constants.
 struct LowerConstantPacking : public OpRewritePattern<tensor::PackOp> {
   using OpRewritePattern<tensor::PackOp>::OpRewritePattern;
 
@@ -67,11 +60,9 @@ struct LowerConstantPacking : public OpRewritePattern<tensor::PackOp> {
   }
 };
 
-static void tppPopulateConstantFoldPack(RewritePatternSet &patterns) {
+static void populateConstantFoldPacking(RewritePatternSet &patterns) {
   MLIRContext *ctx = patterns.getContext();
   patterns.add<LowerConstantPacking>(ctx);
-  // Apply canonicalization to fold trivial cases and linalg constant folders
-  // to cleanup lowered packs.
   linalg::FillOp::getCanonicalizationPatterns(patterns, ctx);
   tensor::PackOp::getCanonicalizationPatterns(patterns, ctx);
   tensor::populateRewriteAsConstantPatterns(
@@ -139,7 +130,7 @@ public:
   void runOnOperation() final;
 };
 
-static void tppPopulateSimplifyPacking(RewritePatternSet &patterns) {
+static void populateSimplifyPacking(RewritePatternSet &patterns) {
   MLIRContext *ctx = patterns.getContext();
   tensor::populateSimplifyPackAndUnpackPatterns(patterns);
   tensor::populateFoldTensorEmptyPatterns(patterns);
@@ -153,26 +144,21 @@ static void tppPopulateSimplifyPacking(RewritePatternSet &patterns) {
   tensor::PadOp::getCanonicalizationPatterns(patterns, ctx);
   tensor::ParallelInsertSliceOp::getCanonicalizationPatterns(patterns, ctx);
   scf::ForallOp::getCanonicalizationPatterns(patterns, ctx);
-  // Propagate packs/unpacks only through expand shapes at this point.
-  // This captures the transformation scope of the replaced downstream pass.
-  linalg::populateDataLayoutPropagationPatterns(patterns, [](OpOperand *op) {
-    return isa<tensor::ExpandShapeOp>(op->getOwner());
-  });
   ctx->getLoadedDialect<tensor::TensorDialect>()->getCanonicalizationPatterns(
       patterns);
-  // patterns.add<FoldUnPackIntoInsertSlice>(ctx);
   tensor::populateReassociativeReshapeFoldingPatterns(patterns);
 }
 
 void PostProcessPackUnpack::runOnOperation() {
   auto *ctx = &getContext();
   RewritePatternSet patterns(ctx);
-  // constant fold packing
-  tppPopulateConstantFoldPack(patterns);
+  // constant fold packing and transpose
+  populateConstantFoldPacking(patterns);
   // simplify packing
-  tppPopulateSimplifyPacking(patterns);
-  // gc new packing related simplification
+  populateSimplifyPacking(patterns);
   populateEliminateDummyPackUnpack(patterns);
+  // simplify transpose inserted to perform packing
+  linalg::TransposeOp::getCanonicalizationPatterns(patterns, ctx);
   (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
 
