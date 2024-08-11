@@ -6,7 +6,6 @@
 //===----------------------------------------------------------------------===//
 
 #include <memory>
-#include <numeric>
 
 #include "gc/Analysis/GlobalAnalysis.h"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
@@ -60,7 +59,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
 }
 
 // infer the relation between two indexing maps
-// returns target dim -> base dim, means target is the same as input
+// returns target dim -> base dim, means target is the same as base
 // we don't allow duplication, e.g. 2 target corresponding to 1 base
 static FailureOr<DenseMap<int64_t, int64_t>>
 inferIndexingMapRelation(AffineMap indexingMapBase,
@@ -208,7 +207,8 @@ projectToInnerMostNonUnitDimsPos(ArrayRef<int64_t> dimsPos,
   return projectedDimsPos;
 }
 
-/// Check if all dims in dimsPos are divisible by the corresponding tile sizes.
+// copied from mlir
+// Check if all dims in dimsPos are divisible by the corresponding tile sizes.
 static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
                                        ArrayRef<int64_t> shape,
                                        ArrayRef<int64_t> tileSizes) {
@@ -221,11 +221,12 @@ static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
 }
 
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
+  IRRewriter rewriter(root);
   root->walk([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
       auto curInputs = linalgOp.getDpsInputOperands();
       auto curResults = linalgOp.getOperation()->getResults();
-      // ---------------- Get Current Input Layouts -------------------
+      // get current op's input layouts
       SmallVector<TensorLayout> curInputLayouts;
       for (auto input : curInputs) {
         auto parent = input->get().getDefiningOp();
@@ -237,8 +238,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
               linalgOp.getMatchingIndexingMap(input).getNumResults()));
         }
       }
-      // ------ Get Current Op's Suggested Layout & Do Propagation ------
-      IRRewriter rewriter(linalgOp);
+      // infer current op's output layout accordingly
       if (supportedContractionNamedOpList(linalgOp)) {
         // infer layout for linalg contraction named ops
         auto ARank = cast<ShapedType>(linalgOp.getDpsInputs()[0].getType())
@@ -266,7 +266,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
             MatmulConfigAnalysis(linalgOp.getOperation()).getConfig();
         uint32_t iim = cfg.innerMostKBlock, iin = cfg.innerMostNBlock,
                  iik = cfg.innerMostKBlock;
-        // current layout is MKmk, NKkn, MNmn
+        // current default layout is MKmk, NKkn, MNmn
         TensorLayout ALayout(
             APackInfo.first, APackInfo.second,
             SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
@@ -281,12 +281,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
                                       rewriter.getIndexAttr(iin)});
         OperatorLayout suggestedLayout({ALayout, BLayout}, {CLayout});
         layoutCache[linalgOp] = suggestedLayout;
-        LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
-                                << " is: " << suggestedLayout << "\n");
-      } else if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
-                 !isa<linalg::ConvolutionOpInterface>(
-                     linalgOp.getOperation()) &&
-                 !supportedContractionNamedOpList(linalgOp)) {
+      } else if (mlir::gc::utils::isPackableNamedOp(op)) {
         // infer layout for non-contraction/non-convolution linalg named ops
         // and linalg generic ops
         SmallVector<TensorLayout> inputLayouts, outputLayouts;
@@ -318,8 +313,6 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         outputLayouts.push_back(outputLayout);
         OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
         layoutCache[linalgOp] = suggestedLayout;
-        LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
-                                << " is: " << suggestedLayout << "\n");
       }
     } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
       auto inputOperand = padOp.getSource();
@@ -334,8 +327,6 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           outputLayouts{curInputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[padOp] = suggestedLayout;
-      LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
-                              << " is: " << suggestedLayout << "\n");
     } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
       SmallVector<ReassociationIndices> reassocIndices =
           expandShapeOp.getReassociationIndices();
@@ -375,8 +366,6 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           outputLayouts{outputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[expandShapeOp] = suggestedLayout;
-      LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
-                              << " is: " << suggestedLayout << "\n");
     } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
       SmallVector<ReassociationIndices> reassocIndices =
           collapseShapeOp.getReassociationIndices();
@@ -442,8 +431,10 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           outputLayouts{outputLayout};
       OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
       layoutCache[collapseShapeOp] = suggestedLayout;
+    }
+    if (layoutCache.find(op) != layoutCache.end()) {
       LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
-                              << " is: " << suggestedLayout << "\n");
+                              << " is: " << layoutCache[op] << "\n");
     }
     return WalkResult::advance();
   });
@@ -452,7 +443,9 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 namespace utils {
 bool isPackableNamedOp(Operation *op) {
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-    if (!supportedContractionNamedOpList(linalgOp)) {
+    if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
+        !isa<linalg::ConvolutionOpInterface>(linalgOp.getOperation()) &&
+        !supportedContractionNamedOpList(linalgOp)) {
       return true;
     }
   } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::PadOp>(

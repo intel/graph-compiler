@@ -31,12 +31,18 @@ public:
     assert(innerAxis.size() == tileSizes.size());
   }
 
-  bool isPlainLayout() const {
+  static bool isPlainOuterAxis(ArrayRef<int64_t> outerAxis) {
     for (int64_t i = 0; i < static_cast<int64_t>(outerAxis.size()); ++i) {
       if (i != outerAxis[i])
         return false;
     }
-    return tileSizes.empty() && innerAxis.empty();
+    return true;
+  }
+
+  bool isPlainLayout() const {
+    if (isPlainOuterAxis(outerAxis))
+      return tileSizes.empty() && innerAxis.empty();
+    return false;
   }
 
   static TensorLayout createPlainLayout(int64_t rank) {

@@ -44,10 +44,11 @@ static Value insertLayoutPack(RewriterBase &rewriter, Location loc, Value input,
     return rewriter.create<tensor::PackOp>(
         loc, input, dest, innerDimsPos, innerTiles,
         /*padding=*/std::nullopt, outerDimsPerm);
-  else {
+  if (!TensorLayout::isPlainOuterAxis(outerDimsPerm)) {
     return rewriter.create<linalg::TransposeOp>(loc, input, dest, outerDimsPerm)
         .getResults()[0];
   }
+  return input;
 }
 
 // insert unpack when innerPosDims is non-empty
@@ -61,7 +62,8 @@ static Value insertLayoutUnpack(RewriterBase &rewriter, Location loc,
   if (!innerDimsPos.empty()) {
     return rewriter.create<tensor::UnPackOp>(loc, input, dest, innerDimsPos,
                                              innerTiles, outerDimsPerm);
-  } else {
+  }
+  if (!TensorLayout::isPlainOuterAxis(outerDimsPerm)) {
     // inverse the permutationVector
     SmallVector<int64_t> permAxes(outerDimsPerm.size());
     for (auto [idx, axis] : llvm::enumerate(outerDimsPerm)) {
@@ -70,6 +72,7 @@ static Value insertLayoutUnpack(RewriterBase &rewriter, Location loc,
     return rewriter.create<linalg::TransposeOp>(loc, input, dest, permAxes)
         .getResults()[0];
   }
+  return input;
 }
 
 static SmallVector<int64_t> getPackedAxes(ArrayRef<int64_t> dimensions,
