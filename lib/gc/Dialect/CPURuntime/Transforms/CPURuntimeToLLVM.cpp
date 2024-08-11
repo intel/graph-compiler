@@ -130,7 +130,7 @@ public:
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
     auto allocFunc = getOrDefineFunction(
         moduleOp, loc, rewriter,
-        adaptor.getThreadLocal() ? "gcThreadAlignedMalloc" : "gcAlignedMalloc",
+        adaptor.getThreadLocal() ? "umfAlignedMalloc" : "umfAlignedMalloc",
         LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr},
                                     /*isVarArg*/ false));
 
@@ -173,7 +173,7 @@ public:
     mlir::Type llvmVoidType = LLVM::LLVMVoidType::get(context);
     auto deallocFunc = getOrDefineFunction(
         moduleOp, loc, rewriter,
-        adaptor.getThreadLocal() ? "gcThreadAlignedFree" : "gcAlignedFree",
+        adaptor.getThreadLocal() ? "umfAlignedFree" : "umfAlignedFree",
         LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ false));
     Value pointer =
         MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);

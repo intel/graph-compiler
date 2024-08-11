@@ -4,6 +4,7 @@ gc_add_mlir_library(GcCpuRuntime
     SHARED
     Parallel.cpp
     MemoryPool.cpp
+    UnifiedMemoryFramework.cpp
 
     LINK_LIBS PUBLIC
     GcInterface
@@ -23,3 +24,4 @@ target_link_options(GcCpuRuntime PUBLIC ${flags})
 include(umf)
 get_property(UMF_INCLUDES GLOBAL PROPERTY UMF_INCLUDES)
 target_include_directories(GcCpuRuntime PRIVATE ${UMF_INCLUDES})
+target_link_libraries(GcCpuRuntime PRIVATE umf)
