@@ -156,7 +156,8 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
     return success();
 
   SmallVector<OpFoldResult> tileSizes = candidate.getMixedSizes();
-  // collect target TileSizes and InnerTileSize to compare
+  // collect target tileSizesOnInnerDims to compare with `inner_tiles` of
+  // `PackOp` or `unPackOp`.
   SmallVector<OpFoldResult> tileSizesOnInnerDims, innerTiles;
   if (auto packOp = dyn_cast<tensor::PackOp>(defOrUse.ownerOp)) {
     innerTiles = packOp.getMixedTiles();
@@ -186,7 +187,7 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
     }
   }
 
-  // check tileSizes is full on or multiple of `inner_tile_size`
+  // check tileSizes is full on or multiple of `inner_tiles`
   for (auto [tile, innerTile] :
        llvm::zip_equal(tileSizesOnInnerDims, innerTiles)) {
     if (isEqualConstantIntOrValue(tile, innerTile))
