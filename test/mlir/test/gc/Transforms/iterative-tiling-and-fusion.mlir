@@ -334,3 +334,23 @@ module {
     return %2 : tensor<128x256x256xf32>
   }
 }
+
+// -----
+
+module {
+  /// CHECK-LABEL: @not_fuse_pack
+  func.func @not_fuse_pack(%arg0: tensor<1x32x4096xbf16>, %arg1: tensor<1x32x4096xbf16>) -> tensor<1x1x128x32x32xbf16> {
+    %dest0 = tensor.empty() : tensor<1x32x4096xbf16>
+    /// CHECK: scf.forall
+    /// CHECK: linalg.add
+    %add = linalg.add ins(%arg0, %arg1 : tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>) outs(%dest0 : tensor<1x32x4096xbf16>) -> tensor<1x32x4096xbf16>
+    /// CHECK: }
+    %dest1 = tensor.empty() : tensor<1x1x128x32x32xbf16>
+    /// CHECK: %[[PACK_OUT:.*]] = scf.forall
+    /// CHECK: tensor.pack
+    %pack = tensor.pack %add outer_dims_perm = [0, 1, 2] inner_dims_pos = [1, 2] inner_tiles = [32, 32] into %dest1 : tensor<1x32x4096xbf16> -> tensor<1x1x128x32x32xbf16>
+    /// CHECK: }
+    /// CHECK: return %[[PACK_OUT]]
+    return %pack : tensor<1x1x128x32x32xbf16>
+  }
+}
