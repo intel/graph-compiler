@@ -681,6 +681,90 @@ fixTerminatorSCFInParallel(RewriterBase &rewriter, scf::ForallOp newForallOp,
   }
 }
 
+/// To solve following residual topology:
+///
+///   op1
+///   /  \
+///   |  op2
+///   |   /
+///   op3
+///
+/// Where the possible IR may appears like below before fusing `op3`:
+///
+/// ```
+/// %1:2 = scf.for() {
+///     %2 = tiled_op1
+///     %3 = tiled_op2
+///     %4 = insert_slice %2
+///     %5 = insert_slice %3
+///     yield %4, %5
+/// }
+/// op3 ins(%1#1, %1#2)
+/// ```
+///
+/// Although current fuse consumer only accepts single one candidate slice such
+/// as `%4`, in fact, `%5` is another regarding slice which produces the operand
+/// of untiled `op3`. Thus, is is necessary to find all of them and ensure that
+/// they are pretty matched.
+///
+/// @param loopOp: loop operation
+/// @param consumerOp: consumer operation
+/// @param curOperandNumber: operand number of current candidate slice
+/// @param otherOperandSliceMap: operand number to other slice mapping
+/// @return LogicalResult: Return `success` only if all operand slice are found.
+static LogicalResult findOtherOperandSlice(
+    Operation *loopOp, Operation *consumerOp, unsigned curOperandNumber,
+    DenseMap<unsigned, OffsetSizeAndStrideOpInterface> &otherOperandSliceMap) {
+  otherOperandSliceMap.clear();
+  SmallVector<OpOperand *> otherUseOfLoop;
+  for (auto &&[en, v] : llvm::enumerate(consumerOp->getOpOperands())) {
+    if (en == curOperandNumber)
+      continue;
+    if (v.get().getDefiningOp() == loopOp)
+      otherUseOfLoop.push_back(&v);
+  }
+  if (otherUseOfLoop.empty())
+    return success();
+  if (auto forallOp = dyn_cast<scf::ForallOp>(loopOp)) {
+    for (auto &use : otherUseOfLoop) {
+      tensor::ParallelInsertSliceOp sliceOp;
+      for (auto &useOfResult :
+           forallOp
+               .getRegionIterArgs()[dyn_cast<OpResult>(use->get())
+                                        .getResultNumber()]
+               .getUses()) {
+        if (isa<tensor::ParallelInsertSliceOp>(useOfResult.getOwner())) {
+          if (llvm::detail::isPresent(sliceOp))
+            return failure();
+          sliceOp = cast<tensor::ParallelInsertSliceOp>(useOfResult.getOwner());
+          otherOperandSliceMap[use->getOperandNumber()] =
+              cast<OffsetSizeAndStrideOpInterface>(sliceOp.getOperation());
+        }
+      }
+      if (!llvm::detail::isPresent(sliceOp))
+        return failure();
+    }
+  } else if (auto forOp = dyn_cast<scf::ForOp>(loopOp)) {
+    for (auto &use : otherUseOfLoop) {
+      OpOperand *yieldValue = forOp.getTiedLoopYieldedValue(
+          forOp.getTiedLoopRegionIterArg(dyn_cast<OpResult>(use->get())));
+      Operation *yieldValueProducer = yieldValue->get().getDefiningOp();
+      while (!isa<tensor::InsertSliceOp>(yieldValueProducer)) {
+        if (!isa<scf::ForOp>(yieldValueProducer))
+          return failure();
+        scf::ForOp innerForOp = cast<scf::ForOp>(yieldValueProducer);
+        yieldValue = innerForOp.getTiedLoopYieldedValue(
+            innerForOp.getTiedLoopRegionIterArg(
+                dyn_cast<OpResult>(yieldValue->get())));
+        yieldValueProducer = yieldValue->get().getDefiningOp();
+      }
+      otherOperandSliceMap[use->getOperandNumber()] =
+          cast<OffsetSizeAndStrideOpInterface>(yieldValueProducer);
+    }
+  }
+  return success();
+}
+
 /// Implementation of fusing consumer of a single slice by computing the
 /// slice of the consumer in-place for scf loop.
 /// As for `insertSlice`, it also supports nest outer loop structure without
@@ -759,9 +843,19 @@ tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
                          "and no suitable insertPoint is found");
   }
 
+  // 2.b Check containing loop op has no more than one uses in consumerOp,
+  // otherwise, it must find all other slices.
+  DenseMap<unsigned int, OffsetSizeAndStrideOpInterface> otherOperandSliceMap;
+  if (failed(findOtherOperandSlice(oldTopLevelLoop, consumerOp, operandNumber,
+                                   otherOperandSliceMap))) {
+    return rewriter.notifyMatchFailure(
+        oldTopLevelLoop, "containing loop op has more than one uses in "
+                         "consumerOp, but could not find all other slices");
+  }
+
   OpBuilder::InsertionGuard g(rewriter);
 
-  // 2.b Check consumer is not using scf loop's output as init.
+  // 2.c Check consumer is not using scf loop's output as init.
   auto dstOp = dyn_cast<DestinationStyleOpInterface>(consumerOp);
   if (!dstOp)
     return rewriter.notifyMatchFailure(consumerOp,
@@ -895,13 +989,33 @@ tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
         candidateSliceOp, "containingOp's result yield with stride");
   }
 
-  // 10. Try to get iter domain position from input position.
+  // 10.a. Try to get iter domain position from input position.
   SmallVector<OpFoldResult> iterDomainOffsets, iterDomainSizes;
   if (failed(clonedConsumerOp.getIterationDomainTileFromOperandTile(
           rewriter, operandNumber, offsets, sizes, iterDomainOffsets,
           iterDomainSizes))) {
     return rewriter.notifyMatchFailure(
         clonedConsumerOp, "can't get iter domain position from input position");
+  }
+
+  if (!otherOperandSliceMap.empty()) {
+    for (auto &&[otherOperandNumber, otherSlice] : otherOperandSliceMap) {
+      // 10.b. Check if all inferred `tileOffset` and `tileSize` of iteration
+      // domain based on different operands are matched.
+      SmallVector<OpFoldResult> otherIterDomainOffsets, otherIterDomainSizes;
+      if (failed(clonedConsumerOp.getIterationDomainTileFromOperandTile(
+              rewriter, otherOperandNumber, otherSlice.getMixedOffsets(),
+              otherSlice.getMixedSizes(), otherIterDomainOffsets,
+              otherIterDomainSizes)) ||
+          (iterDomainOffsets != otherIterDomainOffsets ||
+           iterDomainSizes != otherIterDomainSizes)) {
+        return rewriter.notifyMatchFailure(
+            otherSlice, "does not match with candidate slice");
+      }
+      rewriter.replaceAllUsesWith(
+          tileAndFuseResult->tiledOps[0]->getOperand(otherOperandNumber),
+          otherSlice->getOperand(0));
+    }
   }
 
   // 11. Try to fetch the offset and size for all results of the cloned
