@@ -26,11 +26,11 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Transforms/Microkernel/MicrokernelPasses.h"
+#include "gc/Transforms/Passes.h"
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
-#include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
 
@@ -112,13 +112,17 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + func/microkernel
 void populateMicroKernelPasses(mlir::OpPassManager &pm) {
-  // todo: ConvertLinalgToMicrokernel pass
-  // todo: CleanupInvalidMicrokernel pass
-  // todo: InvariantMicrokernelMotion pass
-  // todo: ConvertMicrokernelToDnnlFunc to lower brgemm to dnnl call
-  // todo: ConvertMicrokernelToXsmm, to lower brgemm to libxsmm call
-  // todo: LowerMicrokernel pass
-  // todo: DispatchMicrokernel
+  pm.addNestedPass<func::FuncOp>(
+      mlir::microkernel::createConvertLinalgToMicrokernel());
+  pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
+  pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
+  pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
+  pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  // pm.addPass(createRemoveDeadValuesPass());
+  // pm.addPass(createInlinerPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"MicroKernel passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
