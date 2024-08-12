@@ -365,49 +365,46 @@ PackingAttr getPackingAttr(PackingType opType) {
 }
 
 /// Generic Utils
-using IteratorTypeMap = DenseMap<AffineExpr, utils::IteratorType>;
-/// Use a common order to renumber the dim id to get conanicalized indexing maps
-/// and iterator types, so loop order invariant comparison can be carried out
-void remapGenericAttrDims(MLIRContext *context,
-                          ArrayRef<AffineMap> indexingMaps,
-                          ArrayRef<utils::IteratorType> iteratorTypes,
-                          SmallVector<AffineMap> &retMaps,
-                          IteratorTypeMap &retIters) {
-  size_t dimSize = iteratorTypes.size();
-  DenseMap<AffineExpr, AffineExpr> replaceMap;
-  // get shape-to-loop map
-  AffineMap inverse = inversePermutation(concatAffineMaps(indexingMaps));
-  assert(inverse && "shape-to-loops map to be non-null");
-  assert(dimSize == inverse.getResults().size());
-  // renumber the dim id based on shape-to-loop map
-  // get a replacement map and new iterator types arr
-  for (auto [idx, expr] : llvm::enumerate(inverse.getResults())) {
-    replaceMap[getAffineDimExpr(idx, context)] = expr;
-    retIters[expr] = iteratorTypes[idx];
-  }
-  // replace old dims id with new ones in indexing maps
-  for (auto map : indexingMaps) {
-    retMaps.push_back(map.replace(replaceMap));
-  }
-}
-
 bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
                              ShapedType shapeB, ShapedType shapeC,
                              const PackingAttr &attr) {
   MLIRContext *context = op.getContext();
-  // conanicalize ref attrs
+  /// Use a common order to renumber the dim id to get remapped indexing maps
+  /// and iterator types, so loop order invariant comparison can be performed
+  using IteratorTypeMap = DenseMap<AffineExpr, utils::IteratorType>;
+  auto remapAttrDims =
+      [&](ArrayRef<AffineMap> inMaps, ArrayRef<utils::IteratorType> inIters,
+          SmallVector<AffineMap> &retMaps, IteratorTypeMap &retIters) {
+        size_t dimSize = inIters.size();
+        DenseMap<AffineExpr, AffineExpr> replaceMap;
+        // get shape-to-loop map
+        AffineMap inverse = inversePermutation(concatAffineMaps(inMaps));
+        assert(inverse && "shape-to-loops map to be non-null");
+        assert(dimSize == inverse.getResults().size());
+        // renumber the dim id based on shape-to-loop map
+        // get a replacement map and new iterator types arr
+        for (auto [idx, expr] : llvm::enumerate(inverse.getResults())) {
+          replaceMap[getAffineDimExpr(idx, context)] = expr;
+          retIters[expr] = inIters[idx];
+        }
+        // replace old dim id with new ones in indexing maps
+        for (auto map : inMaps) {
+          retMaps.push_back(map.replace(replaceMap));
+        }
+      };
+  // re-mapped ref attrs
   SmallVector<AffineMap> mapsRef;
   IteratorTypeMap itersRef;
-  remapGenericAttrDims(context, //
-                       getIndexingMaps(context, shapeA, shapeB, shapeC, attr),
-                       getIteratorTypesArray(attr), mapsRef, itersRef);
-  // conanicalize op attrs
+  remapAttrDims(getIndexingMaps(context, shapeA, shapeB, shapeC, attr), //
+                getIteratorTypesArray(attr),                            //
+                mapsRef, itersRef);
+  // re-mapped op attrs
   SmallVector<AffineMap> mapsOp;
   IteratorTypeMap itersOp;
-  remapGenericAttrDims(context, //
-                       op.getIndexingMapsArray(), op.getIteratorTypesArray(),
-                       mapsOp, itersOp);
-  // compare equivalence
+  remapAttrDims(op.getIndexingMapsArray(),  //
+                op.getIteratorTypesArray(), //
+                mapsOp, itersOp);
+  // check equivalence
   return llvm::equal(mapsRef, mapsOp) && llvm::equal(itersRef, itersOp);
 }
 
