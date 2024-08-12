@@ -368,7 +368,7 @@ PackingAttr getPackingAttr(PackingType opType) {
 using IteratorTypeMap = DenseMap<AffineExpr, utils::IteratorType>;
 /// Use a common order to renumber the dim id to get conanicalized indexing maps
 /// and iterator types, so loop order invariant comparison can be carried out
-bool reorderGenericAttrDims(MLIRContext *context,
+void reorderGenericAttrDims(MLIRContext *context,
                             ArrayRef<AffineMap> indexingMaps,
                             ArrayRef<utils::IteratorType> iteratorTypes,
                             SmallVector<AffineMap> &retMaps,
@@ -378,13 +378,10 @@ bool reorderGenericAttrDims(MLIRContext *context,
   // get shape-to-loop map
   AffineMap inverse = inversePermutation(concatAffineMaps(indexingMaps));
   assert(inverse && "shape-to-loops map to be non-null");
-  ArrayRef<AffineExpr> results = inverse.getResults();
-  if (dimSize != results.size()) {
-    return false;
-  }
+  assert(dimSize == inverse.getResults().size());
   // renumber the dim id based on shape-to-loop map
   // get a replacement map and new iterator types arr
-  for (auto [idx, expr] : llvm::enumerate(results)) {
+  for (auto [idx, expr] : llvm::enumerate(inverse.getResults())) {
     replaceMap[getAffineDimExpr(idx, context)] = expr;
     retIters[expr] = iteratorTypes[idx];
   }
@@ -392,7 +389,6 @@ bool reorderGenericAttrDims(MLIRContext *context,
   for (auto map : indexingMaps) {
     retMaps.push_back(map.replace(replaceMap));
   }
-  return true;
 }
 
 bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
@@ -402,7 +398,7 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
   // conanicalize ref attrs
   SmallVector<AffineMap> mapsRef;
   IteratorTypeMap itersRef;
-  bool retRef = reorderGenericAttrDims(                       //
+  reorderGenericAttrDims(                                     //
       context,                                                //
       getIndexingMaps(context, shapeA, shapeB, shapeC, attr), //
       getIteratorTypesArray(attr),                            //
@@ -410,14 +406,13 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
   // conanicalize op attrs
   SmallVector<AffineMap> mapsOp;
   IteratorTypeMap itersOp;
-  bool retOp = reorderGenericAttrDims( //
-      context,                         //
-      op.getIndexingMapsArray(),       //
-      op.getIteratorTypesArray(),      //
+  reorderGenericAttrDims(         //
+      context,                    //
+      op.getIndexingMapsArray(),  //
+      op.getIteratorTypesArray(), //
       mapsOp, itersOp);
   // compare equivalence
-  return retRef && retOp && llvm::equal(mapsRef, mapsOp) &&
-         llvm::equal(itersRef, itersOp);
+  return llvm::equal(mapsRef, mapsOp) && llvm::equal(itersRef, itersOp);
 }
 
 /// Packing Matmul Utils
