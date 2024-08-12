@@ -113,6 +113,12 @@ LogicalResult emitError(StringRef msg) {
 }
 
 /// Verify Utils
+/// Since the mapping is explicit, these are the criteria to verify this op:
+/// 1. packing matmul input/output must have rank
+/// 2. packing matmul batch dims must be valid
+/// 3. all dims mapped inside packing matmul must be permutation of its dims
+/// 4. all of mapping dims must match size
+/// 5. dynamic dims are viewed as invalid for now
 bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
                    const PackingAttr &attr) {
   // check rank
@@ -359,6 +365,8 @@ PackingAttr getPackingAttr(PackingType opType) {
 }
 
 /// Generic Utils
+/// Use a common order to renumber the dim id to get conanicalized indexing maps
+/// and iterator types, so loop order invariant comparison can be carried out
 bool reorderGenericAttrDims(MLIRContext *context,
                             ArrayRef<AffineMap> indexingMaps,
                             ArrayRef<utils::IteratorType> iteratorTypes,
