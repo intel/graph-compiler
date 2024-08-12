@@ -190,10 +190,7 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
   bool matchN = matchDims(attr.nPacking, shapeB, shapeC);
   bool matchK = matchDims(attr.kPacking, shapeA, shapeB);
   bool checkMatch = matchBatch(attr.batchDimMap) && matchM && matchN && matchK;
-  if (!checkMatch)
-    return false;
-
-  return true;
+  return checkMatch;
 }
 
 /// IteratorTypes Utils
@@ -336,8 +333,6 @@ PackingAttr getPackingAttr(PackingType opType) {
     attr.nPacking = {PackingMap{{2}, {1}}};
     attr.kPacking = {PackingMap{{2}, {1, 3}}};
   } break;
-  default:
-    break;
   }
   return attr;
 }
