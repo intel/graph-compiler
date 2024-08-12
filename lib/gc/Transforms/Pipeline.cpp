@@ -50,24 +50,33 @@ void populateFrontendPasses(mlir::OpPassManager &pm) {
 void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
+  pm.addPass(createPrintIRPass());
   pm.addPass(createPropagateLayoutOnNamedOps());
+  pm.addPass(createPrintIRPass());
   pm.addPass(createPostProcessPackUnpack());
+  pm.addPass(createPrintIRPass());
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
+  pm.addPass(createPrintIRPass());
 
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
+  pm.addPass(createPrintIRPass());
   // todo: fine-grain fusion pass
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  pm.addPass(createPrintIRPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createPrintIRPass());
   pm.addPass(createControlFlowSinkPass());
+  pm.addPass(createPrintIRPass());
   // TODO(yifei): remove lower pack here
   pm.addPass(createLowerPackUnpack());
+  pm.addPass(createPrintIRPass());
   populateCleanUpPasses(pm);
 }
 

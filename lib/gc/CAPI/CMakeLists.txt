@@ -2,7 +2,8 @@ set(GC_ALL_LIBS
   ${GC_ONEDNN_DIALECT_LIB_NAME}
   GcPasses
   GcAnalysis
-  MLIRCPURuntimeTransforms)
+  MLIRCPURuntimeTransforms
+  MLIRMicrokernelTransforms)
 
 if(GC_ENABLE_IMEX)
   list(APPEND GC_ALL_LIBS GcGpuPasses)
