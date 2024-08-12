@@ -3,8 +3,8 @@ name: Graph Compiler build
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    #    branches:
+    #  - main
   pull_request:
     branches:
       - main
@@ -14,7 +14,7 @@ permissions: read-all
 jobs:
   build:
     name: Build
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, pvc]
 
     env:
       GH_TOKEN: ${{ github.token }}    
