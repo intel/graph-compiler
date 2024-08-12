@@ -68,8 +68,6 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
 
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
-  pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
-  pm.addPass(createPrintIRPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createPrintIRPass());
   pm.addPass(createControlFlowSinkPass());
