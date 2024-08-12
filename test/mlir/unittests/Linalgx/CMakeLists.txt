@@ -4,4 +4,6 @@ add_mlir_unittest(GCLinalgxTests
 target_link_libraries(GCLinalgxTests
   PRIVATE
   MLIRLinalgx
+  ${dialect_libs}
+  ${conversion_libs}
   ${MLIR_LINK_COMPONENTS})
