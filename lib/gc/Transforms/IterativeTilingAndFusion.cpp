@@ -156,58 +156,48 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
     return success();
 
   SmallVector<OpFoldResult> tileSizes = candidate.getMixedSizes();
-  // collect target TileSizes and InnerTileSize to compare
-  SmallVector<OpFoldResult> targetTileSizes, targetInnerTileSizes;
+  // collect target tileSizesOnInnerDims to compare with `inner_tiles` of
+  // `PackOp` or `unPackOp`.
+  SmallVector<OpFoldResult> tileSizesOnInnerDims, innerTiles;
   if (auto packOp = dyn_cast<tensor::PackOp>(defOrUse.ownerOp)) {
+    innerTiles = packOp.getMixedTiles();
     // tileSize comes from OpResult
     if (defOrUse.isDef()) {
-      targetInnerTileSizes = packOp.getMixedTiles();
-      targetTileSizes = llvm::to_vector(
-          ArrayRef(tileSizes).take_back(targetInnerTileSizes.size()));
+      tileSizesOnInnerDims =
+          llvm::to_vector(ArrayRef(tileSizes).take_back(innerTiles.size()));
     } else {
       // tileSize comes from OpOperand
-      targetTileSizes = tileSizes;
-      DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
-          packOp.getDimAndTileMapping();
-      targetInnerTileSizes.resize(dimAndTileMapping.size());
-      for (const auto &dimAndTile : dimAndTileMapping) {
-        targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
+      ArrayRef<int64_t> innerDimPos = packOp.getInnerDimsPos();
+      for (auto &pos : innerDimPos) {
+        tileSizesOnInnerDims.push_back(tileSizes[pos]);
       }
     }
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(defOrUse.ownerOp)) {
+    innerTiles = unPackOp.getMixedTiles();
     // tileSize comes from OpResult
     if (defOrUse.isDef()) {
-      targetTileSizes = tileSizes;
-      DenseMap<int64_t, OpFoldResult> dimAndTileMapping =
-          unPackOp.getDimAndTileMapping();
-      if (dimAndTileMapping.empty())
-        return failure();
-      targetInnerTileSizes.resize(dimAndTileMapping.size());
-      for (const auto &dimAndTile : dimAndTileMapping) {
-        targetInnerTileSizes[dimAndTile.first] = dimAndTile.second;
+      ArrayRef<int64_t> innerDimPos = unPackOp.getInnerDimsPos();
+      for (auto &pos : innerDimPos) {
+        tileSizesOnInnerDims.push_back(tileSizes[pos]);
       }
     } else {
       // tileSize comes from OpOperand
-      targetInnerTileSizes = unPackOp.getMixedTiles();
-      targetTileSizes = llvm::to_vector(
-          ArrayRef(tileSizes).take_back(targetInnerTileSizes.size()));
+      tileSizesOnInnerDims =
+          llvm::to_vector(ArrayRef(tileSizes).take_back(innerTiles.size()));
     }
   }
 
-  // check tileSizes is full on or multiple of `inner_tile_size`
+  // check tileSizes is full on or multiple of `inner_tiles`
   for (auto [tile, innerTile] :
-       llvm::zip_equal(targetTileSizes, targetInnerTileSizes)) {
+       llvm::zip_equal(tileSizesOnInnerDims, innerTiles)) {
     if (isEqualConstantIntOrValue(tile, innerTile))
       continue;
     FailureOr<int64_t> cstSize = ValueBoundsConstraintSet::computeConstantBound(
         presburger::BoundType::UB, tile,
         /*stopCondition=*/nullptr, /*closedUB=*/true);
     std::optional<int64_t> cstInnerSize = getConstantIntValue(innerTile);
-    if (!failed(cstSize) && cstInnerSize) {
-      if (*cstSize % *cstInnerSize == 0)
-        continue;
-    }
-    return failure();
+    if (failed(cstSize) || !cstInnerSize || (*cstSize % *cstInnerSize != 0))
+      return failure();
   }
   return success();
 }
@@ -220,7 +210,7 @@ static LogicalResult unTiledOpFilter(RewriterBase &rewriter,
 }
 
 static LogicalResult
-NonContractionOpFilter(RewriterBase &rewriter,
+nonContractionOpFilter(RewriterBase &rewriter,
                        OffsetSizeAndStrideOpInterface candidate,
                        CandidateDefOrUse defOrUse) {
   // Currently this pass focuses on fine-grained fusion, which does not expect
@@ -228,19 +218,37 @@ NonContractionOpFilter(RewriterBase &rewriter,
   return failure(isa<mlir::linalg::ContractionOpInterface>(defOrUse.ownerOp));
 }
 
+/// If fusing multiple consumers is allowed, there may exist following cases:
+///
+/// ```
+/// %1:2 = scf.for() {
+///     %2 = tiled_op1
+///     %3 = tiled_op2
+///     %4 = insert_slice %2
+///     %5 = insert_slice %3
+///     yield %4, %5
+/// }
+/// op3 ins(%1#1, %1#2)
+/// ```
+///
+/// Where we need to ensure their `tileOffset` and `tileSize` are matched well.
 static LogicalResult
-SingleCandidateInBlockFilter(RewriterBase &rewriter,
-                             OffsetSizeAndStrideOpInterface candidate,
-                             CandidateDefOrUse defOrUse) {
+tilingSizesIfMatchedFilter(RewriterBase &rewriter,
+                           OffsetSizeAndStrideOpInterface candidate,
+                           CandidateDefOrUse defOrUse) {
   Block *parent = candidate->getBlock();
+  // No matter candidates correspond to which operand or result of operation,
+  // align all of them to `tileOffset` and `tileSize` on iteration domain for
+  // easy comparision.
+  SmallVector<OpFoldResult> iterDomainOffsets, iterDomainSizes;
 
-  // a. traverse all ops contained in parent Block.
+  // a. traverse all ops contained in the same parent Block.
   for (auto &opInBlock : parent->getOperations()) {
     // b. skip candidate slice
     if (&opInBlock == candidate.getOperation())
       continue;
     // c. check if all the other sliceOp not defined or used by the same owner
-    // with candidate slice.
+    // with candidate slice. Otherwise, they must be pretty matched.
     if (auto otherCandidate =
             dyn_cast<OffsetSizeAndStrideOpInterface>(&opInBlock)) {
       if (defOrUse.isDef()) {
@@ -256,11 +264,50 @@ SingleCandidateInBlockFilter(RewriterBase &rewriter,
         FailureOr<SmallVector<OpOperand *>> realConsumers =
             scfX::getRealConsumersFromInsertSliceOp(otherCandidate,
                                                     forwardSlice);
+        // Record other operand of same owner.
+        OpOperand *otherOperandOfSameOwner = nullptr;
         if (succeeded(realConsumers) &&
-            llvm::any_of(*realConsumers, [&defOrUse](OpOperand *use) {
-              return use->getOwner() == defOrUse.ownerOp;
-            }))
-          return failure();
+            llvm::any_of(*realConsumers,
+                         [&defOrUse, &otherOperandOfSameOwner](OpOperand *use) {
+                           if (use->getOwner() != defOrUse.ownerOp)
+                             return false;
+                           otherOperandOfSameOwner = use;
+                           return true;
+                         })) {
+          assert(otherOperandOfSameOwner &&
+                 "other operand of same owner is not found");
+          // In avoid of repeated computation.
+          if (iterDomainOffsets.empty() || iterDomainSizes.empty()) {
+            // Compute `tileOffset` and `tileSize` on iteration domain based on
+            // given candidate.
+            rewriter.setInsertionPointAfter(candidate);
+            if (failed(cast<TilingInterface>(defOrUse.ownerOp)
+                           .getIterationDomainTileFromOperandTile(
+                               rewriter, defOrUse.operand->getOperandNumber(),
+                               candidate.getMixedOffsets(),
+                               candidate.getMixedSizes(), iterDomainOffsets,
+                               iterDomainSizes)))
+              return failure();
+          }
+          // Compute `tileOffset` and `tileSize` on iteration domain based on
+          // other candidate.
+          SmallVector<OpFoldResult> otherIterDomainOffsets,
+              otherIterDomainSizes;
+          rewriter.setInsertionPointAfter(otherCandidate);
+          if (failed(cast<TilingInterface>(defOrUse.ownerOp)
+                         .getIterationDomainTileFromOperandTile(
+                             rewriter,
+                             otherOperandOfSameOwner->getOperandNumber(),
+                             otherCandidate.getMixedOffsets(),
+                             otherCandidate.getMixedSizes(),
+                             otherIterDomainOffsets, otherIterDomainSizes)))
+            return failure();
+
+          // d. Check if all inferred `tileOffset` and `tileSize` of iteration
+          // domain from different operands are matched.
+          return success(iterDomainOffsets == otherIterDomainOffsets &&
+                         iterDomainSizes == otherIterDomainSizes);
+        }
       }
     }
   }
@@ -300,8 +347,8 @@ struct CandidateSliceFilterPipeLine
 
   SmallVector<CandidateSliceFilter> getDefaultPipeLine() {
     return SmallVector<CandidateSliceFilter>{
-        unTiledOpFilter, NonContractionOpFilter, noTilingOnReductionFilter,
-        exactTilingOnPackUnPackFilter, SingleCandidateInBlockFilter};
+        unTiledOpFilter, nonContractionOpFilter, noTilingOnReductionFilter,
+        exactTilingOnPackUnPackFilter, tilingSizesIfMatchedFilter};
   }
 
   LogicalResult filter(RewriterBase &rewriter,
@@ -331,7 +378,7 @@ computeTileSizeProductOfCandidate(OffsetSizeAndStrideOpInterface candidate) {
   return totalSize;
 }
 
-static int TilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
+static int tilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
                               OffsetSizeAndStrideOpInterface candidateB) {
   FailureOr<int64_t> sizeProductA =
                          computeTileSizeProductOfCandidate(candidateA),
@@ -352,7 +399,7 @@ struct CandidateSliceComparerPipeLine
   CandidateSliceComparerPipeLine() : CandidateSliceProcessPipeLine() {}
 
   SmallVector<CandidateSliceComparer> getDefaultPipeLine() {
-    return SmallVector<CandidateSliceComparer>{TilingSizeComparer};
+    return SmallVector<CandidateSliceComparer>{tilingSizeComparer};
   }
 
   bool compare(OffsetSizeAndStrideOpInterface candidateA,
@@ -466,8 +513,25 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
   SmallVector<OffsetSizeAndStrideOpInterface> forwardSlice;
   FailureOr<SmallVector<OpOperand *>> realConsumers =
       scfX::getRealConsumersFromInsertSliceOp(*closestSliceOp, forwardSlice);
-  if (failed(realConsumers))
+  if (failed(realConsumers) || realConsumers->empty())
     return std::nullopt;
+
+  auto moveOperandToLastUse = [](OpOperand *operand) -> bool {
+    Value::use_range uses = operand->get().getUses();
+    size_t numberUses = std::distance(uses.begin(), uses.end());
+    if (numberUses == 1)
+      return true;
+    auto iter = llvm::find(uses, *operand);
+    if (iter == uses.end())
+      return false;
+    unsigned index = std::distance(uses.begin(), iter);
+    SmallVector<unsigned> indices =
+        llvm::to_vector(llvm::seq<unsigned>(0, numberUses));
+    indices.push_back(indices[index]);
+    indices.erase(indices.begin() + index);
+    operand->get().shuffleUseList(indices);
+    return true;
+  };
 
   SmallVector<scf::SCFFuseConsumerOfSliceResult> fusedResultList;
   for (auto useOperand : *realConsumers) {
@@ -480,8 +544,11 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
     // d. Filter out invalid candidates and select best candidates
     FailureOr<OffsetSizeAndStrideOpInterface> bestCandidate =
         filterAndSelectCandidate(rewriter, forwardSlice, defOrUse, options);
-    if (failed(bestCandidate))
+    if (failed(bestCandidate)) {
+      if (!moveOperandToLastUse(useOperand))
+        return std::nullopt;
       continue;
+    }
 
     // e. call tiling interface
     FailureOr<scf::SCFFuseConsumerOfSliceResult> fusedResult =
@@ -577,6 +644,7 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
 
 using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
 
+/// Default Tiling function only effective for certain `OpTy` operation
 template <typename OpTy>
 static FailureOr<scf::SCFTilingResult>
 defaultTilingOfType(RewriterBase &rewriter, Operation *op,
@@ -626,6 +694,17 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   if (failed(tilingResult))
     return failure();
 
+  return tilingResult;
+}
+
+template <typename OpTy1, typename OpTy2, typename... Rest>
+static FailureOr<scf::SCFTilingResult>
+defaultTilingOfType(RewriterBase &rewriter, Operation *op,
+                    const OpTileSizeMap &tsMap) {
+  FailureOr<scf::SCFTilingResult> tilingResult =
+      defaultTilingOfType<OpTy1>(rewriter, op, tsMap);
+  if (failed(tilingResult))
+    return defaultTilingOfType<OpTy2, Rest...>(rewriter, op, tsMap);
   return tilingResult;
 }
 
@@ -683,10 +762,13 @@ void iterativeTilingAndFusionUntilExhaustion(
         (void)mlir::simplifyRegions(rewriter, f->getRegions());
     } else {
       // Auto tiling with default tile size if no tiled op found. Follow tiling
-      // priority based on OpTy: `Contraction`->`Reduction`->`Elementwise`.
+      // priority based on OpTy:
+      // `ContractionOp`->`ReductionOp`->`LinalgOp`->`TensorOp`.
       SmallVector<DefaultTilingFn> priorityTilingPipeLine = {
           defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
           defaultTilingOfType<mlir::linalg::ReduceOp>,
+          defaultTilingOfType<mlir::linalg::LinalgOp>,
+          defaultTilingOfType<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>,
           defaultTilingOfType<TilingInterface>};
 
       for (auto &tilingFn : priorityTilingPipeLine) {
