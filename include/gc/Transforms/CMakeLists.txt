@@ -1,4 +1,4 @@
-if(GC_ENABLE_DNNL)
+if(GC_ENABLE_DNNL_API)
     list(APPEND TABLEGEN_MACROS -DGC_HAS_ONEDNN_DIALECT)
 endif()
 if(GC_ENABLE_IMEX)
@@ -11,3 +11,5 @@ mlir_tablegen(Passes.capi.h.inc -gen-pass-capi-header --prefix GraphCompiler)
 mlir_tablegen(Passes.capi.cpp.inc -gen-pass-capi-impl --prefix GraphCompiler)
 add_public_tablegen_target(GraphCompilerPassIncGen)
 add_mlir_doc(Passes GraphCompilerPasses ./ -gen-pass-doc)
+
+add_subdirectory(Microkernel)

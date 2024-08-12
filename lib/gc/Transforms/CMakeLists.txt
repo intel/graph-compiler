@@ -37,3 +37,5 @@ gc_add_mlir_library(GcPasses
 if(GC_ENABLE_IMEX)
   add_subdirectory(GPU)
 endif()
+
+add_subdirectory(Microkernel)
