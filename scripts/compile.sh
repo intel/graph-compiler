@@ -6,11 +6,14 @@ repo=intel/graph-compiler
 # set -x
 
 print_usage() {
-    echo "Usage:"
-    echo "$0 "
-    echo "    [ -d | --dev  ] Dev build, build LLVM in current env and place all to 'external' dir"
-    echo "    [ -l | --dyn  ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option"
-    echo "    [ -h | --help ] Print this message"
+    cat <<EOF
+Usage:
+$(basename "$0")
+    [ -d | --dev   ] Dev build, build LLVM in current env and place all to 'external' dir
+    [ -l | --dyn   ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
+    [ -c | --clean ] Delete the build artifacts from the previous build
+    [ -h | --help  ] Print this message
+EOF
 }
 
 DEV_BUILD=false
@@ -23,6 +26,9 @@ for arg in "$@"; do
         -l | --dyn)
             DEV_BUILD=true 
             DYN_LINK=true 
+            ;;
+        -c | --clean)
+            CLEANUP=true
             ;;
         -h | --help)
             print_usage
@@ -60,9 +66,12 @@ load_llvm() {
 build_llvm() {
     if ! [ -d "llvm-project" ]; then
         git clone https://github.com/llvm/llvm-project.git
+        cd llvm-project
+    else
+        cd llvm-project
+        git fetch --all
     fi
 
-    cd llvm-project
     git pull
     git checkout ${LLVM_HASH}
 
@@ -73,11 +82,14 @@ build_llvm() {
 
     python -m pip install -r mlir/python/requirements.txt
 
+    [ -z "$CLEANUP" ] || rm -rf build
     cmake -G Ninja llvm -B build \
-        -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=true \
-        -DLLVM_ENABLE_PROJECTS="mlir" -DLLVM_TARGETS_TO_BUILD="X86" \
-        -DLLVM_INSTALL_UTILS=true -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-        -DLLVM_INSTALL_GTEST=ON -DLLVM_BUILD_LLVM_DYLIB=$dylib -DLLVM_LINK_LLVM_DYLIB=$dylib -DMLIR_ENABLE_BINDINGS_PYTHON=ON -DPython3_EXECUTABLE=$(which python3)
+        -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
+        -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir"\
+        -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLLVM_INSTALL_GTEST=ON \
+        -DLLVM_BUILD_LLVM_DYLIB=$dylib -DLLVM_LINK_LLVM_DYLIB=$dylib \
+        -DMLIR_ENABLE_BINDINGS_PYTHON=ON -DPython3_EXECUTABLE=$(which python3)
     cmake --build build 
 
     MLIR_DIR="$PWD/build/lib/cmake/mlir"
@@ -116,18 +128,23 @@ if ! LIT_PATH=$(which lit) ; then
     fi
 fi
 if [ "$DEV_BUILD" = 'true' ]; then
+    BUILD_TYPE=Debug
     FETCH_DIR=$PROJECT_DIR/externals
     LIT_PATH=$PROJECT_DIR/externals/llvm-project/build/bin/llvm-lit
+else
+    BUILD_TYPE=RelWithDebInfo
 fi
 if [ "$DYN_LINK" = 'true' ]; then 
     DYLIB=ON
 fi
 
+[ -z "$CLEANUP" ] || rm -rf build
 cmake -S . -G Ninja -B build \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
-    -DGC_DEV_LINK_LLVM_DYLIB=$DYLIB
+    -DGC_DEV_LINK_LLVM_DYLIB=$DYLIB \
+    -DGC_LEGACY_ENABLE=OFF -DGC_TEST_ENABLE=OFF
 
 cmake --build build --parallel $(nproc)

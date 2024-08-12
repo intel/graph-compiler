@@ -29,6 +29,7 @@ add_mlir_library(GCCpuRuntime
     SHARED
     Parallel.cpp
     MemoryPool.cpp
+    UnifiedMemoryFramework.cpp
     ${MICROKERNEL_RUNTIME_SOURCES}
 
     DEPENDS
@@ -39,3 +40,8 @@ add_mlir_library(GCCpuRuntime
 
     EXCLUDE_FROM_LIBMLIR
   )
+
+include(umf)
+get_property(UMF_INCLUDES GLOBAL PROPERTY UMF_INCLUDES)
+target_include_directories(GCCpuRuntime PRIVATE ${UMF_INCLUDES})
+target_link_libraries(GCCpuRuntime PRIVATE umf)

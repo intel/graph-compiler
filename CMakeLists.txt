@@ -20,6 +20,7 @@ project(GraphCompiler VERSION "0.1.0" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -97,20 +98,18 @@ endif()
 
 set(GC_LIB_LINKED_LIBS
         GCPasses
+        GCJitWrapper
         GCAnalysis
-        MLIROneDNNGraph
         GCCpuRuntime 
         MLIRMicrokernel 
         MLIRMicrokernelTransforms 
         GCMLIRUtils 
         MLIRLinalgx 
-        GCPasses 
-        GCAnalysis 
         MLIRLinalgxTransforms
 )
-add_library(graph_compiler SHARED ${GC_LIB_SOURCES})
+add_mlir_library(graph_compiler SHARED ${GC_LIB_SOURCES})
 target_include_directories(graph_compiler PUBLIC ${GC_LIB_INCLUDES})
-target_compile_options(graph_compiler PRIVATE -fvisibility=hidden)
+target_compile_options(graph_compiler PRIVATE -fvisibility=hidden -fexceptions)
 target_link_options(graph_compiler PRIVATE -Wl,--gc-sections)
 target_link_libraries(graph_compiler PRIVATE ${GC_LIB_LINKED_LIBS})
 
