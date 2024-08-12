@@ -24,7 +24,12 @@
 namespace mlir {
 namespace linalgx {
 
-/// Packed Matmul Structs
+/// BatchDimMap represent batch dims indices in 3 of the matmul data shapes.
+/// BatchDimMap requires 3 int64 arrays params. Empty array indicates no batch
+/// dims. Only allow 3 kinds of matmul: non-batch, batch and batch reduce
+///
+/// e.g. for a batch reduce matmul A[b,m,k]*B[b,k,n]->C[m,n], map={{0},{0},{}}
+/// for a batch matmul A[b,m,k]*B[b,k,n]->C[b,m,n], map={{0},{0},{0}}
 struct BatchDimMap {
 public:
   BatchDimMap() = default;
@@ -56,21 +61,32 @@ private:
   SmallVector<int64_t> batchC;
 };
 
+/// PackingMap represent the dim mapping between 2 sets of sorted indices.
+/// PackingMap requires 2 int64 arrays params, it is needed to verify that one
+/// of them contain only 1 index, since multi-dims to multi-dims mapping is not
+/// allowed. This will define a 1->N index set mapping, src is the 1 index, dst
+/// is the multi-dims index list. Some helpers are provided to get the mapping
+/// order(first<-second or first->second) and mapping src/dst indices.
+///
+/// e.g. in A[a,b] -> B[x,y,z], if dim [a] corresponding to dim [x]; dim [b]
+/// corresponding to packed dims [y,z]. We can express it as
+/// `PackingMap<[a] -> [x]>`, `PackingMap<[b] -> [y,z]>`, where
+/// dims mapping order is A -> B
 struct PackingMap {
 public:
   PackingMap(ArrayRef<int64_t> firstRef, ArrayRef<int64_t> secondRef)
       : first(firstRef), second(secondRef) {}
-  /// Get original arrays
+  // Get original arrays
   ArrayRef<int64_t> getFirst() const { return ArrayRef<int64_t>(first); }
   ArrayRef<int64_t> getSecond() const { return ArrayRef<int64_t>(second); }
-  /// SrcDims.size() == 1; DstDims.size() >= 1
+  // SrcDims.size() == 1; DstDims.size() >= 1
   ArrayRef<int64_t> getPackingSrcDims() const {
     return getPackingSrcIndex() == 0 ? getFirst() : getSecond();
   }
   ArrayRef<int64_t> getPackingDstDims() const {
     return getPackingDstIndex() == 0 ? getFirst() : getSecond();
   }
-  /// Index first is 0; Index second is 1
+  // Index first is 0; Index second is 1
   unsigned getPackingSrcIndex() const { return getFirst().size() == 1 ? 0 : 1; }
   unsigned getPackingDstIndex() const { return getFirst().size() == 1 ? 1 : 0; }
 
@@ -79,6 +95,8 @@ private:
   SmallVector<int64_t> second;
 };
 
+/// PackingAttr to represent a matmul packing:
+/// vnni or non-vnni matmul, dim size of weight, batch dims, M,N,K packing map
 struct PackingAttr {
   bool isVnni = false;
   int64_t weightDims = 0;
@@ -190,6 +208,9 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
 }
 
 /// IteratorTypes Utils
+/// batch represented iterations are considered `reduction` if batch reduce
+/// m packing, n packing represented iterations are considered `parallel`
+/// k packing represented iterations are considered `reduction`
 SmallVector<utils::IteratorType>
 getIteratorTypesArray(const PackingAttr &attr) {
   SmallVector<utils::IteratorType> iteratorTypes;
@@ -216,6 +237,11 @@ getIteratorTypesArray(const PackingAttr &attr) {
 }
 
 /// IndexingMaps Utils
+/// Each packing_map will represent how symbols can be added to indexing maps.
+/// For packing_map dst, AffineExpr for its indices are the AffineSymbols that
+/// representing the iterator; For packing_map src, AffineExpr for its index is
+/// a compound expr that calculated as its indexing related to the dst
+/// AffineSymbols and dim size.
 unsigned getPackingDimsExpr(MLIRContext *context,
                             SmallVector<SmallVector<AffineExpr>> &exprsArr,
                             ShapedType shapeA, ShapedType shapeB,
@@ -275,7 +301,6 @@ SmallVector<AffineMap> getIndexingMaps(MLIRContext *context, ShapedType shapeA,
   auto mapA = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[0], context));
   auto mapB = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[1], context));
   auto mapC = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[2], context));
-
   return {mapA, mapB, mapC};
 }
 
