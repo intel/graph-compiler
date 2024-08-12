@@ -50,10 +50,12 @@ public:
 
 private:
   bool batchEqualAB() const {
-    return std::equal(batchA.begin(), batchA.end(), batchB.begin());
+    return batchA.size() == batchB.size() &&
+           std::equal(batchA.begin(), batchA.end(), batchB.begin());
   }
   bool batchEqualAC() const {
-    return std::equal(batchA.begin(), batchA.end(), batchC.begin());
+    return batchA.size() == batchC.size() &&
+           std::equal(batchA.begin(), batchA.end(), batchC.begin());
   }
   SmallVector<int64_t> batchA;
   SmallVector<int64_t> batchB;
@@ -151,8 +153,16 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
       auto dimB = batchDimMap.getBatchB()[i];
       matchBatch = matchBatch && //
                    (shapeA.getDimSize(dimA) == shapeB.getDimSize(dimB));
+      llvm::outs() << __FILE__ << ":" << __LINE__ << "\n";
       if (batchDimMap.isBatchMatmul()) {
+        llvm::outs() << __FILE__ << ":" << __LINE__ << "\n"
+                     << i << "\n"
+                     << batchDimMap.getBatchC().size() << "\n"
+                     << batchDimMap.getBatchA().size() << "\n"
+                     << batchDimMap.getBatchB().size() << "\n";
         auto dimC = batchDimMap.getBatchC()[i];
+        llvm::outs() << __FILE__ << ":" << __LINE__ << "\n";
+
         matchBatch = matchBatch && //
                      (shapeA.getDimSize(dimA) == shapeC.getDimSize(dimC));
       }
