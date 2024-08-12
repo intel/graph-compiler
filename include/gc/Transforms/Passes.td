@@ -11,18 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LowerPackAndUnpack : Pass<"lower-pack-and-unpack", "func::FuncOp"> {
-  let summary = "Lower tensor.pack and tensor.unpack operations.";
-  let dependentDialects =
-      ["linalg::LinalgDialect", "tensor::TensorDialect"];
-}
-
-def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
-  let summary = "Tile linalg named operations.";
-  let dependentDialects =
-      ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
-}
-
 #ifdef GC_HAS_ONEDNN_DIALECT
 def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
   let summary =
@@ -77,6 +65,18 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
            "Decide if enable cost model to control iterative fusion.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
            "Set default TileSize for the certain type of op, saying `matmul:{32,32}`">,
+    ];
+}
+def DeepTileContractionNamedOp
+    : Pass<"deep-tile-contraction-named-op", "func::FuncOp"> {
+  let summary = "Tile linalg contraction named operation deeply";
+  let description =
+      [{The pass tries to tile the linalg contraction named op deeply.}];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "arith::ArithDialect",
+    "tensor::TensorDialect",
+    "linalg::LinalgDialect",
   ];
 }
 
@@ -91,6 +91,25 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
            /*default=*/"\"CPU\"",
            "The device to verify. Supported device: CPU, ">,
   ];
+}
+
+def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
+  let summary = "Sink operations into inner loops";
+  let description = [{The pass tries to sink operations into inner loops as deep as possible to maximize the chance for outer loop optimization.
+  }];
+  let dependentDialects = [];
+}
+
+def MergeNestedForall : Pass<"merge-nested-forall"> {
+  let summary = "Merge nested scf.forall operations";
+  let description = [{The pass tries to merge nested forall operations.}];
+  let dependentDialects = ["scf::SCFDialect"];
+}
+
+def LowerPackAndUnpack : Pass<"lower-pack-and-unpack", "func::FuncOp"> {
+  let summary = "Lower tensor.pack and tensor.unpack operations.";
+  let dependentDialects =
+      ["linalg::LinalgDialect", "tensor::TensorDialect"];
 }
 
 #endif // GC_DIALECT_GC_PASSES
