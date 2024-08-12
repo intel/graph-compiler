@@ -49,12 +49,8 @@ public:
   }
 
 private:
-  bool batchEqualAB() const {
-    return std::equal(batchA.begin(), batchA.end(), batchB.begin());
-  }
-  bool batchEqualAC() const {
-    return std::equal(batchA.begin(), batchA.end(), batchC.begin());
-  }
+  bool batchEqualAB() const { return llvm::equal(batchA, batchB); }
+  bool batchEqualAC() const { return llvm::equal(batchA, batchC); }
   SmallVector<int64_t> batchA;
   SmallVector<int64_t> batchB;
   SmallVector<int64_t> batchC;
