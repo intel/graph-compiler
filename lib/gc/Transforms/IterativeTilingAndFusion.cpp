@@ -768,7 +768,8 @@ void iterativeTilingAndFusionUntilExhaustion(
           defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
           defaultTilingOfType<mlir::linalg::ReduceOp>,
           defaultTilingOfType<mlir::linalg::LinalgOp>,
-          defaultTilingOfType<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>};
+          defaultTilingOfType<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>,
+          defaultTilingOfType<TilingInterface>};
 
       for (auto &tilingFn : priorityTilingPipeLine) {
         for (auto &op : unTiledOps) {
