@@ -368,11 +368,11 @@ PackingAttr getPackingAttr(PackingType opType) {
 using IteratorTypeMap = DenseMap<AffineExpr, utils::IteratorType>;
 /// Use a common order to renumber the dim id to get conanicalized indexing maps
 /// and iterator types, so loop order invariant comparison can be carried out
-void reorderGenericAttrDims(MLIRContext *context,
-                            ArrayRef<AffineMap> indexingMaps,
-                            ArrayRef<utils::IteratorType> iteratorTypes,
-                            SmallVector<AffineMap> &retMaps,
-                            IteratorTypeMap &retIters) {
+void remapGenericAttrDims(MLIRContext *context,
+                          ArrayRef<AffineMap> indexingMaps,
+                          ArrayRef<utils::IteratorType> iteratorTypes,
+                          SmallVector<AffineMap> &retMaps,
+                          IteratorTypeMap &retIters) {
   size_t dimSize = iteratorTypes.size();
   DenseMap<AffineExpr, AffineExpr> replaceMap;
   // get shape-to-loop map
@@ -398,19 +398,15 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
   // conanicalize ref attrs
   SmallVector<AffineMap> mapsRef;
   IteratorTypeMap itersRef;
-  reorderGenericAttrDims(                                     //
-      context,                                                //
-      getIndexingMaps(context, shapeA, shapeB, shapeC, attr), //
-      getIteratorTypesArray(attr),                            //
-      mapsRef, itersRef);
+  remapGenericAttrDims(context, //
+                       getIndexingMaps(context, shapeA, shapeB, shapeC, attr),
+                       getIteratorTypesArray(attr), mapsRef, itersRef);
   // conanicalize op attrs
   SmallVector<AffineMap> mapsOp;
   IteratorTypeMap itersOp;
-  reorderGenericAttrDims(         //
-      context,                    //
-      op.getIndexingMapsArray(),  //
-      op.getIteratorTypesArray(), //
-      mapsOp, itersOp);
+  remapGenericAttrDims(context, //
+                       op.getIndexingMapsArray(), op.getIteratorTypesArray(),
+                       mapsOp, itersOp);
   // compare equivalence
   return llvm::equal(mapsRef, mapsOp) && llvm::equal(itersRef, itersOp);
 }
