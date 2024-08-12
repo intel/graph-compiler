@@ -133,7 +133,6 @@ TEST(TestUtils, Matmul4D) {
   // Get result
   ASSERT_TRUE(succeeded(op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
-  ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::NONE));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM2D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_BRMM3D));
@@ -182,7 +181,6 @@ TEST(TestUtils, VnniMatmul2D) {
   // Get result
   ASSERT_TRUE(succeeded(op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
-  ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::NONE));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_BRMM3D));
@@ -229,7 +227,6 @@ TEST(TestUtils, VnniMatmul4D) {
   // Get result
   ASSERT_TRUE(succeeded(op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
-  ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::NONE));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM2D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_BRMM3D));
@@ -277,7 +274,6 @@ TEST(TestUtils, VnniBatchReduceMatmul3D) {
   // Get result
   ASSERT_TRUE(succeeded(op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
-  ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::NONE));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM2D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM4D));

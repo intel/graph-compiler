@@ -18,7 +18,6 @@ namespace mlir {
 namespace linalgx {
 
 enum class PackingType {
-  NONE = 0,
   MM4D,        // MKmk x NKkn
   VNNI_MM2D,   // MK x NKknV
   VNNI_MM4D,   // MKmk x NKknV

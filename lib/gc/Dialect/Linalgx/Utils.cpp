@@ -273,11 +273,9 @@ unsigned getPackingDimsExpr(MLIRContext *context,
   return dims;
 }
 
-SmallVector<AffineMap> getIndexingMaps(OpBuilder &builder, ShapedType shapeA,
+SmallVector<AffineMap> getIndexingMaps(MLIRContext *context, ShapedType shapeA,
                                        ShapedType shapeB, ShapedType shapeC,
                                        const PackingAttr &attr) {
-  MLIRContext *context = builder.getContext();
-
   SmallVector<SmallVector<AffineExpr>> exprsArr;
   auto dims = getPackingDimsExpr(context, exprsArr, //
                                  shapeA, shapeB, shapeC, attr);
@@ -344,6 +342,62 @@ PackingAttr getPackingAttr(PackingType opType) {
   return attr;
 }
 
+/// Generic Utils
+bool reorderGenericAttrDims(MLIRContext *context,
+                            ArrayRef<AffineMap> indexingMaps,
+                            ArrayRef<utils::IteratorType> iteratorTypes,
+                            SmallVector<AffineMap> &retMaps,
+                            SmallVector<utils::IteratorType> &retIters) {
+  size_t dimSize = iteratorTypes.size();
+  retIters.resize(dimSize);
+  DenseMap<AffineExpr, AffineExpr> replaceMap;
+  // renumber the dim id and get a replacement map and new iterator types arr
+  unsigned dims = 0;
+  for (auto map : indexingMaps) {
+    for (auto expr : map.getResults()) {
+      if (expr.getKind() == AffineExprKind::DimId && !replaceMap.count(expr)) {
+        assert(dims < dimSize);
+        retIters[dims] = iteratorTypes[cast<AffineDimExpr>(expr).getPosition()];
+        replaceMap[expr] = getAffineDimExpr(dims, context);
+        dims++;
+      }
+    }
+  }
+  // check result for dim size
+  if (dims != dimSize)
+    return false;
+  // replace old dims id with new ones
+  for (auto map : indexingMaps) {
+    retMaps.push_back(map.replace(replaceMap));
+  }
+  return true;
+}
+
+bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
+                             ShapedType shapeB, ShapedType shapeC,
+                             const PackingAttr &attr) {
+  MLIRContext *context = op.getContext();
+  // conanicalize ref attrs
+  SmallVector<AffineMap> mapsRef;
+  SmallVector<utils::IteratorType> itersRef;
+  bool retRef = reorderGenericAttrDims(                       //
+      context,                                                //
+      getIndexingMaps(context, shapeA, shapeB, shapeC, attr), //
+      getIteratorTypesArray(attr),                            //
+      mapsRef, itersRef);
+  // conanicalize op attrs
+  SmallVector<AffineMap> mapsOp;
+  SmallVector<utils::IteratorType> itersOp;
+  bool retOp = reorderGenericAttrDims( //
+      context,                         //
+      op.getIndexingMapsArray(),       //
+      op.getIteratorTypesArray(),      //
+      mapsOp, itersOp);
+  // compare equivalence
+  return retRef && retOp && llvm::equal(mapsRef, mapsOp) &&
+         llvm::equal(itersRef, itersOp);
+}
+
 /// Packing Matmul Utils
 Value createMatmulCalc(OpBuilder &b, Location loc, ValueRange args) {
   assert(args.size() == 3 && "Matmul region expects 3 args.");
@@ -393,7 +447,7 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
     return emitError("Failed to verify packing!");
   }
   // Get attrs for GenericOp
-  auto indexingMaps = getIndexingMaps(builder, //
+  auto indexingMaps = getIndexingMaps(builder.getContext(), //
                                       shapeA, shapeB, shapeC, packingAttr);
   auto iteratorTypes = getIteratorTypesArray(packingAttr);
   // Make the GenericOp
@@ -411,7 +465,7 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
     return false;
   }
   // Check for matmul body
-  linalg::GenericOp genericOp = cast<linalg::GenericOp>(op);
+  auto genericOp = cast<linalg::GenericOp>(op);
   if (!linalg::detail::isContractionBody(
           *genericOp.getBlock(), [](Operation *first, Operation *second) {
             return ((isa<arith::MulFOp>(first) && isa<arith::AddFOp>(second)) ||
@@ -428,6 +482,12 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
   auto packingAttr = getPackingAttr(opType);
   if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
       !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
+    return false;
+  }
+  // Check for indexing maps and iterator types equivalence
+  if (!isGenericAttrEquivalent(genericOp, shapeA, shapeB, shapeC,
+                               packingAttr)) {
+    llvm::errs() << "isGenericAttrEquivalent\n";
     return false;
   }
   // Pass all checks
