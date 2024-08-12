@@ -500,7 +500,6 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
   // Check for indexing maps and iterator types equivalence
   if (!isGenericAttrEquivalent(genericOp, shapeA, shapeB, shapeC,
                                packingAttr)) {
-    llvm::errs() << "isGenericAttrEquivalent\n";
     return false;
   }
   // Pass all checks
