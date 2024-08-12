@@ -220,7 +220,7 @@ static LogicalResult unTiledOpFilter(RewriterBase &rewriter,
 }
 
 static LogicalResult
-NonContractionOpFilter(RewriterBase &rewriter,
+nonContractionOpFilter(RewriterBase &rewriter,
                        OffsetSizeAndStrideOpInterface candidate,
                        CandidateDefOrUse defOrUse) {
   // Currently this pass focuses on fine-grained fusion, which does not expect
@@ -228,19 +228,37 @@ NonContractionOpFilter(RewriterBase &rewriter,
   return failure(isa<mlir::linalg::ContractionOpInterface>(defOrUse.ownerOp));
 }
 
+/// If fusing multiple consumers is allowed, there may exist following cases:
+///
+/// ```
+/// %1:2 = scf.for() {
+///     %2 = tiled_op1
+///     %3 = tiled_op2
+///     %4 = insert_slice %2
+///     %5 = insert_slice %3
+///     yield %4, %5
+/// }
+/// op3 ins(%1#1, %1#2)
+/// ```
+///
+/// Where we need to ensure their `tileOffset` and `tileSize` are matched well.
 static LogicalResult
-SingleCandidateInBlockFilter(RewriterBase &rewriter,
-                             OffsetSizeAndStrideOpInterface candidate,
-                             CandidateDefOrUse defOrUse) {
+tilingSizesIfMatchedFilter(RewriterBase &rewriter,
+                           OffsetSizeAndStrideOpInterface candidate,
+                           CandidateDefOrUse defOrUse) {
   Block *parent = candidate->getBlock();
+  // No matter candidates correspond to which operand or result of operation,
+  // align all of them to `tileOffset` and `tileSize` on iteration domain for
+  // easy comparision.
+  SmallVector<OpFoldResult> iterDomainOffsets, iterDomainSizes;
 
-  // a. traverse all ops contained in parent Block.
+  // a. traverse all ops contained in the same parent Block.
   for (auto &opInBlock : parent->getOperations()) {
     // b. skip candidate slice
     if (&opInBlock == candidate.getOperation())
       continue;
     // c. check if all the other sliceOp not defined or used by the same owner
-    // with candidate slice.
+    // with candidate slice. Otherwise, they must be pretty matched.
     if (auto otherCandidate =
             dyn_cast<OffsetSizeAndStrideOpInterface>(&opInBlock)) {
       if (defOrUse.isDef()) {
@@ -256,11 +274,50 @@ SingleCandidateInBlockFilter(RewriterBase &rewriter,
         FailureOr<SmallVector<OpOperand *>> realConsumers =
             scfX::getRealConsumersFromInsertSliceOp(otherCandidate,
                                                     forwardSlice);
+        // Record other operand of same owner.
+        OpOperand *otherOperandOfSameOwner = nullptr;
         if (succeeded(realConsumers) &&
-            llvm::any_of(*realConsumers, [&defOrUse](OpOperand *use) {
-              return use->getOwner() == defOrUse.ownerOp;
-            }))
-          return failure();
+            llvm::any_of(*realConsumers,
+                         [&defOrUse, &otherOperandOfSameOwner](OpOperand *use) {
+                           if (use->getOwner() != defOrUse.ownerOp)
+                             return false;
+                           otherOperandOfSameOwner = use;
+                           return true;
+                         })) {
+          assert(otherOperandOfSameOwner &&
+                 "other operand of same owner is not found");
+          // In avoid of repeated computation.
+          if (iterDomainOffsets.empty() || iterDomainSizes.empty()) {
+            // Compute `tileOffset` and `tileSize` on iteration domain based on
+            // given candidate.
+            rewriter.setInsertionPointAfter(candidate);
+            if (failed(cast<TilingInterface>(defOrUse.ownerOp)
+                           .getIterationDomainTileFromOperandTile(
+                               rewriter, defOrUse.operand->getOperandNumber(),
+                               candidate.getMixedOffsets(),
+                               candidate.getMixedSizes(), iterDomainOffsets,
+                               iterDomainSizes)))
+              return failure();
+          }
+          // Compute `tileOffset` and `tileSize` on iteration domain based on
+          // other candidate.
+          SmallVector<OpFoldResult> otherIterDomainOffsets,
+              otherIterDomainSizes;
+          rewriter.setInsertionPointAfter(otherCandidate);
+          if (failed(cast<TilingInterface>(defOrUse.ownerOp)
+                         .getIterationDomainTileFromOperandTile(
+                             rewriter,
+                             otherOperandOfSameOwner->getOperandNumber(),
+                             otherCandidate.getMixedOffsets(),
+                             otherCandidate.getMixedSizes(),
+                             otherIterDomainOffsets, otherIterDomainSizes)))
+            return failure();
+
+          // d. Check if all inferred `tileOffset` and `tileSize` of iteration
+          // domain from different operands are matched.
+          return success(iterDomainOffsets == otherIterDomainOffsets &&
+                         iterDomainSizes == otherIterDomainSizes);
+        }
       }
     }
   }
@@ -300,8 +357,8 @@ struct CandidateSliceFilterPipeLine
 
   SmallVector<CandidateSliceFilter> getDefaultPipeLine() {
     return SmallVector<CandidateSliceFilter>{
-        unTiledOpFilter, NonContractionOpFilter, noTilingOnReductionFilter,
-        exactTilingOnPackUnPackFilter, SingleCandidateInBlockFilter};
+        unTiledOpFilter, nonContractionOpFilter, noTilingOnReductionFilter,
+        exactTilingOnPackUnPackFilter, tilingSizesIfMatchedFilter};
   }
 
   LogicalResult filter(RewriterBase &rewriter,
@@ -331,7 +388,7 @@ computeTileSizeProductOfCandidate(OffsetSizeAndStrideOpInterface candidate) {
   return totalSize;
 }
 
-static int TilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
+static int tilingSizeComparer(OffsetSizeAndStrideOpInterface candidateA,
                               OffsetSizeAndStrideOpInterface candidateB) {
   FailureOr<int64_t> sizeProductA =
                          computeTileSizeProductOfCandidate(candidateA),
@@ -352,7 +409,7 @@ struct CandidateSliceComparerPipeLine
   CandidateSliceComparerPipeLine() : CandidateSliceProcessPipeLine() {}
 
   SmallVector<CandidateSliceComparer> getDefaultPipeLine() {
-    return SmallVector<CandidateSliceComparer>{TilingSizeComparer};
+    return SmallVector<CandidateSliceComparer>{tilingSizeComparer};
   }
 
   bool compare(OffsetSizeAndStrideOpInterface candidateA,

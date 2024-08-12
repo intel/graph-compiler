@@ -312,3 +312,25 @@ module {
     return %unpack : tensor<32x4096xbf16>
   }
 }
+
+// -----
+
+module {
+  /// CHECK-LABEL: @fuse_residual_pattern
+  func.func @fuse_residual_pattern(%arg0: tensor<128x256x256xf32>, %arg1: tensor<128x256x256xf32>) -> tensor<128x256x256xf32> {
+    %dest0 = tensor.empty() : tensor<128x256x256xf32>
+    /// CHECK: %[[FINAL_RESULT:.*]]:3 = scf.forall (%{{.*}}, %{{.*}}) in (128, 256)
+    /// CHECK: %[[ADD_OUT:.*]] = linalg.add
+    /// CHECK: %[[EXP_OUT:.*]] = linalg.exp ins(%[[ADD_OUT:.*]] :
+    /// CHECK: %[[MUL_OUT:.*]] = linalg.mul ins(%[[ADD_OUT:.*]], %[[EXP_OUT:.*]] :
+    %0 = linalg.add ins(%arg0, %arg1 : tensor<128x256x256xf32>, tensor<128x256x256xf32>) outs(%dest0 : tensor<128x256x256xf32>) -> tensor<128x256x256xf32>
+    %1 = linalg.exp ins(%0 : tensor<128x256x256xf32>) outs(%dest0 : tensor<128x256x256xf32>) -> tensor<128x256x256xf32>
+    %2 = linalg.mul ins(%0, %1 : tensor<128x256x256xf32>, tensor<128x256x256xf32>) outs(%dest0 : tensor<128x256x256xf32>) -> tensor<128x256x256xf32>
+    /// CHECK: scf.forall.in_parallel
+    /// CHECK: tensor.parallel_insert_slice
+    /// CHECK: tensor.parallel_insert_slice
+    /// CHECK: tensor.parallel_insert_slice
+    /// CHECK: return %[[FINAL_RESULT]]#2
+    return %2 : tensor<128x256x256xf32>
+  }
+}
