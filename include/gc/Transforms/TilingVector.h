@@ -8,6 +8,7 @@
 #ifndef GC_PASSES_TILINGVECTOR_H
 #define GC_PASSES_TILINGVECTOR_H
 
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -42,7 +43,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <deque>
-#include <iostream>
 #include <queue>
 #include <stack>
 #include <tuple>
@@ -124,18 +124,22 @@ public:
 
   VectorFusionStrategy &operator=(VectorFusionStrategy &&) = default;
 
+  /// Get the map which contains each group vector type which has biggest rank.
   llvm::SmallDenseMap<size_t, VectorType> &getGroupBiggestRankVectorType() {
     return groupBigestRankVectorType;
   };
+  /// Get the operation group obtained by fusion strategy analysis
   SmallVector<std::queue<Operation *>, 8> &getOpGroups() { return opGroups; }
+  /// Get the operation belong to which group index map
   DenseMap<Operation *, size_t> &getOpGroupIndexMap() {
     return opGroupIndexMap;
   }
+  /// Get the map contains max steps of each group
   llvm::SmallVector<uint32_t, 8> &getGroupMaxSteps() { return groupMaxSteps; }
   llvm::DenseMap<Operation *, size_t> &getOpAnchorPos() { return opAnchorPos; }
 
   func::FuncOp &getFunc() { return func; }
-
+  /// Do fusion strategy
   void classifyOperations();
 
   /// Whether two operations have compatible vector shapes
@@ -154,6 +158,13 @@ public:
   void run();
 };
 
+/// Has two kind:
+/// 1. OperationGroup:
+///     The operation is converted into physical registers through our fusion
+///     strategy.
+/// 2. Operations:(TODO:)
+///     The user ensures that there is no data dependency between operations,
+///     and we directly convert the operations into physical register sizes.
 enum CanonicalizerKind { OperationsGroup, Operations };
 
 template <class T> class SpecialOperationCanonicalizer {
@@ -510,7 +521,10 @@ public:
                            llvm::DenseMap<Value, int> &nextAnchorResultsIdxMap,
                            const ValueRange &forResults,
                            const std::queue<Operation *> &movedOperaiton,
-                           DenseMap<Value, Value> &forResultOrignalResultMap);
+                           DenseMap<Value, Value> &forResultOrignalResultMap,
+                           ValueRange loopState,
+                           DenseMap<Value, Value> &currentOperandOriginMap,
+                           DenseMap<Value, int> &nextOperandIdxMap);
 
   /// todo: need to add a struct to remove so many parameters
   void movePostOpToCurrentAnchor(
@@ -609,11 +623,16 @@ public:
                                   VectorType loopType,
                                   ArrayRef<Value> inductionVars,
                                   SmallVectorImpl<Value> &readVars);
+
+  /// rectify each group operand use  for loop result
+  void rectifyGroupOperands(size_t currentGroupId, Value originalResult,
+                            Value forResult);
 };
 
 class VectorOperationAnalyzer : virtual public CanonicalizerCommonUsedData {
 private:
   func::FuncOp func;
+  DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
 
 public:
   virtual ~VectorOperationAnalyzer(){};
@@ -625,9 +644,14 @@ public:
   // operation
   void analysisEmptyGroup();
   void analysisGroupMaxSteps();
+  /// analysis operation result of current group whether needed by other
+  /// operation
   void analysisGroupOperaion();
-  void analysisGroupOperationResults();
+
   void specialOperationRectify(DenseMap<Operation *, size_t> &visitedOperation);
+  ///
+  void updateReturnResultKind(Operation *sourceOp, size_t sourceOpGid,
+                              ReturnTypeKind rtKind);
 };
 /// Vectorize vector operation with target machines simd instructions.
 class CanonicalizerVectorOperation : virtual public ForLoopGenerator,

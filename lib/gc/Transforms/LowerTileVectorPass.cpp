@@ -30,7 +30,6 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include <iostream>
 
 namespace mlir {
 namespace gc {
@@ -395,7 +394,8 @@ LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op) {
   LDBG("Attempting to vectorize:\n" << *op << "\n");
 
   if (failed(lowerTargetOpPrecondition(op))) {
-    std::cout << "FAILED TO LOWER TARGET OP\n" << std::endl;
+    llvm::outs() << "FAILED TO LOWER TARGET OP\n"
+                 << "\n";
     LDBG("Vectorization pre-conditions failed\n");
     return failure();
   }
@@ -585,15 +585,15 @@ struct LowerTileVectorPass
     // ensure read and write on last dimension
     vector::populateVectorTransferPermutationMapLoweringPatterns(secondPattern);
     // remove unnessary broadcast operation
-    // vector::populateSinkVectorBroadcastPatterns(secondPattern);
+    vector::populateSinkVectorBroadcastPatterns(secondPattern);
     // vector::TransferReadOp::getCanonicalizationPatterns(secondPattern, ctx);
     // vector::TransferWriteOp::getCanonicalizationPatterns(secondPattern, ctx);
-    // tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(patterns);
+    // tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(secondPattern);
 
     (void)applyPatternsAndFoldGreedily(funcOp, std::move(secondPattern));
-    DominanceInfo domInfo;
-    IRRewriter rewriter(funcOp);
-    eliminateCommonSubExpressions(rewriter, domInfo, funcOp);
+    // DominanceInfo domInfo;
+    // IRRewriter rewriter(funcOp);
+    // eliminateCommonSubExpressions(rewriter, domInfo, funcOp);
   }
 };
 } // namespace
