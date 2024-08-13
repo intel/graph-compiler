@@ -207,11 +207,10 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
     }
     return true;
   };
-  bool checkMatch = matchBatch(attr.batchDimMap) &&
-                    matchDims(attr.mPacking, shapeA, shapeC) &&
-                    matchDims(attr.nPacking, shapeB, shapeC) &&
-                    matchDims(attr.kPacking, shapeA, shapeB);
-  return checkMatch;
+  return matchBatch(attr.batchDimMap) &&
+         matchDims(attr.mPacking, shapeA, shapeC) &&
+         matchDims(attr.nPacking, shapeB, shapeC) &&
+         matchDims(attr.kPacking, shapeA, shapeB);
 }
 
 /// IteratorTypes Utils
