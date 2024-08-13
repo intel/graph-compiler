@@ -105,16 +105,6 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
   return result;
 }
 
-// Check if the loop is dummy loop(has only one iteration)
-bool isDummyLoop(LoopLikeOpInterface loop) {
-  std::optional<int64_t> tripCount = mlir::constantTripCount(
-      *loop.getSingleLowerBound(), *loop.getSingleUpperBound(),
-      *loop.getSingleStep());
-  if (tripCount)
-    return *tripCount == 1;
-  return false;
-}
-
 // Build the linalg region for a linalg op
 static void buildLinalgRegion(Operation *op, bool createTemporaryOp = false) {
   SmallVector<Type> argTypes;
@@ -396,13 +386,11 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         if (failed(tilingResult))
           return failure();
 
-        if (!isDummyLoop(tilingResult->loops.back())) {
-          b.replaceOp(currentOp, tilingResult->replacements);
-          currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
-          if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
-            result.reductionLoops.push_back(tilingResult->loops.back());
-          result.loops.push_back(tilingResult->loops.back());
-        }
+        b.replaceOp(currentOp, tilingResult->replacements);
+        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+        if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
+          result.reductionLoops.push_back(tilingResult->loops.back());
+        result.loops.push_back(tilingResult->loops.back());
       }
     } else if (loopType == OuterLoopGenerationOption::LoopType::ForallOp) {
       SmallVector<OpFoldResult> tileSizes(
@@ -755,7 +743,6 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                                 cfg.innerMostKBlock,
                                             cfg.innerMostNBlock};
     }
-
     // Get the data/wei/dst data type
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(currentOp);
@@ -811,6 +798,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                  CInnermostDims.end()),
             resultType),
         currentOp.getDpsInits()[0]);
+
     // Create the brgemm op and replace the origin linalg op
     linalg::LinalgOp matmul;
     if (dyn_cast<mlir::ShapedType>(weightOprand.getType()).getShape().size() ==
