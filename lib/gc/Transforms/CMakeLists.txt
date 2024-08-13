@@ -23,6 +23,8 @@ gc_add_mlir_library(GcPasses
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  LowerTileVectorPass.cpp
+  CPUPhysicalRegisterPass.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

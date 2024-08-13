@@ -93,6 +93,36 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
   ];
 }
 
+def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
+  let summary = "Lower tensor to tile vector.";
+  let description = [{
+    Lower tensor to tile vector form.
+  }];
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::vector::VectorDialect",
+  ];
+}
+
+def CPUPhysicalRegisterPass : Pass<"CPU-physical-register-pass", "func::FuncOp"> {
+  let summary = "Lower operation to cpu pysical register size.";
+  let description = [{
+    Physical register size lowering pass.
+  }];
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::vector::VectorDialect",
+    "::mlir::scf::SCFDialect",
+  ];
+}
+
 def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
   let summary = "Sink operations into inner loops";
   let description = [{The pass tries to sink operations into inner loops as deep as possible to maximize the chance for outer loop optimization.
