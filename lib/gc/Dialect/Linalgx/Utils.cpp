@@ -377,41 +377,47 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
   MLIRContext *context = op.getContext();
   /// Use a common order to renumber the dim id to get remapped indexing maps
   /// and iterator types, so loop order invariant comparison can be performed
-  using IteratorTypeMap = DenseMap<AffineExpr, utils::IteratorType>;
-  auto remapAttrDims =
-      [&](ArrayRef<AffineMap> inMaps, ArrayRef<utils::IteratorType> inIters,
-          SmallVector<AffineMap> &retMaps, IteratorTypeMap &retIters) {
-        size_t dimSize = inIters.size();
-        DenseMap<AffineExpr, AffineExpr> replaceMap;
-        // get shape-to-loop map
-        AffineMap inverse = inversePermutation(concatAffineMaps(inMaps));
-        assert(inverse && "shape-to-loops map to be non-null");
-        assert(dimSize == inverse.getResults().size());
-        // renumber the dim id based on shape-to-loop map
-        // get a replacement map and new iterator types arr
-        for (auto [idx, expr] : llvm::enumerate(inverse.getResults())) {
-          replaceMap[getAffineDimExpr(idx, context)] = expr;
-          retIters[expr] = inIters[idx];
-        }
-        // replace old dim id with new ones in indexing maps
-        for (auto map : inMaps) {
-          retMaps.push_back(map.replace(replaceMap));
-        }
-      };
+  auto remapAttrDims = [&](ArrayRef<AffineMap> inMaps,
+                           ArrayRef<utils::IteratorType> inIters,
+                           SmallVector<AffineMap> &retMaps,
+                           SmallVector<utils::IteratorType> &retIters) {
+    size_t dimSize = inIters.size();
+    DenseMap<AffineExpr, AffineExpr> replaceMap;
+    std::map<unsigned, utils::IteratorType> iterMap;
+    // get shape-to-loop map
+    AffineMap inverse = inversePermutation(concatAffineMaps(inMaps));
+    assert(inverse && "shape-to-loops map to be non-null");
+    assert(dimSize == inverse.getResults().size());
+    // renumber the dim id based on shape-to-loop map
+    // get a replacement map and iterator types map
+    for (auto [idx, expr] : llvm::enumerate(inverse.getResults())) {
+      replaceMap[getAffineDimExpr(idx, context)] = expr;
+      iterMap[cast<AffineDimExpr>(expr).getPosition()] = inIters[idx];
+    }
+    // replace old dim id with new ones in indexing maps
+    for (auto map : inMaps) {
+      retMaps.push_back(map.replace(replaceMap));
+    }
+    // sort IteratorType to new array using ordered map
+    std::transform(iterMap.begin(), iterMap.end(), std::back_inserter(retIters),
+                   [](const std::pair<unsigned, utils::IteratorType> &d) {
+                     return d.second;
+                   });
+  };
   // re-mapped ref attrs
   SmallVector<AffineMap> mapsRef;
-  IteratorTypeMap itersRef;
+  SmallVector<utils::IteratorType> itersRef;
   remapAttrDims(getIndexingMaps(context, shapeA, shapeB, shapeC, attr), //
                 getIteratorTypesArray(attr),                            //
                 mapsRef, itersRef);
   // re-mapped op attrs
   SmallVector<AffineMap> mapsOp;
-  IteratorTypeMap itersOp;
+  SmallVector<utils::IteratorType> itersOp;
   remapAttrDims(op.getIndexingMapsArray(),  //
                 op.getIteratorTypesArray(), //
                 mapsOp, itersOp);
   // check equivalence
-  return llvm::equal(mapsRef, mapsOp) && (itersRef == itersOp);
+  return llvm::equal(mapsRef, mapsOp) && llvm::equal(itersRef, itersOp);
 }
 
 /// Packing Matmul Utils
