@@ -107,11 +107,21 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
 // The analysis to extract the matmul configuration from the given linalg op
 struct MatmulConfigAnalysis {
 public:
-  explicit MatmulConfigAnalysis(Operation *root);
-  MatmulConfig getConfig() { return config; }
+  // Extract the matmul configuration from the given linalg op
+  MatmulConfigAnalysis(Operation *root) : root(root){};
+
+  // Get the matmul configuration
+  MatmulConfig getConfig();
+
+  void setAllowUndivisibleInnerBlock(bool allow) {
+    allowUndivisibleInnerBlock = allow;
+  }
 
 private:
   MatmulConfig config;
+  Operation *root;
+  bool hasConfig = false;
+  bool allowUndivisibleInnerBlock = true;
 };
 
 } // namespace gc
