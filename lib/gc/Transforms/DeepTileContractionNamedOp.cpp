@@ -655,6 +655,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     Operation *fillOp;
     bool needLowPrecisionCast;
     SmallVector<LoopLikeOpInterface> KLoopHandles;
+    MatmulConfig cfg;
   };
 
   LogicalResult innerBodyGeneration(RewriterBase &rewriter,
@@ -664,8 +665,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     Location loc = currentOp->getLoc();
     FailureOr<SmallVector<SmallVector<DimType>>> operandDimTypes =
         getOprandDimType(originOp);
-    MatmulConfig cfg =
-        MatmulConfigAnalysis(originOp.getOperation()).getConfig();
+    MatmulConfig &cfg = option.cfg;
     ArrayRef<int64_t> AShape =
         originOp.getShape(originOp.getDpsInputOperand(0));
     ArrayRef<int64_t> BShape =
@@ -927,8 +927,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
            linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
                                             linalgx::PackingType::VNNI_MM4D) ||
            linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                            linalgx::PackingType::MM4D) ||
-           llvm::isa<linalg::BatchMatmulOp>(linalgOp);
+                                            linalgx::PackingType::MM4D);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
@@ -950,8 +949,10 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
-    MatmulConfig cfg =
-        MatmulConfigAnalysis(originOp.getOperation()).getConfig();
+    MatmulConfigAnalysis cfgAnalysis =
+        MatmulConfigAnalysis(originOp.getOperation());
+    cfgAnalysis.setAllowUndivisibleInnerBlock(false);
+    MatmulConfig cfg = cfgAnalysis.getConfig();
     if (!llvm::isa<linalg::GenericOp>(linalgOp))
       linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
     bool needLowPrecisionCast = needToLegalizeDtype(linalgOp);
@@ -974,7 +975,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // Step 3 generate inner loop body, convert the linalg.generic to brgemm
     innerBodyGenerationOption option = innerBodyGenerationOption{
-        fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops};
+        fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops, cfg};
 
     if (failed(innerBodyGeneration(rewriter, originOp, linalgOp, option)))
       return failure();
