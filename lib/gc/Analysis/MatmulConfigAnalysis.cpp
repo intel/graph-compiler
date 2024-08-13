@@ -354,9 +354,7 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
 // communication
 // previous matmul
 MatmulConfig MatmulConfigAnalysis::getConfig() {
-  if (hasConfig) {
-    return config;
-  } else {
+  if (!hasConfig) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
       CPUTargetDescriptionAnalysis sysDesc(root);
       SmallVector<SmallVector<DimType>> oprandDimType =
@@ -457,6 +455,7 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
     }
     hasConfig = true;
   }
+  return config;
 }
 } // namespace gc
 } // namespace mlir
