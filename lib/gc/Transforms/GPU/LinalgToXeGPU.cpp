@@ -350,7 +350,7 @@ static std::optional<Value> lowerEltwiseOp(linalg::LinalgOp linalgOp,
         // Unhandled type. Bail out.
         return std::nullopt;
       })
-      .Case([&](linalg::NegfOp negfOp) -> std::optional<Value> {
+      .Case([&](linalg::NegFOp negFOp) -> std::optional<Value> {
         assert(operands.size() == 1 && "Invalid number of operands for negf");
         return rewriter.create<arith::NegFOp>(loc, resType, operands[0])
             .getResult();
@@ -597,12 +597,22 @@ static SmallVector<Value> updateTilesOffsets(PatternRewriter &rewriter,
                                              Location loc, ValueRange tiles,
                                              ArrayRef<int64_t> offsets) {
   SmallVector<Value> updatedTiles;
+  // convert static offsets to dynamic because of this IMEX bug:
+  // https://github.com/intel/mlir-extensions/issues/815
+  std::vector<Value> dynOffsets;
+  for (auto &x : offsets) {
+    Value offset = rewriter.create<arith::ConstantIndexOp>(loc, x);
+    dynOffsets.push_back(offset);
+  }
+  ValueRange newOffsets{dynOffsets};
   for (auto tile : tiles) {
-    auto updatedTile =
-        rewriter
-            .create<xegpu::UpdateNdOffsetOp>(loc, tile.getType(), tile,
-                                             /*offsets=*/ValueRange{}, offsets)
-            .getResult();
+    auto updatedTile = rewriter
+                           .create<xegpu::UpdateNdOffsetOp>(
+                               loc, tile.getType(), tile,
+                               /*offsets=*/newOffsets,
+                               SmallVector<int64_t>{ShapedType::kDynamic,
+                                                    ShapedType::kDynamic})
+                           .getResult();
     updatedTiles.push_back(updatedTile);
   }
 
@@ -648,11 +658,17 @@ static SmallVector<Value> createDescriptorTiles(PatternRewriter &rewriter,
 
   SmallVector<Value> tiles;
   for (int i = 0; i < loadShape[0]; i += descTile[0]) {
+    // convert static offsets to dynamic because of this IMEX bug:
+    // https://github.com/intel/mlir-extensions/issues/815
+    Value newRowOffs = rewriter.create<arith::ConstantIndexOp>(loc, i);
     for (int j = 0; j < loadShape[1]; j += descTile[1] * arrayLength) {
+      Value newColOffs = rewriter.create<arith::ConstantIndexOp>(loc, j);
       auto tile = rewriter
                       .create<xegpu::UpdateNdOffsetOp>(
                           loc, descType, rootTile,
-                          /*offsets=*/ValueRange{}, SmallVector<int64_t>{i, j})
+                          /*offsets=*/ValueRange{newRowOffs, newColOffs},
+                          SmallVector<int64_t>{ShapedType::kDynamic,
+                                               ShapedType::kDynamic})
                       .getResult();
       tiles.push_back(tile);
     }
@@ -732,17 +748,18 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
 
   VectorType vecLoadType =
       VectorType::get(tileType.getShape(), tileType.getElementType());
-  IntegerAttr vnniAxisAttr = nullptr;
+  mlir::UnitAttr packedAttr = nullptr;
   if (vnniConf) {
-    vnniAxisAttr = IntegerAttr::get(rewriter.getI64Type(), vnniConf->vnniAxis);
     vecLoadType = getVnniVector(tileType.getShape(), tileType.getElementType(),
                                 *vnniConf);
+    packedAttr = mlir::UnitAttr::get(rewriter.getContext());
   }
-
+  IntegerAttr transpose_bit = nullptr;
   SmallVector<Value> loadVec;
   for (auto tile : loadTiles) {
+
     auto loadOp = rewriter.create<xegpu::LoadNdOp>(
-        loc, vecLoadType, tile, vnniAxisAttr, transpose,
+        loc, vecLoadType, tile, packedAttr, transpose, transpose_bit,
         /*l1_hint=*/hint,
         /*l2_hint=*/hint, /*l3_hint=*/hint);
     loadVec.push_back(loadOp);
@@ -1057,7 +1074,7 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
 
   // Load A sub-tiles.
   SmallVector<Value> loadVecA =
-      loadNdDescTiles(rewriter, loc, tilesA, readCacheHint, vnniConfA);
+      loadNdDescTiles(rewriter, loc, tilesA, readCacheHint);
   auto tileTypeA = cast<xegpu::TensorDescType>(tilesA[0].getType());
 
   // Load B sub-tiles.
@@ -1390,7 +1407,7 @@ void populateLinalgEltwiseToXeGPUPatterns(RewritePatternSet &patterns,
                ConvertNamedEltwiseToXeGPU<linalg::FloorOp>,
                ConvertNamedEltwiseToXeGPU<linalg::MaxOp>,
                ConvertNamedEltwiseToXeGPU<linalg::MulOp>,
-               ConvertNamedEltwiseToXeGPU<linalg::NegfOp>,
+               ConvertNamedEltwiseToXeGPU<linalg::NegFOp>,
                ConvertNamedEltwiseToXeGPU<linalg::SubOp>>(patterns.getContext(),
                                                           options);
 }

@@ -26,17 +26,18 @@ else()
   )
 endif()
 
-add_mlir_library(GCJitWrapper
-  Driver.cpp
+set(GC_PASSES GcInterface GcPasses)
+if(GC_ENABLE_IMEX)
+  list(APPEND GC_PASSES GcGpuPasses)
+endif()
 
-  ADDITIONAL_HEADER_DIRS
-    ${PROJECT_SOURCE_DIR}/include
+gc_add_mlir_library(GcJitWrapper
+  Driver.cpp
 
   LINK_LIBS PUBLIC
     ${MLIR_LINK_COMPONENTS}
     ${dialect_libs}
-    ${conversion_libs} 
-    GCPasses
-    GCGPUPasses
+    ${conversion_libs}
+    ${GC_PASSES}
+    GcAnalysis
   )
-
