@@ -360,6 +360,9 @@ PackingAttr getPackingAttr(PackingType opType) {
     attr.nPacking = {PackingMap{{2}, {1}}};
     attr.kPacking = {PackingMap{{2}, {1, 3}}};
   } break;
+  default: {
+    llvm::errs() << "Not a valid PackingType.\n";
+  } break;
   }
   return attr;
 }
@@ -501,6 +504,19 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
   }
   // Pass all checks
   return true;
+}
+
+bool isMatmulOp(Operation *op) {
+  if (isa<linalg::LinalgOp>(op) &&
+      linalg::isaContractionOpInterface(cast<linalg::LinalgOp>(op))) {
+    return true;
+  }
+  for (int ty = 0; ty < (int)PackingType::NUM_TYPES; ty++) {
+    if (isGenericPackedMatmulOp(op, (PackingType)ty)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace linalgx

@@ -19,10 +19,11 @@ namespace linalgx {
 
 /// @brief enum of type of matmul packing
 enum class PackingType {
-  MM4D,        // MKmk x NKkn
+  MM4D = 0,    // MKmk x NKkn
   VNNI_MM2D,   // MK x NKknV
   VNNI_MM4D,   // MKmk x NKknV
   VNNI_BRMM3D, // BMK x BKNV
+  NUM_TYPES,
 };
 
 /// @brief make a generic packed matmul Op based on PackingType
@@ -41,6 +42,11 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
 /// @param opType the PackingType
 /// @return true if op is a generic packed matmul Op
 bool isGenericPackedMatmulOp(Operation *op, PackingType opType);
+
+/// @brief identify a matmul Op based on ContractionOp and PackingType
+/// @param op the op
+/// @return true if op is a matmul Op
+bool isMatmulOp(Operation *op);
 
 } // namespace linalgx
 } // namespace mlir

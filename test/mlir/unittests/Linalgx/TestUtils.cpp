@@ -31,6 +31,7 @@
 #include "gc/Dialect/Linalgx/Utils.h"
 
 using namespace mlir;
+using namespace mlir::linalgx;
 
 // -----------------------------------------------------------------------------
 // Test Helpers
@@ -132,6 +133,7 @@ TEST(TestUtils, Matmul4D) {
       getTestModule(builder, makeVnniMatmul, {shapeA, shapeB, shapeC});
   // Get result
   ASSERT_TRUE(succeeded(op));
+  ASSERT_TRUE(isMatmulOp(*op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM2D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM4D));
@@ -180,6 +182,7 @@ TEST(TestUtils, VnniMatmul2D) {
       getTestModule(builder, makeVnniMatmul, {shapeA, shapeB, shapeC});
   // Get result
   ASSERT_TRUE(succeeded(op));
+  ASSERT_TRUE(isMatmulOp(*op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM4D));
@@ -226,6 +229,7 @@ TEST(TestUtils, VnniMatmul4D) {
       getTestModule(builder, makeVnniMatmul, {shapeA, shapeB, shapeC});
   // Get result
   ASSERT_TRUE(succeeded(op));
+  ASSERT_TRUE(isMatmulOp(*op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM2D));
@@ -273,9 +277,58 @@ TEST(TestUtils, VnniBatchReduceMatmul3D) {
       getTestModule(builder, makeVnniMatmul, {shapeA, shapeB, shapeC});
   // Get result
   ASSERT_TRUE(succeeded(op));
+  ASSERT_TRUE(isMatmulOp(*op));
   ASSERT_TRUE(isGenericPackedMatmulOp(*op, opType));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::MM4D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM2D));
   ASSERT_FALSE(isGenericPackedMatmulOp(*op, linalgx::PackingType::VNNI_MM4D));
   ASSERT_TRUE(compareModule(&context, &module, moduleStr));
+}
+
+TEST(TestUtils, IsMatmulOp) {
+  MLIRContext context;
+  OpBuilder builder = getMLIRBuilder(&context);
+  // Test params
+  Type shapeA = RankedTensorType::get({512, 32}, //
+                                      builder.getBF16Type());
+  Type shapeB = RankedTensorType::get({32, 128}, //
+                                      builder.getBF16Type());
+  Type shapeC = RankedTensorType::get({512, 128}, //
+                                      builder.getF32Type());
+  // Make test module
+  Operation *op;
+  auto makeLinalgOp = [&](OpBuilder &b, ValueRange vals) {
+    op = b.create<linalg::MatmulOp>(
+        b.getUnknownLoc(), ValueRange{vals[0], vals[1]}, ValueRange{vals[2]});
+  };
+  ModuleOp module =
+      getTestModule(builder, makeLinalgOp, {shapeA, shapeB, shapeC});
+  // Get result
+  ASSERT_TRUE(op);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(isMatmulOp(op));
+}
+
+TEST(TestUtils, NotMatmulOp) {
+  MLIRContext context;
+  OpBuilder builder = getMLIRBuilder(&context);
+  // Test params
+  Type shapeA = RankedTensorType::get({512, 512}, //
+                                      builder.getBF16Type());
+  Type shapeB = RankedTensorType::get({512, 512}, //
+                                      builder.getBF16Type());
+  Type shapeC = RankedTensorType::get({512, 512}, //
+                                      builder.getF32Type());
+  // Make test module
+  Operation *op;
+  auto makeLinalgOp = [&](OpBuilder &b, ValueRange vals) {
+    op = b.create<linalg::AddOp>(
+        b.getUnknownLoc(), ValueRange{vals[0], vals[1]}, ValueRange{vals[2]});
+  };
+  ModuleOp module =
+      getTestModule(builder, makeLinalgOp, {shapeA, shapeB, shapeC});
+  // Get result
+  ASSERT_TRUE(op);
+  ASSERT_TRUE(module);
+  ASSERT_FALSE(isMatmulOp(op));
 }
