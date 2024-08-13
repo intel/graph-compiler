@@ -143,9 +143,9 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
                               llvm::SmallSet<int64_t, 8> &firstIndexSet,
                               llvm::SmallSet<int64_t, 8> &secondIndexSet) {
     for (auto &packingMap : mapArray) {
-      auto firstDims = packingMap.getFirst();
+      ArrayRef<int64_t> firstDims = packingMap.getFirst();
       firstIndexSet.insert(firstDims.begin(), firstDims.end());
-      auto secondDims = packingMap.getSecond();
+      ArrayRef<int64_t> secondDims = packingMap.getSecond();
       secondIndexSet.insert(secondDims.begin(), secondDims.end());
     }
   };
@@ -168,12 +168,12 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
   auto matchBatch = [&](const BatchDimMap &batchDimMap) {
     bool matchBatch = true;
     for (int64_t i = 0; i < batchDimMap.getBatchNum(); i++) {
-      auto dimA = batchDimMap.getBatchA()[i];
-      auto dimB = batchDimMap.getBatchB()[i];
+      int64_t dimA = batchDimMap.getBatchA()[i];
+      int64_t dimB = batchDimMap.getBatchB()[i];
       matchBatch = matchBatch && //
                    (shapeA.getDimSize(dimA) == shapeB.getDimSize(dimB));
       if (batchDimMap.isBatchMatmul()) {
-        auto dimC = batchDimMap.getBatchC()[i];
+        int64_t dimC = batchDimMap.getBatchC()[i];
         matchBatch = matchBatch && //
                      (shapeA.getDimSize(dimA) == shapeC.getDimSize(dimC));
       }
@@ -185,17 +185,17 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
     for (auto &packingMap : mapArray) {
       bool isDynamic = false;
       int64_t firstSize = 1;
-      auto firstDims = packingMap.getFirst();
+      ArrayRef<int64_t> firstDims = packingMap.getFirst();
       for (auto dim : firstDims) {
-        auto size = firstShape.getDimSize(dim);
+        int64_t size = firstShape.getDimSize(dim);
         if (size == ShapedType::kDynamic)
           isDynamic = true;
         firstSize *= size;
       }
       int64_t secondSize = 1;
-      auto secondDims = packingMap.getSecond();
+      ArrayRef<int64_t> secondDims = packingMap.getSecond();
       for (auto dim : secondDims) {
-        auto size = secondShape.getDimSize(dim);
+        int64_t size = secondShape.getDimSize(dim);
         if (size == ShapedType::kDynamic)
           isDynamic = true;
         secondSize *= size;
@@ -207,10 +207,10 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
     }
     return true;
   };
-  bool matchM = matchDims(attr.mPacking, shapeA, shapeC);
-  bool matchN = matchDims(attr.nPacking, shapeB, shapeC);
-  bool matchK = matchDims(attr.kPacking, shapeA, shapeB);
-  bool checkMatch = matchBatch(attr.batchDimMap) && matchM && matchN && matchK;
+  bool checkMatch = matchBatch(attr.batchDimMap) &&
+                    matchDims(attr.mPacking, shapeA, shapeC) &&
+                    matchDims(attr.nPacking, shapeB, shapeC) &&
+                    matchDims(attr.kPacking, shapeA, shapeB);
   return checkMatch;
 }
 
@@ -231,7 +231,7 @@ getIteratorTypesArray(const PackingAttr &attr) {
   auto getPackingIteratorTypes = [&](ArrayRef<PackingMap> packingMaps,
                                      utils::IteratorType iterTy) {
     for (auto &mapping : packingMaps) {
-      auto packingNum = mapping.getPackingDstDims().size();
+      size_t packingNum = mapping.getPackingDstDims().size();
       iteratorTypes.insert(iteratorTypes.end(), packingNum, iterTy);
     }
   };
@@ -260,7 +260,7 @@ unsigned getPackingDimsExpr(MLIRContext *context,
   // dims count from 0
   auto getBatchExprs = [&](const BatchDimMap &batchDimMap) {
     for (; (int64_t)dims < batchDimMap.getBatchNum(); dims++) {
-      auto curr = getAffineDimExpr(dims, context);
+      AffineExpr curr = getAffineDimExpr(dims, context);
       exprsA[batchDimMap.getBatchA()[dims]] = curr;
       exprsB[batchDimMap.getBatchB()[dims]] = curr;
       if (batchDimMap.isBatchMatmul())
@@ -303,11 +303,14 @@ SmallVector<AffineMap> getIndexingMaps(MLIRContext *context, ShapedType shapeA,
                                        ShapedType shapeB, ShapedType shapeC,
                                        const PackingAttr &attr) {
   SmallVector<SmallVector<AffineExpr>> exprsArr;
-  auto dims = getPackingDimsExpr(context, exprsArr, //
-                                 shapeA, shapeB, shapeC, attr);
-  auto mapA = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[0], context));
-  auto mapB = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[1], context));
-  auto mapC = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[2], context));
+  unsigned dims = getPackingDimsExpr(context, exprsArr, //
+                                     shapeA, shapeB, shapeC, attr);
+  AffineMap mapA =
+      simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[0], context));
+  AffineMap mapB =
+      simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[1], context));
+  AffineMap mapC =
+      simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[2], context));
   return {mapA, mapB, mapC};
 }
 
@@ -416,7 +419,7 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
 Value createMatmulCalc(OpBuilder &b, Location loc, ValueRange args) {
   assert(args.size() == 3 && "Matmul region expects 3 args.");
   // Get data type
-  auto outTy = args[2].getType();
+  Type outTy = args[2].getType();
   bool isTypeFP = llvm::isa<FloatType>(outTy);
   bool isTypeInt = llvm::isa<IntegerType>(outTy);
   auto createMulCalc = [&](Value val0, Value val1) -> Value {
@@ -454,7 +457,7 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
   // Attr of packed matmul
-  auto packingAttr = getPackingAttr(opType);
+  PackingAttr packingAttr = getPackingAttr(opType);
   // Verify dims and shape is valid
   if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
       !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
@@ -489,7 +492,7 @@ bool isGenericPackedMatmulOpImpl(linalg::GenericOp genericOp,
   auto shapeA = cast<ShapedType>(inputs.front().getType());
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
-  auto packingAttr = getPackingAttr(opType);
+  PackingAttr packingAttr = getPackingAttr(opType);
   if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
       !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
     return false;
