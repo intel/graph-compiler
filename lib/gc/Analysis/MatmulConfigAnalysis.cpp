@@ -202,7 +202,8 @@ filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
 std::vector<MatmulConfig>
 prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                         ArrayRef<uint32_t> shape,
-                        ArrayRef<uint32_t> givenInnermostBlock) {
+                        ArrayRef<uint32_t> givenInnermostBlock,
+                        bool allowUndivisibleInnerblock = false) {
   if (shape.size() < 3) {
     LLVM_DEBUG(llvm::dbgs()
                << "The shape is invalid, no candidate is generated\n");
@@ -252,17 +253,20 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
         for (uint32_t MBlock : MBlockCandidates) {
           for (uint32_t innerMostMBlock : innerMostMBlockCandidates) {
             if (MBlock % innerMostMBlock != 0 ||
-                shape[0] % innerMostMBlock != 0)
+                (shape[0] % innerMostMBlock != 0 &&
+                 !allowUndivisibleInnerblock))
               continue;
             for (uint32_t NBlock : NBlockCandidates) {
               for (uint32_t innerMostNBlock : innerMostNBlockCandidates) {
                 if (NBlock % innerMostNBlock != 0 ||
-                    shape[1] % innerMostNBlock != 0)
+                    (shape[1] % innerMostNBlock != 0 &&
+                     !allowUndivisibleInnerblock))
                   continue;
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
                     if (KBlock % innerMostKBlock != 0 ||
-                        shape[2] % innerMostKBlock != 0)
+                        (shape[2] % innerMostKBlock != 0 &&
+                         !allowUndivisibleInnerblock))
                       continue;
                     MatmulConfig config{
                         MThreads,        NThreads,        KThreads,
@@ -349,102 +353,109 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
 // workload balance
 // communication
 // previous matmul
-MatmulConfigAnalysis::MatmulConfigAnalysis(Operation *root) {
-  if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
-    CPUTargetDescriptionAnalysis sysDesc(root);
-    SmallVector<SmallVector<DimType>> oprandDimType =
-        *getOprandDimType(linalgOp);
-    // get the origin M,N,K size
-    SmallVector<unsigned> MDimTypeIdx =
-        extractDimTypeIdx(oprandDimType[0], DimType::M);
-    SmallVector<unsigned> KDimTypeIdx =
-        extractDimTypeIdx(oprandDimType[1], DimType::K);
-    SmallVector<unsigned> NDimTypeIdx =
-        extractDimTypeIdx(oprandDimType[1], DimType::N);
-    uint32_t M = 1U, N = 1U, K = 1U;
-    for (auto &&[s, dimType] :
-         llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(0)),
-                   oprandDimType[0]))
-      if (dimType == DimType::M)
-        M *= s;
-    for (auto &&[s, dimType] :
-         llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(1)),
-                   oprandDimType[1])) {
-      if (dimType == DimType::N)
-        N *= s;
-      else if (dimType == DimType::K)
-        K *= s;
-    }
+MatmulConfig MatmulConfigAnalysis::getConfig() {
+  if (!hasConfig) {
+    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
+      CPUTargetDescriptionAnalysis sysDesc(root);
+      SmallVector<SmallVector<DimType>> oprandDimType =
+          *getOprandDimType(linalgOp);
+      // get the origin M,N,K size
+      SmallVector<unsigned> MDimTypeIdx =
+          extractDimTypeIdx(oprandDimType[0], DimType::M);
+      SmallVector<unsigned> KDimTypeIdx =
+          extractDimTypeIdx(oprandDimType[1], DimType::K);
+      SmallVector<unsigned> NDimTypeIdx =
+          extractDimTypeIdx(oprandDimType[1], DimType::N);
+      uint32_t M = 1U, N = 1U, K = 1U;
+      for (auto &&[s, dimType] :
+           llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(0)),
+                     oprandDimType[0]))
+        if (dimType == DimType::M)
+          M *= s;
+      for (auto &&[s, dimType] :
+           llvm::zip(linalgOp.getShape(linalgOp.getDpsInputOperand(1)),
+                     oprandDimType[1])) {
+        if (dimType == DimType::N)
+          N *= s;
+        else if (dimType == DimType::K)
+          K *= s;
+      }
 
-    // innermost Block, if the layout is blockied layout, the innermost block
-    // will derived from the layout directly
-    uint32_t defaultBlock = 32;
-    config.innerMostMBlock = M % defaultBlock == 0 ? defaultBlock : M;
-    config.innerMostNBlock = N % defaultBlock == 0 ? defaultBlock : N;
-    config.innerMostKBlock = K % defaultBlock == 0 ? defaultBlock : K;
-    SmallVector<uint32_t> givenInnermostBlock;
-    if (MDimTypeIdx.size() > 1) {
-      config.innerMostMBlock = 1;
-      for (auto &&[i, d] : llvm::enumerate(MDimTypeIdx))
-        if (i != 0)
-          config.innerMostMBlock *=
-              linalgOp.getShape(linalgOp.getDpsInputOperand(0))[d];
-      givenInnermostBlock.push_back(config.innerMostMBlock);
-    } else {
-      givenInnermostBlock.push_back(0);
-    }
-    if (NDimTypeIdx.size() > 1) {
-      config.innerMostNBlock = 1;
-      for (auto &&[i, d] : llvm::enumerate(NDimTypeIdx))
-        if (i != 0)
-          config.innerMostNBlock *=
-              linalgOp.getShape(linalgOp.getDpsInputOperand(1))[d];
-      givenInnermostBlock.push_back(config.innerMostNBlock);
-    } else {
-      givenInnermostBlock.push_back(0);
-    }
-    if (KDimTypeIdx.size() > 1) {
-      config.innerMostKBlock = 1;
-      for (auto &&[i, d] : llvm::enumerate(KDimTypeIdx))
-        if (i != 0)
-          config.innerMostKBlock *=
-              linalgOp.getShape(linalgOp.getDpsInputOperand(1))[d];
-      givenInnermostBlock.push_back(config.innerMostKBlock);
-    } else {
-      givenInnermostBlock.push_back(0);
-    }
+      // innermost Block, if the layout is blockied layout, the innermost block
+      // will derived from the layout directly
+      uint32_t defaultBlock = 32;
+      config.innerMostMBlock = M % defaultBlock == 0 ? defaultBlock : M;
+      config.innerMostNBlock = N % defaultBlock == 0 ? defaultBlock : N;
+      config.innerMostKBlock = K % defaultBlock == 0 ? defaultBlock : K;
+      SmallVector<uint32_t> givenInnermostBlock;
+      if (MDimTypeIdx.size() > 1) {
+        config.innerMostMBlock = 1;
+        for (auto &&[i, d] : llvm::enumerate(MDimTypeIdx))
+          if (i != 0)
+            config.innerMostMBlock *=
+                linalgOp.getShape(linalgOp.getDpsInputOperand(0))[d];
+        givenInnermostBlock.push_back(config.innerMostMBlock);
+      } else {
+        givenInnermostBlock.push_back(0);
+      }
+      if (NDimTypeIdx.size() > 1) {
+        config.innerMostNBlock = 1;
+        for (auto &&[i, d] : llvm::enumerate(NDimTypeIdx))
+          if (i != 0)
+            config.innerMostNBlock *=
+                linalgOp.getShape(linalgOp.getDpsInputOperand(1))[d];
+        givenInnermostBlock.push_back(config.innerMostNBlock);
+      } else {
+        givenInnermostBlock.push_back(0);
+      }
+      if (KDimTypeIdx.size() > 1) {
+        config.innerMostKBlock = 1;
+        for (auto &&[i, d] : llvm::enumerate(KDimTypeIdx))
+          if (i != 0)
+            config.innerMostKBlock *=
+                linalgOp.getShape(linalgOp.getDpsInputOperand(1))[d];
+        givenInnermostBlock.push_back(config.innerMostKBlock);
+      } else {
+        givenInnermostBlock.push_back(0);
+      }
 
-    LLVM_DEBUG(llvm::dbgs()
-               << "M: " << M << ", N: " << N << ", K: " << K << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "M: " << M << ", N: " << N << ", K: " << K << "\n");
 
-    // try to read the config from the attributes
-    SmallVector<NamedAttribute> attrs(linalgOp->getAttrs());
-    bool hasPredefinedConfig = readConfigFromAttrs(config, attrs);
+      // try to read the config from the attributes
+      SmallVector<NamedAttribute> attrs(linalgOp->getAttrs());
+      bool hasPredefinedConfig = readConfigFromAttrs(config, attrs);
 
-    // if there is a given config, skip the cost model
-    if (!hasPredefinedConfig) {
-      LLVM_DEBUG(llvm::dbgs() << "No predefined config\n");
-      // TODO: Could add a weight or priority for cost model
-      SmallVector<std::tuple<CostModelFn, std::string, double>> costModelList =
-          {{workloadBalancedCost, "workloadBalancedCost", 1},
-           {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
-           {computationIntensityOnL2Cache, "computationIntensityOnL2Cache", -1},
-           {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost",
-            -1}};
-      SmallVector<uint32_t> shape = {M, N, K};
-      std::vector<MatmulConfig> configCandidates =
-          prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock);
-      for (auto &&[fn, name, threshold] : costModelList)
-        configCandidates = filterConfigByCostModel(
-            configCandidates, linalgOp, shape, sysDesc, fn, 0.5, threshold);
-      if (!configCandidates.empty())
-        config = configCandidates[0];
+      // if there is a given config, skip the cost model
+      if (!hasPredefinedConfig) {
+        LLVM_DEBUG(llvm::dbgs() << "No predefined config\n");
+        // TODO: Could add a weight or priority for cost model
+        SmallVector<std::tuple<CostModelFn, std::string, double>>
+            costModelList = {
+                {workloadBalancedCost, "workloadBalancedCost", 1},
+                {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
+                {computationIntensityOnL2Cache, "computationIntensityOnL2Cache",
+                 -1},
+                {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost",
+                 -1}};
+        SmallVector<uint32_t> shape = {M, N, K};
+        std::vector<MatmulConfig> configCandidates =
+            prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock,
+                                    allowUndivisibleInnerBlock);
+        for (auto &&[fn, name, threshold] : costModelList)
+          configCandidates = filterConfigByCostModel(
+              configCandidates, linalgOp, shape, sysDesc, fn, 0.5, threshold);
+        if (!configCandidates.empty())
+          config = configCandidates[0];
+      }
+
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Final config\nNumThreads: " << sysDesc.getNumThreads()
+                 << ", MatmulConfig: " << config << "\n");
     }
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "Final config\nNumThreads: " << sysDesc.getNumThreads()
-               << ", MatmulConfig: " << config << "\n");
+    hasConfig = true;
   }
+  return config;
 }
 } // namespace gc
 } // namespace mlir
