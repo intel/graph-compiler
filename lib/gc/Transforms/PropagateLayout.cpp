@@ -672,6 +672,7 @@ struct UpliftPackOverBroadcast : public OpRewritePattern<tensor::PackOp> {
 
 void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
+  IRRewriter rewriter(ctx);
   mlir::Operation *graph = getOperation();
   // stage1: pack matmul
   RewritePatternSet packMatmulPatterns(&getContext());
@@ -685,14 +686,19 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     // hardcode to let B side to be NKkn
     options.rhsTransposeOuterBlocks = true;
     options.rhsTransposeInnerBlocks = false;
-    assert(LHSLayout.getTileSizes()[1] == RHSLayout.getTileSizes()[0] &&
-           "Inconsistent matmul tile size.");
-    options.blockFactors.push_back(
-        *getConstantIntValue(LHSLayout.getTileSizes()[0]));
-    options.blockFactors.push_back(
-        *getConstantIntValue(LHSLayout.getTileSizes()[1]));
-    options.blockFactors.push_back(
-        *getConstantIntValue(RHSLayout.getTileSizes()[1]));
+    // extract tile sizes
+    OpFoldResult M_block = LHSLayout.getTileSizes().empty()
+                               ? rewriter.getIndexAttr(1)
+                               : LHSLayout.getTileSizes()[0];
+    OpFoldResult K_block = LHSLayout.getTileSizes().empty()
+                               ? rewriter.getIndexAttr(1)
+                               : LHSLayout.getTileSizes()[1];
+    OpFoldResult N_block = RHSLayout.getTileSizes().empty()
+                               ? rewriter.getIndexAttr(1)
+                               : RHSLayout.getTileSizes()[0];
+    options.blockFactors.push_back(*getConstantIntValue(M_block));
+    options.blockFactors.push_back(*getConstantIntValue(K_block));
+    options.blockFactors.push_back(*getConstantIntValue(N_block));
     return options;
   };
   linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,

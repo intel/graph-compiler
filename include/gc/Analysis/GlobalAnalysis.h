@@ -39,11 +39,13 @@ public:
     return true;
   }
 
-  bool isPlainLayout() const {
+  bool isPlain() const {
     if (isPlainOuterAxis(outerAxis))
       return tileSizes.empty() && innerAxis.empty();
     return false;
   }
+
+  bool isBlocking() const { return !tileSizes.empty() && !innerAxis.empty(); }
 
   static TensorLayout createPlainLayout(int64_t rank) {
     SmallVector<int64_t> outerAxis(rank, 0);
@@ -86,7 +88,7 @@ public:
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                                        const TensorLayout &layout);
 
-  bool operator==(const TensorLayout &layout);
+  bool operator==(const TensorLayout &layout) const;
 
 private:
   SmallVector<int64_t> outerAxis;
@@ -120,7 +122,7 @@ public:
   bool isPlain() const {
     for (const auto &layout : llvm::concat<const TensorLayout>(
              supportedInputLayouts, supportedOutputLayouts)) {
-      if (!layout.isPlainLayout())
+      if (!layout.isPlain())
         return false;
     }
     return true;
