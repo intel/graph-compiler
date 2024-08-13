@@ -411,7 +411,7 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
                 op.getIteratorTypesArray(), //
                 mapsOp, itersOp);
   // check equivalence
-  return llvm::equal(mapsRef, mapsOp) && llvm::equal(itersRef, itersOp);
+  return llvm::equal(mapsRef, mapsOp) && (itersRef == itersOp);
 }
 
 /// Packing Matmul Utils
