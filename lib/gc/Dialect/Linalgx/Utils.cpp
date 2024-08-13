@@ -395,13 +395,12 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
       iterMap[cast<AffineDimExpr>(expr).getPosition()] = inIters[idx];
     }
     // replace old dim id with new ones in indexing maps
-    for (auto map : inMaps) {
-      retMaps.push_back(map.replace(replaceMap));
-    }
+    std::transform(inMaps.begin(), inMaps.end(), std::back_inserter(retMaps),
+                   [&](const AffineMap &m) { return m.replace(replaceMap); });
     // sort IteratorType to new array using ordered map
     std::transform(iterMap.begin(), iterMap.end(), std::back_inserter(retIters),
-                   [](const std::pair<unsigned, utils::IteratorType> &d) {
-                     return d.second;
+                   [](const std::pair<unsigned, utils::IteratorType> &p) {
+                     return p.second;
                    });
   };
   // re-mapped ref attrs
