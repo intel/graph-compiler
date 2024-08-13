@@ -472,13 +472,9 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
       });
 }
 
-bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
-  // Check for generic op
-  if (!isa<linalg::GenericOp>(op)) {
-    return false;
-  }
+bool isGenericPackedMatmulOpImpl(linalg::GenericOp genericOp,
+                                 PackingType opType) {
   // Check for matmul body
-  auto genericOp = cast<linalg::GenericOp>(op);
   if (!linalg::detail::isContractionBody(
           *genericOp.getBlock(), [](Operation *first, Operation *second) {
             return ((isa<arith::MulFOp>(first) && isa<arith::AddFOp>(second)) ||
@@ -506,14 +502,23 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
   return true;
 }
 
+bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
+  // Check for generic op
+  return isa<linalg::GenericOp>(op) &&
+         isGenericPackedMatmulOpImpl(cast<linalg::GenericOp>(op), opType);
+}
+
 bool isMatmulOp(Operation *op) {
   if (isa<linalg::LinalgOp>(op) &&
       linalg::isaContractionOpInterface(cast<linalg::LinalgOp>(op))) {
     return true;
   }
-  for (int ty = 0; ty < (int)PackingType::NUM_TYPES; ty++) {
-    if (isGenericPackedMatmulOp(op, (PackingType)ty)) {
-      return true;
+  if (isa<linalg::GenericOp>(op)) {
+    for (int ty = 0; ty < (int)PackingType::NUM_TYPES; ty++) {
+      if (isGenericPackedMatmulOpImpl(cast<linalg::GenericOp>(op),
+                                      (PackingType)ty)) {
+        return true;
+      }
     }
   }
   return false;
