@@ -97,6 +97,7 @@ private:
 
 /// PackingAttr to represent a matmul packing:
 /// vnni or non-vnni matmul, dim size of weight, batch dims, M,N,K packing map
+/// Mapping order(Matmul C=A*B): mPacking A->C, nPacking B->C, kPacking A->B
 struct PackingAttr {
   bool isVnni = false;
   int64_t weightDims = 0;
