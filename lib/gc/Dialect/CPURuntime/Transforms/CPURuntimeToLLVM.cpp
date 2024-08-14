@@ -128,10 +128,11 @@ public:
     mlir::Type llvmIntPtr = IntegerType::get(
         context, this->getTypeConverter()->getPointerBitwidth(0));
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
-    mlir::Type enumType = IntegerType::get(context, 32);
     auto allocFunc = getOrDefineFunction(
-        moduleOp, loc, rewriter, "gcAlignedMalloc",
-        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr, enumType}, /*isVarArg*/ false));
+        moduleOp, loc, rewriter,
+        adaptor.getThreadLocal() ? "gcThreadAlignedMalloc" : "gcAlignedMalloc",
+        LLVM::LLVMFunctionType::get(i8Ptr, {llvmIntPtr},
+                                    /*isVarArg*/ false));
 
     auto operands = adaptor.getOperands();
     SmallVector<Value, 4> shape;
@@ -141,8 +142,7 @@ public:
                                    strides, sizeBytes);
 
     Type elementPtrType = this->getElementPtrType(memRefType);
-    Value enumValue = rewriter.create<LLVM::ConstantOp>(loc, enumType, adaptor.getThreadLocal() ? 1 : 0);
-    SmallVector<Value, 2> appendFormatArgs = {sizeBytes, enumValue};
+    SmallVector<Value, 1> appendFormatArgs = {sizeBytes};
     LLVM::CallOp allocater =
         rewriter.create<LLVM::CallOp>(loc, allocFunc, appendFormatArgs);
     Value allocatedPtr = allocater.getResult();
@@ -172,7 +172,8 @@ public:
     mlir::Type i8Ptr = LLVM::LLVMPointerType::get(context);
     mlir::Type llvmVoidType = LLVM::LLVMVoidType::get(context);
     auto deallocFunc = getOrDefineFunction(
-        moduleOp, loc, rewriter, "gcAlignedFree",
+        moduleOp, loc, rewriter,
+        adaptor.getThreadLocal() ? "gcThreadAlignedFree" : "gcAlignedFree",
         LLVM::LLVMFunctionType::get(llvmVoidType, {i8Ptr}, /*isVarArg*/ false));
     Value pointer =
         MemRefDescriptor(adaptor.getMemref()).allocatedPtr(rewriter, loc);
