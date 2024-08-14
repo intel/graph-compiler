@@ -16,7 +16,6 @@ jobs:
     name: Build GPU with IMEX
     runs-on: [self-hosted, l0]
 
-
     env:
       GH_TOKEN: ${{ github.token }}    
 
