@@ -15,17 +15,26 @@ $(basename "$0")
     [ -l | --dyn     ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
     [ -r | --release ] Release build, requires rebuild of LLVM in Release mode, activates 'dev' option
     [ -c | --clean   ] Delete the build artifacts from the previous build
+    [ -i | --imex    ] Compile with IMEX (used for GPU pipeline)
     [ -h | --help    ] Print this message
 EOF
 }
 
 DYN_LINK=OFF
+ENABLE_IMEX=false
 for arg in "$@"; do
     case $arg in
         -d | --dev)   
             DEV_BUILD=true 
             ;;
+        -i | --imex)
+            ENABLE_IMEX=true
+            ;;
         -l | --dyn)
+            if [ "$ENABLE_IMEX" = true ]; then
+                echo "IMEX doesn't support dynamical linking of LLVM"
+                exit 1
+            fi
             DYN_LINK=ON
             DEV_BUILD=true
             ;;
@@ -69,9 +78,15 @@ LLVM_HASH=$(cat cmake/llvm-version.txt)
 load_llvm() {
     local run_id
 
+    if [ "$ENABLE_IMEX" = true ]; then
+        llvm_version="llvm-${LLVM_HASH}-imex-patched"
+    else
+        llvm_version="llvm-${LLVM_HASH}"
+    fi
+
     gh run download "$run_id" \
         --repo "$repo" \
-        -n "llvm-$LLVM_HASH" \
+        -n "$llvm_version" \
         --dir "$llvm_dir"
     cd "$llvm_dir"
     tar -zxf llvm.tgz
@@ -87,12 +102,32 @@ build_llvm() {
     else
         cd llvm-project
         git fetch --all
+        # discard all unstaged changes (there could be remaining patches from the IMEX
+        # build that would break 'git checkout ${LLVM_HASH}')
+        git checkout -- .
     fi
 
     git checkout ${LLVM_HASH}
     [ -z "$CLEANUP" ] || rm -rf build
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
+
+    if [ "$ENABLE_IMEX" = true ]; then
+        # clone IMEX and apply patches
+        cd ../
+        if ! [ -d "mlir-extensions" ]; then
+            git clone https://github.com/Menooker/mlir-extensions.git
+            cd mlir-extensions
+        else
+            cd mlir-extensions
+            git fetch --all
+        fi
+
+        git checkout dev
+
+        cd ../llvm-project
+        git apply ../mlir-extensions/build_tools/patches/*
+    fi
 
     cmake -G Ninja llvm -B build \
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
@@ -130,7 +165,12 @@ get_llvm() {
     fi
 
     llvm_dir=$PROJECT_DIR/../install/llvm
-    if ! [ -f "$llvm_dir/llvm-$LLVM_HASH"/llvm.tgz ]; then
+    if [ "$ENABLE_IMEX" = true ]; then
+        llvm_version="llvm-${LLVM_HASH}-imex-patched"
+    else
+        llvm_version="llvm-${LLVM_HASH}"
+    fi
+    if ! [ -f "$llvm_dir/$llvm_name"/llvm.tgz ]; then
         load_llvm 
     else 
         MLIR_DIR="$llvm_dir/lib/cmake/mlir"
@@ -154,12 +194,18 @@ else
     LIT_PATH=$PROJECT_DIR/externals/llvm-project/build/bin/llvm-lit
 fi
 
+# Should we install opencl in this script?
+# if [ "$ENABLE_IMEX" = true ]; then
+#     sudo apt install -y intel-opencl-icd opencl-c-headers
+# fi
+
 [ -z "$CLEANUP" ] || rm -rf build
 cmake -S . -G Ninja -B build \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
-    -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK
+    -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK \
+    -DGC_ENABLE_IMEX=$ENABLE_IMEX
 
 cmake --build build --parallel $MAX_JOBS
