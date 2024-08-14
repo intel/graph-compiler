@@ -31,7 +31,7 @@ for arg in "$@"; do
             ENABLE_IMEX=true
             ;;
         -l | --dyn)
-            if [ "$ENABLE_IMEX" = true ]; then
+            if [ "$ENABLE_IMEX" ]; then
                 echo "IMEX doesn't support dynamical linking of LLVM"
                 exit 1
             fi
@@ -78,7 +78,7 @@ LLVM_HASH=$(cat cmake/llvm-version.txt)
 load_llvm() {
     local run_id
 
-    if [ "$ENABLE_IMEX" = true ]; then
+    if [ "$ENABLE_IMEX" ]; then
         llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
         llvm_version="llvm-${LLVM_HASH}"
@@ -112,7 +112,7 @@ build_llvm() {
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
 
-    if [ "$ENABLE_IMEX" = true ]; then
+    if [ "$ENABLE_IMEX" ]; then
         # clone IMEX and apply patches
         cd ../
         if ! [ -d "mlir-extensions" ]; then
@@ -165,7 +165,7 @@ get_llvm() {
     fi
 
     llvm_dir=$PROJECT_DIR/../install/llvm
-    if [ "$ENABLE_IMEX" = true ]; then
+    if [ "$ENABLE_IMEX" ]; then
         llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
         llvm_version="llvm-${LLVM_HASH}"
@@ -195,7 +195,7 @@ else
 fi
 
 # Should we install opencl in this script?
-# if [ "$ENABLE_IMEX" = true ]; then
+# if [ "$ENABLE_IMEX" ]; then
 #     sudo apt install -y intel-opencl-icd opencl-c-headers
 # fi
 
