@@ -43,7 +43,7 @@ void populateCleanUpPasses(mlir::OpPassManager &pm) {
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::OpPassManager &pm) {
 #ifdef GC_HAS_ONEDNN_DIALECT
-  pm.addPass(createConvertOneDNNGraphToLinalg());
+  // pm.addPass(createConvertOneDNNGraphToLinalg());
 #endif
 }
 
@@ -73,7 +73,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 
   pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
   // Do promotion for math / arith ops
-  pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
+  // pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
   arith::ArithEmulateUnsupportedFloatsOptions options;
   std::array<std::string, 1> typeStr{"bf16"};
@@ -164,7 +164,7 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   // verify the target description attribute
   pm.addPass(createVerifyTargetDescription());
   // front-end, oneDNN graph dialect
-  populateFrontendPasses(pm);
+  // populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects
   populateTensorPasses(pm);
   // middle-end, arith/math/vector dialects

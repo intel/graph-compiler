@@ -561,12 +561,12 @@ struct LowerTileVectorPass
     };
     // some operation convert as constant, this pattern can help us to improve
     // the performance
-    // tensor::populateRewriteAsConstantPatterns(patterns, defaultControlFn);
+    tensor::populateRewriteAsConstantPatterns(patterns, defaultControlFn);
     // remove unnessary operation
-    // tensor::populateReassociativeReshapeFoldingPatterns(patterns);
-    // tensor::populateFoldTensorSubsetOpPatterns(patterns);
+    tensor::populateReassociativeReshapeFoldingPatterns(patterns);
+    tensor::populateFoldTensorSubsetOpPatterns(patterns);
     // tensor::populateFoldTensorEmptyPatterns(patterns, true);
-    // tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
+    tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
     populateLowerToTileVectorPatterns(patterns);
     linalg::populatePadOpVectorizationPatterns(patterns);
 
@@ -591,6 +591,11 @@ struct LowerTileVectorPass
     // tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(secondPattern);
 
     (void)applyPatternsAndFoldGreedily(funcOp, std::move(secondPattern));
+
+    RewritePatternSet thirdPattern(ctx);
+    tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(thirdPattern);
+    (void)applyPatternsAndFoldGreedily(funcOp, std::move(thirdPattern));
+
     // DominanceInfo domInfo;
     // IRRewriter rewriter(funcOp);
     // eliminateCommonSubExpressions(rewriter, domInfo, funcOp);

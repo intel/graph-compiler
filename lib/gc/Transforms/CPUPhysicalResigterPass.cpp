@@ -34,7 +34,7 @@ namespace {
 // TODO: remove it in the future
 bool disableSpecialOp = false;
 bool disableBroadcastOp = true;
-bool enableDebugPrinter = false;
+bool enableDebugPrinter = true;
 
 void printQueue(const std::queue<Operation *> &opQueue) {
   auto tempQ(opQueue);
@@ -2178,7 +2178,7 @@ scf::ForOp ForLoopGenerator::generateShapeCastForLoop(const size_t grpIdx) {
     for (auto [idx, successorWriteOp] : enumerate(successorWriteOps)) {
       rewriter.replaceOp(successorWriteOp, forOp->getResults()[idx]);
     }
-    rewriter.eraseOp(scOp);
+    // rewriter.eraseOp(scOp);
     clearCurrentOperationGroup(grpIdx);
     return forOp;
   }
@@ -2189,7 +2189,7 @@ scf::ForOp ForLoopGenerator::generateShapeCastForLoop(const size_t grpIdx) {
   for (auto [idx, successorWriteOp] : enumerate(successorWriteOps)) {
     rewriter.replaceOp(successorWriteOp, forOp->getResults()[idx]);
   }
-  rewriter.eraseOp(scOp);
+  // rewriter.eraseOp(scOp);
   clearCurrentOperationGroup(grpIdx);
   return forOp;
 }
@@ -3115,10 +3115,11 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
             SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
-            if (!isSpecialOp(op2)) {
-              return hasSameAxis(dims1, dims2);
-            }
-            return true;
+            return false;
+            // if (!isSpecialOp(op2)) {
+            //   return hasSameAxis(dims1, dims2);
+            // }
+            // return true;
           })
           .Case<vector::MultiDimReductionOp>(
               [&](vector::MultiDimReductionOp multiReductionOp) {
@@ -3179,10 +3180,11 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
             SmallVector<int64_t> dims1, dims2;
             getOperationDataAxis(op1, dims1);
             getOperationDataAxis(op2, dims2);
-            if (!isSpecialOp(op2)) {
-              return hasSameAxis(dims1, dims2);
-            }
-            return true;
+            return false;
+            // if (!isSpecialOp(op2)) {
+            //   return hasSameAxis(dims1, dims2);
+            // }
+            // return true;
           })
           .Default([&](Operation *op) { return false; });
 
