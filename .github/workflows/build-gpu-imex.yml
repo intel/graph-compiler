@@ -13,8 +13,9 @@ permissions: read-all
 
 jobs:
   build:
-    name: Build
-    runs-on: [self-hosted]
+    name: Build GPU with IMEX
+    runs-on: [self-hosted, l0]
+
 
     env:
       GH_TOKEN: ${{ github.token }}    
@@ -40,7 +41,9 @@ jobs:
 
       - name: Build
         run: |
-          scripts/compile.sh
+          # activate base-kit for OpenCL
+          . /opt/intel/oneapi/setvars.sh
+          scripts/compile.sh --imex
 
       - name: Test
         run: |
