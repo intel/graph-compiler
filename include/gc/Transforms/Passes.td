@@ -23,6 +23,17 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
 }
 #endif
 
+def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::FuncOp"> {
+  let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
+  let description = [{
+    Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
+  }];
+  let dependentDialects = [
+      "memref::MemRefDialect",
+      "cpuruntime::CPURuntimeDialect"
+  ];
+}
+
 #ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";

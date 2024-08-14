@@ -124,6 +124,7 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
+
   pm.addPass(createSinkOpIntoInnerLoop());
   pm.addPass(createMergeNestedForall());
   pm.addPass(createLoopInvariantCodeMotionPass());
@@ -131,6 +132,7 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   pm.addPass(createForallToParallelLoopPass());
   pm.addPass(createParallelLoopFusionPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
 }
