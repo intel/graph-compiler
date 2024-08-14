@@ -28,12 +28,14 @@ jobs:
         with:
           repository: Menooker/mlir-extensions
           ref: dev
+          path: mlir-extensions
         if: ${{ matrix.build-type == 'IMEX' }}
 
       - uses: actions/checkout@v4
         with:
           repository: llvm/llvm-project
           ref: ${{ env.LLVM_HASH }}
+          path: llvm-project
 
       - name: Build
         run: |
