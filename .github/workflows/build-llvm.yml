@@ -50,19 +50,27 @@ jobs:
           cmake --build build --target install
           cd llvm-install
           tar -zcf ../llvm.tgz .
+      
+      - name: Just checking
+        run: |
+          ls
+          echo "ls ../"
+          ls ../
+          echo "ls ./llvm"
+          ls ./llvm-project
 
       - name: Upload LLVM for CPU
         if: matrix.build-type == 'CPU'
         uses: actions/upload-artifact@v4
         with:
           name: llvm-${{ env.LLVM_HASH }}
-          path: llvm.tgz
+          path: ./llvm-project/llvm.tgz
 
       - name: Upload LLVM for IMEX
         if: matrix.build-type == 'IMEX'
         uses: actions/upload-artifact@v4
         with:
           name: llvm-${{ env.LLVM_HASH }}-imex-patched
-          path: llvm.tgz
+          path: ./llvm-project/llvm.tgz
 
 
