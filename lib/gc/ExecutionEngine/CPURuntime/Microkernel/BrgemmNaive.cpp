@@ -27,7 +27,7 @@ struct brgemm_params_t {
   int64_t stride_a, stride_b;
   float beta;
   int64_t dtypeA, dtypeB;
-  brgemm_params_t() {}
+  brgemm_params_t() = default;
   brgemm_params_t(int64_t m, int64_t n, int64_t k, int64_t lda, int64_t ldb,
                   int64_t ldc, int64_t sa, int64_t sb, float b, int64_t da,
                   int64_t db)
@@ -154,8 +154,8 @@ int64_t dnnl_brgemm_dispatch_naive(int64_t M, int64_t N, int64_t K, int64_t LDA,
                                    int64_t dtypeB) {
   write_lock_guard_t g(g_brgemm_lock);
   // simply store the given parameters for naive BRGEMM
-  g_brgemm_list.emplace_back(brgemm_params_t(M, N, K, LDA, LDB, LDC, stride_a,
-                                             stride_b, beta, dtypeA, dtypeB));
+  g_brgemm_list.emplace_back(M, N, K, LDA, LDB, LDC, stride_a, stride_b, beta,
+                             dtypeA, dtypeB);
   return g_brgemm_list.size() - 1;
 }
 
