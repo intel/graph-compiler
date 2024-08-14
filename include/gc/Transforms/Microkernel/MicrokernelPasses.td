@@ -26,10 +26,7 @@ def ConvertLinalgToMicrokernel: Pass<"convert-linalg-to-microkernel", "::mlir::f
     ```
     scf.forall {
       linalg.fill ins(...) outs(...) -> tensor<...>
-      %0 = microkernel.brgemm.dispatch(...)
-      microkernel.brgemm.prologue(%0)
-      microkernel.brgemm(%0, ...)
-      microkernel.brgemm.epilogue(%0)
+      microkernel.brgemm ins(...) outs(...) -> tensor<...>
     }
     ```
   }];
@@ -37,6 +34,33 @@ def ConvertLinalgToMicrokernel: Pass<"convert-linalg-to-microkernel", "::mlir::f
                            "memref::MemRefDialect",
                            "linalg::LinalgDialect",
                            "linalgx::LinalgxDialect",
+                           "microkernel::MicrokernelDialect"];
+}
+
+def ExpandMicrokernel: Pass<"expand-microkernel", "::mlir::func::FuncOp"> {
+  let summary = "Expand abstract microkernels into detailed execution phases";
+  let description = [{
+    Expand abstract microkernels into detailed execution phases
+    For example:
+    ```
+    scf.forall {
+      linalg.fill ins(...) outs(...) -> tensor<...>
+      microkernel.brgemm ins(...) outs(...) -> tensor<...>
+    }
+    ```
+    Will be changed into
+    ```
+    scf.forall {
+      linalg.fill ins(...) outs(...) -> tensor<...>
+      %0 = microkernel.brgemm.dispatch(...)
+      microkernel.brgemm.prologue(%0)
+      microkernel.brgemm.execute(%0, ...)
+      microkernel.brgemm.epilogue(%0)
+    }
+    ```
+  }];
+  let dependentDialects = ["func::FuncDialect",
+                           "memref::MemRefDialect",
                            "microkernel::MicrokernelDialect"];
 }
 

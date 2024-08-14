@@ -6,33 +6,49 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SparseTensor/IR/SparseTensor.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Dialect.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/TypeUtilities.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
+
 #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
-#include <mlir/IR/TypeUtilities.h>
 
 #define GET_OP_CLASSES
 #include "gc/Dialect/Microkernel/MicrokernelOps.cpp.inc"
 
 #include <llvm/Support/Debug.h>
 
+#define DEBUG_TYPE "microkernel-ops"
+
+using namespace mlir::bufferization;
+
 namespace mlir {
 
 namespace microkernel {
 
-constexpr std::string_view INPUTS = "inputs";
-constexpr std::string_view DATA_TYPE = "data_type";
-constexpr std::string_view FLAGS_NAME = "flags";
+constexpr std::string_view INPUTS_ASM_NAME = "ins";
+constexpr std::string_view OUTPUTS_ASM_NAME = "outs";
+constexpr std::string_view DATA_TYPE_ASM_NAME = "data_type";
+constexpr std::string_view FLAGS_ASM_NAME = "flags";
+constexpr std::string_view BATCH_DIMS_ASM_NAME = "batch_dims";
+constexpr std::string_view LEADING_DIMS_ASM_NAME = "leading_dims";
 
-template <typename OpTy>
-static void printInputImpl(OpAsmPrinter &printer, OpTy op) {
-  printer << " [" << op.getInputs() << ']';
-}
+constexpr std::string_view INPUTS_ATTR_NAME = "inputs";
+constexpr std::string_view BATCH_DIMS_ATTR_NAME = "batchDims";
+constexpr std::string_view LEADING_DIMS_ATTR_NAME = "leadingDims";
 
 template <typename AttrTy>
 static void printFlagsImpl(OpAsmPrinter &printer,
                            const std::function<ArrayAttr()> &fn,
                            const std::string_view &flagsName) {
-  printer << " " << flagsName << " = (";
+  printer << " " << flagsName << "(";
   llvm::interleaveComma(fn(), printer, [&](auto &flag) {
     printer << stringifyEnum(cast<AttrTy>(flag).getValue());
   });
@@ -41,7 +57,7 @@ static void printFlagsImpl(OpAsmPrinter &printer,
 
 template <typename OpTy>
 static void printDataTypeImpl(OpAsmPrinter &printer, OpTy op) {
-  printer << DATA_TYPE << " = (";
+  printer << DATA_TYPE_ASM_NAME << "(";
   auto dataTypes = op.getDataType();
   for (size_t idx = 0; idx < dataTypes.size(); idx++) {
     printer.printAttribute(dataTypes[idx]);
@@ -64,38 +80,50 @@ static ParseResult parseEnum(EnumClass &value, OpAsmParser &parser) {
   return success();
 }
 
-static ParseResult parseOperandImpl(OpAsmParser &parser,
-                                    OperationState &result) {
-  DenseI64ArrayAttr kindAttr;
-  if (parser.parseCustomAttributeWithFallback(kindAttr, Type{}, INPUTS,
-                                              result.attributes)) {
-    return failure();
-  }
+static ParseResult
+parseDenseI64ArrayAttrImpl(OpAsmParser &parser, OperationState &result,
+                           const std::string_view &attrAsmName,
+                           const std::string_view &attrName) {
   auto &builder = parser.getBuilder();
-  result.addTypes(builder.getIntegerType(64));
+  if (parser.parseKeyword(attrAsmName) || parser.parseLParen())
+    return failure();
+  SmallVector<int64_t, 2> vals;
+  auto parseVal = [&]() -> ParseResult {
+    int64_t val;
+    if (parser.parseInteger(val))
+      return failure();
+    vals.push_back(val);
+    return success();
+  };
+  if (parser.parseCommaSeparatedList(parseVal) || parser.parseRParen())
+    return failure();
+
+  auto valAttr = builder.getDenseI64ArrayAttr(vals);
+  result.addAttribute(attrName, valAttr);
   return success();
 }
 
-static ParseResult parseDataTypeImpl(OpAsmParser &parser,
-                                     OperationState &result) {
+template <typename AttrType>
+static ParseResult parseArrayAttrImpl(OpAsmParser &parser,
+                                      OperationState &result,
+                                      const std::string_view &attrAsmName,
+                                      const std::string_view &attrName) {
   auto &builder = parser.getBuilder();
-  if (parser.parseKeyword(DATA_TYPE) || parser.parseEqual() ||
-      parser.parseLParen())
+  if (parser.parseKeyword(attrAsmName) || parser.parseLParen())
     return failure();
-  SmallVector<Attribute, 2> dataTypes;
-  auto parseTypeAttr = [&]() -> ParseResult {
-    Attribute dataType;
-    if (parser.parseAttribute(dataType))
+  SmallVector<Attribute, 2> attrs;
+  auto parseAttr = [&]() -> ParseResult {
+    AttrType attr;
+    if (parser.parseAttribute(attr))
       return failure();
-    if (!isa<TypeAttr>(dataType))
-      return failure();
-    dataTypes.push_back(dataType);
+    attrs.push_back(attr);
     return success();
   };
-  if (parser.parseCommaSeparatedList(parseTypeAttr) || parser.parseRParen())
+  if (parser.parseCommaSeparatedList(parseAttr) || parser.parseRParen())
     return failure();
 
-  result.addAttribute(DATA_TYPE, builder.getArrayAttr(dataTypes));
+  auto arrayAttr = builder.getArrayAttr(attrs);
+  result.addAttribute(attrName, arrayAttr);
   return success();
 }
 
@@ -103,8 +131,7 @@ template <typename FLAGS>
 static ParseResult parseFlagsImpl(OpAsmParser &parser, OperationState &result,
                                   const std::string_view &flagsName) {
   auto &builder = parser.getBuilder();
-  if (parser.parseKeyword(flagsName) || parser.parseEqual() ||
-      parser.parseLParen())
+  if (parser.parseKeyword(flagsName))
     return failure();
 
   SmallVector<Attribute, 4> flags;
@@ -115,9 +142,28 @@ static ParseResult parseFlagsImpl(OpAsmParser &parser, OperationState &result,
     flags.push_back(builder.getI64IntegerAttr(static_cast<int64_t>(flag)));
     return success();
   };
-  if (parser.parseCommaSeparatedList(parseFlags) || parser.parseRParen())
+  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, parseFlags))
     return failure();
   result.addAttribute(flagsName, builder.getArrayAttr(flags));
+  return success();
+}
+
+static ParseResult parseOperandsImpl(OpAsmParser &parser,
+                                     OperationState &result,
+                                     const std::string_view &operandsName) {
+  SMLoc operandsLoc;
+  SmallVector<Type, 1> types;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> operands;
+
+  if (parser.parseKeyword(operandsName) || parser.parseLParen())
+    return failure();
+  operandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperandList(operands) || parser.parseColonTypeList(types) ||
+      parser.parseRParen())
+    return failure();
+
+  if (parser.resolveOperands(operands, types, operandsLoc, result.operands))
+    return failure();
   return success();
 }
 
@@ -142,24 +188,297 @@ verifyUniquenessAndConsistency(ArrayAttr flags, Operation *op,
   return success();
 }
 
+static LogicalResult verifyBrgemmFlags(ArrayAttr flags, Operation *op,
+                                       const std::string_view &flagsName) {
+  // Verify flags.
+  if (failed(verifyUniquenessAndConsistency<BrgemmFlags>(flags, op, flagsName)))
+    return failure();
+
+  bool strideSet = false;
+  bool listSet = false;
+  for (auto flag : flags) {
+    if (cast<BrgemmFlagsAttr>(flag).getValue() == BrgemmFlags::STRIDE) {
+      strideSet = true;
+    }
+    if (cast<BrgemmFlagsAttr>(flag).getValue() == BrgemmFlags::LIST) {
+      listSet = true;
+    }
+  }
+  // VNNI flags must be specified only for bf16 type
+  if (strideSet && listSet) {
+    return op->emitOpError()
+           << "stride and addr flags conflict with each other";
+  }
+
+  return success();
+}
+
+/////////////////////////////////////////////////////
+// Start of BrgemmOp
+
+ParseResult BrgemmOp::parse(OpAsmParser &parser, OperationState &result) {
+  if (failed(parseOperandsImpl(parser, result, INPUTS_ASM_NAME)))
+    return failure();
+  if (failed(parseOperandsImpl(parser, result, OUTPUTS_ASM_NAME)))
+    return failure();
+
+  if (failed(parseDenseI64ArrayAttrImpl(parser, result, BATCH_DIMS_ASM_NAME,
+                                        BATCH_DIMS_ATTR_NAME)))
+    return failure();
+  if (failed(parseDenseI64ArrayAttrImpl(parser, result, LEADING_DIMS_ASM_NAME,
+                                        LEADING_DIMS_ATTR_NAME)))
+    return failure();
+
+  if (failed(parseFlagsImpl<BrgemmFlags>(parser, result, FLAGS_ASM_NAME)))
+    return failure();
+
+  SmallVector<Type, 1> resultTypes;
+  if (failed(parser.parseOptionalArrowTypeList(resultTypes)))
+    return failure();
+  result.addTypes(resultTypes);
+
+  return success();
+}
+
+void BrgemmOp::print(OpAsmPrinter &printer) {
+  BrgemmOp op = *this;
+  printer << " " << INPUTS_ASM_NAME << "(" << op.getInputs() << ")";
+  printer << " " << OUTPUTS_ASM_NAME << "(" << op.getInit() << ")";
+  printer << " " << BATCH_DIMS_ASM_NAME << "(" << op.getBatchDims() << ")";
+  printer << " " << LEADING_DIMS_ASM_NAME << "(" << op.getLeadingDims() << ")";
+
+  auto getOpFlags = [this]() -> ArrayAttr { return this->getFlags(); };
+  printFlagsImpl<BrgemmFlagsAttr>(printer, getOpFlags, FLAGS_ASM_NAME);
+
+  auto resultTypes = op.getResultTypes();
+  if (resultTypes.empty())
+    return;
+  printer.printOptionalArrowTypeList(resultTypes);
+}
+
+LogicalResult BrgemmOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void BrgemmOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  if (hasPureTensorSemantics())
+    return;
+
+  BrgemmOp op = *this;
+
+  for (auto [index, operand] : llvm::enumerate(op.getDpsInputs())) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    effects.emplace_back(
+        MemoryEffects::Read::get(), &op->getOpOperand(index), /*stage=*/0,
+        /*effectOnFullRegion=*/true, SideEffects::DefaultResource::get());
+  }
+
+  auto flags = op.getFlags();
+  bool isInit = false;
+  for (auto flag : flags) {
+    if (cast<BrgemmFlagsAttr>(flag).getValue() == BrgemmFlags::BETA_0) {
+      isInit = true;
+      break;
+    }
+  }
+
+  assert(op.getDpsInitsMutable().size() == 1 &&
+         "Expecting single DPS init operand");
+  OpOperand &operand = op.getDpsInitsMutable()[0];
+  if (!llvm::isa<MemRefType>(operand.get().getType()))
+    return;
+  if (!isInit) {
+    effects.emplace_back(MemoryEffects::Read::get(), &operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+  }
+  effects.emplace_back(MemoryEffects::Write::get(), &operand, /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+}
+
+static inline ArrayRef<int64_t> getShapedValueShape(Value val) {
+  assert((llvm::isa<TensorType>(val.getType()) ||
+          llvm::isa<MemRefType>(val.getType())) &&
+         "Expecting shaped value");
+  if (auto tensorTy = dyn_cast_or_null<TensorType>(val.getType())) {
+    return tensorTy.getShape();
+  }
+  auto memrefTy = dyn_cast_or_null<MemRefType>(val.getType());
+  return memrefTy.getShape();
+}
+
+LogicalResult BrgemmOp::verify() {
+  BrgemmOp op = *this;
+
+  size_t expectedInputSize = 2;
+  SmallVector<Value, 2> ins;
+  for (auto in : op.getInputs())
+    ins.push_back(in);
+  Value out = op.getInit();
+  ArrayRef<int64_t> batchDims = op.getBatchDims();
+  ArrayRef<int64_t> leadingDims = op.getLeadingDims();
+  if (ins.size() != expectedInputSize &&
+      batchDims.size() != expectedInputSize &&
+      leadingDims.size() != expectedInputSize)
+    return op.emitOpError()
+           << "expect inputs and its related info to be size 2\n";
+
+  ArrayRef<int64_t> dimA = getShapedValueShape(ins[0]);
+  ArrayRef<int64_t> dimB = getShapedValueShape(ins[1]);
+  ArrayRef<int64_t> dimC = getShapedValueShape(out);
+  if (dimA.size() != 3)
+    return op.emitOpError() << "expect input A to be 3D\n";
+  if (dimB.size() != 3 && dimB.size() != 4)
+    return op.emitOpError() << "expect input B to be 3D or 4D\n";
+  if (dimB.size() == 4 && (dimB[3] != 2 && dimB[3] != 4))
+    return op.emitOpError() << "expect input B vnni step to be 2 or 4\n";
+  if (dimC.size() != 2)
+    return op.emitOpError() << "expect input C to be 2D\n";
+  for (auto dim : batchDims)
+    if (dim >= 2)
+      return op.emitOpError() << "batch dim cannot be last dim, as last dim "
+                                 "should be contigious\n";
+  for (auto dim : leadingDims)
+    if (dim >= 2)
+      return op.emitOpError() << "leading dim cannot be last dim, as last dim "
+                                 "should be contigious\n";
+
+  auto batchA = dimA[batchDims[0]];
+  auto batchB = dimB[batchDims[1]];
+  auto majorDimA = dimA[leadingDims[0]];
+  auto majorDimB = dimB.size() == 3 ? dimB[leadingDims[1]]
+                                    : (dimB[leadingDims[1]] * dimB[3]);
+  auto minorDimA = dimA[2];
+  auto minorDimB = dimB[2];
+  auto majorDimC = dimC[0];
+  auto minorDimC = dimC[1];
+  if (batchA != batchB)
+    return op.emitOpError() << "unmatched batch dim of A and B\n";
+  if (minorDimA != majorDimB)
+    return op.emitOpError() << "unmatched matmul dim of A and B\n";
+  if (majorDimA != majorDimC || minorDimB != minorDimC)
+    return op.emitOpError() << "unmatched matmul dim of A, B and C\n";
+
+  return verifyBrgemmFlags(op.getFlags(), op, FLAGS_ASM_NAME);
+}
+
+bool BrgemmOp::bufferizesToMemoryRead(OpOperand &opOperand,
+                                      const AnalysisState &state) {
+  Operation *op = *this;
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+  return !dpsOp.isDpsInit(&opOperand);
+}
+
+bool BrgemmOp::bufferizesToMemoryWrite(OpOperand &opOperand,
+                                       const AnalysisState &state) {
+  Operation *op = *this;
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+  return dpsOp.isDpsInit(&opOperand);
+}
+
+bool BrgemmOp::bufferizesToElementwiseAccess(const AnalysisState &state,
+                                             ArrayRef<OpOperand *> opOperands) {
+  // This op contains non-parallel reduction loops,
+  // should return `false` per linalg implementation
+  return false;
+}
+
+LogicalResult BrgemmOp::bufferize(RewriterBase &rewriter,
+                                  const BufferizationOptions &options) {
+  // This implementation refers to linalg's
+  // `bufferizeDestinationStyleOpInterface`
+  Operation *op = *this;
+  auto dpsOp = cast<DestinationStyleOpInterface>(op);
+
+  // Take a guard before anything else.
+  OpBuilder::InsertionGuard g(rewriter);
+  rewriter.setInsertionPoint(dpsOp);
+
+  // Nothing to do. This op is already bufferized.
+  if (dpsOp.hasPureBufferSemantics())
+    return success();
+
+  // Ensure op has only tensors. Allow mixed tensor-buffer mode on a per-need
+  // basis.
+  if (!dpsOp.hasPureTensorSemantics())
+    return emitError() << "op does not have pure tensor semantics";
+
+  // New input operands for the cloned op.
+  SmallVector<Value> newInputBuffers;
+  newInputBuffers.reserve(dpsOp.getNumDpsInputs());
+  for (OpOperand *opOperand : dpsOp.getDpsInputOperands()) {
+    FailureOr<Value> buffer = getBuffer(rewriter, opOperand->get(), options);
+    if (failed(buffer))
+      return failure();
+    newInputBuffers.push_back(*buffer);
+  }
+
+  // New output operands for the cloned op.
+  SmallVector<Value> newOutputBuffers;
+  for (OpResult opResult : dpsOp->getOpResults()) {
+    OpOperand *opOperand = dpsOp.getDpsInitOperand(opResult.getResultNumber());
+    FailureOr<Value> resultBuffer =
+        getBuffer(rewriter, opOperand->get(), options);
+    if (failed(resultBuffer))
+      return failure();
+    newOutputBuffers.push_back(*resultBuffer);
+  }
+
+  // Merge input/output operands.
+  SmallVector<Value> newOperands = newInputBuffers;
+  newOperands.append(newOutputBuffers.begin(), newOutputBuffers.end());
+
+  // Set insertion point now that potential alloc/dealloc are introduced.
+  rewriter.setInsertionPoint(dpsOp);
+  // Clone the op, but use the new operands. Since the new op does not have any
+  // tensor results, it does not return anything.
+  OperationState state(dpsOp->getLoc(), dpsOp->getName(), newOperands,
+                       TypeRange{}, dpsOp->getAttrs());
+  Operation *newOp = Operation::create(state);
+
+  // We don't want the rewriter tracks an incomplete operation, so insert new
+  // operation after op was fully constructed.
+  rewriter.insert(newOp);
+
+  // Replace the results of the old op with the new output buffers.
+  replaceOpWithBufferizedValues(rewriter, dpsOp, newOutputBuffers);
+
+  return success();
+}
+
 /////////////////////////////////////////////////////
 // Start of BrgemmDispatchOp
 
 void BrgemmDispatchOp::print(OpAsmPrinter &printer) {
-  printInputImpl<BrgemmDispatchOp>(printer, *this);
+  BrgemmDispatchOp op = *this;
+
+  printer << " [" << op.getInputs() << ']';
+
   auto getOpFlags = [this]() -> ArrayAttr { return this->getFlags(); };
-  printFlagsImpl<BrgemmFlagsAttr>(printer, getOpFlags, FLAGS_NAME);
+  printFlagsImpl<BrgemmFlagsAttr>(printer, getOpFlags, FLAGS_ASM_NAME);
+
   printDataTypeImpl<BrgemmDispatchOp>(printer, *this);
 }
 
 ParseResult BrgemmDispatchOp::parse(OpAsmParser &parser,
                                     OperationState &result) {
-  if (failed(parseOperandImpl(parser, result)) ||
-      failed(parseFlagsImpl<BrgemmFlags>(parser, result, FLAGS_NAME)))
+  auto &builder = parser.getBuilder();
+  result.addTypes(builder.getIntegerType(64));
+
+  DenseI64ArrayAttr inputAttr;
+  if (parser.parseCustomAttributeWithFallback(
+          inputAttr, Type{}, INPUTS_ATTR_NAME, result.attributes))
     return failure();
-  if (failed(parseDataTypeImpl(parser, result)))
+  if (failed(parseFlagsImpl<BrgemmFlags>(parser, result, FLAGS_ASM_NAME)))
     return failure();
-  return parser.parseOptionalAttrDict(result.attributes);
+  if (failed(parseArrayAttrImpl<TypeAttr>(parser, result, DATA_TYPE_ASM_NAME,
+                                          DATA_TYPE_ASM_NAME)))
+    return failure();
+  return success();
 }
 
 static LogicalResult verifyBrgemmDataTypes(ArrayAttr dtypes,
@@ -190,30 +509,8 @@ static LogicalResult verifyBrgemmDataTypes(ArrayAttr dtypes,
   return success();
 }
 
-static LogicalResult verifyBrgemmFlags(ArrayAttr flags, BrgemmDispatchOp op,
-                                       const std::string_view &flagsName) {
-  // Verify flags.
-  if (failed(verifyUniquenessAndConsistency<BrgemmFlags>(flags, op, flagsName)))
-    return failure();
-
-  bool strideSet = false;
-  bool listSet = false;
-  for (auto flag : flags) {
-    if (cast<BrgemmFlagsAttr>(flag).getValue() == BrgemmFlags::STRIDE)
-      strideSet = true;
-    if (cast<BrgemmFlagsAttr>(flag).getValue() == BrgemmFlags::LIST)
-      listSet = true;
-  }
-  // VNNI flags must be specified only for bf16 type
-  if (strideSet && listSet)
-    return op->emitOpError()
-           << "stride and addr flags conflict with each other";
-
-  return success();
-}
-
 LogicalResult BrgemmDispatchOp::verify() {
-  BrgemmDispatchOp &op = *this;
+  BrgemmDispatchOp op = *this;
   // 'inputs' = [m, n, k, lda, ldb, ldc, stride_a, stride_b] for BRGEMM.
   size_t expected = 8;
   size_t numInputs = op.getInputs().size();
@@ -239,11 +536,11 @@ LogicalResult BrgemmDispatchOp::verify() {
     return op.emitOpError() << "expect ldc to be >= of dimension n\n";
 
   // Verify dispatch flags.
-  return verifyBrgemmFlags(op.getFlags(), op, FLAGS_NAME);
+  return verifyBrgemmFlags(op.getFlags(), op, FLAGS_ASM_NAME);
 }
 
 /////////////////////////////////////////////////////
-// Start of BrgemmOp
+// Start of BrgemmExecuteOp
 
 // TODO(haixin): could use compiler-wide VNNI utils?
 static bool isInVnniLayout(MemRefType memref) {
@@ -281,8 +578,8 @@ static bool isTypeSupported(Type outType, Type operandAType,
   return true;
 }
 
-LogicalResult BrgemmOp::verify() {
-  BrgemmOp &brgemmOp = *this;
+LogicalResult BrgemmExecuteOp::verify() {
+  BrgemmExecuteOp &brgemmOp = *this;
 
   SmallVector<Value> inputs = brgemmOp.getInputs();
   // inputs for BRGEMM: kernel id, A memref, B memref, C memref, batch_size,

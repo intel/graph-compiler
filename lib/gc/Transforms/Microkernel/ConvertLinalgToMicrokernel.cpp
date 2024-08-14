@@ -31,22 +31,20 @@ namespace mlir::microkernel {
 
 #define DEBUG_TYPE "convert-linalg-to-microkernel"
 
-struct BrgemmInfo {
-  enum BrgemmMode { STRIDE_MODE, LIST_MODE };
-  int64_t m;
-  int64_t n;
-  int64_t k;
-  int64_t batchSize;
-  int64_t addrLen;
+struct BrgemmDims {
+  int64_t batchDimA;
+  int64_t leadingDimA;
+  int64_t minorDimA;
 
-  int64_t lda;
-  int64_t ldb;
-  int64_t ldc;
-  int64_t strideA;
-  int64_t strideB;
+  int64_t batchDimB;
+  int64_t leadingDimB;
+  int64_t minorDimB;
 
-  bool isInitOutput;
-  BrgemmMode mode;
+  BrgemmDims() {}
+  BrgemmDims(int64_t bdA, int64_t ldA, int64_t mdA, int64_t bdB, int64_t ldB,
+             int64_t mdB)
+      : batchDimA(bdA), leadingDimA(ldA), minorDimA(mdA), batchDimB(bdB),
+        leadingDimB(ldB), minorDimB(mdB) {}
 };
 
 FailureOr<linalg::ContractionDimensions>
@@ -108,117 +106,7 @@ static std::optional<unsigned> getPosInCodomain(ArrayRef<unsigned> dimPos,
   return std::nullopt;
 }
 
-static FailureOr<BrgemmInfo>
-inferBrgemmInfo(linalg::LinalgOp linalgOp,
-                const linalg::ContractionDimensions &dims) {
-  unsigned mPos = dims.m[0];
-  unsigned nPos = dims.n[0];
-  // dims.k could be of 2 cases:
-  //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
-  //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
-  unsigned batchPos = dims.k.front();
-  SmallVector<unsigned, 2> kPos;
-  if (dims.k.size() == 2) {
-    kPos = {dims.k[1]};
-  } else if (dims.k.size() == 3) {
-    kPos = {dims.k[1], dims.k[2]};
-  } else {
-    return failure();
-  }
-
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Candidate dims: "
-                          << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] m pos in affine: " << mPos
-                          << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] n pos in affine: " << nPos
-                          << "\n");
-  for (auto kp : kPos) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "[inferBrgemmInfo] k pos in affine: " << kp << "\n");
-  }
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] batch pos in affine: "
-                          << batchPos << "\n");
-
-  auto checkStridesAndGetLda =
-      [&](ArrayRef<unsigned> minorDim, ArrayRef<unsigned> majorDim,
-          OpOperand *operand, bool allowVnni) -> FailureOr<int64_t> {
-    auto minorDimPosInCodomain = getPosInCodomain(minorDim, operand, linalgOp);
-    auto majorDimPosInCodomain = getPosInCodomain(majorDim, operand, linalgOp);
-    if (!minorDimPosInCodomain || !majorDimPosInCodomain)
-      return failure();
-    auto stridesOnOperand = utils::getStaticStrides(operand->get());
-    if (failed(stridesOnOperand))
-      return failure();
-    auto minorDimLd = (*stridesOnOperand)[*minorDimPosInCodomain];
-    auto majorDimLd = (*stridesOnOperand)[*majorDimPosInCodomain];
-    if (minorDimLd != 1) {
-      // VNNI format exists, special treatment to align LD with non-VNNI format
-      if (!allowVnni || (minorDimLd != 2 && minorDimLd != 4))
-        return failure();
-      return majorDimLd / minorDimLd;
-    }
-    return majorDimLd;
-  };
-
-  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
-  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
-  OpOperand *operandC = &linalgOp.getDpsInitsMutable()[0];
-
-  // A(m, k)
-  auto lda = checkStridesAndGetLda(kPos, {mPos}, operandA, false);
-  if (failed(lda))
-    return failure();
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on A: OK\n");
-
-  // B(k, n)
-  // note: B does not use VNNI format K affine
-  auto ldb = checkStridesAndGetLda({nPos}, {kPos[0]}, operandB, true);
-  if (failed(ldb))
-    return failure();
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on B: OK\n");
-
-  // C(m, n)
-  auto ldc = checkStridesAndGetLda({nPos}, {mPos}, operandC, false);
-  if (failed(ldc))
-    return failure();
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on C: OK\n");
-
-  int64_t strideA = 1;
-  int64_t strideB = 1;
-  auto batchPosCodomainA = getPosInCodomain(batchPos, operandA, linalgOp);
-  auto stridesOnA = utils::getStaticStrides(operandA->get());
-  strideA = (*stridesOnA)[*batchPosCodomainA];
-
-  auto batchPosCodomainB = getPosInCodomain(batchPos, operandB, linalgOp);
-  auto stridesOnB = utils::getStaticStrides(operandB->get());
-  strideB = (*stridesOnB)[*batchPosCodomainB];
-
-  auto loops = linalgOp.computeStaticLoopSizes();
-  auto kSize =
-      kPos.size() == 1 ? loops[kPos[0]] : (loops[kPos[0]] * loops[kPos[1]]);
-
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] final BrgemmInfo: m("
-                          << loops[mPos] << "), n(" << loops[nPos] << "), k("
-                          << kSize << "), batch(" << loops[batchPos]
-                          << "), lda(" << *lda << "), ldb(" << *ldb << "), ldc("
-                          << *ldc << "), strideA(" << strideA << "), strideB("
-                          << strideB << ")\n");
-  BrgemmInfo info{loops[mPos],
-                  loops[nPos],
-                  kSize,
-                  loops[batchPos],
-                  0 /* addrLen useless under stride mode */,
-                  *lda,
-                  *ldb,
-                  *ldc,
-                  strideA,
-                  strideB,
-                  false,
-                  BrgemmInfo::STRIDE_MODE};
-  return info;
-}
-
-static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
+static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   using namespace mlir::structured_match;
   auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
                                 .output(MatchAll(), HasStaticShape())
@@ -256,68 +144,136 @@ static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
     return failure();
   }
 
-  return inferBrgemmInfo(linalgOp, *contractionDims);
+  unsigned mAffinePos = contractionDims->m[0];
+  unsigned nAffinePos = contractionDims->n[0];
+  // contractionDims.k could be of 2 cases:
+  //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
+  //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
+  unsigned batchAffinePos = contractionDims->k.front();
+  SmallVector<unsigned, 2> kAffinePos;
+  if (contractionDims->k.size() == 2)
+    kAffinePos = {contractionDims->k[1]};
+  else if (contractionDims->k.size() == 3)
+    kAffinePos = {contractionDims->k[1], contractionDims->k[2]};
+  else
+    return failure();
+
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] Candidate dims: "
+                          << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] m pos in affine: " << mAffinePos
+                          << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] n pos in affine: " << nAffinePos
+                          << "\n");
+  for (auto kp : kAffinePos)
+    LLVM_DEBUG(llvm::dbgs()
+               << "[inferBrgemmDims] k pos in affine: " << kp << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] batch pos in affine: "
+                          << batchAffinePos << "\n");
+
+  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
+  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
+
+  BrgemmDims brgemmDims;
+
+  auto checkAndGetPosInCodomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
+                                      OpOperand *operand) {
+    auto pos = getPosInCodomain(dimPos, operand, linalgOp);
+    assert(pos && "Cannot find position in codomain");
+    dim = *pos;
+  };
+
+  // A(batch, m, k)
+  checkAndGetPosInCodomain(brgemmDims.batchDimA, batchAffinePos, operandA);
+  checkAndGetPosInCodomain(brgemmDims.leadingDimA, {mAffinePos}, operandA);
+  checkAndGetPosInCodomain(brgemmDims.minorDimA, kAffinePos, operandA);
+  // B(batch, k, n) or B(batch, k/vnni_step, n, vnni_step)
+  // note: B does not use VNNI format K affine
+  checkAndGetPosInCodomain(brgemmDims.batchDimB, batchAffinePos, operandB);
+  checkAndGetPosInCodomain(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
+  checkAndGetPosInCodomain(brgemmDims.minorDimB, {nAffinePos}, operandB);
+  // C(m, n)
+  // Currently useless, no need to set
+  // checkAndGetPosInCodomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
+  // checkAndGetPosInCodomain(brgemmDims.minorDimC, kAffinePos, operandC);
+
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] A batch dim: "
+                          << brgemmDims.batchDimA
+                          << ", A leading dim: " << brgemmDims.leadingDimA
+                          << ", A minor dim: " << brgemmDims.minorDimA
+                          << "; B batch dim: " << brgemmDims.batchDimB
+                          << ", B leading dim: " << brgemmDims.leadingDimB
+                          << ", B minor dim: " << brgemmDims.minorDimB << "\n");
+  return brgemmDims;
 }
 
-// Replace linalgOp with a set of microkernel ops
-static void replaceOpWithMicrokernelOpSet(PatternRewriter &rewriter,
-                                          linalg::LinalgOp linalgOp,
-                                          const BrgemmInfo &info) {
-  assert(linalgOp.getDpsInputs().size() == 2);
+template <typename SrcBrmmOpTy>
+static FailureOr<linalg::TransposeOp> getFusibleTranspose(SrcBrmmOpTy brmmOp,
+                                                          Value buffer) {
+  auto defOp = buffer.getDefiningOp();
+  auto transOp = dyn_cast_or_null<linalg::TransposeOp>(defOp);
+  if (!transOp)
+    return failure();
+
+  using one_t = std::integral_constant<size_t, 1>;
+  using two_t = std::integral_constant<size_t, 2>;
+  constexpr size_t lastDimOffsetA = 1;
+  constexpr size_t lastDimOffsetB = std::conditional<
+      std::is_same<SrcBrmmOpTy, linalg::BatchReduceMatmulOp>::value, one_t,
+      two_t>::type::value;
+  size_t lastDimOffset =
+      buffer == brmmOp.getInputs()[0] ? lastDimOffsetA : lastDimOffsetB;
+
+  ArrayRef<int64_t> permutation = transOp.getPermutation();
+  bool lastDimContigious = true;
+  // Last dim can't not be permuted if we want to incorporate the
+  // transpose, because BRGEMM requires last dim to be contigious.
+  // For VNNI, it requires the last two dims to be non-permutedi
+  for (size_t idx = permutation.size() - lastDimOffset;
+       idx < permutation.size(); idx++)
+    lastDimContigious = lastDimContigious && (permutation[idx] == idx);
+
+  if (lastDimContigious)
+    return transOp;
+  return failure();
+}
+
+// Replace linalgOp with corresponding microkernel Op
+static void replaceOpWithMicrokernelOp(PatternRewriter &rewriter,
+                                       linalg::LinalgOp linalgOp,
+                                       const BrgemmDims &dims,
+                                       const DenseMap<Value, Value> &replaceMap,
+                                       bool isInitOutput) {
   OpBuilder::InsertionGuard guard(rewriter);
 
-  IntegerType integer64 = IntegerType::get(rewriter.getContext(), 64);
-  Location loc = linalgOp.getLoc();
+  DenseI64ArrayAttr batchDims = DenseI64ArrayAttr::get(
+      rewriter.getContext(), ArrayRef<int64_t>{dims.batchDimA, dims.batchDimB});
+  DenseI64ArrayAttr leadingDims = DenseI64ArrayAttr::get(
+      rewriter.getContext(),
+      ArrayRef<int64_t>{dims.leadingDimA, dims.leadingDimB});
+
   SmallVector<Attribute> brgemmFlags;
-  if (info.isInitOutput) {
+  if (isInitOutput) {
     brgemmFlags.push_back(microkernel::BrgemmFlagsAttr::get(
         rewriter.getContext(), microkernel::BrgemmFlags::BETA_0));
   }
-  if (info.mode == BrgemmInfo::STRIDE_MODE) {
-    brgemmFlags.push_back(microkernel::BrgemmFlagsAttr::get(
-        rewriter.getContext(), microkernel::BrgemmFlags::STRIDE));
-  } else if (info.mode == BrgemmInfo::LIST_MODE) {
-    brgemmFlags.push_back(microkernel::BrgemmFlagsAttr::get(
-        rewriter.getContext(), microkernel::BrgemmFlags::LIST));
-  }
-
-  SmallVector<Attribute, 2> brgemmDtypes{
-      TypeAttr::get(getElementTypeOrSelf(linalgOp.getDpsInputs()[0].getType())),
-      TypeAttr::get(
-          getElementTypeOrSelf(linalgOp.getDpsInputs()[1].getType()))};
-
-  // create dispatch op
   auto flags = rewriter.getArrayAttr(brgemmFlags);
-  auto dtypes = rewriter.getArrayAttr(brgemmDtypes);
-  DenseI64ArrayAttr dims = DenseI64ArrayAttr::get(
-      rewriter.getContext(),
-      ArrayRef<int64_t>{info.m, info.n, info.k, info.lda, info.ldb, info.ldc,
-                        info.strideA, info.strideB});
-  Value dispatched = rewriter.create<microkernel::BrgemmDispatchOp>(
-      loc, integer64, dims, flags, dtypes);
 
-  // create prologue op
-  rewriter.create<microkernel::BrgemmPrologueOp>(loc, dispatched);
+  Value operandA = linalgOp.getDpsInputOperands()[0]->get();
+  Value operandB = linalgOp.getDpsInputOperands()[1]->get();
+  Value operandC = linalgOp.getDpsInitsMutable()[0].get();
 
-  // create brgemm invoke op
-  Value batchDim = rewriter.create<arith::ConstantOp>(
-      loc, integer64, rewriter.getIntegerAttr(integer64, info.batchSize));
-  Value lenDim = rewriter.create<arith::ConstantOp>(
-      loc, integer64, rewriter.getIntegerAttr(integer64, info.addrLen));
-  SmallVector<Value> invokeOperands;
-  invokeOperands.push_back(dispatched);
-  invokeOperands.append(linalgOp->getOperands().begin(),
-                        linalgOp->getOperands().end());
-  invokeOperands.push_back(batchDim);
-  invokeOperands.push_back(lenDim);
-  rewriter.create<microkernel::BrgemmOp>(loc, invokeOperands);
-
-  // create epilogue op & replace original op
-  rewriter.replaceOpWithNewOp<microkernel::BrgemmEpilogueOp>(linalgOp,
-                                                             dispatched);
+  SmallVector<Value> inputs{operandA, operandB};
+  auto brgemmOp = rewriter.replaceOpWithNewOp<microkernel::BrgemmOp>(
+      linalgOp, operandC.getType(), inputs, operandC, batchDims, leadingDims,
+      flags);
+  // Replace operands according to fusion
+  rewriter.modifyOpInPlace(brgemmOp, [&]() {
+    for (const auto &pair : replaceMap)
+      brgemmOp->replaceUsesOfWith(pair.first, pair.second);
+  });
 }
 
-bool isZeroArithConstant(arith::ConstantOp op) {
+static bool isZeroArithConstant(arith::ConstantOp op) {
   if (!op)
     return false;
 
@@ -340,28 +296,50 @@ public:
   using OpRewritePattern<ContractionOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
-    auto brgemmInfo = getBrgemmInfo(op);
-    if (failed(brgemmInfo))
+    if (!op.hasPureTensorSemantics())
       return failure();
-    // Check for immediately preceding linalg::FillOp
-    Operation *rawOp = op;
-    auto block = rawOp->getBlock();
-    auto opIter = Block::iterator(rawOp);
-    if (block->begin() != opIter) {
-      auto prevOp = &(*(--opIter));
-      if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
-        auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
-            fillOp.getInputs()[0].getDefiningOp());
-        auto fillOperand = fillOp.getOutputs()[0];
-        auto contractionOperand = op.getOutputs()[0];
-        if (isZeroArithConstant(inputCst) &&
-            contractionOperand == fillOperand) {
-          brgemmInfo->isInitOutput = true;
-          rewriter.eraseOp(prevOp);
-        }
+
+    auto brgemmDims = inferBrgemmDims(op);
+    if (failed(brgemmDims))
+      return failure();
+
+    DenseMap<Value, Value> replaceMap;
+    // Check for fusible linalg::TransposeOp on operand A & B
+    Value operandA = op.getDpsInputOperands()[0]->get();
+    Value operandB = op.getDpsInputOperands()[1]->get();
+    auto fusibleTransA = getFusibleTranspose(op, operandA);
+    auto fusibleTransB = getFusibleTranspose(op, operandB);
+    // Presumably minorDims are last dims and not permutated, so no need to
+    // transform them
+    if (!failed(fusibleTransA)) {
+      ArrayRef<int64_t> permutation = fusibleTransA->getPermutation();
+      brgemmDims->batchDimA = permutation[brgemmDims->batchDimA];
+      brgemmDims->leadingDimA = permutation[brgemmDims->leadingDimA];
+      replaceMap[fusibleTransA->getResult()[0]] = fusibleTransA->getInput();
+    }
+    if (!failed(fusibleTransB)) {
+      ArrayRef<int64_t> permutation = fusibleTransB->getPermutation();
+      brgemmDims->batchDimB = permutation[brgemmDims->batchDimB];
+      brgemmDims->leadingDimB = permutation[brgemmDims->leadingDimB];
+      replaceMap[fusibleTransB->getResult()[0]] = fusibleTransB->getInput();
+    }
+
+    // Check for fusible linalg::FillOp on operand C
+    bool isInitOutput = false;
+    Value operandC = op.getDpsInitsMutable()[0].get();
+    auto defOp = operandC.getDefiningOp();
+    if (llvm::isa<linalg::FillOp>(defOp)) {
+      auto fillOp = dyn_cast_or_null<linalg::FillOp>(defOp);
+      auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
+          fillOp.getInputs()[0].getDefiningOp());
+      if (isZeroArithConstant(inputCst)) {
+        replaceMap[fillOp.getResultTensors()[0]] = fillOp.getOutputs()[0];
+        isInitOutput = true;
       }
     }
-    replaceOpWithMicrokernelOpSet(rewriter, op, *brgemmInfo);
+
+    replaceOpWithMicrokernelOp(rewriter, op, *brgemmDims, replaceMap,
+                               isInitOutput);
     return success();
   }
 };
