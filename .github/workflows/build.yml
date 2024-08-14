@@ -15,6 +15,9 @@ jobs:
   build:
     name: Build
     runs-on: [self-hosted]
+    strategy:
+      matrix:
+        build-type: [CPU, IMEX]
 
     env:
       GH_TOKEN: ${{ github.token }}    
@@ -40,7 +43,14 @@ jobs:
 
       - name: Build
         run: |
-          scripts/compile.sh
+          if [ "${{ matrix.build-type }}" = "CPU" ]; then
+            scripts/compile.sh
+          elif [ "${{ matrix.build-type }}" = "IMEX" ]; then
+            scripts/compile.sh --imex
+          else
+            echo "Unknown build type: ${{ matrix.build-type }}"
+            exit 1
+          fi
 
       - name: Test
         run: |
