@@ -1,4 +1,4 @@
-//===- MergeAlloc.cpp - General framework for merge-allocation ------------===//
+//===-- MergeAlloc.cpp - General framework for merge-allocation -*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -87,7 +87,7 @@ class MergeAllocPass : public gc::impl::MergeAllocBase<MergeAllocPass> {
 public:
   MergeAllocPass() = default;
   explicit MergeAllocPass(const gc::MergeAllocationOptions &o)
-      : options{std::move(o)} {}
+      : options{o} {}
 };
 } // namespace
 } // namespace mlir

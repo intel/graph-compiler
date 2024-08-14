@@ -1,4 +1,4 @@
-//===- MergeAllocTickBased.h - Tick-based merge alloc interfaces *- C++ -*-===//
+//===-- MergeAllocTickBased.h - Tick-based merge alloc interfaces*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -163,7 +163,7 @@ struct TickCollecter {
 struct MergeAllocDefaultMutator {
   /// builds an memory alloc op at the scope with given size and alignment in
   /// bytes
-  virtual Value buildAlloc(OpBuilder &build, Block *scope, int64_t size,
+  virtual Value buildAlloc(OpBuilder &build, Block *block, int64_t size,
                            int64_t alignment, Attribute memorySpace) const;
   /// builds an memory view op for original memref.alloc op (origAllocOp) and
   /// the merged single allocation (mergedAlloc)

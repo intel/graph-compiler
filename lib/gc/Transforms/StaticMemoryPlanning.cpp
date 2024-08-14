@@ -1,4 +1,4 @@
-//===- StaticMemoryPlanning.cpp - Static memory planning ------------------===//
+//===-- StaticMemoryPlanning.cpp - Static memory planning -------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -302,7 +302,7 @@ struct MemoryState {
     // if the old memory chunk is based on a offset of the base tensor
     // and we require that we should use zero offset on that tensor, we
     // cannot reuse it
-    return !(old_is_split && info->second == InplaceKind::ZERO_OFFSET);
+    return !old_is_split || info->second != InplaceKind::ZERO_OFFSET;
   }
 
   // find the range of chunks in curChunks that can be merged for inplace
