@@ -50,6 +50,11 @@ if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)
 endif()
 
+if (GC_ENABLE_IMEX)
+  # normalize the value
+  set(GC_ENABLE_IMEX ON)
+endif()
+
 if(GC_ENABLE_DNNL)
   set(GC_ONEDNN_DIALECT_LIB_NAME MLIROneDNNGraph)
 endif()
