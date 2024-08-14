@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, l0]
     strategy:
       matrix:
-        build-type: [CPU, IMEX]
+        build-type: [IMEX]
 
     env:
       GH_TOKEN: ${{ github.token }}    
@@ -44,6 +44,7 @@ jobs:
 
       - name: Build
         run: |
+          . /opt/intel/oneapi/setvars.sh
           if [ "${{ matrix.build-type }}" = "CPU" ]; then
             scripts/compile.sh
           elif [ "${{ matrix.build-type }}" = "IMEX" ]; then
