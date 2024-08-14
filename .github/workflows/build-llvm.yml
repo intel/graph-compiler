@@ -39,13 +39,10 @@ jobs:
 
       - name: Build
         run: |
-          ls
-          echo "try outer"
-          ls ../
-          ls ../mlir-extensions
           if [ "${{ matrix.build-type }}" = "IMEX" ]; then
-            git apply ../mlir-extensions/build_tools/patches/*
+            git apply ./mlir-extensions/build_tools/patches/*
           fi
+          cd llvm-project
           python3 -m pip install -r mlir/python/requirements.txt
           mkdir llvm-install
           cmake -G Ninja llvm -B build -DCMAKE_INSTALL_PREFIX=llvm-install -DMLIR_ENABLE_BINDINGS_PYTHON=ON -DPython3_EXECUTABLE=$(which python3) \
