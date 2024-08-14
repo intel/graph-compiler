@@ -39,6 +39,9 @@ jobs:
 
       - name: Build
         run: |
+          ls
+          ls ../
+          ls ../mlir-extensions
           if [ "${{ matrix.build-type }}" = "IMEX" ]; then
             git apply ../mlir-extensions/build_tools/patches/*
           fi
