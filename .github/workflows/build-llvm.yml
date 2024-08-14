@@ -40,6 +40,7 @@ jobs:
       - name: Build
         run: |
           ls
+          echo "try outer"
           ls ../
           ls ../mlir-extensions
           if [ "${{ matrix.build-type }}" = "IMEX" ]; then
