@@ -242,8 +242,12 @@ ParseResult BrgemmOp::parse(OpAsmParser &parser, OperationState &result) {
 
 void BrgemmOp::print(OpAsmPrinter &printer) {
   BrgemmOp op = *this;
-  printer << " " << INPUTS_ASM_NAME << "(" << op.getInputs() << ")";
-  printer << " " << OUTPUTS_ASM_NAME << "(" << op.getInit() << ")";
+  ValueRange inputs = op.getInputs();
+  Value init = op.getInit();
+  printer << " " << INPUTS_ASM_NAME << "(" << inputs << " : "
+          << inputs.getTypes() << ")";
+  printer << " " << OUTPUTS_ASM_NAME << "(" << init << " : " << init.getType()
+          << ")";
   printer << " " << BATCH_DIMS_ASM_NAME << "(" << op.getBatchDims() << ")";
   printer << " " << LEADING_DIMS_ASM_NAME << "(" << op.getLeadingDims() << ")";
 
