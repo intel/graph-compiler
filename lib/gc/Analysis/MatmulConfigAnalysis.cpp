@@ -265,6 +265,7 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
                     if (KBlock % innerMostKBlock != 0 ||
+                        shape[2] % KBlock != 0 ||
                         (shape[2] % innerMostKBlock != 0 &&
                          !allowUndivisibleInnerblock))
                       continue;
