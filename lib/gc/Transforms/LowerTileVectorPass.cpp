@@ -449,7 +449,7 @@ struct OperationConvertTileVectorPass : public RewritePattern {
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
 
-    auto targetOp = llvm::dyn_cast<T>(op);
+    auto targetOp = dyn_cast<T>(op);
     if (!targetOp || !is_innermost_ir(op))
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
 

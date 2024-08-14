@@ -6,7 +6,7 @@ set -e
 
 # Uncomment for script debug
 # set -x
-
+CC=/bin/gcc-11 CXX=/bin/g++-11
 print_usage() {
     cat <<EOF
 Usage:
@@ -94,7 +94,7 @@ build_llvm() {
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
 
-    cmake -G Ninja llvm -B build \
+    CC=/bin/gcc-11 CXX=/bin/g++-11 cmake -G Ninja llvm -B build \
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
         -DCMAKE_CXX_FLAGS="$CXX_FLAGS" \
         -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
@@ -113,7 +113,7 @@ build_llvm() {
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_INSTALL_GTEST=ON \
         -DMLIR_ENABLE_BINDINGS_PYTHON=ON
-    cmake --build build --parallel $MAX_JOBS
+    CC=/bin/gcc-11 CXX=/bin/g++-11 cmake --build build --parallel $MAX_JOBS
 
     MLIR_DIR="$PWD/build/lib/cmake/mlir"
     cd ..
@@ -155,11 +155,11 @@ else
 fi
 
 [ -z "$CLEANUP" ] || rm -rf build
-cmake -S . -G Ninja -B build \
+CC=/bin/gcc-11 CXX=/bin/g++-11 cmake -S . -G Ninja -B build \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
     -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK
 
-cmake --build build --parallel $MAX_JOBS
+CC=/bin/gcc-11 CXX=/bin/g++-11 cmake --build build --parallel $MAX_JOBS
