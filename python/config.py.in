@@ -2,13 +2,12 @@ import os
 import sys
 
 shlib_ext = "@LTDL_SHLIB_EXT@"
-llvm_obj_root = "@LLVM_BINARY_DIR@"
 
 if sys.platform.startswith("win32"):
-    mlir_runner_utils_dir = os.path.normpath(os.path.join(llvm_obj_root, "bin"))
+    mlir_runner_utils_dir = os.path.normpath(os.path.join("@LLVM_BINARY_DIR@", "bin"))
     shlib_prefix = ""
 else:
-    mlir_runner_utils_dir = os.path.normpath(os.path.join(llvm_obj_root, "lib"))
+    mlir_runner_utils_dir = "@LLVM_LIBRARY_DIR@"
     shlib_prefix = "lib"
 
 MLIR_C_RUNNER_UTILS = os.path.normpath(
