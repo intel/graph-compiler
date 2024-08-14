@@ -8,7 +8,7 @@ if sys.platform.startswith("win32"):
     mlir_runner_utils_dir = os.path.normpath(os.path.join(llvm_obj_root, "bin"))
     shlib_prefix = ""
 else:
-    mlir_runner_utils_dir = llvm_obj_root
+    mlir_runner_utils_dir = os.path.normpath(os.path.join(llvm_obj_root, "lib"))
     shlib_prefix = "lib"
 
 MLIR_C_RUNNER_UTILS = os.path.normpath(
