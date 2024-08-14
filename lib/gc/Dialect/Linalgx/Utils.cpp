@@ -24,7 +24,12 @@
 namespace mlir {
 namespace linalgx {
 
-/// Packed Matmul Structs
+/// BatchDimMap represent batch dims indices in 3 of the matmul data shapes.
+/// BatchDimMap requires 3 int64 arrays params. Empty array indicates no batch
+/// dims. Only allow 3 kinds of matmul: non-batch, batch and batch reduce
+///
+/// e.g. for a batch reduce matmul A[b,m,k]*B[b,k,n]->C[m,n], map={{0},{0},{}}
+/// for a batch matmul A[b,m,k]*B[b,k,n]->C[b,m,n], map={{0},{0},{0}}
 struct BatchDimMap {
 public:
   BatchDimMap() = default;
@@ -49,34 +54,39 @@ public:
   }
 
 private:
-  bool batchEqualAB() const {
-    return batchA.size() == batchB.size() &&
-           std::equal(batchA.begin(), batchA.end(), batchB.begin());
-  }
-  bool batchEqualAC() const {
-    return batchA.size() == batchC.size() &&
-           std::equal(batchA.begin(), batchA.end(), batchC.begin());
-  }
+  bool batchEqualAB() const { return llvm::equal(batchA, batchB); }
+  bool batchEqualAC() const { return llvm::equal(batchA, batchC); }
   SmallVector<int64_t> batchA;
   SmallVector<int64_t> batchB;
   SmallVector<int64_t> batchC;
 };
 
+/// PackingMap represent the dim mapping between 2 sets of sorted indices.
+/// PackingMap requires 2 int64 arrays params, it is needed to verify that one
+/// of them contain only 1 index, since multi-dims to multi-dims mapping is not
+/// allowed. This will define a 1->N index set mapping, src is the 1 index, dst
+/// is the multi-dims index list. Some helpers are provided to get the mapping
+/// order(first<-second or first->second) and mapping src/dst indices.
+///
+/// e.g. in A[a,b] -> B[x,y,z], if dim [a] corresponding to dim [x]; dim [b]
+/// corresponding to packed dims [y,z]. We can express it as
+/// `PackingMap<[a] -> [x]>`, `PackingMap<[b] -> [y,z]>`, where
+/// dims mapping order is A -> B
 struct PackingMap {
 public:
   PackingMap(ArrayRef<int64_t> firstRef, ArrayRef<int64_t> secondRef)
       : first(firstRef), second(secondRef) {}
-  /// Get original arrays
+  // Get original arrays
   ArrayRef<int64_t> getFirst() const { return ArrayRef<int64_t>(first); }
   ArrayRef<int64_t> getSecond() const { return ArrayRef<int64_t>(second); }
-  /// SrcDims.size() == 1; DstDims.size() >= 1
+  // SrcDims.size() == 1; DstDims.size() >= 1
   ArrayRef<int64_t> getPackingSrcDims() const {
     return getPackingSrcIndex() == 0 ? getFirst() : getSecond();
   }
   ArrayRef<int64_t> getPackingDstDims() const {
     return getPackingDstIndex() == 0 ? getFirst() : getSecond();
   }
-  /// Index first is 0; Index second is 1
+  // Index first is 0; Index second is 1
   unsigned getPackingSrcIndex() const { return getFirst().size() == 1 ? 0 : 1; }
   unsigned getPackingDstIndex() const { return getFirst().size() == 1 ? 1 : 0; }
 
@@ -85,6 +95,9 @@ private:
   SmallVector<int64_t> second;
 };
 
+/// PackingAttr to represent a matmul packing:
+/// vnni or non-vnni matmul, dim size of weight, batch dims, M,N,K packing map
+/// Mapping order(Matmul C=A*B): mPacking A->C, nPacking B->C, kPacking A->B
 struct PackingAttr {
   bool isVnni = false;
   int64_t weightDims = 0;
@@ -101,6 +114,12 @@ LogicalResult emitError(StringRef msg) {
 }
 
 /// Verify Utils
+/// Since the mapping is explicit, these are the criteria to verify this op:
+/// 1. packing matmul input/output must have rank
+/// 2. packing matmul batch dims must be valid
+/// 3. all dims mapped inside packing matmul must be permutation of its dims
+/// 4. all of mapping dims must match size
+/// 5. dynamic dims are viewed as invalid for now
 bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
                    const PackingAttr &attr) {
   // check rank
@@ -124,9 +143,9 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
                               llvm::SmallSet<int64_t, 8> &firstIndexSet,
                               llvm::SmallSet<int64_t, 8> &secondIndexSet) {
     for (auto &packingMap : mapArray) {
-      auto firstDims = packingMap.getFirst();
+      ArrayRef<int64_t> firstDims = packingMap.getFirst();
       firstIndexSet.insert(firstDims.begin(), firstDims.end());
-      auto secondDims = packingMap.getSecond();
+      ArrayRef<int64_t> secondDims = packingMap.getSecond();
       secondIndexSet.insert(secondDims.begin(), secondDims.end());
     }
   };
@@ -149,12 +168,12 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
   auto matchBatch = [&](const BatchDimMap &batchDimMap) {
     bool matchBatch = true;
     for (int64_t i = 0; i < batchDimMap.getBatchNum(); i++) {
-      auto dimA = batchDimMap.getBatchA()[i];
-      auto dimB = batchDimMap.getBatchB()[i];
+      int64_t dimA = batchDimMap.getBatchA()[i];
+      int64_t dimB = batchDimMap.getBatchB()[i];
       matchBatch = matchBatch && //
                    (shapeA.getDimSize(dimA) == shapeB.getDimSize(dimB));
       if (batchDimMap.isBatchMatmul()) {
-        auto dimC = batchDimMap.getBatchC()[i];
+        int64_t dimC = batchDimMap.getBatchC()[i];
         matchBatch = matchBatch && //
                      (shapeA.getDimSize(dimA) == shapeC.getDimSize(dimC));
       }
@@ -166,17 +185,17 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
     for (auto &packingMap : mapArray) {
       bool isDynamic = false;
       int64_t firstSize = 1;
-      auto firstDims = packingMap.getFirst();
+      ArrayRef<int64_t> firstDims = packingMap.getFirst();
       for (auto dim : firstDims) {
-        auto size = firstShape.getDimSize(dim);
+        int64_t size = firstShape.getDimSize(dim);
         if (size == ShapedType::kDynamic)
           isDynamic = true;
         firstSize *= size;
       }
       int64_t secondSize = 1;
-      auto secondDims = packingMap.getSecond();
+      ArrayRef<int64_t> secondDims = packingMap.getSecond();
       for (auto dim : secondDims) {
-        auto size = secondShape.getDimSize(dim);
+        int64_t size = secondShape.getDimSize(dim);
         if (size == ShapedType::kDynamic)
           isDynamic = true;
         secondSize *= size;
@@ -188,17 +207,16 @@ bool verifyPacking(ShapedType shapeA, ShapedType shapeB, ShapedType shapeC,
     }
     return true;
   };
-  bool matchM = matchDims(attr.mPacking, shapeA, shapeC);
-  bool matchN = matchDims(attr.nPacking, shapeB, shapeC);
-  bool matchK = matchDims(attr.kPacking, shapeA, shapeB);
-  bool checkMatch = matchBatch(attr.batchDimMap) && matchM && matchN && matchK;
-  if (!checkMatch)
-    return false;
-
-  return true;
+  return matchBatch(attr.batchDimMap) &&
+         matchDims(attr.mPacking, shapeA, shapeC) &&
+         matchDims(attr.nPacking, shapeB, shapeC) &&
+         matchDims(attr.kPacking, shapeA, shapeB);
 }
 
 /// IteratorTypes Utils
+/// batch represented iterations are considered `reduction` if batch reduce
+/// m packing, n packing represented iterations are considered `parallel`
+/// k packing represented iterations are considered `reduction`
 SmallVector<utils::IteratorType>
 getIteratorTypesArray(const PackingAttr &attr) {
   SmallVector<utils::IteratorType> iteratorTypes;
@@ -212,7 +230,7 @@ getIteratorTypesArray(const PackingAttr &attr) {
   auto getPackingIteratorTypes = [&](ArrayRef<PackingMap> packingMaps,
                                      utils::IteratorType iterTy) {
     for (auto &mapping : packingMaps) {
-      auto packingNum = mapping.getPackingDstDims().size();
+      size_t packingNum = mapping.getPackingDstDims().size();
       iteratorTypes.insert(iteratorTypes.end(), packingNum, iterTy);
     }
   };
@@ -225,6 +243,11 @@ getIteratorTypesArray(const PackingAttr &attr) {
 }
 
 /// IndexingMaps Utils
+/// Each packing_map will represent how symbols can be added to indexing maps.
+/// For packing_map dst, AffineExpr for its indices are the AffineSymbols that
+/// representing the iterator; For packing_map src, AffineExpr for its index is
+/// a compound expr that calculated as its indexing related to the dst
+/// AffineSymbols and dim size.
 unsigned getPackingDimsExpr(MLIRContext *context,
                             SmallVector<SmallVector<AffineExpr>> &exprsArr,
                             ShapedType shapeA, ShapedType shapeB,
@@ -236,7 +259,7 @@ unsigned getPackingDimsExpr(MLIRContext *context,
   // dims count from 0
   auto getBatchExprs = [&](const BatchDimMap &batchDimMap) {
     for (; (int64_t)dims < batchDimMap.getBatchNum(); dims++) {
-      auto curr = getAffineDimExpr(dims, context);
+      AffineExpr curr = getAffineDimExpr(dims, context);
       exprsA[batchDimMap.getBatchA()[dims]] = curr;
       exprsB[batchDimMap.getBatchB()[dims]] = curr;
       if (batchDimMap.isBatchMatmul())
@@ -275,18 +298,18 @@ unsigned getPackingDimsExpr(MLIRContext *context,
   return dims;
 }
 
-SmallVector<AffineMap> getIndexingMaps(OpBuilder &builder, ShapedType shapeA,
+SmallVector<AffineMap> getIndexingMaps(MLIRContext *context, ShapedType shapeA,
                                        ShapedType shapeB, ShapedType shapeC,
                                        const PackingAttr &attr) {
-  MLIRContext *context = builder.getContext();
-
   SmallVector<SmallVector<AffineExpr>> exprsArr;
-  auto dims = getPackingDimsExpr(context, exprsArr, //
-                                 shapeA, shapeB, shapeC, attr);
-  auto mapA = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[0], context));
-  auto mapB = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[1], context));
-  auto mapC = simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[2], context));
-
+  unsigned dims = getPackingDimsExpr(context, exprsArr, //
+                                     shapeA, shapeB, shapeC, attr);
+  AffineMap mapA =
+      simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[0], context));
+  AffineMap mapB =
+      simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[1], context));
+  AffineMap mapC =
+      simplifyAffineMap(AffineMap::get(dims, 0, exprsArr[2], context));
   return {mapA, mapB, mapC};
 }
 
@@ -340,17 +363,68 @@ PackingAttr getPackingAttr(PackingType opType) {
     attr.nPacking = {PackingMap{{2}, {1}}};
     attr.kPacking = {PackingMap{{2}, {1, 3}}};
   } break;
-  default:
-    break;
+  default: {
+    llvm::errs() << "Not a valid PackingType.\n";
+  } break;
   }
   return attr;
+}
+
+/// Generic Utils
+bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
+                             ShapedType shapeB, ShapedType shapeC,
+                             const PackingAttr &attr) {
+  MLIRContext *context = op.getContext();
+  /// Use a common order to renumber the dim id to get remapped indexing maps
+  /// and iterator types, so loop order invariant comparison can be performed
+  auto remapAttrDims = [&](ArrayRef<AffineMap> inMaps,
+                           ArrayRef<utils::IteratorType> inIters,
+                           SmallVector<AffineMap> &retMaps,
+                           SmallVector<utils::IteratorType> &retIters) {
+    size_t dimSize = inIters.size();
+    DenseMap<AffineExpr, AffineExpr> replaceMap;
+    std::map<unsigned, utils::IteratorType> iterMap;
+    // get shape-to-loop map
+    AffineMap inverse = inversePermutation(concatAffineMaps(inMaps));
+    assert(inverse && "shape-to-loops map to be non-null");
+    assert(dimSize == inverse.getResults().size());
+    // renumber the dim id based on shape-to-loop map
+    // get a replacement map and iterator types map
+    for (auto [idx, expr] : llvm::enumerate(inverse.getResults())) {
+      replaceMap[getAffineDimExpr(idx, context)] = expr;
+      iterMap[cast<AffineDimExpr>(expr).getPosition()] = inIters[idx];
+    }
+    // replace old dim id with new ones in indexing maps
+    for (auto map : inMaps) {
+      retMaps.push_back(map.replace(replaceMap));
+    }
+    // sort IteratorType to new array using ordered map
+    std::transform(iterMap.begin(), iterMap.end(), std::back_inserter(retIters),
+                   [](const std::pair<unsigned, utils::IteratorType> &d) {
+                     return d.second;
+                   });
+  };
+  // re-mapped ref attrs
+  SmallVector<AffineMap> mapsRef;
+  SmallVector<utils::IteratorType> itersRef;
+  remapAttrDims(getIndexingMaps(context, shapeA, shapeB, shapeC, attr), //
+                getIteratorTypesArray(attr),                            //
+                mapsRef, itersRef);
+  // re-mapped op attrs
+  SmallVector<AffineMap> mapsOp;
+  SmallVector<utils::IteratorType> itersOp;
+  remapAttrDims(op.getIndexingMapsArray(),  //
+                op.getIteratorTypesArray(), //
+                mapsOp, itersOp);
+  // check equivalence
+  return llvm::equal(mapsRef, mapsOp) && llvm::equal(itersRef, itersOp);
 }
 
 /// Packing Matmul Utils
 Value createMatmulCalc(OpBuilder &b, Location loc, ValueRange args) {
   assert(args.size() == 3 && "Matmul region expects 3 args.");
   // Get data type
-  auto outTy = args[2].getType();
+  Type outTy = args[2].getType();
   bool isTypeFP = llvm::isa<FloatType>(outTy);
   bool isTypeInt = llvm::isa<IntegerType>(outTy);
   auto createMulCalc = [&](Value val0, Value val1) -> Value {
@@ -388,14 +462,14 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
   // Attr of packed matmul
-  auto packingAttr = getPackingAttr(opType);
+  PackingAttr packingAttr = getPackingAttr(opType);
   // Verify dims and shape is valid
   if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
       !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
     return emitError("Failed to verify packing!");
   }
   // Get attrs for GenericOp
-  auto indexingMaps = getIndexingMaps(builder, //
+  auto indexingMaps = getIndexingMaps(builder.getContext(), //
                                       shapeA, shapeB, shapeC, packingAttr);
   auto iteratorTypes = getIteratorTypesArray(packingAttr);
   // Make the GenericOp
@@ -407,13 +481,9 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
       });
 }
 
-bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
-  // Check for generic op
-  if (!isa<linalg::GenericOp>(op)) {
-    return false;
-  }
+bool isGenericPackedMatmulOpImpl(linalg::GenericOp genericOp,
+                                 PackingType opType) {
   // Check for matmul body
-  linalg::GenericOp genericOp = cast<linalg::GenericOp>(op);
   if (!linalg::detail::isContractionBody(
           *genericOp.getBlock(), [](Operation *first, Operation *second) {
             return ((isa<arith::MulFOp>(first) && isa<arith::AddFOp>(second)) ||
@@ -427,13 +497,40 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
   auto shapeA = cast<ShapedType>(inputs.front().getType());
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
-  auto packingAttr = getPackingAttr(opType);
+  PackingAttr packingAttr = getPackingAttr(opType);
   if (!verifyPacking(shapeA, shapeB, shapeC, packingAttr) ||
       !verifyVnniWeight(shapeB, packingAttr.weightDims, packingAttr.isVnni)) {
     return false;
   }
+  // Check for indexing maps and iterator types equivalence
+  if (!isGenericAttrEquivalent(genericOp, shapeA, shapeB, shapeC,
+                               packingAttr)) {
+    return false;
+  }
   // Pass all checks
   return true;
+}
+
+bool isGenericPackedMatmulOp(Operation *op, PackingType opType) {
+  // Check for generic op
+  return isa<linalg::GenericOp>(op) &&
+         isGenericPackedMatmulOpImpl(cast<linalg::GenericOp>(op), opType);
+}
+
+bool isMatmulOp(Operation *op) {
+  if (isa<linalg::LinalgOp>(op) &&
+      linalg::isaContractionOpInterface(cast<linalg::LinalgOp>(op))) {
+    return true;
+  }
+  if (isa<linalg::GenericOp>(op)) {
+    for (int ty = 0; ty < (int)PackingType::NUM_TYPES; ty++) {
+      if (isGenericPackedMatmulOpImpl(cast<linalg::GenericOp>(op),
+                                      (PackingType)ty)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 } // namespace linalgx

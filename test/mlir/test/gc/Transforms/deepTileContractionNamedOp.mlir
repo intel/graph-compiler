@@ -1,6 +1,6 @@
 // RUN: gc-opt --split-input-file --deep-tile-contraction-named-op %s | FileCheck %s
 
-
+/// CHECK-LABEL: @test
 func.func @test(%arg0: tensor<2x8x32x32xbf16>, %arg1: tensor<4x8x16x32x2xbf16>, %arg2: tensor<2x4x32x32xbf16>) -> tensor<2x4x32x32xbf16> {
     %0 = linalg.generic {
           indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d4, d1, d5 * 2 + d6)>, 
