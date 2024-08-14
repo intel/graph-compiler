@@ -73,6 +73,8 @@ def Microkernel_BrgemmOp : Microkernel_Op<"brgemm",
                                  const bufferization::AnalysisState &);
     bool bufferizesToElementwiseAccess(const bufferization::AnalysisState &,
                                        ArrayRef<OpOperand *>);
+    bufferization::AliasingValueList getAliasingValues(OpOperand &opOperand,
+                                      const bufferization::AnalysisState &state);
     LogicalResult bufferize(RewriterBase &,
                             const bufferization::BufferizationOptions &);
   }];
