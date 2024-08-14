@@ -21,41 +21,6 @@
 
 namespace {
 
-struct bf16_t {
-  uint16_t storage_;
-  union caster_t {
-    uint32_t vl;
-    float vf;
-  };
-  operator float() const {
-    caster_t val;
-    val.vl = uint32_t(storage_) << 16;
-    return val.vf;
-  }
-  bool operator==(const bf16_t &compare_to) const {
-    return storage_ == compare_to.storage_;
-  }
-  bool operator!=(const bf16_t &compare_to) const {
-    return storage_ != compare_to.storage_;
-  }
-  bf16_t(float v) {
-    if (std::isnan(v)) {
-      storage_ = UINT32_C(0x7FC0);
-    } else {
-      caster_t caster;
-      caster.vf = v;
-      uint32_t rounding_bias = ((caster.vl >> 16) & 1) + UINT32_C(0x7FFF);
-      storage_ = static_cast<uint16_t>((caster.vl + rounding_bias) >> 16);
-    }
-  }
-  bf16_t() : storage_(0) {}
-  inline static bf16_t from_storage(uint16_t v) {
-    bf16_t ret;
-    ret.storage_ = v;
-    return ret;
-  }
-};
-
 struct brgemm_params_t {
   int64_t M, N, K;
   int64_t LDA, LDB, LDC;
@@ -183,12 +148,10 @@ using write_lock_guard_t = std::unique_lock<std::shared_mutex>;
 static std::shared_mutex g_brgemm_lock;
 static std::vector<brgemm_params_t> g_brgemm_list;
 
-extern "C" {
-
-int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
-                             int64_t LDB, int64_t LDC, int64_t stride_a,
-                             int64_t stride_b, float beta, int64_t dtypeA,
-                             int64_t dtypeB) {
+int64_t dnnl_brgemm_dispatch_naive(int64_t M, int64_t N, int64_t K, int64_t LDA,
+                                   int64_t LDB, int64_t LDC, int64_t stride_a,
+                                   int64_t stride_b, float beta, int64_t dtypeA,
+                                   int64_t dtypeB) {
   write_lock_guard_t g(g_brgemm_lock);
   // simply store the given parameters for naive BRGEMM
   g_brgemm_list.emplace_back(brgemm_params_t(M, N, K, LDA, LDB, LDC, stride_a,
@@ -196,13 +159,9 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   return g_brgemm_list.size() - 1;
 }
 
-void dnnl_brgemm_tileconfig(int64_t kernel) { return; }
-
-void dnnl_brgemm_tilerelease() { return; }
-
-void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
-                         uint64_t B_offset, void *C, uint64_t C_offset,
-                         int num) {
+void dnnl_brgemm_execute_naive(int64_t kernel, void *A, uint64_t A_offset,
+                               void *B, uint64_t B_offset, void *C,
+                               uint64_t C_offset, int num) {
   brgemm_params_t params;
   {
     read_lock_guard_t g(g_brgemm_lock);
@@ -252,4 +211,29 @@ void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
     assert(false && "unsupported input dtypes");
   }
 }
+
+#if defined(GC_ENABLE_RUNTIME_NAIVE_BRGEMM)
+
+extern "C" {
+
+int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
+                             int64_t LDB, int64_t LDC, int64_t stride_a,
+                             int64_t stride_b, float beta, int64_t dtypeA,
+                             int64_t dtypeB) {
+  return dnnl_brgemm_dispatch_naive(M, N, K, LDA, LDB, LDC, stride_a, stride_b,
+                                    beta, dtypeA, dtypeB);
 }
+
+void dnnl_brgemm_tileconfig(int64_t kernel) { return; }
+
+void dnnl_brgemm_tilerelease() { return; }
+
+void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
+                         uint64_t B_offset, void *C, uint64_t C_offset,
+                         int num) {
+  return dnnl_brgemm_execute_naive(kernel, A, A_offset, B, B_offset, C,
+                                   C_offset, num);
+}
+}
+
+#endif

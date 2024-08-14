@@ -32,6 +32,8 @@
 
 #include "gc/ExecutionEngine/CPURuntime/Microkernel/BrgemmInterface.h"
 
+#if !defined(GC_ENABLE_RUNTIME_NAIVE_BRGEMM)
+
 using namespace dnnl::impl::cpu::x64;
 
 namespace dnnl {
@@ -161,3 +163,5 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
                         (void *)(C_arith + C_offset_in_bytes), (void *)scratch);
 }
 }
+
+#endif
