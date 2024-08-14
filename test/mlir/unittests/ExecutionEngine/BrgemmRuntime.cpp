@@ -138,7 +138,7 @@ inline void testBrgemmRuntimeInt(int batch, int M, int N, int K, int LDA,
 TEST(ExecutionEngine, TestBrgemmRuntimeF32) {
   gc_runtime_keep_alive = 0;
 
-  srand(static_cast<unsigned>(time(0)));
+  srand(static_cast<unsigned>(time(nullptr)));
 
   constexpr int batch = 4;
   constexpr int M = 32, N = 32, K = 32;
@@ -154,7 +154,7 @@ TEST(ExecutionEngine, TestBrgemmRuntimeF32) {
 TEST(ExecutionEngine, TestBrgemmRuntimeBF16) {
   gc_runtime_keep_alive = 0;
 
-  srand(static_cast<unsigned>(time(0)));
+  srand(static_cast<unsigned>(time(nullptr)));
 
   constexpr int batch = 4;
   constexpr int M = 32, N = 32, K = 32;
@@ -170,7 +170,7 @@ TEST(ExecutionEngine, TestBrgemmRuntimeBF16) {
 TEST(ExecutionEngine, TestBrgemmRuntimeU8S8) {
   gc_runtime_keep_alive = 0;
 
-  srand(static_cast<unsigned>(time(0)));
+  srand(static_cast<unsigned>(time(nullptr)));
 
   constexpr int batch = 4;
   constexpr int M = 32, N = 32, K = 32;
