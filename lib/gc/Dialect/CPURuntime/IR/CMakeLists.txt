@@ -1,14 +1,14 @@
-add_mlir_dialect_library(MLIRCPURuntimeDialect
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRFuncDialect)
+
+gc_add_mlir_dialect_library(MLIRCPURuntimeDialect
         CPURuntimeDialect.cpp
         CPURuntimeOps.cpp
-
-        ADDITIONAL_HEADER_DIRS
-        ${PROJECT_SOURCE_DIR}/include/
 
         DEPENDS
         MLIRCPURuntimeOpsIncGen
         MLIRCPURuntimePassesIncGen
 
         LINK_LIBS PUBLIC
-        MLIRFuncDialect
+        ${MLIR_LINK_COMPONENTS}
+        GcInterface
         )

@@ -107,8 +107,8 @@ def use_llvm_license(path: str) -> bool:
 
 year: int = datetime.datetime.now().year
 success: bool = True
-
-parser = argparse.ArgumentParser(prog = "benchgc license checker")
+                
+parser = argparse.ArgumentParser(prog = "license.py")
 parser.add_argument("--files", required=True, type = str, help = "comma seperated file list")
 args = parser.parse_args()
 

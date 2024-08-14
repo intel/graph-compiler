@@ -36,19 +36,27 @@ class OpenMPDialect;
 namespace linalg {
 class LinalgDialect;
 }
+namespace linalgx {
+class LinalgxDialect;
+}
 
 namespace MemRef {
 class MemRefDialect;
 }
 
 class PassManager;
+namespace xegpu {
+class XeGPUDialect;
+}
+
+class OpPassManager;
 
 namespace gc {
 
 std::unique_ptr<Pass> createMergeAllocPass();
 
-void populateFrontendPasses(mlir::PassManager &);
-void populateCPUPipeline(mlir::PassManager &);
+void populateFrontendPasses(mlir::OpPassManager &);
+void populateCPUPipeline(mlir::OpPassManager &);
 
 #define GEN_PASS_DECL
 #include "gc/Transforms/Passes.h.inc"
