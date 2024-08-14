@@ -387,6 +387,18 @@ bool BrgemmOp::bufferizesToElementwiseAccess(const AnalysisState &state,
   return false;
 }
 
+AliasingValueList BrgemmOp::getAliasingValues(OpOperand &opOperand,
+                                              const AnalysisState &state) {
+  // This implementation refers to linalg's usage of
+  // ` DstBufferizableOpInterfaceExternalModel`
+  Operation *op = *this;
+  // Output operands alias with their respective tied OpResults.
+  auto dstOp = cast<DestinationStyleOpInterface>(op);
+  if (dstOp.isDpsInit(&opOperand))
+    return {{dstOp.getTiedOpResult(&opOperand), BufferRelation::Equivalent}};
+  return {};
+}
+
 LogicalResult BrgemmOp::bufferize(RewriterBase &rewriter,
                                   const BufferizationOptions &options) {
   // This implementation refers to linalg's
