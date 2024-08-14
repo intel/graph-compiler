@@ -17,6 +17,7 @@ get_property(GC_DNNL_LIB_DEPS GLOBAL PROPERTY GC_DNNL_LIB_DEPS)
 gc_add_mlir_library(GcCpuRuntime
     SHARED
     Parallel.cpp
+    MemoryPool.cpp
     ${MICROKERNEL_RUNTIME_SOURCES}
 
     DEPENDS
