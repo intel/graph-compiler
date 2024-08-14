@@ -13,7 +13,13 @@ gc_add_mlir_library(GcPasses
   MemRefToCPURuntime.cpp
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
-  TileNamed.cpp
+  IterativeTilingAndFusion.cpp
+  TilingUsingInterfaceX.cpp
+  VerifyTargetDescription.cpp
+  DeepTileContractionNamedOp.cpp
+  TilingUtil.cpp
+  SinkOpIntoInnerLoop.cpp
+  MergeNestedForall.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
