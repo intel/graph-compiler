@@ -171,11 +171,6 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
       // interface of `packOp` so far. In another word, `packOp` could not be
       // fused as consumer. As a result, just return failure currently.
       return failure();
-      // tileSize comes from OpOperand
-      // ArrayRef<int64_t> innerDimPos = packOp.getInnerDimsPos();
-      // for (auto &pos : innerDimPos) {
-      //   tileSizesOnInnerDims.push_back(tileSizes[pos]);
-      // }
     }
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(defOrUse.ownerOp)) {
     innerTiles = unPackOp.getMixedTiles();
@@ -799,7 +794,8 @@ void iterativeTilingAndFusionUntilExhaustion(
           GenIsaOpTy((isa<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>)),
           // Fallback
           GenIsaOpTy(isa<TilingInterface>)};
-
+#undef GenIsaOpTy
+      mlir::topologicalSort(unTiledOps);
       for (auto &isaOpTy : priorityOpTypeOrder) {
         for (auto &op : unTiledOps) {
           FailureOr<scf::SCFTilingResult> tilingResult =
