@@ -3,8 +3,6 @@ name: Graph Compiler build
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -14,7 +12,7 @@ permissions: read-all
 jobs:
   build:
     name: Build
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, l0]
     strategy:
       matrix:
         build-type: [CPU, IMEX]
@@ -40,6 +38,9 @@ jobs:
 
       - name: Install requirements
         run: python3 -m pip install -r llvm-dep/mlir/python/requirements.txt
+
+      - name: Check env
+        run: dpkg -l
 
       - name: Build
         run: |
