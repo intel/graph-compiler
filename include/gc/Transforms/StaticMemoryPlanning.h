@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GCEXT_STATICMEMORYPLANNINGT_H
-#define GCEXT_STATICMEMORYPLANNINGT_H
+#ifndef GC_TRANSFORMS_STATICMEMORYPLANNING_H
+#define GC_TRANSFORMS_STATICMEMORYPLANNING_H
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"

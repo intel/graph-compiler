@@ -11,12 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TileLinalgNamed : Pass<"tile-named-linalg", "func::FuncOp"> {
-  let summary = "Tile linalg named operations.";
-  let dependentDialects =
-      ["linalg::LinalgDialect", "scf::SCFDialect", "tensor::TensorDialect"];
-}
-
 def MergeAlloc : Pass<"gc-merge-alloc", "func::FuncOp">  {
   let summary = "Merge multiple memref.alloc and reuse the buffer";
   let description = [{
@@ -54,7 +48,7 @@ def MergeAlloc : Pass<"gc-merge-alloc", "func::FuncOp">  {
        "The alignment of the merged allocations">,
   ];
   let dependentDialects = ["memref::MemRefDialect", "arith::ArithDialect"];
-  let constructor = "mlir::memref::createMergeAllocPass()";
+  let constructor = "mlir::gc::createMergeAllocPass()";
 }
 
 

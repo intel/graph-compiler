@@ -1,4 +1,4 @@
-// RUN: gc-opt -allow-unregistered-dialect -p 'builtin.module(func.func(merge-alloc{check}))'  %s | FileCheck %s
+// RUN: gc-opt -allow-unregistered-dialect -p 'builtin.module(func.func(gc-merge-alloc{analysis-only}))'  %s | FileCheck %s
 
 // CHECK-DAG: func.func @basic() -> memref<8x64xf32>  attributes {__mergealloc_scope = [[TOPSCOPE:[0-9]+]]
 func.func @basic() -> memref<8x64xf32> {
@@ -79,7 +79,18 @@ func.func @basic2() {
 // check that the operations without memory effects do not contribute to the lifetime of the buffer
 // CHECK-DAG: func.func @no_mem_effect() attributes {__mergealloc_scope = [[TOPSCOPE3:[0-9]+]]
 func.func @no_mem_effect() {
-  // CHECK: %[[B:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE3]], 4, 4>}
+  %c0 = arith.constant 0 : index
+  // CHECK: %[[B:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE3]], 5, 5>}
+  %b = memref.alloc() : memref<8x64xi8>
+  %x = memref.dim %b, %c0 : memref<8x64xi8>
+  "test.source"(%b)  : (memref<8x64xi8>) -> ()
+  return
+}
+
+// check that if pointer is extracted, the alloc is untraceable
+// CHECK-DAG: func.func @extract_pointer() attributes {__mergealloc_scope = [[TOPSCOPEExt:[0-9]+]]
+func.func @extract_pointer() {
+  // CHECK: %[[BExt:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPEExt]], -2, -2>}
   %b = memref.alloc() : memref<8x64xi8>
   %0 = memref.extract_aligned_pointer_as_index %b : memref<8x64xi8> -> index
   "test.source"(%b)  : (memref<8x64xi8>) -> ()
@@ -125,5 +136,33 @@ func.func @escape_from_if() {
     scf.yield %h : memref<8x64xf32>
   }
   "test.source"(%c)  : (memref<8x64xf32>) -> ()
+  return
+}
+
+// CHECK-DAG: func.func @escape_from_for()  attributes {__mergealloc_scope = [[TOPSCOPE6:[0-9]+]]
+func.func @escape_from_for() {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %c3 = arith.constant 3 : index
+  %c5 = arith.constant 5 : index
+  // check that f has untraceable lifetime, due to being yielded by for loop
+  // CHECK-DAG: %[[F:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE6]], -2, -2>}
+  %f = memref.alloc() : memref<8x64xf32>
+  %out = scf.for %i = %c0 to %c5 step %c1 iter_args(%buf = %f) -> (memref<8x64xf32>) {
+    "test.source"(%buf)  : (memref<8x64xf32>) -> ()
+    // check that f has untraceable lifetime, due to being yielded by for loop
+    // CHECK-DAG: %[[G:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE6]], -2, -2>}
+    %g = memref.alloc() : memref<8x64xf32>
+    "test.source"(%g)  : (memref<8x64xf32>) -> ()
+    %ctrue = "test.source"()  : () -> i1
+    %c = scf.if %ctrue -> memref<8x64xf32> {
+      scf.yield %g : memref<8x64xf32>
+    } else {
+      scf.yield %buf : memref<8x64xf32>
+    }
+    scf.yield %c : memref<8x64xf32>
+  }
+  "test.source"(%out)  : (memref<8x64xf32>) -> ()
   return
 }
