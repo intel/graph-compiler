@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-
 #include "gc/Transforms/StaticMemoryPlanning.h"
 
 #include "gtest/gtest.h"

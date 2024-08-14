@@ -1,6 +1,6 @@
 //===- StaticMemoryPlanning.cpp - Static memory planning ------------------===//
 //
-// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -87,8 +87,7 @@ struct split_chunk_t : public MemoryChunk {
   // if the chunk is the left hand side (smaller starting offset)
   bool is_lhs_;
   split_chunk_t(size_t size, MemoryChunk *parent, bool is_lhs)
-      : MemoryChunk{ChunkType::SPLIT, size}, parent(parent),
-        is_lhs_(is_lhs) {}
+      : MemoryChunk{ChunkType::SPLIT, size}, parent(parent), is_lhs_(is_lhs) {}
   void move(int64_t startDiff) override {
     if (is_lhs_) {
       parent->move(startDiff);
@@ -166,15 +165,14 @@ struct MemoryState {
   int tick = 0;
   bool hotFirst;
 
-  MemoryState(size_t alignment, bool hotFirst,
-               const InplaceInfoMap &inplaceMap,
-               std::unordered_map<uintptr_t, std::vector<uintptr_t>>
-                   &outInplaceSelection)
+  MemoryState(size_t alignment, bool hotFirst, const InplaceInfoMap &inplaceMap,
+              std::unordered_map<uintptr_t, std::vector<uintptr_t>>
+                  &outInplaceSelection)
       : alignment(alignment), inplaceMap(inplaceMap),
         outInplaceSelection(outInplaceSelection), hotFirst(hotFirst) {}
 
   void removeChunkFromMap(MemoryChunk *target, size_t t,
-                             std::multimap<size_t, MemoryChunk *> &m) {
+                          std::multimap<size_t, MemoryChunk *> &m) {
     auto mapitr = m.equal_range(t);
     assert(mapitr.first != mapitr.second);
     for (auto map_i = mapitr.first; map_i != mapitr.second; ++map_i) {
@@ -186,15 +184,13 @@ struct MemoryState {
   }
   void removeChunkFromFreeList(MemoryChunk *target) {
     removeChunkFromMap(target, target->size, freeChunksBySize);
-    removeChunkFromMap(target, target->lastFreedTick,
-                          freeChunksByTick);
+    removeChunkFromMap(target, target->lastFreedTick, freeChunksByTick);
     target->isfree = false;
   }
 
   void addChunkToFreeList(MemoryChunk *target) {
     freeChunksBySize.insert(std::make_pair(target->size, target));
-    freeChunksByTick.insert(
-        std::make_pair(target->lastFreedTick, target));
+    freeChunksByTick.insert(std::make_pair(target->lastFreedTick, target));
     target->isfree = true;
   }
 
@@ -220,7 +216,7 @@ struct MemoryState {
   }
 
   MemoryChunk *splitAlloc(MemoryChunk *target, size_t aligned,
-                              MemoryChunk *&rhs_ret) {
+                          MemoryChunk *&rhs_ret) {
     // found a free chunk that is large enough
     if (target->size == aligned) {
       // a perfect match, no need to split
@@ -279,7 +275,7 @@ struct MemoryState {
   // free'd tick is closer to the current tick, the chunk is better.
   // The better the chunk is, the greater the score is
   float calculateChunkScore(MemoryChunk *chk, size_t alloc_size,
-                              size_t last_tick) const {
+                            size_t last_tick) const {
     // if the buffer is free'd N ticks ago, it will have score max(0, 1 - N
     // * 0.1)
     float tick_score = static_cast<float>(tick - last_tick) / 10;
@@ -300,7 +296,7 @@ struct MemoryState {
   // check if the buffer is split from a base tensor and check the
   // InplaceInfo for whether it requires zero offset
   bool checkBufferOffsetForInplace(MemoryChunk *chunk,
-                                       const InplaceInfo *info) {
+                                   const InplaceInfo *info) {
     // if the old memory chunk is splitted from the base tensor
     bool old_is_split = chunk->isInplaceSplitRemainder;
     // if the old memory chunk is based on a offset of the base tensor
@@ -313,8 +309,7 @@ struct MemoryState {
   // reuse, returns the memory size of the range and the start/end iterators
   size_t findInplaceMergeRange(
       MemoryChunk *victim, size_t aligned,
-      const std::unordered_map<MemoryChunk *, const InplaceInfo *>
-          &can_inplace,
+      const std::unordered_map<MemoryChunk *, const InplaceInfo *> &can_inplace,
       std::vector<MemoryChunk *>::iterator &to_merge_start,
       std::vector<MemoryChunk *>::iterator &to_merge_end) {
     // addChunkToFreeList(chk);
@@ -395,7 +390,7 @@ struct MemoryState {
       std::vector<MemoryChunk *>::iterator cur_merge_start;
       std::vector<MemoryChunk *>::iterator cur_merge_end;
       auto cur_size = findInplaceMergeRange(old_buf, aligned, can_inplace,
-                                               cur_merge_start, cur_merge_end);
+                                            cur_merge_start, cur_merge_end);
       float score = calculateSizeScore(cur_size, aligned);
       if (score > target_score) {
         target_score = score;
@@ -564,13 +559,11 @@ struct MemoryState {
     tick++;
     chk->lastFreedTick = tick;
     addChunkToFreeList(chk);
-    auto itr_in_cur_chunks =
-        std::find(curChunks.begin(), curChunks.end(), chk);
+    auto itr_in_cur_chunks = std::find(curChunks.begin(), curChunks.end(), chk);
     assert(itr_in_cur_chunks != curChunks.end());
     // merge left and right if they are free
     std::vector<MemoryChunk *>::iterator to_merge_start = itr_in_cur_chunks;
-    std::vector<MemoryChunk *>::iterator to_merge_end =
-        itr_in_cur_chunks + 1;
+    std::vector<MemoryChunk *>::iterator to_merge_end = itr_in_cur_chunks + 1;
     // look left to see any one we can merge with
     for (auto itr = itr_in_cur_chunks;; --itr) {
       if ((*itr)->isfree) {
@@ -639,8 +632,7 @@ size_t scheduleMemoryAllocations(
     std::unordered_map<uintptr_t, std::size_t> &outSchedule,
     std::unordered_map<uintptr_t, std::vector<uintptr_t>>
         &outInplaceSelection) {
-  MemoryState planner{alignment, hotFirst, inplaceMap,
-                       outInplaceSelection};
+  MemoryState planner{alignment, hotFirst, inplaceMap, outInplaceSelection};
   for (auto &trace : traces) {
     if (trace.size > 0) {
       planner.alloc(trace.bufferId, trace.size);

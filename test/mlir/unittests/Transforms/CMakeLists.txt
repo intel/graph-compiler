@@ -3,4 +3,4 @@ add_mlir_unittest(GCTransformsTests
 )
 target_link_libraries(GCTransformsTests
   PRIVATE
-  GCPasses)
+  GcPasses)
