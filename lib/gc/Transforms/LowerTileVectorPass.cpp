@@ -43,7 +43,8 @@ namespace {
 #define DEBUG_TYPE "lower-to-tile-vector-pass"
 
 #define DBGS() (llvm::dbgs() << '[' << DEBUG_TYPE << "] ")
-#define LDBG(X) LLVM_DEBUG(DBGS() << (X) << "\n")
+#define SAFE_EXPAND(X) X
+#define LDBG(X) LLVM_DEBUG(DBGS() << SAFE_EXPAND(X) << "\n")
 
 #define IMPLEMENTED_MATMUL                                                     \
   linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,               \
