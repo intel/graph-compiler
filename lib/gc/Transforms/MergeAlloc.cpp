@@ -86,8 +86,7 @@ class MergeAllocPass : public gc::impl::MergeAllocBase<MergeAllocPass> {
 
 public:
   MergeAllocPass() = default;
-  explicit MergeAllocPass(const gc::MergeAllocationOptions &o)
-      : options{o} {}
+  explicit MergeAllocPass(const gc::MergeAllocationOptions &o) : options{o} {}
 };
 } // namespace
 } // namespace mlir
