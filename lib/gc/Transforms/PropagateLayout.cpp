@@ -701,11 +701,11 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     options.blockFactors.push_back(*getConstantIntValue(N_block));
     return options;
   };
-  linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
-                                          packMatmulControlFn);
-  if (failed(
-          applyPatternsAndFoldGreedily(graph, std::move(packMatmulPatterns))))
-    return signalPassFailure();
+  // linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
+  //                                         packMatmulControlFn);
+  // if (failed(
+  //         applyPatternsAndFoldGreedily(graph, std::move(packMatmulPatterns))))
+  //   return signalPassFailure();
 
   // stage2: pack VNNI
   RewritePatternSet packVNNIPatterns(&getContext());
@@ -713,6 +713,8 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
                        PackVNNI<linalg::BatchMmt4DOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(graph, std::move(packVNNIPatterns))))
     return signalPassFailure();
+
+  // stage 2.5: revert necessary blocking on matmul op
 
   // stage3: propagate layout on other named ops
   ControlPackNamedOpsFn layoutControlFn =
