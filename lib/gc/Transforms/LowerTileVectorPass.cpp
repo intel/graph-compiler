@@ -588,7 +588,7 @@ struct LowerTileVectorPass
     vector::populateSinkVectorBroadcastPatterns(secondPattern);
     // vector::TransferReadOp::getCanonicalizationPatterns(secondPattern, ctx);
     // vector::TransferWriteOp::getCanonicalizationPatterns(secondPattern, ctx);
-    tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(secondPattern);
+    // tensor::populateFoldTensorSubsetIntoVectorTransferPatterns(secondPattern);
 
     (void)applyPatternsAndFoldGreedily(funcOp, std::move(secondPattern));
     // DominanceInfo domInfo;

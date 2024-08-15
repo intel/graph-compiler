@@ -50,31 +50,24 @@ void populateFrontendPasses(mlir::OpPassManager &pm) {
 void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
-  pm.addPass(createPrintIRPass());
   pm.addPass(createPropagateLayoutOnNamedOps());
-  pm.addPass(createPrintIRPass());
   pm.addPass(createPostProcessPackUnpack());
-  pm.addPass(createPrintIRPass());
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
-  pm.addPass(createPrintIRPass());
 
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
-  pm.addPass(createPrintIRPass());
   // todo: fine-grain fusion pass
   // todo: lower linalg to arith/math on virtual vector pass
-
+  pm.addNestedPass<func::FuncOp>(
+      mlir::microkernel::createConvertLinalgToMicrokernel());
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addPass(createLoopInvariantCodeMotionPass());
-  pm.addPass(createPrintIRPass());
   pm.addPass(createControlFlowSinkPass());
-  pm.addPass(createPrintIRPass());
   // TODO(yifei): remove lower pack here
   pm.addPass(createLowerPackUnpack());
-  pm.addPass(createPrintIRPass());
   populateCleanUpPasses(pm);
 }
 
@@ -94,7 +87,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
   // pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
-   pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
+  // pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
 }
@@ -121,8 +114,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + func/microkernel
 void populateMicroKernelPasses(mlir::OpPassManager &pm) {
-  pm.addNestedPass<func::FuncOp>(
-      mlir::microkernel::createConvertLinalgToMicrokernel());
+  pm.addNestedPass<func::FuncOp>(mlir::microkernel::createExpandMicrokernel());
   pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
   pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
   pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
@@ -150,14 +142,16 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(createLowerAffinePass());
+  pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
-  pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+  pm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
-  pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
+  pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
@@ -182,10 +176,10 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateVectorPasses(pm);
   // back-end, arith/math/vector/memref dialects
   populateBufferizationPasses(pm);
+  populateMicroKernelPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
-  populateMicroKernelPasses(pm);
   populateCPURuntimePasses(pm);
   // back-end, llvm dialect
   populateLLVMPasses(pm);
