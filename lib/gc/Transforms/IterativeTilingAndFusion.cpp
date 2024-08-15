@@ -8,6 +8,7 @@
 
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/Dialect/DLTI/Traits.h"
@@ -166,11 +167,10 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
       tileSizesOnInnerDims =
           llvm::to_vector(ArrayRef(tileSizes).take_back(innerTiles.size()));
     } else {
-      // tileSize comes from OpOperand
-      ArrayRef<int64_t> innerDimPos = packOp.getInnerDimsPos();
-      for (auto &pos : innerDimPos) {
-        tileSizesOnInnerDims.push_back(tileSizes[pos]);
-      }
+      // Upstream doesn't implement `getTiledImplementationFromOperandTile`
+      // interface of `packOp` so far. In another word, `packOp` could not be
+      // fused as consumer. As a result, just return failure currently.
+      return failure();
     }
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(defOrUse.ownerOp)) {
     innerTiles = unPackOp.getMixedTiles();
@@ -215,7 +215,7 @@ nonContractionOpFilter(RewriterBase &rewriter,
                        CandidateDefOrUse defOrUse) {
   // Currently this pass focuses on fine-grained fusion, which does not expect
   // two consecutive contraction ops.
-  return failure(isa<mlir::linalg::ContractionOpInterface>(defOrUse.ownerOp));
+  return failure(linalgx::isMatmulOp(defOrUse.ownerOp));
 }
 
 /// If fusing multiple consumers is allowed, there may exist following cases:
@@ -635,22 +635,25 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
   // 3. check whether has either extract or insert slice op
   auto walkResult = forOp->walk(
       [](tensor::ExtractSliceOp) { return WalkResult::interrupt(); });
-  if (walkResult.wasInterrupted())
-    return success();
-  walkResult = forOp->walk(
-      [](tensor::InsertSliceOp) { return WalkResult::interrupt(); });
+  if (!walkResult.wasInterrupted())
+    return failure();
+  walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
+    return isa<tensor::InsertSliceOp, tensor::ParallelInsertSliceOp>(op)
+               ? WalkResult::interrupt()
+               : WalkResult::advance();
+  });
   return success(walkResult.wasInterrupted());
 }
 
 using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
 
 /// Default Tiling function only effective for certain `OpTy` operation
-template <typename OpTy>
 static FailureOr<scf::SCFTilingResult>
 defaultTilingOfType(RewriterBase &rewriter, Operation *op,
+                    function_ref<bool(Operation *)> isaOpTy,
                     const OpTileSizeMap &tsMap) {
   // a. Check <OpTy>
-  if (!isa<TilingInterface>(op) || !isa<OpTy>(op))
+  if (!isa<TilingInterface>(op) || !isaOpTy(op))
     return failure();
   auto tilingInterfaceOp = cast<TilingInterface>(op);
 
@@ -658,6 +661,10 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   // b. Get default tiling size
   SmallVector<utils::IteratorType> iteratorTypes =
       tilingInterfaceOp.getLoopIteratorTypes();
+  llvm::SmallVector<Range> iterationDomain =
+      tilingInterfaceOp.getIterationDomain(rewriter);
+  assert(iteratorTypes.size() == iterationDomain.size() &&
+         "Iteration domain expected as same long as iteration type");
 
   SmallVector<OpFoldResult> defaultTileSize;
 
@@ -671,15 +678,40 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
         getAsOpFoldResult(rewriter.getI64ArrayAttr(userDefaultTileSize));
   } else {
     defaultTileSize.resize(iteratorTypes.size(), rewriter.getIndexAttr(0));
+    // Try tileSize from `32` to `16`.
+    SmallVector<int64_t> tsOrder = {32, 16};
+    // Only 2D tile is expected.
+    int tileDims = (isa<mlir::linalg::LinalgOp>(op) && !linalgx::isMatmulOp(op))
+                       ? cast<mlir::linalg::LinalgOp>(op).getNumReductionLoops()
+                       : 0;
+    // Reverse both of iteration type and domain from inner to outer.
+    std::reverse(iteratorTypes.begin(), iteratorTypes.end());
+    std::reverse(iterationDomain.begin(), iterationDomain.end());
+
     for (auto &&[en, iterType] : llvm::enumerate(iteratorTypes)) {
-      // All outer non reduction loop should contribute parallelism. In another
-      // word, all reduction dimensions should not be tiled.
-      if (iterType == utils::IteratorType::parallel &&
-          (en != iteratorTypes.size() - 1 ||
-           llvm::count(iteratorTypes, utils::IteratorType::reduction)))
-        defaultTileSize[en] = rewriter.getIndexAttr(1);
+      // All parallel iterator will be tiled by `32` or `16`. If need
+      // specified, please set option `defaultTileSize`, like `matmul:{64,64}`.
+      if (iterType == utils::IteratorType::parallel) {
+        Range curDomain = iterationDomain[en];
+        std::optional<int64_t> tripCount = mlir::constantTripCount(
+            curDomain.offset, curDomain.size, curDomain.stride);
+        if (tileDims >= 2 && en > 0) {
+          defaultTileSize[en] = rewriter.getIndexAttr(1);
+          continue;
+        } else if (tripCount) {
+          for (auto &ts : tsOrder) {
+            if (*tripCount % ts == 0 && *tripCount > ts) {
+              defaultTileSize[en] = rewriter.getIndexAttr(ts);
+              break;
+            }
+          }
+        }
+        tileDims++;
+      }
     }
   }
+  // Reverse back default TileSize.
+  std::reverse(defaultTileSize.begin(), defaultTileSize.end());
   // If the tile sizes are all zero, no tiling would happen.
   if (llvm::all_of(defaultTileSize, isZeroIndex))
     return failure();
@@ -696,20 +728,6 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
 
   return tilingResult;
 }
-
-template <typename OpTy1, typename OpTy2, typename... Rest>
-static FailureOr<scf::SCFTilingResult>
-defaultTilingOfType(RewriterBase &rewriter, Operation *op,
-                    const OpTileSizeMap &tsMap) {
-  FailureOr<scf::SCFTilingResult> tilingResult =
-      defaultTilingOfType<OpTy1>(rewriter, op, tsMap);
-  if (failed(tilingResult))
-    return defaultTilingOfType<OpTy2, Rest...>(rewriter, op, tsMap);
-  return tilingResult;
-}
-
-using DefaultTilingFn = std::function<FailureOr<scf::SCFTilingResult>(
-    RewriterBase &, Operation *, const OpTileSizeMap &)>;
 
 void iterativeTilingAndFusionUntilExhaustion(
     RewriterBase &rewriter, func::FuncOp &f,
@@ -738,9 +756,8 @@ void iterativeTilingAndFusionUntilExhaustion(
 
   // Walk through funcOp
   f->walk([&tiledOps](Operation *op) {
-    if (succeeded(isTiledOpInLoop(op))) {
+    if (succeeded(isTiledOpInLoop(op)))
       tiledOps.insert(op);
-    }
   });
 
   // Iterative tiling and fusion until exhaustion.
@@ -764,17 +781,25 @@ void iterativeTilingAndFusionUntilExhaustion(
       // Auto tiling with default tile size if no tiled op found. Follow tiling
       // priority based on OpTy:
       // `ContractionOp`->`ReductionOp`->`LinalgOp`->`TensorOp`.
-      SmallVector<DefaultTilingFn> priorityTilingPipeLine = {
-          defaultTilingOfType<mlir::linalg::ContractionOpInterface>,
-          defaultTilingOfType<mlir::linalg::ReduceOp>,
-          defaultTilingOfType<mlir::linalg::LinalgOp>,
-          defaultTilingOfType<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>,
-          defaultTilingOfType<TilingInterface>};
-
-      for (auto &tilingFn : priorityTilingPipeLine) {
+      SmallVector<std::function<bool(Operation *)>> priorityOpTypeOrder = {
+// Generate helper function to check if isa<OpTy>.
+#define GenIsaOpTy(opTy) [](Operation *op) { return opTy(op); }
+          // If ContractionOp
+          GenIsaOpTy(linalgx::isMatmulOp),
+          // If ReduceOp
+          GenIsaOpTy(isa<mlir::linalg::ReduceOp>),
+          // If other LinalgOp
+          GenIsaOpTy(isa<mlir::linalg::LinalgOp>),
+          // If TensorOp
+          GenIsaOpTy((isa<tensor::PackOp, tensor::UnPackOp, tensor::PadOp>)),
+          // Fallback
+          GenIsaOpTy(isa<TilingInterface>)};
+#undef GenIsaOpTy
+      mlir::topologicalSort(unTiledOps);
+      for (auto &isaOpTy : priorityOpTypeOrder) {
         for (auto &op : unTiledOps) {
           FailureOr<scf::SCFTilingResult> tilingResult =
-              tilingFn(rewriter, op, tsMap);
+              defaultTilingOfType(rewriter, op, isaOpTy, tsMap);
           if (succeeded(tilingResult)) {
             tiledOps.insert(tilingResult->tiledOps[0]);
             rewriter.replaceOp(op, tilingResult->replacements);
