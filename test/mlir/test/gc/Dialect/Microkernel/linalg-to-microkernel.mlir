@@ -21,7 +21,7 @@ func.func @basic_linalg_to_microkernel(%arg0: tensor<4x8x32x32xf32>) -> tensor<4
 // CHECK: %[[C:.+]] = tensor.extract_slice %[[Csrc:.+]][%[[arg1:.+]], %[[arg2:.+]], 0, 0] [1, 1, 32, 32] [1, 1, 1, 1] : tensor<4x8x32x32xf32> to tensor<32x32xf32>
 // CHECK: %[[A:.+]] = tensor.extract_slice %[[Asrc:.+]][%[[arg1]], 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<4x16x32x32xf32> to tensor<16x32x32xf32>
 // CHECK: %[[B:.+]] = tensor.extract_slice %[[Bsrc:.+]][%[[arg2]], 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<8x16x32x32xf32> to tensor<16x32x32xf32>
-// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]]) outs(%[[C]]) batch_dims(0, 0) leading_dims(1, 1) flags()  -> tensor<32x32xf32>
+// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]] : [[TYPE:.+]]) outs(%[[C]] : [[TYPEC:.+]]) batch_dims(0, 0) leading_dims(1, 1) flags()  -> tensor<32x32xf32>
 // CHECK-NEXT: scf.forall.in_parallel
 
 // -----
@@ -47,7 +47,7 @@ func.func @vnni_linalg_to_microkernel(%arg0: tensor<4x8x32x32xf32>) -> tensor<4x
 // CHECK: %[[C:.+]] = tensor.extract_slice %[[Csrc:.+]][%[[arg1:.+]], %[[arg2:.+]], 0, 0] [1, 1, 32, 32] [1, 1, 1, 1] : tensor<4x8x32x32xf32> to tensor<32x32xf32>
 // CHECK: %[[A:.+]] = tensor.extract_slice %[[Asrc:.+]][%[[arg1]], 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<4x16x32x32xbf16> to tensor<16x32x32xbf16>
 // CHECK: %[[B:.+]] = tensor.extract_slice %[[Bsrc:.+]][%[[arg2]], 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : tensor<8x16x16x32x2xbf16> to tensor<16x16x32x2xbf16>
-// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]]) outs(%[[C]]) batch_dims(0, 0) leading_dims(1, 1) flags()  -> tensor<32x32xf32>
+// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]] : [[TYPE:.+]]) outs(%[[C]] : [[TYPEC:.+]]) batch_dims(0, 0) leading_dims(1, 1) flags()  -> tensor<32x32xf32>
 // CHECK-NEXT: scf.forall.in_parallel
 
 // -----
@@ -76,7 +76,7 @@ func.func @basic_linalg_to_microkernel_fusing_fill(%arg0: tensor<4x8x32x32xf32>)
 // CHECK: %[[A:.+]] = tensor.extract_slice %[[Asrc:.+]][%[[arg1]], 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<4x16x32x32xf32> to tensor<16x32x32xf32>
 // CHECK: %[[B:.+]] = tensor.extract_slice %[[Bsrc:.+]][%[[arg2]], 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<8x16x32x32xf32> to tensor<16x32x32xf32>
 // CHECK-NOT: linalg.fill
-// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]]) outs(%[[C]]) batch_dims(0, 0) leading_dims(1, 1) flags(beta_0)  -> tensor<32x32xf32>
+// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]] : [[TYPE:.+]]) outs(%[[C]] : [[TYPE2:.+]]) batch_dims(0, 0) leading_dims(1, 1) flags(beta_0)  -> tensor<32x32xf32>
 // CHECK-NEXT: scf.forall.in_parallel
 
 // -----
@@ -105,7 +105,7 @@ func.func @vnni_linalg_to_microkernel_fusing_fill(%arg0: tensor<4x8x32x32xf32>) 
 // CHECK: %[[A:.+]] = tensor.extract_slice %[[Asrc:.+]][%[[arg1]], 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<4x16x32x32xbf16> to tensor<16x32x32xbf16>
 // CHECK: %[[B:.+]] = tensor.extract_slice %[[Bsrc:.+]][%[[arg2]], 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : tensor<8x16x16x32x2xbf16> to tensor<16x16x32x2xbf16>
 // CHECK-NOT: linalg.fill
-// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]]) outs(%[[C]]) batch_dims(0, 0) leading_dims(1, 1) flags(beta_0)  -> tensor<32x32xf32>
+// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]] : [[TYPE:.+]]) outs(%[[C]] : [[TYPE2:.+]]) batch_dims(0, 0) leading_dims(1, 1) flags(beta_0)  -> tensor<32x32xf32>
 // CHECK-NEXT: scf.forall.in_parallel
 
 // -----
@@ -137,7 +137,7 @@ func.func @basic_linalg_to_microkernel_fusing_transpose(%arg0: tensor<4x8x32x32x
 // CHECK: %[[B:.+]] = tensor.extract_slice %[[Bsrc:.+]][%[[arg2]], 0, 0, 0] [1, 32, 16, 32] [1, 1, 1, 1] : tensor<8x32x16x32xf32> to tensor<32x16x32xf32>
 // CHECK-NOT: linalg.fill
 // CHECK-NOT: linalg.transpose
-// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]]) outs(%[[C]]) batch_dims(0, 1) leading_dims(1, 0) flags(beta_0)  -> tensor<32x32xf32>
+// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]] : [[TYPE:.+]]) outs(%[[C]] : [[TYPE2:.+]]) batch_dims(0, 1) leading_dims(1, 0) flags(beta_0)  -> tensor<32x32xf32>
 // CHECK-NEXT: scf.forall.in_parallel
 
 // -----
@@ -169,7 +169,7 @@ func.func @vnni_linalg_to_microkernel_fusing_transpose(%arg0: tensor<4x8x32x32xf
 // CHECK: %[[B:.+]] = tensor.extract_slice %[[Bsrc:.+]][%[[arg2]], 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : tensor<8x16x16x32x2xbf16> to tensor<16x16x32x2xbf16>
 // CHECK-NOT: linalg.fill
 // CHECK-NOT: linalg.transpose
-// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]]) outs(%[[C]]) batch_dims(0, 1) leading_dims(1, 0) flags(beta_0)  -> tensor<32x32xf32>
+// CHECK: %[[RES:.+]] = microkernel.brgemm ins(%[[A]], %[[B]] : [[TYPE:.+]]) outs(%[[C]] : [[TYPE2:.+]]) batch_dims(0, 1) leading_dims(1, 0) flags(beta_0)  -> tensor<32x32xf32>
 // CHECK-NEXT: scf.forall.in_parallel
 
 // -----

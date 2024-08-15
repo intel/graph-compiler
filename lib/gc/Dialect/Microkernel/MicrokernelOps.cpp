@@ -242,8 +242,12 @@ ParseResult BrgemmOp::parse(OpAsmParser &parser, OperationState &result) {
 
 void BrgemmOp::print(OpAsmPrinter &printer) {
   BrgemmOp op = *this;
-  printer << " " << INPUTS_ASM_NAME << "(" << op.getInputs() << ")";
-  printer << " " << OUTPUTS_ASM_NAME << "(" << op.getInit() << ")";
+  ValueRange inputs = op.getInputs();
+  Value init = op.getInit();
+  printer << " " << INPUTS_ASM_NAME << "(" << inputs << " : "
+          << inputs.getTypes() << ")";
+  printer << " " << OUTPUTS_ASM_NAME << "(" << init << " : " << init.getType()
+          << ")";
   printer << " " << BATCH_DIMS_ASM_NAME << "(" << op.getBatchDims() << ")";
   printer << " " << LEADING_DIMS_ASM_NAME << "(" << op.getLeadingDims() << ")";
 
@@ -385,6 +389,18 @@ bool BrgemmOp::bufferizesToElementwiseAccess(const AnalysisState &state,
   // This op contains non-parallel reduction loops,
   // should return `false` per linalg implementation
   return false;
+}
+
+AliasingValueList BrgemmOp::getAliasingValues(OpOperand &opOperand,
+                                              const AnalysisState &state) {
+  // This implementation refers to linalg's usage of
+  // ` DstBufferizableOpInterfaceExternalModel`
+  Operation *op = *this;
+  // Output operands alias with their respective tied OpResults.
+  auto dstOp = cast<DestinationStyleOpInterface>(op);
+  if (dstOp.isDpsInit(&opOperand))
+    return {{dstOp.getTiedOpResult(&opOperand), BufferRelation::Equivalent}};
+  return {};
 }
 
 LogicalResult BrgemmOp::bufferize(RewriterBase &rewriter,
