@@ -62,7 +62,7 @@ dlti.target_system_spec = #dlti.target_system_spec<
 >} {}
 )mlir";
 
-TEST(DISABLED_TargetDescriptionAnalysis, CPUMissingValue) {
+TEST(TargetDescriptionAnalysis, CPUMissingValue) {
   MLIRContext ctx{gc::initCompilerAndGetDialects()};
   std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
       llvm::MemoryBuffer::getMemBuffer(code2);
@@ -76,6 +76,6 @@ TEST(DISABLED_TargetDescriptionAnalysis, CPUMissingValue) {
   ASSERT_EQ(CPUTagetDesc.getNumThreads(), 1);
   ASSERT_EQ(CPUTagetDesc.getCacheSize(1), 49152);
   ASSERT_EQ(CPUTagetDesc.getCacheSize(2), 2097152);
-  ASSERT_EQ(CPUTagetDesc.getCacheSize(3), 1048576);
+  ASSERT_EQ(CPUTagetDesc.getCacheSize(3), 32 * 1024 * 1024);
   ASSERT_EQ(CPUTagetDesc.getMaxVectorWidth(), 512);
 }
