@@ -1,4 +1,4 @@
-//===- LowerTileVectorPass.cpp.cpp - Lowering to vector -*- C++ -*-===//
+//===-- LowerTileVectorPass.cpp - Lower Op to vector ------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -43,7 +43,7 @@ namespace {
 #define DEBUG_TYPE "lower-to-tile-vector-pass"
 
 #define DBGS() (llvm::dbgs() << '[' << DEBUG_TYPE << "] ")
-#define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
+#define LDBG(X) LLVM_DEBUG(DBGS() << (X) << "\n")
 
 #define IMPLEMENTED_MATMUL                                                     \
   linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,               \
@@ -93,7 +93,7 @@ struct ReshapeVectorizeHelper {
 
   ReshapeVectorizeHelper() = default;
   ReshapeVectorizeHelper(ArrayRef<int64_t> srcVectorizedShape,
-                         llvm::SmallDenseMap<int64_t, int64_t> shapeScales,
+                         llvm::SmallDenseMap<int64_t, int64_t> &shapeScales,
                          ArrayRef<int64_t> resultShape,
                          ArrayRef<int64_t> srcShape)
       : srcVectorizedShape(srcVectorizedShape), shapeScales(shapeScales),
@@ -246,7 +246,7 @@ LogicalResult lowerTargetOpPrecondition(Operation *op,
 
 Operation *createWriteOrMaskedWrite(OpBuilder &builder, Location loc,
                                     Value input,
-                                    SmallVector<OpFoldResult> destSizes,
+                                    ArrayRef<OpFoldResult> destSizes,
                                     ArrayRef<int64_t> inputVectorSizes,
                                     bool useInBoundsInsteadOfMasking) {
 
@@ -519,10 +519,10 @@ public:
       return rewriter.notifyMatchFailure(
           op, "linalg.fill + linalg.matmul can't do lowering.");
     }
-    SmallVector<bool, 5> scalableVecDims(inputVectorSizes.size(), false);
+    SmallVector<bool> scalableVecDims(inputVectorSizes.size(), false);
     if (failed(linalg::vectorize(rewriter, op,
                                  /*inputVectorSizes=*/inputVectorSizes,
-                                 /*scalableVecDims=*/scalableVecDims,
+                                 /*inputScalableVecDims=*/scalableVecDims,
                                  vectorizeNDExtract, flatten1DDepthwiseConv))) {
       return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
     }
@@ -560,7 +560,7 @@ struct TensorUnpackConvertVectorPass : public RewritePattern {
 
     if (failed(linalg::vectorize(rewriter, op,
                                  /*inputVectorSizes=*/inputShape.vec(),
-                                 /*scalableVecDims=*/targetVecDims, false,
+                                 /*inputScalableVecDims=*/targetVecDims, false,
                                  false))) {
       return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
     }
