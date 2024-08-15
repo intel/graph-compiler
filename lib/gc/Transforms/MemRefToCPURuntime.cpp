@@ -121,7 +121,8 @@ struct ConvertMemRefToCPURuntime
         cpuruntime::CPURuntimeDialect,
         arith::ArithDialect,
         affine::AffineDialect,
-        scf::SCFDialect
+        scf::SCFDialect,
+        LLVM::LLVMDialect
         // clang-format on
         >();
     // set pattern
