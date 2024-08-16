@@ -394,7 +394,7 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
   return success();
 }
 
-static void createAndReplaceWithGenericVNNIMatmul(
+static LogicalResult createAndReplaceWithGenericVNNIMatmul(
     RewriterBase &rewriter, MLIRContext *context, SmallVector<Value> inputs,
     SmallVector<Value> inits, int64_t batchDimSize, int64_t blockingFactor,
     Operation *matmulOp) {
@@ -437,10 +437,12 @@ static void createAndReplaceWithGenericVNNIMatmul(
   rewriter.inlineRegionBefore(matmulOp->getRegion(0), replacementOp.getRegion(),
                               replacementOp.getRegion().begin());
   rewriter.replaceOp(matmulOp, replacementOp.getResult(0));
+  return success();
 }
 
 template <typename OpTy>
-static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp) {
+static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
+                                   bool useNamedOp = false) {
   auto elementType = getElementTypeOrSelf(mmt4dOp.getInputs()[0].getType());
   if (!elementType.isBF16() && !elementType.isInteger(8))
     return rewriter.notifyMatchFailure(mmt4dOp, "require bf16/int8 data type");
@@ -462,17 +464,18 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp) {
   OpOperand *RHSOperand = mmt4dOp.getDpsInputOperand(1);
   Value dest = tensor::PackOp::createDestinationTensor(
       rewriter, loc, RHSOperand->get(), tileSize, innerPos, outerPerm);
-  Value VNNIPack =
-      rewriter.create<tensor::PackOp>(loc, RHSOperand->get(), dest, innerPos,
-                                      tileSize, std::nullopt, outerPerm);
+  auto zeroAttr = rewriter.getZeroAttr(getElementTypeOrSelf(dest.getType()));
+  Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  Value VNNIPack = rewriter.create<tensor::PackOp>(
+      loc, RHSOperand->get(), dest, innerPos, tileSize, zero, outerPerm);
   SmallVector<Value> inputsValues{mmt4dOp.getInputs()[0], VNNIPack};
-  if (!batchDimSize) {
+  if (useNamedOp) {
     auto vnniOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
         loc, mmt4dOp.getDpsInits().getTypes(), inputsValues,
         mmt4dOp.getDpsInits());
     rewriter.replaceOp(mmt4dOp, vnniOp);
   } else {
-    mlir::gc::createAndReplaceWithGenericVNNIMatmul(
+    auto result = mlir::gc::createAndReplaceWithGenericVNNIMatmul(
         rewriter, mmt4dOp.getContext(), inputsValues, mmt4dOp.getDpsInits(),
         batchDimSize, blockingFactor, mmt4dOp);
   }
@@ -510,7 +513,8 @@ If possible, pack to Mm2DVnniOp or Mm4DVnniOp.
 If not possible, pack to GenericOp.
 */
 static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
-                                     linalg::GenericOp matmulOp) {
+                                     linalg::GenericOp matmulOp,
+                                     bool useNamedOp = false) {
   if (matmulOp.getDpsInputs().size() != 2)
     return rewriter.notifyMatchFailure(matmulOp, "require 2 inputs");
 
@@ -548,15 +552,17 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
   int64_t weightRank =
       cast<ShapedType>(weight.get().getType()).getShape().size();
   auto innerPos = SmallVector<int64_t>{weightRank - 2};
-  // pack weight.
+  // pack weight
   Value dest = tensor::PackOp::createDestinationTensor(
       rewriter, loc, weight.get(), tileSize, innerPos, SmallVector<int64_t>{});
-  Value VNNIPack = rewriter.create<tensor::PackOp>(
-      loc, weight.get(), dest, innerPos, tileSize, std::nullopt);
+  auto zeroAttr = rewriter.getZeroAttr(getElementTypeOrSelf(dest.getType()));
+  Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  Value VNNIPack = rewriter.create<tensor::PackOp>(loc, weight.get(), dest,
+                                                   innerPos, tileSize, zero);
 
   int64_t batchDimSize = weightRank - 4;
   SmallVector<Value> inputsValues{matmulOp.getInputs()[0], VNNIPack};
-  if (!batchDimSize) {
+  if (useNamedOp) {
     Value operandC = matmulOp.getDpsInits()[0];
     auto VNNIMatmulOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
         loc, operandC.getType(), inputsValues, ValueRange{operandC});
@@ -701,11 +707,11 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     options.blockFactors.push_back(*getConstantIntValue(N_block));
     return options;
   };
-  // linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
-  //                                         packMatmulControlFn);
-  // if (failed(
-  //         applyPatternsAndFoldGreedily(graph, std::move(packMatmulPatterns))))
-  //   return signalPassFailure();
+  linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
+                                          packMatmulControlFn);
+  if (failed(
+          applyPatternsAndFoldGreedily(graph, std::move(packMatmulPatterns))))
+    return signalPassFailure();
 
   // stage2: pack VNNI
   RewritePatternSet packVNNIPatterns(&getContext());
