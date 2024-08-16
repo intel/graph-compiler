@@ -57,6 +57,8 @@ getCandidate(uint32_t num, uint32_t floor,
     candidates.push_back(candidate);
     candidate *= 2;
   }
+  // In case that no config is valid
+  candidates.push_back(num);
   // remove duplicate candidates
   std::sort(candidates.begin(), candidates.end());
   candidates.erase(std::unique(candidates.begin(), candidates.end()),
@@ -265,8 +267,8 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
                     if (KBlock % innerMostKBlock != 0 ||
-                        shape[2] % KBlock != 0 ||
-                        (shape[2] % innerMostKBlock != 0 &&
+                        shape[2] / KThreads % KBlock != 0 ||
+                        (shape[2] / KThreads % innerMostKBlock != 0 &&
                          !allowUndivisibleInnerblock))
                       continue;
                     MatmulConfig config{
