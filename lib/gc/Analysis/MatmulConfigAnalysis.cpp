@@ -267,8 +267,8 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
                     if (KBlock % innerMostKBlock != 0 ||
-                        shape[2] / KThreads % KBlock != 0 ||
-                        (shape[2] / KThreads % innerMostKBlock != 0 &&
+                        ((shape[2] / KThreads % KBlock != 0 ||
+                          shape[2] / KThreads % innerMostKBlock != 0) &&
                          !allowUndivisibleInnerblock))
                       continue;
                     MatmulConfig config{
