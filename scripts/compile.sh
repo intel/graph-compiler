@@ -194,11 +194,6 @@ else
     LIT_PATH=$PROJECT_DIR/externals/llvm-project/build/bin/llvm-lit
 fi
 
-# Should we install opencl in this script?
-# if [ "$ENABLE_IMEX" ]; then
-#     sudo apt install -y intel-opencl-icd opencl-c-headers
-# fi
-
 [ -z "$CLEANUP" ] || rm -rf build
 cmake -S . -G Ninja -B build \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
