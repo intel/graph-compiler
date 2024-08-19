@@ -545,6 +545,8 @@ getUntiledConsumerFromSlice(tensor::ParallelInsertSliceOp candidateSliceOp) {
 /// %1 = firstUserOfLoop(%0)
 /// ```
 ///
+/// Besides, `consumerOp` should not be the user of `firstUserOfLoop`.
+///
 /// @param loopOp: loop operation
 /// @param consumerOp: consumer operation
 /// @param insertPointBefore: which operation we clone the looOp right before
@@ -556,51 +558,60 @@ static LogicalResult checkAssumptionForLoop(Operation *loopOp,
   if (loopOp->getBlock() != parentBlock)
     return failure();
 
-  Operation *firstUserOfLoop = consumerOp, *lastDefOfConsumer = loopOp;
-  // Find the first user of loopOp
-  for (Operation *userOp : loopOp->getUsers()) {
-    if (userOp == consumerOp)
-      continue;
-    // `ParallelInsertSlice` located inside `InParallelOp` has no same parent
-    // block with any other types of operation. Thus, just redirecting to its
-    // parent `InParallelOp`.
-    if (isa<tensor::ParallelInsertSliceOp>(userOp))
-      userOp = userOp->getParentOfType<scf::InParallelOp>();
+  *insertPointBefore = nullptr;
+  do {
+    Operation *firstUserOfLoop = consumerOp, *lastDefOfConsumer = loopOp;
+    // Find the first user of loopOp
+    for (Operation *userOp : loopOp->getUsers()) {
+      if (userOp == consumerOp)
+        continue;
+      // `ParallelInsertSlice` located inside `InParallelOp` has no same parent
+      // block with any other types of operation. Thus, just redirecting to its
+      // parent `InParallelOp`.
+      if (isa<tensor::ParallelInsertSliceOp>(userOp))
+        userOp = userOp->getParentOfType<scf::InParallelOp>();
 
-    if (parentBlock != userOp->getBlock())
-      return failure();
+      if (parentBlock != userOp->getBlock())
+        return failure();
 
-    if (userOp->isBeforeInBlock(firstUserOfLoop))
-      firstUserOfLoop = userOp;
-  }
-  // Find the last define of consumer
-  for (Value operand : consumerOp->getOperands()) {
-    // If the operand is `BlockArgument`, auto skip.
-    if (isa<BlockArgument>(operand))
-      continue;
-    auto defineOp = operand.getDefiningOp();
-    if (defineOp == loopOp)
-      continue;
-    if (!defineOp || parentBlock != defineOp->getBlock())
-      return failure();
-    if (lastDefOfConsumer->isBeforeInBlock(defineOp))
-      lastDefOfConsumer = defineOp;
-  }
-  if (firstUserOfLoop->isBeforeInBlock(lastDefOfConsumer)) {
-    // Try to move if possible
-    if (llvm::all_of(firstUserOfLoop->getUsers(),
-                     [&lastDefOfConsumer, &parentBlock](Operation *userOp) {
-                       return userOp->getBlock() == parentBlock &&
-                              lastDefOfConsumer->isBeforeInBlock(userOp);
-                     })) {
-      // Safely moving
-      firstUserOfLoop->moveAfter(lastDefOfConsumer);
-    } else {
-      return failure();
+      if (userOp->isBeforeInBlock(firstUserOfLoop))
+        firstUserOfLoop = userOp;
     }
-  }
-  // Set InsertPoint
-  *insertPointBefore = firstUserOfLoop;
+
+    // Find the last define of consumer
+    for (Value operand : consumerOp->getOperands()) {
+      // If the operand is `BlockArgument`, auto skip.
+      if (isa<BlockArgument>(operand))
+        continue;
+      auto defineOp = operand.getDefiningOp();
+      if (defineOp == loopOp)
+        continue;
+      if (!defineOp || parentBlock != defineOp->getBlock())
+        return failure();
+      if (lastDefOfConsumer->isBeforeInBlock(defineOp))
+        lastDefOfConsumer = defineOp;
+    }
+    if (firstUserOfLoop->isBeforeInBlock(lastDefOfConsumer)) {
+      // Try to move if possible
+      if (llvm::all_of(firstUserOfLoop->getUsers(),
+                       [&lastDefOfConsumer, &parentBlock](Operation *userOp) {
+                         return userOp->getBlock() == parentBlock &&
+                                lastDefOfConsumer->isBeforeInBlock(userOp);
+                       })) {
+        // Safely moving
+        firstUserOfLoop->moveAfter(lastDefOfConsumer);
+      } else {
+        return failure();
+      }
+    } else {
+      // Check consumerOp is not the user of firstUserOfLoop
+      if (firstUserOfLoop == lastDefOfConsumer)
+        return failure();
+      // Set InsertPoint
+      *insertPointBefore = firstUserOfLoop;
+    }
+  } while (!(*insertPointBefore));
+
   return success();
 }
 
@@ -668,6 +679,90 @@ fixTerminatorSCFInParallel(RewriterBase &rewriter, scf::ForallOp newForallOp,
     rewriter.create<tensor::ParallelInsertSliceOp>(
         firstYieldOpLoc, tiledResult, bbArg, resultOffset, resultSize, strides);
   }
+}
+
+/// To solve following residual topology:
+///
+///   op1
+///   /  \
+///   |  op2
+///   |   /
+///   op3
+///
+/// Where the possible IR may appears like below before fusing `op3`:
+///
+/// ```
+/// %1:2 = scf.for() {
+///     %2 = tiled_op1
+///     %3 = tiled_op2
+///     %4 = insert_slice %2
+///     %5 = insert_slice %3
+///     yield %4, %5
+/// }
+/// op3 ins(%1#1, %1#2)
+/// ```
+///
+/// Although current fuse consumer only accepts single one candidate slice such
+/// as `%4`, in fact, `%5` is another regarding slice which produces the operand
+/// of untiled `op3`. Thus, is is necessary to find all of them and ensure that
+/// they are pretty matched.
+///
+/// @param loopOp: loop operation
+/// @param consumerOp: consumer operation
+/// @param curOperandNumber: operand number of current candidate slice
+/// @param otherOperandSliceMap: operand number to other slice mapping
+/// @return LogicalResult: Return `success` only if all operand slice are found.
+static LogicalResult findOtherOperandSlice(
+    Operation *loopOp, Operation *consumerOp, unsigned curOperandNumber,
+    DenseMap<unsigned, OffsetSizeAndStrideOpInterface> &otherOperandSliceMap) {
+  otherOperandSliceMap.clear();
+  SmallVector<OpOperand *> otherUseOfLoop;
+  for (auto &&[en, v] : llvm::enumerate(consumerOp->getOpOperands())) {
+    if (en == curOperandNumber)
+      continue;
+    if (v.get().getDefiningOp() == loopOp)
+      otherUseOfLoop.push_back(&v);
+  }
+  if (otherUseOfLoop.empty())
+    return success();
+  if (auto forallOp = dyn_cast<scf::ForallOp>(loopOp)) {
+    for (auto &use : otherUseOfLoop) {
+      tensor::ParallelInsertSliceOp sliceOp;
+      for (auto &useOfResult :
+           forallOp
+               .getRegionIterArgs()[dyn_cast<OpResult>(use->get())
+                                        .getResultNumber()]
+               .getUses()) {
+        if (isa<tensor::ParallelInsertSliceOp>(useOfResult.getOwner())) {
+          if (llvm::detail::isPresent(sliceOp))
+            return failure();
+          sliceOp = cast<tensor::ParallelInsertSliceOp>(useOfResult.getOwner());
+          otherOperandSliceMap[use->getOperandNumber()] =
+              cast<OffsetSizeAndStrideOpInterface>(sliceOp.getOperation());
+        }
+      }
+      if (!llvm::detail::isPresent(sliceOp))
+        return failure();
+    }
+  } else if (auto forOp = dyn_cast<scf::ForOp>(loopOp)) {
+    for (auto &use : otherUseOfLoop) {
+      OpOperand *yieldValue = forOp.getTiedLoopYieldedValue(
+          forOp.getTiedLoopRegionIterArg(dyn_cast<OpResult>(use->get())));
+      Operation *yieldValueProducer = yieldValue->get().getDefiningOp();
+      while (!isa<tensor::InsertSliceOp>(yieldValueProducer)) {
+        if (!isa<scf::ForOp>(yieldValueProducer))
+          return failure();
+        scf::ForOp innerForOp = cast<scf::ForOp>(yieldValueProducer);
+        yieldValue = innerForOp.getTiedLoopYieldedValue(
+            innerForOp.getTiedLoopRegionIterArg(
+                dyn_cast<OpResult>(yieldValue->get())));
+        yieldValueProducer = yieldValue->get().getDefiningOp();
+      }
+      otherOperandSliceMap[use->getOperandNumber()] =
+          cast<OffsetSizeAndStrideOpInterface>(yieldValueProducer);
+    }
+  }
+  return success();
 }
 
 /// Implementation of fusing consumer of a single slice by computing the
@@ -748,10 +843,23 @@ tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
                          "and no suitable insertPoint is found");
   }
 
+  // 2.b Check containing loop op has no more than one uses in consumerOp,
+  // otherwise, it must find all other slices.
+  DenseMap<unsigned int, OffsetSizeAndStrideOpInterface> otherOperandSliceMap;
+  if (failed(findOtherOperandSlice(oldTopLevelLoop, consumerOp, operandNumber,
+                                   otherOperandSliceMap))) {
+    return rewriter.notifyMatchFailure(
+        oldTopLevelLoop, "containing loop op has more than one uses in "
+                         "consumerOp, but could not find all other slices");
+  }
+
   OpBuilder::InsertionGuard g(rewriter);
 
-  // 2.b Check consumer is not using scf loop's output as init.
-  auto dstOp = cast<DestinationStyleOpInterface>(consumerOp);
+  // 2.c Check consumer is not using scf loop's output as init.
+  auto dstOp = dyn_cast<DestinationStyleOpInterface>(consumerOp);
+  if (!dstOp)
+    return rewriter.notifyMatchFailure(consumerOp,
+                                       "consumer op is not DPS operation");
   SmallVector<Value> dpsInits =
       llvm::map_to_vector(dstOp.getDpsInits(), [](Value v) { return v; });
   if (llvm::is_contained(dpsInits, oldTopLevelLoop->getResult(resultNumber))) {
@@ -881,13 +989,33 @@ tileAndFuseConsumerOfSliceImpl(RewriterBase &rewriter,
         candidateSliceOp, "containingOp's result yield with stride");
   }
 
-  // 10. Try to get iter domain position from input position.
+  // 10.a. Try to get iter domain position from input position.
   SmallVector<OpFoldResult> iterDomainOffsets, iterDomainSizes;
   if (failed(clonedConsumerOp.getIterationDomainTileFromOperandTile(
           rewriter, operandNumber, offsets, sizes, iterDomainOffsets,
           iterDomainSizes))) {
     return rewriter.notifyMatchFailure(
         clonedConsumerOp, "can't get iter domain position from input position");
+  }
+
+  if (!otherOperandSliceMap.empty()) {
+    for (auto &&[otherOperandNumber, otherSlice] : otherOperandSliceMap) {
+      // 10.b. Check if all inferred `tileOffset` and `tileSize` of iteration
+      // domain based on different operands are matched.
+      SmallVector<OpFoldResult> otherIterDomainOffsets, otherIterDomainSizes;
+      if (failed(clonedConsumerOp.getIterationDomainTileFromOperandTile(
+              rewriter, otherOperandNumber, otherSlice.getMixedOffsets(),
+              otherSlice.getMixedSizes(), otherIterDomainOffsets,
+              otherIterDomainSizes)) ||
+          (iterDomainOffsets != otherIterDomainOffsets ||
+           iterDomainSizes != otherIterDomainSizes)) {
+        return rewriter.notifyMatchFailure(
+            otherSlice, "does not match with candidate slice");
+      }
+      rewriter.replaceAllUsesWith(
+          tileAndFuseResult->tiledOps[0]->getOperand(otherOperandNumber),
+          otherSlice->getOperand(0));
+    }
   }
 
   // 11. Try to fetch the offset and size for all results of the cloned

@@ -8,7 +8,7 @@ if (NOT DEFINED IMEX_INCLUDES)
 
     # TODO: Change to main https://github.com/intel/mlir-extensions when all the
     # required functionality is merged.
-    gc_fetch_content(imex 496b240093b5e132b60c5ee69878300fe69be300 https://github.com/Menooker/mlir-extensions
+    gc_fetch_content(imex d5bbd635dee500b8cff138686833bacfac5ade78 https://github.com/Menooker/mlir-extensions
             SET IMEX_CHECK_LLVM_VERSION=ON IMEX_ENABLE_L0_RUNTIME=0
     )
 
