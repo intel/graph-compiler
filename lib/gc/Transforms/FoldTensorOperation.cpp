@@ -40,12 +40,12 @@ struct FoldTensorOperationPass
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(pattern);
     tensor::populateFoldTensorSubsetOpPatterns(pattern);
 
-    GreedyRewriteConfig configInit;
+    GreedyRewriteConfig config;
     // Use to remove useless tensor operation like extract or
     // insert slice.
-    configInit.strictMode = GreedyRewriteStrictness::ExistingOps;
+    config.strictMode = GreedyRewriteStrictness::ExistingOps;
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(pattern),
-                                       configInit);
+                                       config);
   }
 };
 } // namespace

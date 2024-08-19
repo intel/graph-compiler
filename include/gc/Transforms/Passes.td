@@ -118,7 +118,7 @@ def MergeNestedForall : Pass<"merge-nested-forall"> {
 }
 
 def FoldTensorOperation : Pass<"fold-tensor-operation"> {
-  let summary = "fold some tensor operation";
+  let summary = "Fold some tensor operation";
   let description = [{
     Remove some useless tensor operations.
   }];
