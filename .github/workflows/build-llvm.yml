@@ -22,12 +22,17 @@ jobs:
 
       - name: Set LLVM hash
         run: |
-          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
+          if [ "${{ matrix.build-type }}" = "IMEX" ]; then
+            echo LLVM_HASH=$(cat cmake/llvm-version-imex.txt) >>$GITHUB_ENV
+            echo IMEX_HASH=$(cat cmake/imex-version.txt) >>$GITHUB_ENV
+          else
+            echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
+          fi
 
       - uses: actions/checkout@v4
         with:
           repository: Menooker/mlir-extensions
-          ref: dev
+          ref: ${{ env.IMEX_HASH }}
           path: mlir-extensions
         if: ${{ matrix.build-type == 'IMEX' }}
 

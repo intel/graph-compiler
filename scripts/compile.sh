@@ -73,7 +73,12 @@ fi
 
 cd $(dirname "$0")/..
 PROJECT_DIR=$PWD
-LLVM_HASH=$(cat cmake/llvm-version.txt)
+
+if [ "$ENABLE_IMEX" ]; then
+    LLVM_HASH=$(cat cmake/llvm-version-imex.txt)
+else
+    LLVM_HASH=$(cat cmake/llvm-version.txt)
+fi
 
 load_llvm() {
     local run_id
