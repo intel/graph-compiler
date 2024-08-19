@@ -81,7 +81,8 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=True \
           -DCMAKE_C_COMPILER=$(which clang) \
           -DCMAKE_CXX_COMPILER=$(which clang++) \
-          -DLLVM_EXTERNAL_LIT=$(which lit)
+          -DLLVM_EXTERNAL_LIT=$(which lit) \
+          -DDNNL_USE_CLANG_SANITIZER="Undefined"
 
     - name: Prepare inc file
       run: |

@@ -39,21 +39,22 @@ endif()
 
 ############################ Build options #####################################
 option(GC_ENABLE_LEGACY ON)
-option(GC_ENABLE_DNNL "Enable the oneDNN library integration" ON)
+option(GC_ENABLE_DNNL_API "Enable the oneDNN library API integration" ON)
 option(GC_ENABLE_TEST "Build the tests" ON)
-option(GC_ENABLE_TEST_DNNL "Build the dnnl tests" ${GC_ENABLE_DNNL})
+option(GC_ENABLE_TEST_DNNL_API "Build the dnnl tests" ${GC_ENABLE_DNNL_API})
 option(GC_ENABLE_TEST_MLIR "Build the mlir tests" ON)
 option(GC_ENABLE_TOOLS "Build the tools" ON)
 option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
 option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
+option(GC_ENABLE_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend for debug purpose." OFF)
 
 if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)
 endif()
 
-if(GC_ENABLE_DNNL)
+if(GC_ENABLE_DNNL_API)
   set(GC_ONEDNN_DIALECT_LIB_NAME MLIROneDNNGraph)
 endif()
 ################################################################################
