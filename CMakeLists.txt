@@ -29,8 +29,11 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85827 for details. The issue is
 # fixed in GCC 10.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
+  include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag("-Wno-unused-but-set-parameter" CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER)
-  append_if(CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER "-Wno-unused-but-set-parameter" CMAKE_CXX_FLAGS)
+  if(CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-but-set-parameter")
+  endif()
 endif()
 ################################################################################
 

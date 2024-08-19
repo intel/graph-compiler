@@ -266,6 +266,8 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                   continue;
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
+                    // Require K % KBlock == 0 as dynamic bs is not supported
+                    // now
                     if (KBlock % innerMostKBlock != 0 ||
                         ((shape[2] / KThreads % KBlock != 0 ||
                           shape[2] / KThreads % innerMostKBlock != 0) &&
