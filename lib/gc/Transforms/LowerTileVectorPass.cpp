@@ -17,22 +17,10 @@
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
-#include "mlir/IR/AffineMap.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include <type_traits>
 
 namespace mlir {
 namespace gc {
@@ -87,9 +75,15 @@ static bool isContainsDynamicSize(ArrayRef<int64_t> sizes) {
 /// Reshape operation like expand_shape process helper class.
 /// Inorder to avoid pass too many parameters to function.
 struct ReshapeVectorizeHelper {
+  /// The transfer_read operation read result. We calculate this shape based on
+  /// the specified input vector size.
   SmallVector<int64_t> srcVectorizedShape;
+  /// The ratio of the size of a certain dimension specified by the user to the
+  /// size of the op result dimension
   llvm::SmallDenseMap<int64_t, int64_t> shapeScales;
+  /// operation result shape
   SmallVector<int64_t> resultShape;
+  /// input operand shape
   SmallVector<int64_t> srcShape;
 
   ReshapeVectorizeHelper() = default;
@@ -101,13 +95,15 @@ struct ReshapeVectorizeHelper {
         resultShape(resultShape), srcShape(srcShape) {}
 
   /// Get the magnification factor of dimension size of the shape
-  void getScalesDim(ArrayRef<int64_t> inputVectorSizes) {
-    for (auto [idx, vs] : llvm::enumerate(inputVectorSizes)) {
-      if (vs != resultShape[idx])
-        shapeScales[idx] = vs / resultShape[idx];
-    }
-  }
+  void getScalesDim(ArrayRef<int64_t> inputVectorSizes);
 };
+
+void ReshapeVectorizeHelper::getScalesDim(ArrayRef<int64_t> inputVectorSizes) {
+  for (auto [idx, vs] : llvm::enumerate(inputVectorSizes)) {
+    if (vs != resultShape[idx])
+      shapeScales[idx] = vs / resultShape[idx];
+  }
+}
 
 /// Get proper input vector size for the operation.
 /// Currently only expandshape and collaspeshape need to handle this.
@@ -122,28 +118,29 @@ void getReshapeOperationVectorizeShape(ReshapeVectorizeHelper &reshapeHelper) {
 
   for (auto [srcIdx, ss] : llvm::enumerate(reshapeHelper.srcShape)) {
     cur *= ss;
+    // collapse operation need to keep each of the original shape.
     if (isCollapseOp) {
       reshapeHelper.srcVectorizedShape.emplace_back(ss);
     }
-
+    // Only when the scaled dimension appears, it is necessary to infer the
+    // corresponding multiple of the src shape.
     if (cur != reshapeHelper.resultShape[resultIdx]) {
       continue;
     }
-
+    // expand_shape op only need to keep the total vectorized result shape.
     if (!isCollapseOp) {
       reshapeHelper.srcVectorizedShape.emplace_back(cur);
     }
-
+    // The corresponding dimension is expanded by the multiple specified by the
+    // user.
     if (isCollapseOp and reshapeHelper.shapeScales.count(resultIdx)) {
       reshapeHelper.srcVectorizedShape.back() *=
           reshapeHelper.shapeScales[resultIdx];
     }
-
     if (!isCollapseOp and reshapeHelper.shapeScales.count(srcIdx)) {
       reshapeHelper.srcVectorizedShape.back() *=
           reshapeHelper.shapeScales[srcIdx];
     }
-
     cur = 1;
     resultIdx++;
   }
@@ -211,8 +208,8 @@ lowerConcatOpPrecondition(tensor::ConcatOp concatOp,
          << concatOp << "\n");
   }
   // check input operand shape type
-  if (not llvm::all_of(concatOp.getOperandTypes(), [](Type x) {
-        return cast<ShapedType>(x).hasStaticShape();
+  if (llvm::any_of(concatOp.getOperandTypes(), [](Type x) {
+        return not cast<ShapedType>(x).hasStaticShape();
       })) {
     LDBG("Type must be static: " << concatOp << "\n");
     return failure();
@@ -608,27 +605,16 @@ void populateLowerToTileVectorPatterns(RewritePatternSet &patterns) {
 
 /// LowerToTileVectorPass is a pass that lowers operations to tile (virtual)
 /// vector. We must aware that this pass do not support dynamic shape currently.
-struct LowerTileVectorPass
-    : public impl::LowerToTileVectorBase<LowerTileVectorPass> {
+struct LowerToTileVectorPass
+    : public impl::LowerToTileVectorBase<LowerToTileVectorPass> {
   void runOnOperation() final {
     //
     auto *ctx = &getContext();
     RewritePatternSet patternsInit(ctx);
     auto funcOp = getOperation();
 
-    tensor::ControlFoldFn defaultControlFn = [](OpOperand *fusedOperand) {
-      Operation *producer = fusedOperand->get().getDefiningOp();
-      return producer && producer->hasOneUse();
-    };
-    // Some operation convert as constant, this pattern can help us to improve
-    // the performance.
-    tensor::populateRewriteAsConstantPatterns(patternsInit, defaultControlFn);
-    // Remove unnessary operation like extract slice and insert slice
-    tensor::populateReassociativeReshapeFoldingPatterns(patternsInit);
-    tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patternsInit);
-    tensor::populateFoldTensorSubsetOpPatterns(patternsInit);
     // Pad operation will lower to linalg.fill. We lower it in init patterns
-    // then lower the fill operation in second patterns.
+    // then lower the fill operation in first patterns.
     linalg::populatePadOpVectorizationPatterns(patternsInit);
 
     GreedyRewriteConfig configInit;
@@ -650,12 +636,17 @@ struct LowerTileVectorPass
     // ```
     // linalg.copy : <1x32xf32>
     // tensor.insert_slice tensor<1x32xf32> to tensor<1x128x1x32xf32>
+    // (The permutation map (permutation map = (d0, d1, d2, d3) -> (d0,
+    // d3)) appears in the context of the current insert slice.)
     // --> lowering as:
-    // transfer_write : permutation map = (d0, d1, d2, d3) -> (d0, d3)
+    // transfer_write : permutation map = (d0, d1, d2, d3) -> (d0, d3) (This
+    // permutation map should not appear because copy is just a direct write and
+    // has no other permutation semantics. )
     // ```
     // Inorder to avoid the fold greedily bug (fold wrong
     // permution map for the transfer_write operation). Give it the new full IR
-    // to fold second time can fold correctly.
+    // to fold second time can fold correctly. This is due to fold the existing
+    // operation and new operation together.
     RewritePatternSet secondPattern(ctx);
     // Ensure each operation has a clear semantics, rather than a composite
     // semantics. Instead of leaving it to the subsequent passes to handle these
@@ -665,16 +656,13 @@ struct LowerTileVectorPass
     vector::populateVectorTransferPermutationMapLoweringPatterns(secondPattern);
     // Remove unnessary broadcast operation
     vector::populateSinkVectorBroadcastPatterns(secondPattern);
-    // Second fold can help us to eliminate redundant operation like consecutive
+    // Second fold (with the help of the `applyPatternsAndFoldGreedily`
+    // function) can help us to eliminate redundant operation like consecutive
     // read and write.
     (void)applyPatternsAndFoldGreedily(funcOp, std::move(secondPattern));
     // may need other patterns to reduce redundant operations
   }
 };
 } // namespace
-
-std::unique_ptr<Pass> createLowerTileVectorPass() {
-  return std::make_unique<LowerTileVectorPass>();
-}
 } // namespace gc
 } // namespace mlir

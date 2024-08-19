@@ -117,8 +117,18 @@ def MergeNestedForall : Pass<"merge-nested-forall"> {
   let dependentDialects = ["scf::SCFDialect"];
 }
 
+def FoldTensorOperation : Pass<"fold-tensor-operation"> {
+  let summary = "fold some tensor operation";
+  let description = [{
+    Remove some useless tensor operations.
+  }];
+  let dependentDialects = [
+    "::mlir::tensor::TensorDialect"
+  ];
+}
+
 def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
-  let summary = "Lower tensor to tile (virtual) vector.";
+  let summary = "Lower tensor to tile (virtual) vector";
   let description = [{
     Lower operation operate on tensor to vector operation.
   }];
