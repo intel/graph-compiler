@@ -6,10 +6,8 @@
 #
 # ===-----------------------------------------------------------------------===#
 
-from gc_mlir import execution_engine
-from gc_mlir import ir
-from gc_mlir import passmanager
-from gc_mlir.config import MLIR_C_RUNNER_UTILS, MLIR_RUNNER_UTILS
+from gc_mlir import execution_engine, ir, passmanager
+from gc_mlir.config import GC_CPU_RUNTIME, MLIR_C_RUNNER_UTILS, MLIR_RUNNER_UTILS
 
 __all__ = [
     "GraphCompiler",
@@ -22,7 +20,7 @@ class GraphCompiler:
         pipeline: str = "any(gc-cpu-pipeline)",
         opt_level: int = 3,
     ):
-        self.shared_libs = [MLIR_C_RUNNER_UTILS, MLIR_RUNNER_UTILS]
+        self.shared_libs = [MLIR_C_RUNNER_UTILS, MLIR_RUNNER_UTILS, GC_CPU_RUNTIME]
         self.pipeline = pipeline
         self.opt_level = opt_level
 
