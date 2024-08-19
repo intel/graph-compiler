@@ -3,8 +3,6 @@ name: Graph Compiler build
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -41,7 +39,6 @@ jobs:
       - name: Build
         run: |
           # activate base-kit for OpenCL
-          . /opt/intel/oneapi/setvars.sh
           scripts/compile.sh --imex
 
       - name: Test
