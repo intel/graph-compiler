@@ -54,8 +54,16 @@ if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)
 endif()
 
+
+if (GC_ENABLE_IMEX)
+  # normalize the value for lit config
+  set(GC_ENABLE_IMEX ON)
+endif()
+
 if(GC_ENABLE_DNNL_API)
   set(GC_ONEDNN_DIALECT_LIB_NAME MLIROneDNNGraph)
+  # normalize the value for lit config
+  set(GC_ENABLE_DNNL_API ON)
 endif()
 ################################################################################
 
