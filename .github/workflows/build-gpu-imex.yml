@@ -40,8 +40,6 @@ jobs:
 
       - name: Build
         run: |
-          # activate base-kit for OpenCL
-          . /opt/intel/oneapi/setvars.sh
           scripts/compile.sh --imex
 
       - name: Test
