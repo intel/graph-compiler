@@ -119,5 +119,6 @@ add_mlir_python_modules(GcPythonModules
   COMMON_CAPI_LINK_LIBS
     GcPythonCAPI
   )
- 
+
+add_dependencies(GcPythonModules GcCpuRuntime)
 configure_file(config.py.in ${MLIR_BINARY_DIR}/python_packages/gc_mlir_core/gc_mlir/config.py @ONLY)
