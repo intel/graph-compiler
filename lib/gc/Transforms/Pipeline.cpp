@@ -37,6 +37,10 @@ namespace mlir::gc {
 void populateCleanUpPasses(mlir::OpPassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  // pm.addPass(createLoopInvariantSubsetHoistingPass());
+  pm.addPass(createCSEPass());
+  pm.addPass(createSCCPPass());
 }
 
 // linalg + linalgX + tensor
@@ -50,59 +54,45 @@ void populateFrontendPasses(mlir::OpPassManager &pm) {
 void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
-  pm.addPass(createPrintIRPass());
-  pm.addPass(createPropagateLayoutOnNamedOps());
-  pm.addPass(createPrintIRPass());
-  pm.addPass(createPostProcessPackUnpack());
-  pm.addPass(createPrintIRPass());
+  // pm.addPass(createPropagateLayoutOnNamedOps());
+  // pm.addPass(createPostProcessPackUnpack());
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
-  pm.addPass(createPrintIRPass());
 
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
-  pm.addPass(createPrintIRPass());
   // todo: fine-grain fusion pass
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addPass(createLoopInvariantCodeMotionPass());
-  pm.addPass(createPrintIRPass());
   pm.addPass(createControlFlowSinkPass());
-  pm.addPass(createPrintIRPass());
   // TODO(yifei): remove lower pack here
   pm.addPass(createLowerPackUnpack());
-  pm.addPass(createPrintIRPass());
   populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"Tensor passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::OpPassManager &pm) {
-  pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
-  // Do promotion for math / arith ops
-  pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
-  // sourceTypeStrs can be extended
-  arith::ArithEmulateUnsupportedFloatsOptions options;
-  std::array<std::string, 1> typeStr = {"bf16"};
-  options.sourceTypeStrs = typeStr;
-  options.targetTypeStr = "f32";
-  pm.addNestedPass<func::FuncOp>(
-      arith::createArithEmulateUnsupportedFloats(options));
-  // Bf16 cast elimilation pass
-  pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
+  // todo: bf16 promotion pass, device dependent pass
+  // todo: bf16 cast elimilation pass, fast-math kind pass, designed to support
   // oneDNN graph spec
-  // pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
-   pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
+  pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"Vector passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
+  options.enforceAliasingInvariants = false;
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
@@ -117,6 +107,8 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"Bufferization passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 // scf + arith + math + vector + memref + func/microkernel
@@ -146,11 +138,15 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"CPURuntime passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
+  pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
@@ -163,12 +159,18 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
   pm.addPass(createSymbolDCEPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"LoweringToLLVM passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(memref::createExpandOpsPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
   populateLoweringToLLVMPasses(pm);
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"LLVM passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPUPipeline(mlir::OpPassManager &pm) {
@@ -184,8 +186,9 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateBufferizationPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
-  pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
   populateMicroKernelPasses(pm);
+  pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
+  
   populateCPURuntimePasses(pm);
   // back-end, llvm dialect
   populateLLVMPasses(pm);

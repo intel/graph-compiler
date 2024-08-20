@@ -6,8 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "mlir/IR/AffineExprVisitor.h"
 #include "mlir/IR/AffineMap.h"
+
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
@@ -54,12 +56,14 @@ customInferContractionDims(linalg::LinalgOp linalgOp) {
   auto dims = linalg::inferContractionDims(linalgOp);
   if (failed(dims))
     return failure();
-  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp)) {
-    // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
-    // linalg utils because they form complex affine in operand A; Manually add
-    // them here
-    dims->k.push_back(3);
-    dims->k.push_back(4);
+  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp) || linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                                                                                linalgx::PackingType::VNNI_BRMM3D))
+  {
+      // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
+      // linalg utils because they form complex affine in operand A; Manually add
+      // them here
+      dims->k.push_back(3);
+      dims->k.push_back(4);
   }
   return dims;
 }
@@ -223,8 +227,8 @@ static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
   auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
                                 .output(MatchAll(), HasStaticShape())
                                 .input(MatchAll(), HasStaticShape())
-                                .output(MatchAll(), HasStaticStrides())
                                 .input(MatchAll(), HasStaticStrides())
+                                .output(MatchAll(), HasStaticStrides())
                                 .operation(NumOfLoops(GreaterThanOrEqualTo(3)));
   // clang-format on
   if (!validBrgemmMatcher.match(linalgOp))
@@ -340,27 +344,36 @@ public:
   using OpRewritePattern<ContractionOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
-    auto brgemmInfo = getBrgemmInfo(op);
-    if (failed(brgemmInfo))
-      return failure();
-    // Check for immediately preceding linalg::FillOp
-    Operation *rawOp = op;
-    auto block = rawOp->getBlock();
-    auto opIter = Block::iterator(rawOp);
-    if (block->begin() != opIter) {
-      auto prevOp = &(*(--opIter));
-      if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp)) {
-        auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
-            fillOp.getInputs()[0].getDefiningOp());
-        auto fillOperand = fillOp.getOutputs()[0];
-        auto contractionOperand = op.getOutputs()[0];
-        if (isZeroArithConstant(inputCst) &&
-            contractionOperand == fillOperand) {
-          brgemmInfo->isInitOutput = true;
-          rewriter.eraseOp(prevOp);
-        }
-      }
+      if (llvm::isa<linalg::GenericOp>(op) && !linalgx::isGenericPackedMatmulOp(op.getOperation(),
+                                                                                linalgx::PackingType::VNNI_BRMM3D))
+          return failure();
+
+      auto brgemmInfo = getBrgemmInfo(op);
+      if (failed(brgemmInfo))
+          return failure();
+
+      // Check for immediately preceding linalg::FillOp
+      Operation *rawOp = op;
+      auto block = rawOp->getBlock();
+      auto opIter = Block::iterator(rawOp);
+      if (block->begin() != opIter)
+      {
+          auto prevOp = &(*(--opIter));
+          if (auto fillOp = dyn_cast<linalg::FillOp>(prevOp))
+          {
+              auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
+                  fillOp.getInputs()[0].getDefiningOp());
+              auto fillOperand = fillOp.getOutputs()[0];
+              auto contractionOperand = op.getOutputs()[0];
+              if (isZeroArithConstant(inputCst) &&
+                  contractionOperand == fillOperand)
+              {
+                  brgemmInfo->isInitOutput = true;
+                  rewriter.eraseOp(prevOp);
+              }
+          }
     }
+
     replaceOpWithMicrokernelOpSet(rewriter, op, *brgemmInfo);
     return success();
   }
@@ -378,6 +391,9 @@ public:
             &getContext());
     patterns.add<
         ConvertContractionOpToBrgemmRewriter<linalgx::BatchReduceMatmulVnniOp>>(
+        &getContext());
+    patterns.add<
+        ConvertContractionOpToBrgemmRewriter<linalg::GenericOp>>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))

@@ -90,6 +90,7 @@ build_llvm() {
     fi
 
     git checkout ${LLVM_HASH}
+    # git reset --hard
     [ -z "$CLEANUP" ] || rm -rf build
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"

@@ -9,6 +9,7 @@
 #include "./TilingUtil.hpp"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
 #include "gc/Dialect/Linalgx/Utils.h"
+#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -255,8 +256,6 @@ static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
   }
 }
 
-// set the dynamic size to static size for ExtractSliceOp according to the tile
-// config
 static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
                                            Operation *op, bool isExtract,
                                            SmallVector<int64_t> size,
@@ -267,27 +266,24 @@ static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
     SmallVector<OpFoldResult> mixedOffsets = extractSlice.getMixedOffsets();
     SmallVector<OpFoldResult> mixedSizes = extractSlice.getMixedSizes();
     SmallVector<OpFoldResult> mixedStrides = extractSlice.getMixedStrides();
-    auto targetTensor = mlir::RankedTensorType::get(
-        SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
-        extractSlice.getResult().getType().getElementType());
-    for (auto &&[i, s] : llvm::enumerate(size))
-      mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
-    Operation *newExtractSliceOp = rewriter.create<tensor::ExtractSliceOp>(
-        extractSlice->getLoc(), extractSlice.getSource(), mixedOffsets,
-        mixedSizes, mixedStrides);
+    for (auto i = 0UL; i < mixedSizes.size(); i++) {
+      mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), size[i]);
+    }
     if (shrinDimNum > 0) {
-      rewriter.setInsertionPointAfter(newExtractSliceOp);
-      Value viewResult = tensorViewRankedTensor(
-          rewriter, targetTensor, newExtractSliceOp->getResult(0));
-      rewriter.replaceOp(extractSlice, viewResult);
+      rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
+          extractSlice,
+          mlir::RankedTensorType::get(
+              SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
+              extractSlice.getResult().getType().getElementType()),
+          extractSlice.getSource(), mixedOffsets, mixedSizes, mixedStrides);
     } else {
-      rewriter.replaceOp(extractSlice, newExtractSliceOp);
+      rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
+          extractSlice, extractSlice.getSource(), mixedOffsets, mixedSizes,
+          mixedStrides);
     }
   }
 }
 
-// set the dynamic size to static size for InsertSliceOp according to the tile
-// config
 static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
                                           Value source,
                                           SmallVector<int64_t> size) {
@@ -297,14 +293,12 @@ static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
     SmallVector<OpFoldResult> mixedOffsets = insertSlice.getMixedOffsets();
     SmallVector<OpFoldResult> mixedSizes = insertSlice.getMixedSizes();
     SmallVector<OpFoldResult> mixedStrides = insertSlice.getMixedStrides();
-    for (auto &&[i, s] : llvm::enumerate(size))
-      mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
-    auto targetTensor = mlir::RankedTensorType::get(
-        size, insertSlice.getDest().getType().getElementType());
-    Value viewResult = tensorViewRankedTensor(rewriter, targetTensor, source);
+    for (auto i = 0UL; i < mixedSizes.size(); i++) {
+      mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), size[i]);
+    }
     rewriter.replaceOpWithNewOp<tensor::InsertSliceOp>(
-        insertSlice, viewResult, insertSlice.getDest(), mixedOffsets,
-        mixedSizes, mixedStrides);
+        insertSlice, source, insertSlice.getDest(), mixedOffsets, mixedSizes,
+        mixedStrides);
   }
 }
 
@@ -921,13 +915,13 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 
   bool checkLinalgMatmulType(linalg::LinalgOp linalgOp) const {
-    return llvm::isa<linalg::MatmulOp>(linalgOp) ||
-           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                            linalgx::PackingType::VNNI_MM2D) ||
-           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                            linalgx::PackingType::VNNI_MM4D) ||
-           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                            linalgx::PackingType::MM4D);
+      return llvm::isa<linalg::MatmulOp, linalg::BatchMatmulOp, linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp>(linalgOp) ||
+             linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                              linalgx::PackingType::VNNI_MM2D) ||
+             linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                              linalgx::PackingType::VNNI_MM4D) ||
+             linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                              linalgx::PackingType::MM4D);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
@@ -984,6 +978,87 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 };
 
+struct tileReduce : public OpRewritePattern<linalg::ReduceOp>
+{
+    using OpRewritePattern<linalg::ReduceOp>::OpRewritePattern;
+    LogicalResult matchAndRewrite(linalg::ReduceOp reduceOp,
+                                  PatternRewriter &rewriter) const override
+    {
+        if (reduceOp.hasPureBufferSemantics())
+            return failure();
+        if (reduceOp.getOperation()->getParentOfType<LoopLikeOpInterface>())
+            return failure();
+
+        auto iteratorTypes = reduceOp.getIteratorTypesArray();
+
+        SmallVector<Range> loopRanges =
+            cast<TilingInterface>(reduceOp.getOperation())
+                .getIterationDomain(rewriter);
+
+        linalg::LinalgOp currentOp = reduceOp;
+        auto cnt = 0;
+        auto loopType = scf::SCFTilingOptions::LoopType::ForallOp;
+        for (auto [iter, range] : llvm::zip(iteratorTypes, loopRanges))
+        {
+            if (iter == mlir::utils::IteratorType::parallel)
+            {
+                scf::SCFTilingOptions tileOption;
+                OpBuilder::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPoint(currentOp);
+                SmallVector<OpFoldResult> TileSizes(
+                    currentOp.getNumLoops(),
+                    getAsIndexOpFoldResult(rewriter.getContext(), 0));
+                auto rangeSize = getConstantIntValue(range.size);
+                TileSizes[cnt] = getAsIndexOpFoldResult(
+                    rewriter.getContext(),
+                    cnt == loopRanges.size() - 1 && rangeSize && rangeSize >= 32 &&
+                            loopType != scf::SCFTilingOptions::LoopType::ForallOp
+                        ? 32
+                        : 1);
+                tileOption.setTileSizes(TileSizes);
+                tileOption.setLoopType(loopType);
+                auto tilingResult = scf::tileUsingSCF(
+                    rewriter, cast<TilingInterface>(currentOp.getOperation()),
+                    tileOption);
+               
+                    rewriter.replaceOp(currentOp, tilingResult->replacements);
+                    currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+                    if (loopType == scf::SCFTilingOptions::LoopType::ForallOp)
+                        loopType = scf::SCFTilingOptions::LoopType::ForOp;
+                
+            }
+            cnt++;
+        }
+
+        cnt = 0;
+        for (auto [iter, range] : llvm::zip(iteratorTypes, loopRanges))
+        {
+            if (iter == mlir::utils::IteratorType::reduction)
+            {
+                scf::SCFTilingOptions tileOption;
+                OpBuilder::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPoint(currentOp);
+                SmallVector<OpFoldResult> TileSizes(
+                    currentOp.getNumLoops(),
+                    getAsIndexOpFoldResult(rewriter.getContext(), 0));
+                TileSizes[cnt] = getAsIndexOpFoldResult(rewriter.getContext(), 1);
+                tileOption.setTileSizes(TileSizes);
+                tileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForOp);
+                auto tilingResult = scf::tileUsingSCF(
+                    rewriter, cast<TilingInterface>(currentOp.getOperation()),
+                    tileOption);
+              
+                    rewriter.replaceOp(currentOp, tilingResult->replacements);
+                    currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+                    
+                
+            }
+            cnt++;
+        }
+        return success();
+    }
+};
+
 struct DeepTileContractionNamedOp
     : public impl::DeepTileContractionNamedOpBase<DeepTileContractionNamedOp> {
 public:
@@ -993,6 +1068,7 @@ public:
     RewritePatternSet patterns(&ctx);
 
     patterns.add<DeepTileMatmul>(patterns.getContext());
+    // patterns.add<tileReduce>(patterns.getContext());
     linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
 

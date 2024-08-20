@@ -15,6 +15,7 @@ namespace mlir {
 namespace gc {
 
 #define DEBUG_TYPE "matmul-config-analysis"
+#define LLVM_DEBUG(x) x
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                               const MatmulConfig &config) {
@@ -160,6 +161,30 @@ double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
   return 1 / computationIntensity;
 }
 
+// Bufferization may insert more memref.copy/brgemm cannot verify sucessfully
+// and fall back to linalg lower if the buffer is dynamic
+double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
+                                ArrayRef<uint32_t> shape,
+                                const MatmulConfig &config,
+                                CPUTargetDescriptionAnalysis &sysDesc) {
+  uint32_t M = shape[0], N = shape[1], K = shape[2];
+  double cost = 0;
+  cost +=
+      (llvm::divideCeil(M / config.innerMostMBlock, config.MThreads) %
+               llvm::divideCeil(config.MBlock, config.innerMostMBlock) !=
+           0 ||
+       M / config.innerMostMBlock % config.MThreads != 0) &&
+      config.MBlock !=
+          config.innerMostMBlock +
+              (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
+                       llvm::divideCeil(config.NBlock,
+                                        config.innerMostNBlock) !=
+                   0 ||
+               N / config.innerMostNBlock % config.NThreads != 0) &&
+      config.NBlock != config.innerMostNBlock;
+  return cost;
+}
+
 using CostModelFn = std::function<double(
     linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape, MatmulConfig cfg,
     CPUTargetDescriptionAnalysis &sysDesc)>;
@@ -192,7 +217,7 @@ filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
                           << "\nbest with cost: " << costs[idx[0]] << "\n"
                           << configs[idx[0]] << "\n worst with cost: "
                           << costs[idx[configs.size() - 1]] << "\n"
-                          << configs[idx[configs.size() - 1]] << "\n");
+                          << configs[idx[configs.size() - 1]] << "\n\n");
   if (result.empty())
     result = configs;
   return result;
@@ -217,7 +242,7 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
       getCandidate((uint32_t)threads, 1U);
   std::vector<uint32_t> KThreadsCandidates =
       getCandidate((uint32_t)threads, 1U);
-  uint32_t noSmallBlockNeedThreshold = 8 * 8U;
+  uint32_t noSmallBlockNeedThreshold = 8 * 4U;
   std::vector<uint32_t> MBlockCandidates = getCandidate(
       (uint32_t)shape[0], shape[0] >= noSmallBlockNeedThreshold ? 8U : 1U,
       (uint32_t)shape[0]);
@@ -265,7 +290,8 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
                     if (KBlock % innerMostKBlock != 0 ||
-                        (shape[2] % innerMostKBlock != 0 &&
+                        (shape[2] / KThreads) % KBlock != 0 ||
+                        ((shape[2] / KThreads) % innerMostKBlock != 0 &&
                          !allowUndivisibleInnerblock))
                       continue;
                     MatmulConfig config{
@@ -334,6 +360,7 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
       cfgItemCnt++;
     }
   }
+  LLVM_DEBUG(llvm::dbgs() << "The predefined config is " << config << "\n");
   if (validateConfig(config)) {
     return cfgItemCnt == 9;
   } else {
@@ -432,6 +459,7 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         // TODO: Could add a weight or priority for cost model
         SmallVector<std::tuple<CostModelFn, std::string, double>>
             costModelList = {
+                {dynamicBufferizationCost, "dynamicBufferizationCost", 0.9},
                 {workloadBalancedCost, "workloadBalancedCost", 1},
                 {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
                 {computationIntensityOnL2Cache, "computationIntensityOnL2Cache",
@@ -442,16 +470,21 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         std::vector<MatmulConfig> configCandidates =
             prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock,
                                     allowUndivisibleInnerBlock);
-        for (auto &&[fn, name, threshold] : costModelList)
+        for (auto &&[fn, name, threshold] : costModelList) {
+          llvm::dbgs() << "Run cost model " << name << "\n";
           configCandidates = filterConfigByCostModel(
               configCandidates, linalgOp, shape, sysDesc, fn, 0.5, threshold);
+        }
         if (!configCandidates.empty())
           config = configCandidates[0];
+        for (auto &&[fn, name, threshold] : costModelList) {
+          llvm::dbgs() << name << "is " << fn(linalgOp, shape, config, sysDesc)
+                       << "\n";
+        }
       }
 
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Final config\nNumThreads: " << sysDesc.getNumThreads()
-                 << ", MatmulConfig: " << config << "\n");
+      llvm::dbgs() << "Final config\nNumThreads: " << sysDesc.getNumThreads()
+                   << ", MatmulConfig: " << config << "\n";
     }
     hasConfig = true;
   }
