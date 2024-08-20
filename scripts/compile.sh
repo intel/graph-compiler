@@ -31,7 +31,7 @@ for arg in "$@"; do
             ENABLE_IMEX=true
             ;;
         -l | --dyn)
-            if [ "$ENABLE_IMEX" ]; then
+            if [ "$ENABLE_IMEX" = "true" ]; then
                 echo "IMEX doesn't support dynamical linking of LLVM"
                 exit 1
             fi
@@ -74,7 +74,7 @@ fi
 cd $(dirname "$0")/..
 PROJECT_DIR=$PWD
 
-if [ "$ENABLE_IMEX" ]; then
+if [ "$ENABLE_IMEX" = "true" ]; then
     LLVM_HASH=$(cat cmake/llvm-version-imex.txt)
 else
     LLVM_HASH=$(cat cmake/llvm-version.txt)
@@ -83,7 +83,7 @@ fi
 load_llvm() {
     local run_id
 
-    if [ "$ENABLE_IMEX" ]; then
+    if [ "$ENABLE_IMEX"  = "true" ]; then
         llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
         llvm_version="llvm-${LLVM_HASH}"
@@ -117,7 +117,7 @@ build_llvm() {
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
 
-    if [ "$ENABLE_IMEX" ]; then
+    if [ "$ENABLE_IMEX" = "true" ]; then
         # clone IMEX and apply patches
         cd ../
         if ! [ -d "mlir-extensions" ]; then
@@ -170,7 +170,7 @@ get_llvm() {
     fi
 
     llvm_dir=$PROJECT_DIR/../install/llvm
-    if [ "$ENABLE_IMEX" ]; then
+    if [ "$ENABLE_IMEX" =  "true" ]; then
         llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
         llvm_version="llvm-${LLVM_HASH}"
