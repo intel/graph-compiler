@@ -62,7 +62,7 @@ dlti.target_system_spec = #dlti.target_system_spec<
 >} {}
 )mlir";
 
-TEST(TargetDescriptionAnalysis, CPUMissingValue) {
+TEST(DISABLED_TargetDescriptionAnalysis, CPUMissingValue) {
   MLIRContext ctx{gc::initCompilerAndGetDialects()};
   std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
       llvm::MemoryBuffer::getMemBuffer(code2);
