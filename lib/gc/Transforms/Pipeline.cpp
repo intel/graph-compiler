@@ -62,6 +62,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  // fold useless tensor operation pass
+  pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   populateCleanUpPasses(pm);
@@ -142,6 +144,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createCSEPass());
