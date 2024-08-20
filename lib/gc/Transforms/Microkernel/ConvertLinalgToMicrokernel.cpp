@@ -66,9 +66,10 @@ customInferContractionDims(linalg::LinalgOp linalgOp) {
 
 static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
                                    ArrayRef<unsigned> dimPos) {
-  if (dimPos.size() > 2) {
+  // Expecting dimPos.size() == 1 for normal dim and == 2 for vnni dim
+  if (dimPos.size() > 2)
     return false;
-  }
+
   auto firstDim = getAffineDimExpr(dimPos[0], linalgOp.getContext());
   if (dimPos.size() == 1)
     return firstDim == expr;
@@ -95,10 +96,10 @@ static bool isMatchingAffineResult(linalg::LinalgOp linalgOp, AffineExpr expr,
          (cst_affine.getValue() == 2 || cst_affine.getValue() == 4);
 }
 
-// Return the position of `dim` in the codomain of `operand`.
-static std::optional<unsigned> getPosInCodomain(ArrayRef<unsigned> dimPos,
-                                                OpOperand *operand,
-                                                linalg::LinalgOp linalgOp) {
+// Return the position of linalg loop `dim` in the domain of `operand`.
+static std::optional<unsigned> getPosInDomain(ArrayRef<unsigned> dimPos,
+                                              OpOperand *operand,
+                                              linalg::LinalgOp linalgOp) {
   assert(operand->getOwner() == linalgOp);
   auto map = linalgOp.getMatchingIndexingMap(operand);
   for (unsigned i = 0, numResults = map.getNumResults(); i < numResults; i++) {
@@ -118,13 +119,12 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
   //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
   unsigned batchPos = dims.k.front();
   SmallVector<unsigned, 2> kPos;
-  if (dims.k.size() == 2) {
+  if (dims.k.size() == 2)
     kPos = {dims.k[1]};
-  } else if (dims.k.size() == 3) {
+  else if (dims.k.size() == 3)
     kPos = {dims.k[1], dims.k[2]};
-  } else {
+  else
     return failure();
-  }
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Candidate dims: "
                           << "\n");
@@ -132,25 +132,27 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
                           << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] n pos in affine: " << nPos
                           << "\n");
-  for (auto kp : kPos) {
+  for (auto kp : kPos)
     LLVM_DEBUG(llvm::dbgs()
                << "[inferBrgemmInfo] k pos in affine: " << kp << "\n");
-  }
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] batch pos in affine: "
                           << batchPos << "\n");
 
   auto checkStridesAndGetLda =
       [&](ArrayRef<unsigned> minorDim, ArrayRef<unsigned> majorDim,
           OpOperand *operand, bool allowVnni) -> FailureOr<int64_t> {
-    auto minorDimPosInCodomain = getPosInCodomain(minorDim, operand, linalgOp);
-    auto majorDimPosInCodomain = getPosInCodomain(majorDim, operand, linalgOp);
-    if (!minorDimPosInCodomain || !majorDimPosInCodomain)
+    std::optional<unsigned> minorDimPosInDomain =
+        getPosInDomain(minorDim, operand, linalgOp);
+    std::optional<unsigned> majorDimPosInDomain =
+        getPosInDomain(majorDim, operand, linalgOp);
+    if (!minorDimPosInDomain || !majorDimPosInDomain)
       return failure();
-    auto stridesOnOperand = utils::getStaticStrides(operand->get());
+    FailureOr<SmallVector<int64_t>> stridesOnOperand =
+        utils::getStaticStrides(operand->get());
     if (failed(stridesOnOperand))
       return failure();
-    auto minorDimLd = (*stridesOnOperand)[*minorDimPosInCodomain];
-    auto majorDimLd = (*stridesOnOperand)[*majorDimPosInCodomain];
+    auto minorDimLd = (*stridesOnOperand)[*minorDimPosInDomain];
+    auto majorDimLd = (*stridesOnOperand)[*majorDimPosInDomain];
     if (minorDimLd != 1) {
       // VNNI format exists, special treatment to align LD with non-VNNI format
       if (!allowVnni || (minorDimLd != 2 && minorDimLd != 4))
@@ -165,35 +167,41 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
   OpOperand *operandC = &linalgOp.getDpsInitsMutable()[0];
 
   // A(m, k)
-  auto lda = checkStridesAndGetLda(kPos, {mPos}, operandA, false);
+  FailureOr<int64_t> lda = checkStridesAndGetLda(kPos, {mPos}, operandA, false);
   if (failed(lda))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on A: OK\n");
 
   // B(k, n)
   // note: B does not use VNNI format K affine
-  auto ldb = checkStridesAndGetLda({nPos}, {kPos[0]}, operandB, true);
+  FailureOr<int64_t> ldb =
+      checkStridesAndGetLda({nPos}, {kPos[0]}, operandB, true);
   if (failed(ldb))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on B: OK\n");
 
   // C(m, n)
-  auto ldc = checkStridesAndGetLda({nPos}, {mPos}, operandC, false);
+  FailureOr<int64_t> ldc =
+      checkStridesAndGetLda({nPos}, {mPos}, operandC, false);
   if (failed(ldc))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Strides on C: OK\n");
 
   int64_t strideA = 1;
   int64_t strideB = 1;
-  auto batchPosCodomainA = getPosInCodomain(batchPos, operandA, linalgOp);
-  auto stridesOnA = utils::getStaticStrides(operandA->get());
-  strideA = (*stridesOnA)[*batchPosCodomainA];
+  std::optional<unsigned> batchPosDomainA =
+      getPosInDomain(batchPos, operandA, linalgOp);
+  FailureOr<SmallVector<int64_t>> stridesOnA =
+      utils::getStaticStrides(operandA->get());
+  strideA = (*stridesOnA)[*batchPosDomainA];
 
-  auto batchPosCodomainB = getPosInCodomain(batchPos, operandB, linalgOp);
-  auto stridesOnB = utils::getStaticStrides(operandB->get());
-  strideB = (*stridesOnB)[*batchPosCodomainB];
+  std::optional<unsigned> batchPosDomainB =
+      getPosInDomain(batchPos, operandB, linalgOp);
+  FailureOr<SmallVector<int64_t>> stridesOnB =
+      utils::getStaticStrides(operandB->get());
+  strideB = (*stridesOnB)[*batchPosDomainB];
 
-  auto loops = linalgOp.computeStaticLoopSizes();
+  SmallVector<int64_t, 4> loops = linalgOp.computeStaticLoopSizes();
   auto kSize =
       kPos.size() == 1 ? loops[kPos[0]] : (loops[kPos[0]] * loops[kPos[1]]);
 
