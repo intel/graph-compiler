@@ -12,13 +12,8 @@
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.h"
 #include "gc/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -107,23 +102,14 @@ struct ConvertMemRefToCPURuntime
 
     // add lowering target
     ConversionTarget target(getContext());
+    // Make all operations legal by default.
+    target.markUnknownOpDynamicallyLegal([](Operation *op) { return true; });
     target.addDynamicallyLegalOp<memref::AllocOp, memref::DeallocOp>(
         [&](Operation *op) {
           // Return true if the operation is in the noTransformOps set, making
           // it dynamically legal.
           return noTransformOps.find(op) != noTransformOps.end();
         });
-    target.addLegalDialect<
-        // clang-format off
-        BuiltinDialect,
-        func::FuncDialect,
-        memref::MemRefDialect,
-        cpuruntime::CPURuntimeDialect,
-        arith::ArithDialect,
-        affine::AffineDialect,
-        scf::SCFDialect
-        // clang-format on
-        >();
     // set pattern
     RewritePatternSet patterns(ctx);
     patterns.add<AlignedAllocLowering>(ctx);

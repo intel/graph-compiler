@@ -1,0 +1,47 @@
+name: Graph Compiler build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions: read-all
+
+jobs:
+  build:
+    name: Build GPU with IMEX
+    runs-on: [self-hosted, l0]
+
+    env:
+      GH_TOKEN: ${{ github.token }}    
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set LLVM hash
+        run: |
+          echo LLVM_HASH=$(cat cmake/llvm-version-imex.txt) >>$GITHUB_ENV
+
+      - name: Fetch requirements for python binding
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          ref: ${{ env.LLVM_HASH }}
+          sparse-checkout: mlir/python/requirements.txt
+          sparse-checkout-cone-mode: false
+          path: llvm-dep
+
+      - name: Install requirements
+        run: python3 -m pip install -r llvm-dep/mlir/python/requirements.txt
+
+      - name: Build
+        run: |
+          scripts/compile.sh --imex
+
+      - name: Test
+        run: |
+          cmake --build build --target gc-check
