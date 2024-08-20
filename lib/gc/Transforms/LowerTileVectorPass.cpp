@@ -54,14 +54,13 @@ static inline bool isRequiredTensorOp(Operation *operation) {
 
 /// matmul operation or fill + matmul operation
 static bool isMatchedOperationSet(Operation *op) {
-  if (isa<IMPLEMENTED_MATMUL>(op)) {
+  if (isa<IMPLEMENTED_MATMUL>(op))
     return true;
-  }
+
   // Operation produce for matmul can't lower.
   // Currently only the fill operation need to check this.
-  if (!isa<linalg::FillOp>(op)) {
+  if (!isa<linalg::FillOp>(op))
     return false;
-  }
 
   return llvm::any_of(op->getUsers(),
                       [](Operation *x) { return isa<IMPLEMENTED_MATMUL>(x); });
@@ -119,28 +118,27 @@ void getReshapeOperationVectorizeShape(ReshapeVectorizeHelper &reshapeHelper) {
   for (auto [srcIdx, ss] : llvm::enumerate(reshapeHelper.srcShape)) {
     cur *= ss;
     // collapse operation need to keep each of the original shape.
-    if (isCollapseOp) {
+    if (isCollapseOp)
       reshapeHelper.srcVectorizedShape.emplace_back(ss);
-    }
+
     // Only when the scaled dimension appears, it is necessary to infer the
     // corresponding multiple of the src shape.
-    if (cur != reshapeHelper.resultShape[resultIdx]) {
+    if (cur != reshapeHelper.resultShape[resultIdx])
       continue;
-    }
+
     // expand_shape op only need to keep the total vectorized result shape.
-    if (!isCollapseOp) {
+    if (!isCollapseOp)
       reshapeHelper.srcVectorizedShape.emplace_back(cur);
-    }
+
     // The corresponding dimension is expanded by the multiple specified by the
     // user.
-    if (isCollapseOp and reshapeHelper.shapeScales.count(resultIdx)) {
+    if (isCollapseOp and reshapeHelper.shapeScales.count(resultIdx))
       reshapeHelper.srcVectorizedShape.back() *=
           reshapeHelper.shapeScales[resultIdx];
-    }
-    if (!isCollapseOp and reshapeHelper.shapeScales.count(srcIdx)) {
+    if (!isCollapseOp and reshapeHelper.shapeScales.count(srcIdx))
       reshapeHelper.srcVectorizedShape.back() *=
           reshapeHelper.shapeScales[srcIdx];
-    }
+
     cur = 1;
     resultIdx++;
   }
@@ -163,11 +161,11 @@ lowerReshapeOpPrecondition(T reshapeOp,
   // check reassociation
   SmallVector<int64_t> associateIndices;
 
-  for (const Attribute &attr : reshapeOp.getReassociation()) {
+  for (const Attribute &attr : reshapeOp.getReassociation())
     llvm::transform(
         cast<ArrayAttr>(attr), std::back_inserter(associateIndices),
         [](Attribute indice) { return cast<IntegerAttr>(indice).getInt(); });
-  }
+
   if (isContainsDynamicSize(associateIndices)) {
     LDBG("Reassociation must be static: " << reshapeOp << "\n");
     return failure();
@@ -203,10 +201,10 @@ lowerReshapeOpPrecondition(T reshapeOp,
 LogicalResult
 lowerConcatOpPrecondition(tensor::ConcatOp concatOp,
                           ArrayRef<int64_t> inputVectorSizes = {}) {
-  if (!inputVectorSizes.empty()) {
+  if (!inputVectorSizes.empty())
     LDBG("Concat operation does not support specify inputVectorSizes: "
          << concatOp << "\n");
-  }
+
   // check input operand shape type
   if (llvm::any_of(concatOp.getOperandTypes(), [](Type x) {
         return not cast<ShapedType>(x).hasStaticShape();
@@ -384,12 +382,12 @@ LogicalResult lowerTensorReshapeOp(RewriterBase &rewriter, Operation *inputOp,
   return success();
 }
 
-/// Vectorize a `tensor::concat` to these 3 Ops:
-///   Tensor::EmptyOp - The result tensor.
-///   Vector::TransferWriteOp - Write the result vector back to the destination
-///   tensor.
-///   Vector::TransferWriteOp - Write the result vector back to the destination
-///   tensor.
+/// Mainly Vectorize a `tensor::concat` to these Ops:
+/// Tensor::EmptyOp - The result tensor.
+/// Vector::TransferReadOp - Reads a vector from the source tensor
+/// Vector::TransferWriteOp - Write the result vector back to the destination
+/// tensor. Repeat the read and write operation until all input tensor are
+/// completed.
 LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
                                   tensor::ConcatOp concatOp,
                                   SmallVectorImpl<Value> &newResults) {
@@ -446,6 +444,7 @@ LogicalResult lowerTensorConcatOp(RewriterBase &rewriter,
   return success();
 }
 
+/// Lowring some tensor operation
 LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op,
                                       ArrayRef<int64_t> inputVectorSizes = {}) {
   LDBG("Attempting to vectorize:\n" << *op << "\n");
@@ -486,6 +485,8 @@ LogicalResult convert2TargetOperation(RewriterBase &rewriter, Operation *op,
   return success();
 }
 
+/// Use the methods provided by the MLIR community, mainly to lower linalg
+/// related ops.
 template <class T = linalg::LinalgOp>
 struct OperationConvertTileVectorPass : public RewritePattern {
 
@@ -513,17 +514,17 @@ public:
 
     // linalg.fill + linalgx.batch_mutmul should not be lower to vector
     // because these two operation is needed by brgemm kernel.
-    if (isMatchedOperationSet(op)) {
+    if (isMatchedOperationSet(op))
       return rewriter.notifyMatchFailure(
           op, "linalg.fill + linalg.matmul can't do lowering.");
-    }
+
     SmallVector<bool> scalableVecDims(inputVectorSizes.size(), false);
     if (failed(linalg::vectorize(rewriter, op,
                                  /*inputVectorSizes=*/inputVectorSizes,
                                  /*inputScalableVecDims=*/scalableVecDims,
-                                 vectorizeNDExtract, flatten1DDepthwiseConv))) {
+                                 vectorizeNDExtract, flatten1DDepthwiseConv)))
       return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
-    }
+
     return success();
   }
 };
@@ -559,9 +560,9 @@ struct TensorUnpackConvertVectorPass : public RewritePattern {
     if (failed(linalg::vectorize(rewriter, op,
                                  /*inputVectorSizes=*/inputShape.vec(),
                                  /*inputScalableVecDims=*/targetVecDims, false,
-                                 false))) {
+                                 false)))
       return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
-    }
+
     return success();
   }
 };
@@ -587,9 +588,9 @@ public:
     if (!is_target)
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
 
-    if (failed(convert2TargetOperation(rewriter, op, inputVectorSizes))) {
+    if (failed(convert2TargetOperation(rewriter, op, inputVectorSizes)))
       return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
-    }
+
     return success();
   }
 };

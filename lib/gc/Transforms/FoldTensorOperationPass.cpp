@@ -1,4 +1,4 @@
-//===-- FoldTensorOperation.cpp - fold tensor op ----------------*- C++ -*-===//
+//===-- FoldTensorOperationPass.cpp - fold tensor op ------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -19,7 +19,7 @@ namespace gc {
 #include "gc/Transforms/Passes.h.inc"
 namespace {
 
-/// LowerAndFoldTensorOperation is a pass that fold some useless tensor
+/// FoldTensorOperationPass is a pass that fold some useless tensor
 /// operation.
 struct FoldTensorOperationPass
     : public impl::FoldTensorOperationBase<FoldTensorOperationPass> {

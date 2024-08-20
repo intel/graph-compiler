@@ -1,4 +1,4 @@
-// RUN: gc-opt --split-input-file --lower-to-tile-vector --mlir-print-ir-after-all -- %s | FileCheck %s
+// RUN: gc-opt --split-input-file --fold-tensor-operation --lower-to-tile-vector -- %s | FileCheck %s
 
 // CHECK-LABEL:   @add_tensor_test0
 // CHECK:           %[[CST:.*]] = arith.constant 0.000000e+00 : f32
@@ -184,9 +184,14 @@ func.func @fc_relu_test8(%lhs: tensor<512x512xf32>, %rhs: tensor<512x512xf32>,
 }
 
 
-func.func @test_pad_dynamic_shape_test9(%arg0: tensor<?x?xf32>, %arg1: tensor<4x16xf32>) -> tensor<4x16xf32> {
+// CHECK-LABEL:   @test_pad_dynamic_shape_test9
+// CHECK:           %[[C0:.*]] = arith.constant 0 : index
+// CHECK:           %[[CST_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:           %[[EMPTY0:.*]] = tensor.empty() : tensor<4x16xf32>
+// CHECK:           %[[READ0:.*]] = vector.transfer_read %{{.*}} : tensor<?x?xf32>, vector<4x16xf32>
+// CHECK:           %[[WRITE0:.*]] = vector.transfer_write %{{.*}} {in_bounds = [true, true]} : vector<4x16xf32>, tensor<4x16xf32>
+func.func @test_pad_dynamic_shape_test9(%arg0: tensor<?x?xf32>) -> tensor<4x16xf32> {
   %f0 = arith.constant 0.0 : f32
-  // expected-error @+1 {{Attempted to vectorize, but failed}}
  %pad = tensor.pad %arg0 low[0, 0] high[1,1] {
   ^bb0(%arg3: index, %arg4: index):
     tensor.yield %f0 : f32
@@ -194,9 +199,21 @@ func.func @test_pad_dynamic_shape_test9(%arg0: tensor<?x?xf32>, %arg1: tensor<4x
   return %pad : tensor<4x16xf32>
 }
 
-func.func @test_add_dynamic_shape_test10(%arg0: tensor<?x?xf32>, %arg1: tensor<4x16xf32>) -> tensor<4x16xf32> {
+func.func @test_add_dynamic_shape_test11(%arg0: tensor<?x?xf32>, %arg1: tensor<4x16xf32>) -> tensor<4x16xf32> {
   %0 = tensor.empty() : tensor<4x16xf32>
   // expected-error @+1 {{Fail to vectorize.}}
   %1 = linalg.add ins(%arg0, %arg1 : tensor<?x?xf32>, tensor<4x16xf32>) outs(%0: tensor<4x16xf32>) -> tensor<4x16xf32>
   return %1 : tensor<4x16xf32>
+}
+
+func.func @test_collapse_dynamic_shape_test12(%arg0: tensor<?x?x?xf32>) -> tensor<?x?xf32> {
+  // expected-error @+1 {{Fail to vectorize.}}
+  %0 = tensor.collapse_shape %arg0 [[0], [1, 2]]: tensor<?x?x?xf32> into tensor<?x?xf32>
+  return %0 : tensor<?x?xf32>
+}
+
+func.func @test_expand_dynamic_shape_test13(%arg0 : tensor<2x?x5xf32>, %sz0: index) ->tensor<2x6x?x5xf32> {
+  // expected-error @+1 {{Fail to vectorize.}}
+  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] output_shape [2, 6, %sz0, 5] : tensor<2x?x5xf32> into tensor<2x6x?x5xf32>
+  return %0 : tensor<2x6x?x5xf32>
 }

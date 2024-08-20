@@ -20,7 +20,7 @@ gc_add_mlir_library(GcPasses
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
-  FoldTensorOperation.cpp
+  FoldTensorOperationPass.cpp
   LowerTileVectorPass.cpp
 
   DEPENDS
