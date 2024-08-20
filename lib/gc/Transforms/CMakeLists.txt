@@ -20,8 +20,8 @@ gc_add_mlir_library(GcPasses
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
-  FoldTensorOperationPass.cpp
-  LowerTileVectorPass.cpp
+  FoldTensorOperation.cpp
+  LowerToTileVector.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
