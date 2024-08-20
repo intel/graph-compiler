@@ -55,10 +55,10 @@ struct MemoryChunk {
   // there should be no updates to memory chunks after calling
   // getStartOffset
   size_t getStartOffset() {
-    if (cached_start_offset == UNINITIALIZED) {
-      cached_start_offset = getStartOffsetImpl();
+    if (cachedStartOffset == UNINITIALIZED) {
+      cachedStartOffset = getStartOffsetImpl();
     }
-    return cached_start_offset;
+    return cachedStartOffset;
   }
   virtual ~MemoryChunk() = default;
 
@@ -66,7 +66,7 @@ struct MemoryChunk {
 
 protected:
   static constexpr size_t UNINITIALIZED = std::numeric_limits<size_t>::max();
-  size_t cached_start_offset = UNINITIALIZED;
+  size_t cachedStartOffset = UNINITIALIZED;
 };
 
 // the memory chunk that is directly allocated from the large buffer
@@ -82,14 +82,14 @@ struct OriginChunk : public MemoryChunk {
 };
 
 // the memory chunk that is split from another chunk
-struct split_chunk_t : public MemoryChunk {
+struct SplitChunk : public MemoryChunk {
   MemoryChunk *parent;
   // if the chunk is the left hand side (smaller starting offset)
-  bool is_lhs_;
-  split_chunk_t(size_t size, MemoryChunk *parent, bool is_lhs)
-      : MemoryChunk{ChunkType::SPLIT, size}, parent(parent), is_lhs_(is_lhs) {}
+  bool isLHS;
+  SplitChunk(size_t size, MemoryChunk *parent, bool is_lhs)
+      : MemoryChunk{ChunkType::SPLIT, size}, parent(parent), isLHS(is_lhs) {}
   void move(int64_t startDiff) override {
-    if (is_lhs_) {
+    if (isLHS) {
       parent->move(startDiff);
     }
     // no need to pass message to parent for rhs, since lhs has done so
@@ -100,7 +100,7 @@ struct split_chunk_t : public MemoryChunk {
     // if is_lhs, we will later call rhs->move(...)
   }
   size_t getStartOffsetImpl() override {
-    if (is_lhs_) {
+    if (isLHS) {
       return parent->getStartOffset();
     } else {
       return parent->getStartOffset() + parent->size - size;
@@ -226,9 +226,9 @@ struct MemoryState {
     }
     // split the larger chunk
     assert(target->size > aligned);
-    auto lhs = std::make_unique<split_chunk_t>(aligned, target, true);
+    auto lhs = std::make_unique<SplitChunk>(aligned, target, true);
     auto rhs =
-        std::make_unique<split_chunk_t>(target->size - aligned, target, false);
+        std::make_unique<SplitChunk>(target->size - aligned, target, false);
     rhs_ret = rhs.get();
     auto ret = lhs.get();
 
@@ -310,21 +310,20 @@ struct MemoryState {
   size_t findInplaceMergeRange(
       MemoryChunk *victim, size_t aligned,
       const std::unordered_map<MemoryChunk *, const InplaceInfo *> &can_inplace,
-      std::vector<MemoryChunk *>::iterator &to_merge_start,
-      std::vector<MemoryChunk *>::iterator &to_merge_end) {
+      std::vector<MemoryChunk *>::iterator &toMergeStart,
+      std::vector<MemoryChunk *>::iterator &toMergeEnd) {
     // addChunkToFreeList(chk);
-    auto itr_in_cur_chunks =
-        std::find(curChunks.begin(), curChunks.end(), victim);
-    assert(itr_in_cur_chunks != curChunks.end());
+    auto itrInCurChunks = std::find(curChunks.begin(), curChunks.end(), victim);
+    assert(itrInCurChunks != curChunks.end());
     // merge right if they are free or can be inplaced
-    to_merge_start = itr_in_cur_chunks;
-    to_merge_end = itr_in_cur_chunks + 1;
+    toMergeStart = itrInCurChunks;
+    toMergeEnd = itrInCurChunks + 1;
     // remember the memory size we already collected. If
     // current_collected_size is greater than the memory size to alloc, we
     // can stop searching
     size_t current_collected_size = victim->size;
     // look right to see any one we can merge with
-    for (auto itr = itr_in_cur_chunks + 1;
+    for (auto itr = itrInCurChunks + 1;
          itr != curChunks.end() && current_collected_size < aligned; ++itr) {
       // if the memory chunk is in use and is in can_inplace map, we may
       // reuse it now
@@ -332,7 +331,7 @@ struct MemoryState {
       if ((*itr)->isfree ||
           (inplace_info_itr != can_inplace.end() &&
            inplace_info_itr->second->second == InplaceKind::FREE)) {
-        to_merge_end = itr + 1;
+        toMergeEnd = itr + 1;
         current_collected_size += (*itr)->size;
       } else {
         break;
@@ -369,8 +368,8 @@ struct MemoryState {
     // stage 1, find a victim based on the memory size that can be freed
     float target_score = -std::numeric_limits<float>::infinity();
     MemoryChunk *victim = nullptr;
-    std::vector<MemoryChunk *>::iterator to_merge_start;
-    std::vector<MemoryChunk *>::iterator to_merge_end;
+    std::vector<MemoryChunk *>::iterator toMergeStart;
+    std::vector<MemoryChunk *>::iterator toMergeEnd;
     size_t current_collected_size = 0;
     for (auto &bufinfo : buffer_can_inplace) {
       auto buf_id = bufinfo.first;
@@ -395,8 +394,8 @@ struct MemoryState {
       if (score > target_score) {
         target_score = score;
         victim = old_buf;
-        to_merge_start = cur_merge_start;
-        to_merge_end = cur_merge_end;
+        toMergeStart = cur_merge_start;
+        toMergeEnd = cur_merge_end;
         current_collected_size = cur_size;
       }
     }
@@ -412,7 +411,7 @@ struct MemoryState {
 
     victim->lastFreedTick = tick;
 
-    std::vector<MemoryChunk *> merged_buffers(to_merge_start, to_merge_end);
+    std::vector<MemoryChunk *> merged_buffers(toMergeStart, toMergeEnd);
     for (auto buf : merged_buffers) {
       auto itr = can_inplace.find(buf);
       if (itr != can_inplace.end()) {
@@ -442,7 +441,7 @@ struct MemoryState {
     }
 
     // remove from freelist and buffer_id->chunk map
-    for (auto itr = to_merge_start; itr != to_merge_end; ++itr) {
+    for (auto itr = toMergeStart; itr != toMergeEnd; ++itr) {
       auto chunk = *itr;
       if (chunk->isfree) {
         removeChunkFromFreeList(chunk);
@@ -455,17 +454,17 @@ struct MemoryState {
 
     MemoryChunk *merged_chunk;
     // if we need to merge multiple chunks
-    if (to_merge_end - to_merge_start > 1) {
+    if (toMergeEnd - toMergeStart > 1) {
       // do merge
       chunks.emplace_back(std::make_unique<MergedChunk>(
           std::vector<MemoryChunk *>(merged_buffers)));
       merged_chunk = chunks.back().get();
       // remove merged chunks from free list and cur_chunk list
       // add merged chunk to cur_chunks and free_chunks_by_size
-      *to_merge_start = merged_chunk;
+      *toMergeStart = merged_chunk;
       merged_chunk->lastFreedTick = tick;
       merged_chunk->isfree = false;
-      curChunks.erase(to_merge_start + 1, to_merge_end);
+      curChunks.erase(toMergeStart + 1, toMergeEnd);
     } else {
       merged_chunk = victim;
       merged_chunk->lastFreedTick = tick;
@@ -559,15 +558,15 @@ struct MemoryState {
     tick++;
     chk->lastFreedTick = tick;
     addChunkToFreeList(chk);
-    auto itr_in_cur_chunks = std::find(curChunks.begin(), curChunks.end(), chk);
-    assert(itr_in_cur_chunks != curChunks.end());
+    auto itrInCurChunks = std::find(curChunks.begin(), curChunks.end(), chk);
+    assert(itrInCurChunks != curChunks.end());
     // merge left and right if they are free
-    std::vector<MemoryChunk *>::iterator to_merge_start = itr_in_cur_chunks;
-    std::vector<MemoryChunk *>::iterator to_merge_end = itr_in_cur_chunks + 1;
+    std::vector<MemoryChunk *>::iterator toMergeStart = itrInCurChunks;
+    std::vector<MemoryChunk *>::iterator toMergeEnd = itrInCurChunks + 1;
     // look left to see any one we can merge with
-    for (auto itr = itr_in_cur_chunks;; --itr) {
+    for (auto itr = itrInCurChunks;; --itr) {
       if ((*itr)->isfree) {
-        to_merge_start = itr;
+        toMergeStart = itr;
       } else {
         break;
       }
@@ -576,28 +575,28 @@ struct MemoryState {
       }
     }
     // look right to see any one we can merge with
-    for (auto itr = itr_in_cur_chunks + 1; itr != curChunks.end(); ++itr) {
+    for (auto itr = itrInCurChunks + 1; itr != curChunks.end(); ++itr) {
       if ((*itr)->isfree) {
-        to_merge_end = itr + 1;
+        toMergeEnd = itr + 1;
       } else {
         break;
       }
     }
-    if (to_merge_end - to_merge_start > 1) {
+    if (toMergeEnd - toMergeStart > 1) {
       // do merge
       chunks.emplace_back(std::make_unique<MergedChunk>(
-          std::vector<MemoryChunk *>(to_merge_start, to_merge_end)));
+          std::vector<MemoryChunk *>(toMergeStart, toMergeEnd)));
 
       // remove merged chunks from free list and cur_chunk list
-      for (auto itr = to_merge_start; itr != to_merge_end; ++itr) {
+      for (auto itr = toMergeStart; itr != toMergeEnd; ++itr) {
         auto chunk = *itr;
         removeChunkFromFreeList(chunk);
       }
       // add merged chunk to cur_chunks and free_chunks_by_size
-      *to_merge_start = chunks.back().get();
+      *toMergeStart = chunks.back().get();
       chunks.back()->lastFreedTick = tick;
       addChunkToFreeList(chunks.back().get());
-      curChunks.erase(to_merge_start + 1, to_merge_end);
+      curChunks.erase(toMergeStart + 1, toMergeEnd);
     }
     // else, no chunks are merged, do nothing
   }
