@@ -17,6 +17,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -53,6 +54,8 @@ bool isInConstantSubgraph(Operation *op) {
   auto opNamespace = op->getDialect()->getNamespace();
   if (opNamespace == linalg::LinalgDialect::getDialectNamespace() ||
       opNamespace == tensor::TensorDialect::getDialectNamespace() ||
+      opNamespace ==
+          bufferization::BufferizationDialect::getDialectNamespace() ||
       opNamespace == arith::ArithDialect::getDialectNamespace()) {
     if (op->getAttr("onednn_graph.in_const_subgraph")) {
       return true;
@@ -61,7 +64,7 @@ bool isInConstantSubgraph(Operation *op) {
   return false;
 }
 
-int64_t getTensorSize(TensorType t) {
+template <typename T> int64_t getDataSize(T t) {
   Type eleType = t.getElementType();
   unsigned bitWidth = eleType.getIntOrFloatBitWidth() / 8; // bytes
   ArrayRef<int64_t> shape = t.getShape();
@@ -70,6 +73,16 @@ int64_t getTensorSize(TensorType t) {
     size *= s;
   }
   return size;
+}
+
+int64_t getValueSize(Value v) {
+  if (isa<TensorType>(v.getType())) {
+    auto t = dyn_cast<TensorType>(v.getType());
+    return getDataSize<TensorType>(t);
+  } else {
+    auto t = dyn_cast<MemRefType>(v.getType());
+    return getDataSize<MemRefType>(t);
+  }
 }
 
 /// @brief op has only one operand, or operands of op are one same value, or
@@ -465,7 +478,7 @@ void getInputsAndOutputs(Block &block,
       // The constant ops are all single-input single-output.
       bool simpleTopo = true;
       auto arg = block.getArgument(id);
-      if (!isa<TensorType>(arg.getType())) {
+      if (!isa<TensorType>(arg.getType()) && !isa<MemRefType>(arg.getType())) {
         continue;
       }
       inputTypes.push_back(arg.getType());
@@ -511,15 +524,12 @@ void getInputsAndOutputs(Block &block,
       // not fold it. Compare data size changes during traverse to find the last
       // op that satisfies this condition.
       if (simpleTopo) {
-        int64_t initSize =
-            getTensorSize(dyn_cast<TensorType>(valuesOnTheWay[0].getType()));
-        if (!isa<TensorType>(outputTypes.back()) ||
-            initSize * DATA_SIZE_EXPANDING_THRESHOLD <
-                getTensorSize(dyn_cast<TensorType>(outputTypes.back()))) {
+        int64_t initSize = getValueSize(valuesOnTheWay[0]);
+        if (initSize * DATA_SIZE_EXPANDING_THRESHOLD <
+            getValueSize(valuesOnTheWay.back())) {
           size_t lastIdx = 0;
           for (size_t i = 1; i < valuesOnTheWay.size(); ++i) {
-            int64_t size = getTensorSize(
-                dyn_cast<TensorType>(valuesOnTheWay[i].getType()));
+            int64_t size = getValueSize(valuesOnTheWay[i]);
             if (initSize * DATA_SIZE_EXPANDING_THRESHOLD > size) {
               lastIdx = i;
             }
@@ -574,8 +584,7 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
   for (Value &tensor : outputValuesInFold) {
     LLVM_DEBUG(llvm::dbgs()
                << "Allocate buffer for tensor: " << tensor << "\n");
-    buffersSize.push_back(
-        getTensorSize(dyn_cast<TensorType>(tensor.getType())));
+    buffersSize.push_back(getValueSize(tensor));
   }
   auto manager = ConstGraphTensorCacheManager::get();
   SmallVector<int64_t> globalIndexes;
