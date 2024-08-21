@@ -10,6 +10,7 @@ get_property(mlir_dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
 gc_add_mlir_library(GcPasses
+  MemRefToCPURuntime.cpp
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   IterativeTilingAndFusion.cpp
@@ -22,6 +23,8 @@ gc_add_mlir_library(GcPasses
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  FoldTensorOperation.cpp
+  LowerToTileVector.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

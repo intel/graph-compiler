@@ -64,6 +64,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  // fold useless tensor operation pass
+  pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   // TODO(yifei): remove lower pack here
@@ -124,6 +126,7 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
+
   pm.addPass(createSinkOpIntoInnerLoop());
   pm.addPass(createMergeNestedForall());
   pm.addPass(createLoopInvariantCodeMotionPass());
@@ -131,6 +134,7 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   pm.addPass(createForallToParallelLoopPass());
   pm.addPass(createParallelLoopFusionPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
 }
@@ -144,6 +148,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createCSEPass());
