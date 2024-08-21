@@ -808,11 +808,12 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
           loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
           resultOprand);
     } else {
-      // TODO: replace liangx brgemm with the generic in the comment when microkernel is ready
+      // TODO: replace liangx brgemm with the generic in the comment when
+      // microkernel is ready
       matmul = rewriter.create<linalgx::BatchReduceMatmulVnniOp>(
           loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
           resultOprand);
-      
+
       // auto inputRange = ValueRange{dataOprand, weightOprand};
       // auto resRange = ValueRange{resultOprand};
       // auto res = linalgx::makeGenericPackedMatmulOp(
@@ -927,13 +928,14 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 
   bool checkLinalgMatmulType(linalg::LinalgOp linalgOp) const {
-      return llvm::isa<linalg::MatmulOp, linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp>(linalgOp) ||
-             linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                              linalgx::PackingType::VNNI_MM2D) ||
-             linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                              linalgx::PackingType::VNNI_MM4D) ||
-             linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                              linalgx::PackingType::MM4D);
+    return llvm::isa<linalg::MatmulOp, linalgx::Mm2DVnniOp,
+                     linalgx::Mm4DVnniOp>(linalgOp) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::VNNI_MM2D) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::VNNI_MM4D) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::MM4D);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
