@@ -1,4 +1,4 @@
-//===-- DeepTileContractionNamedOp.cpp - tile named op deeply ---*- C++ -*-===//
+//===-- DeepTileContractionOp.cpp - tile named op deeply --------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,11 +22,11 @@
 
 #include <memory>
 
-#define DEBUG_TYPE "gc-deep-tile-contraction-named-op"
+#define DEBUG_TYPE "gc-deep-tile-contraction-op"
 
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_DEEPTILECONTRACTIONNAMEDOP
+#define GEN_PASS_DEF_DEEPTILECONTRACTIONOP
 #include "gc/Transforms/Passes.h.inc"
 
 namespace {
@@ -984,8 +984,8 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 };
 
-struct DeepTileContractionNamedOp
-    : public impl::DeepTileContractionNamedOpBase<DeepTileContractionNamedOp> {
+struct DeepTileContractionOp
+    : public impl::DeepTileContractionOpBase<DeepTileContractionOp> {
 public:
   void runOnOperation() final {
     MLIRContext &ctx = getContext();

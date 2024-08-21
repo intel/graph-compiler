@@ -1,4 +1,4 @@
-// RUN: gc-opt --split-input-file --deep-tile-contraction-named-op %s | FileCheck %s
+// RUN: gc-opt --split-input-file --deep-tile-contraction-op %s | FileCheck %s
 
 // -----
 
