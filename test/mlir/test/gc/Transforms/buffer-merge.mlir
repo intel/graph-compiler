@@ -177,3 +177,156 @@ func.func @different_mem_space() {
   "test.source"(%defaultv)  : (memref<8x64xf32>) -> ()
   return
 }
+
+func.func @nested_forall(%arg0: memref<2xf32>) {
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    %alloc = memref.alloc() : memref<2xf32>
+    memref.copy %arg0, %alloc : memref<2xf32> to memref<2xf32>
+    scf.forall (%i) in (%c16) {
+      %alloc_0 = memref.alloc() : memref<4xf32>
+      %alloc_1 = memref.alloc() : memref<8xf32>
+      scf.forall (%j) in (%c4) {
+        "test.source"(%alloc) : (memref<2xf32>) -> ()
+        "test.source"(%alloc_1) : (memref<8xf32>) -> ()
+        %alloc_2 = memref.alloc() : memref<16xf32>
+        "test.source"(%alloc_2) : (memref<16xf32>) -> ()
+      }
+      "test.source"(%alloc) : (memref<2xf32>) -> ()
+      "test.source"(%alloc_0) : (memref<4xf32>) -> ()
+    }
+    return
+}
+// CHECK-LABEL: func @nested_forall
+//       CHECK: %[[ALLOC0:.*]] = memref.alloc() : {alignment = 64 : i64} : memref<640xi8>
+//       CHECK: %VIEW = memref.view %[[ALLOC0]][%{{.*}}][] : memref<640xi8> to memref<640xi8>
+//       CHECK: %VIEW1= memref.view %[[ALLOC0]][%{{.*}}][] : memref<640xi8> to memref<2xf32>
+//  CHECK-NEXT: memref.copy %arg0, %[[VIEW1]]
+//  CHECK-NEXT: scf.forall
+//       CHECK:   %VIEW2 = memref.view %[[VIEW]][%{{.*}}][] : memref<640xi8> to memref<4xf32>
+//       CHECK:   %VIEW3 = memref.view %[[VIEW]][%{{.*}}][] : memref<640xi8> to memref<8xf32>
+//  CHECK-NEXT:   scf.forall
+//       CHECK:     %VIEW4 = memref.view %[[VIEW]][%{{.*}}][] : memref<640xi8> to memref<16xf32>
+
+func.func @mixed_forall_and_for(
+    %lb: index,
+    %ub: index,
+    %step: index,
+    %arg0: memref<2xf32>) {
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    %0 = memref.alloc() : memref<2xf32>
+    scf.forall (%i) in (%c16) {
+      %alloc = memref.alloc() : memref<4xf32>
+      scf.forall (%j) in (%c4) {
+        %alloc_0 = memref.alloc() : memref<8xf32>
+        %1 = scf.for %k = %lb to %ub step %step
+          iter_args(%iterBuf = %arg0) -> (memref<2xf32>) {
+          "test.source"(%alloc) : (memref<4xf32>) -> ()
+          "test.source"(%alloc_0) : (memref<8xf32>) -> ()
+          scf.yield %0 : memref<2xf32>
+        }
+      }
+    }
+    return
+}
+// CHECK-LABEL: func @mixed_forall_and_for
+//       CHECK: %[[ALLOC0:.*]] = memref.alloc() : {alignment = 64 : i64} : memref<384xi8>
+//       CHECK: %VIEW = memref.view %[[ALLOC0]][%{{.*}}][] : memref<384xi8> to memref<384xi8>
+//       CHECK: %VIEW1 = memref.view %[[ALLOC0]][%{{.*}}][] : memref<384xi8> to memref<2xf32>
+//  CHECK-NEXT: scf.forall
+//       CHECK:   %VIEW2 = memref.view %[[VIEW]][%1][] : memref<384xi8> to memref<4xf32>
+//  CHECK-NEXT:   scf.forall
+//       CHECK:     %VIEW3 = memref.view %[[VIEW]][%{{.*}}][] : memref<384xi8> to memref<8xf32>
+//  CHECK-NEXT:     scf.for
+//       CHECK:     scf.yield %[[VIEW1]]
+
+func.func @nested_forall_with_dynamic_shape(%arg0: index) {
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    scf.forall (%i) in (%c16) {
+      %alloc = memref.alloc(%arg0) : memref<?xf32>
+      scf.forall (%j) in (%c4) {
+        "test.source"(%alloc) : (memref<?xf32>) -> ()
+      }
+    }
+    return
+}
+// CHECK-LABEL: func @nested_forall_with_dynamic_shape
+//   CHECK-NOT: memref.alloc
+//       CHECK: scf.forall
+//  CHECK-NEXT: %[[ALLOC0:.*]] = memref.alloc(%arg0) : memref<?xf32>
+//  CHECK-NEXT: scf.forall
+
+func.func @nested_forall_with_multi_blocks(
+    %lb: index,
+    %ub: index,
+    %step: index,
+    %arg0: memref<2xf32>) {
+    %c4 = arith.constant 4 : index
+    %c8 = arith.constant 8 : index
+    %c16 = arith.constant 16 : index
+    %0 = memref.alloc() : memref<2xf32>
+    scf.forall (%i) in (%c16) {
+      scf.forall(%j1) in (%c4) {
+        %alloc = memref.alloc() : memref<4xf32>
+        scf.forall (%k1) in (%c4) {
+          %1 = scf.for %kk = %lb to %ub step %step
+            iter_args(%iterBuf = %arg0) -> (memref<2xf32>) {
+            %alloc_0 = memref.alloc() : memref<2xf32>
+            "test.source"(%alloc) : (memref<4xf32>) -> ()
+            "test.source"(%alloc_0) : (memref<2xf32>) -> ()
+            scf.yield %0 : memref<2xf32>
+          }
+        }
+      }
+
+      scf.forall (%j2) in (%c8) {
+        %alloc_2 = memref.alloc() : memref<8xf32>
+        scf.forall (%k2) in (%c4) {
+          "test.source"(%alloc_2) : (memref<8xf32>) -> ()
+        }
+      }
+    }
+    return
+}
+// CHECK-LABEL: func @nested_forall_with_multi_blocks
+//       CHECK: %[[ALLOC0:.*]] = memref.alloc() : {alignment = 64 : i64} : memref<4096xi8>
+//       CHECK: %VIEW = memref.view %[[ALLOC0]][%{{.*}}][] : memref<4096xi8> to memref<4096xi8>
+//       CHECK: %VIEW1 = memref.view %[[ALLOC0]][%{{.*}}][] : memref<4096xi8> to memref<2xf32>
+//  CHECK-NEXT: scf.forall
+//  CHECK-NEXT:   scf.forall
+//   CHECK-NOT:     memref.alloc
+//       CHECK:     %VIEW2 = memref.view %[[VIEW]][%{{.*}}][] : memref<4096xi8> to memref<4xf32>
+//  CHECK-NEXT:     scf.forall
+//   CHECK-NOT:       memref.alloc
+//       CHECK:       scf.for
+//       CHECK:         %vVIEW3 = memref.view %[[VIEW]][%{{.*}}][] : memref<4096xi8> to memref<2xf32>
+//       CHECK:   scf.forall
+//       CHECK:     %VIEW4 = memref.view %[[VIEW]][%{{.*}}][] : memref<4096xi8> to memref<8xf32>
+//   CHECK-NOT:     memref.alloc
+//  CHECK-NEXT:     scf.forall
+
+func.func @nested_forall_nd() {
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    scf.forall (%i) in (%c16) {
+      %alloc_0 = memref.alloc() : memref<2x4xf32>
+      %alloc_1 = memref.alloc() : memref<4x8xf32>
+      scf.forall (%j) in (%c4) {
+        "test.source"(%alloc_0) : (memref<2x4xf32>) -> ()
+        %alloc_2 = memref.alloc() : memref<2x16xf32>
+        "test.source"(%alloc_2) : (memref<2x16xf32>) -> ()
+      }
+      "test.source"(%alloc_1) : (memref<4x8xf32>) -> ()
+    }
+    return
+}
+// CHECK-LABEL: func @nested_forall_nd
+//       CHECK: %[[ALLOC0:.*]] = memref.alloc() : {alignment = 64 : i64} : memref<640xi8>
+//       CHECK: %VIEW = memref.view %[[ALLOC0]][%{{.*}}][] : memref<640xi8> to memref<640xi8>
+//       CHECK: scf.forall
+//       CHECK:   %VIEW1 = memref.view %[[VIEW]][%1][] : memref<640xi8> to memref<2x4xf32>
+//       CHECK:   %VIEW2 = memref.view %[[VIEW]][%{{.*}}][] : memref<640xi8> to memref<4x8xf32>
+//  CHECK-NEXT:   scf.forall
+//       CHECK:     %VIEW3 = memref.view %[[VIEW]][%{{.*}}][] : memref<640xi8> to memref<2x16xf32>
