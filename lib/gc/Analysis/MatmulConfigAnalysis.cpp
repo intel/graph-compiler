@@ -162,6 +162,30 @@ double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
   return 1 / computationIntensity;
 }
 
+// Bufferization may insert more memref.copy/brgemm cannot verify sucessfully
+// and fall back to linalg lower if the buffer is dynamic
+double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
+                                ArrayRef<uint32_t> shape,
+                                const MatmulConfig &config,
+                                CPUTargetDescriptionAnalysis &sysDesc) {
+  uint32_t M = shape[0], N = shape[1], K = shape[2];
+  double cost = 0;
+  cost +=
+      (llvm::divideCeil(M / config.innerMostMBlock, config.MThreads) %
+               llvm::divideCeil(config.MBlock, config.innerMostMBlock) !=
+           0 ||
+       M / config.innerMostMBlock % config.MThreads != 0) &&
+      config.MBlock !=
+          config.innerMostMBlock +
+              (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
+                       llvm::divideCeil(config.NBlock,
+                                        config.innerMostNBlock) !=
+                   0 ||
+               N / config.innerMostNBlock % config.NThreads != 0) &&
+      config.NBlock != config.innerMostNBlock;
+  return cost;
+}
+
 using CostModelFn = std::function<double(
     linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape, MatmulConfig cfg,
     CPUTargetDescriptionAnalysis &sysDesc)>;
