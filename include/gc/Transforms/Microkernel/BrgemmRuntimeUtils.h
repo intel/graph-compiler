@@ -29,6 +29,8 @@ static inline int64_t getDnnlDataTypeVal(RewriterBase &rewriter,
   assert(tattr);
   if (tattr == TypeAttr::get(FloatType::getF32(context))) {
     return static_cast<int64_t>(dnnl_f32);
+  } else if (tattr == TypeAttr::get(FloatType::getF64(context))) {
+    return static_cast<int64_t>(dnnl_f64);
   } else if (tattr == TypeAttr::get(FloatType::getBF16(context))) {
     return static_cast<int64_t>(dnnl_bf16);
   } else if (tattr == TypeAttr::get(FloatType::getF16(context))) {

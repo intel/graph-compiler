@@ -234,7 +234,6 @@ static FailureOr<BrgemmInfo> getBrgemmInfo(linalg::LinalgOp linalgOp) {
                                 .output(MatchAll(), HasStaticStrides())
                                 .input(MatchAll(), HasStaticStrides())
                                 .operation(NumOfLoops(GreaterThanOrEqualTo(3)));
-  // clang-format on
   if (!validBrgemmMatcher.match(linalgOp))
     return failure();
 
