@@ -37,7 +37,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
   return ss;
 }
 
-bool TensorLayout::operator==(const TensorLayout &layout) {
+bool TensorLayout::operator==(const TensorLayout &layout) const {
   return (this->outerAxis == layout.getOuterAxis()) &&
          (this->innerAxis == layout.getInnerAxis()) &&
          (this->tileSizes == layout.getTileSizes());
@@ -154,7 +154,7 @@ inferTargetLayout(TensorLayout layoutBase,
 
 static size_t getTargetInputIdx(ArrayRef<TensorLayout> curInputLayouts) {
   for (size_t i = 0; i < curInputLayouts.size(); ++i) {
-    if (!curInputLayouts[i].isPlainLayout()) {
+    if (!curInputLayouts[i].isPlain()) {
       return i;
     }
   }
@@ -220,6 +220,114 @@ static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
   return true;
 }
 
+// if forceBlocking is set, we strictly follow matmul config to block to
+// blocking layout; otherwise we follow query format logic
+static SmallVector<OperatorLayout, 2>
+queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
+                  ArrayRef<TensorLayout> curInputLayouts,
+                  bool forceBlocking = false) {
+  SmallVector<OperatorLayout, 2> ret;
+  // infer layout for linalg contraction named ops
+  auto ARank = matmulOp.getRank(matmulOp.getDpsInputOperand(0));
+  auto BRank = matmulOp.getRank(matmulOp.getDpsInputOperand(1));
+  auto CRank = matmulOp.getRank(matmulOp.getDpsInitOperand(0));
+  auto elementType = getElementTypeOrSelf(matmulOp.getDpsInputs()[0].getType());
+  auto AShape = matmulOp.getShape(matmulOp.getDpsInputOperand(0));
+  auto BShape = matmulOp.getShape(matmulOp.getDpsInputOperand(1));
+  int64_t M = AShape[0], K = AShape[1], N = BShape[1];
+  bool ASideTransposed =
+      isa<linalg::MatmulTransposeAOp, linalg::BatchMatmulTransposeAOp>(
+          matmulOp);
+  bool BSideTransposed =
+      isa<linalg::MatmulTransposeBOp, linalg::BatchMatmulTransposeBOp>(
+          matmulOp);
+  // set outer&inner axis values
+  auto APackInfo = getPackingAxis(ARank, ASideTransposed);
+  auto BPackInfo = getPackingAxis(BRank, BSideTransposed);
+  auto CPackInfo = getPackingAxis(CRank, /*transposed*/ false);
+  // query the cost model for tile sizes
+  MatmulConfig cfg = MatmulConfigAnalysis(matmulOp.getOperation()).getConfig();
+  uint32_t iim = cfg.innerMostKBlock, iin = cfg.innerMostNBlock,
+           iik = cfg.innerMostKBlock;
+  if (forceBlocking) {
+    TensorLayout ALayout(APackInfo.first, APackInfo.second,
+                         SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
+                                                   rewriter.getIndexAttr(iik)});
+    TensorLayout BLayout(BPackInfo.first, BPackInfo.second,
+                         SmallVector<OpFoldResult>{rewriter.getIndexAttr(iik),
+                                                   rewriter.getIndexAttr(iin)});
+    TensorLayout CLayout(CPackInfo.first, CPackInfo.second,
+                         SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
+                                                   rewriter.getIndexAttr(iin)});
+    ret.emplace_back(SmallVector<TensorLayout>{ALayout, BLayout},
+                     SmallVector<TensorLayout>{CLayout});
+    return ret;
+  }
+  // TODO(yifei): add condition constant_A
+  TensorLayout transposedLayout({1, 0}, {}, {});
+  SmallVector<TensorLayout> ALayouts, BLayouts, CLayouts;
+  if (curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
+      (elementType.isBF16() && curInputLayouts[0] == transposedLayout)) {
+    ALayouts.emplace_back(
+        APackInfo.first, APackInfo.second,
+        SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
+                                  rewriter.getIndexAttr(iik)});
+  } else {
+    ALayouts.emplace_back(APackInfo.first, SmallVector<int64_t>{},
+                          SmallVector<OpFoldResult>{});
+  }
+  if (curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
+      (elementType.isBF16() && curInputLayouts[0] == transposedLayout)) {
+    ALayouts.emplace_back(
+        APackInfo.first, APackInfo.second,
+        SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
+                                  rewriter.getIndexAttr(iik)});
+  } else {
+    ALayouts.emplace_back(APackInfo.first, SmallVector<int64_t>{},
+                          SmallVector<OpFoldResult>{});
+  }
+  if (curInputLayouts[1].isBlocking() || K % iik || N % iin ||
+      elementType.isBF16()) {
+    BLayouts.emplace_back(
+        BPackInfo.first, BPackInfo.second,
+        SmallVector<OpFoldResult>{rewriter.getIndexAttr(iik),
+                                  rewriter.getIndexAttr(iin)});
+  } else {
+    BLayouts.emplace_back(BPackInfo.first, SmallVector<int64_t>{},
+                          SmallVector<OpFoldResult>{});
+  }
+  if (M == iim && M >= 32 && N % iin == 0) {
+    CLayouts.emplace_back(CPackInfo.first, SmallVector<int64_t>{},
+                          SmallVector<OpFoldResult>{});
+  } else if (M % iim || N % iin) {
+    CLayouts.emplace_back(
+        CPackInfo.first, CPackInfo.second,
+        SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
+                                  rewriter.getIndexAttr(iin)});
+  } else {
+    if (BSideTransposed) {
+      CLayouts.emplace_back(CPackInfo.first, SmallVector<int64_t>{},
+                            SmallVector<OpFoldResult>{});
+    } else {
+      // push 2 possibilities
+      CLayouts.emplace_back(CPackInfo.first, SmallVector<int64_t>{},
+                            SmallVector<OpFoldResult>{});
+      CLayouts.emplace_back(
+          CPackInfo.first, CPackInfo.second,
+          SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
+                                    rewriter.getIndexAttr(iin)});
+      ALayouts.emplace_back(ALayouts[0]);
+      BLayouts.emplace_back(BLayouts[0]);
+    }
+  }
+  for (auto [ALayout, BLayout, CLayout] :
+       llvm::zip(ALayouts, BLayouts, CLayouts)) {
+    ret.emplace_back(SmallVector<TensorLayout>{ALayout, BLayout},
+                     SmallVector<TensorLayout>{CLayout});
+  }
+  return ret;
+}
+
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   IRRewriter rewriter(root);
   root->walk([&](Operation *op) {
@@ -240,47 +348,9 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       }
       // infer current op's output layout accordingly
       if (supportedContractionNamedOpList(linalgOp)) {
-        // infer layout for linalg contraction named ops
-        auto ARank = cast<ShapedType>(linalgOp.getDpsInputs()[0].getType())
-                         .getShape()
-                         .size();
-        auto BRank = cast<ShapedType>(linalgOp.getDpsInputs()[1].getType())
-                         .getShape()
-                         .size();
-        auto CRank =
-            cast<ShapedType>(linalgOp.getOperation()->getResults()[0].getType())
-                .getShape()
-                .size();
-        bool ASideTransposed =
-            isa<linalg::MatmulTransposeAOp, linalg::BatchMatmulTransposeAOp>(
-                linalgOp);
-        bool BSideTransposed =
-            isa<linalg::MatmulTransposeBOp, linalg::BatchMatmulTransposeBOp>(
-                linalgOp);
-        // set outer&inner axis values
-        auto APackInfo = getPackingAxis(ARank, ASideTransposed);
-        auto BPackInfo = getPackingAxis(BRank, BSideTransposed);
-        auto CPackInfo = getPackingAxis(CRank, /*transposed*/ false);
-        // query the cost model for tile sizes
-        MatmulConfig cfg =
-            MatmulConfigAnalysis(linalgOp.getOperation()).getConfig();
-        uint32_t iim = cfg.innerMostKBlock, iin = cfg.innerMostNBlock,
-                 iik = cfg.innerMostKBlock;
-        // current default layout is MKmk, NKkn, MNmn
-        TensorLayout ALayout(
-            APackInfo.first, APackInfo.second,
-            SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
-                                      rewriter.getIndexAttr(iik)});
-        TensorLayout BLayout(
-            BPackInfo.first, BPackInfo.second,
-            SmallVector<OpFoldResult>{rewriter.getIndexAttr(iik),
-                                      rewriter.getIndexAttr(iin)});
-        TensorLayout CLayout(
-            CPackInfo.first, CPackInfo.second,
-            SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
-                                      rewriter.getIndexAttr(iin)});
-        OperatorLayout suggestedLayout({ALayout, BLayout}, {CLayout});
-        layoutCache[linalgOp] = suggestedLayout;
+        auto suggestedLayouts =
+            queryMatmulLayout(rewriter, linalgOp, curInputLayouts, true);
+        layoutCache[linalgOp] = suggestedLayouts[0];
       } else if (mlir::gc::utils::isPackableNamedOp(op)) {
         // infer layout for non-contraction/non-convolution linalg named ops
         // and linalg generic ops
