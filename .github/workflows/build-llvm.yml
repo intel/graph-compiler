@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - cmake/llvm-version.txt
+      - cmake/llvm-version-imex.txt
       - .github/workflows/build-llvm.yml
 
 permissions: read-all
