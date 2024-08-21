@@ -256,50 +256,64 @@ static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
   }
 }
 
+// set the dynamic size to static size for ExtractSliceOp according to the tile
+// config
 static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
                                            Operation *op, bool isExtract,
                                            SmallVector<int64_t> size,
-                                           int shrinDimNum = 0) {
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPoint(op);
-  if (auto extractSlice = dyn_cast<tensor::ExtractSliceOp>(op)) {
-    SmallVector<OpFoldResult> mixedOffsets = extractSlice.getMixedOffsets();
-    SmallVector<OpFoldResult> mixedSizes = extractSlice.getMixedSizes();
-    SmallVector<OpFoldResult> mixedStrides = extractSlice.getMixedStrides();
-    for (auto i = 0UL; i < mixedSizes.size(); i++) {
-      mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), size[i]);
+                                           int shrinDimNum = 0)
+{
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(op);
+    if (auto extractSlice = dyn_cast<tensor::ExtractSliceOp>(op))
+    {
+        SmallVector<OpFoldResult> mixedOffsets = extractSlice.getMixedOffsets();
+        SmallVector<OpFoldResult> mixedSizes = extractSlice.getMixedSizes();
+        SmallVector<OpFoldResult> mixedStrides = extractSlice.getMixedStrides();
+        auto targetTensor = mlir::RankedTensorType::get(
+            SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
+            extractSlice.getResult().getType().getElementType());
+        for (auto &&[i, s] : llvm::enumerate(size))
+            mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
+        Operation *newExtractSliceOp = rewriter.create<tensor::ExtractSliceOp>(
+            extractSlice->getLoc(), extractSlice.getSource(), mixedOffsets,
+            mixedSizes, mixedStrides);
+        if (shrinDimNum > 0)
+        {
+            rewriter.setInsertionPointAfter(newExtractSliceOp);
+            Value viewResult = tensorViewRankedTensor(
+                rewriter, targetTensor, newExtractSliceOp->getResult(0));
+            rewriter.replaceOp(extractSlice, viewResult);
+        }
+        else
+        {
+            rewriter.replaceOp(extractSlice, newExtractSliceOp);
+        }
     }
-    if (shrinDimNum > 0) {
-      rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
-          extractSlice,
-          mlir::RankedTensorType::get(
-              SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
-              extractSlice.getResult().getType().getElementType()),
-          extractSlice.getSource(), mixedOffsets, mixedSizes, mixedStrides);
-    } else {
-      rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
-          extractSlice, extractSlice.getSource(), mixedOffsets, mixedSizes,
-          mixedStrides);
-    }
-  }
 }
 
+// set the dynamic size to static size for InsertSliceOp according to the tile
+// config
 static void setStaticSizeForInsertSliceOp(RewriterBase &rewriter, Operation *op,
                                           Value source,
-                                          SmallVector<int64_t> size) {
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPoint(op);
-  if (auto insertSlice = dyn_cast<tensor::InsertSliceOp>(op)) {
-    SmallVector<OpFoldResult> mixedOffsets = insertSlice.getMixedOffsets();
-    SmallVector<OpFoldResult> mixedSizes = insertSlice.getMixedSizes();
-    SmallVector<OpFoldResult> mixedStrides = insertSlice.getMixedStrides();
-    for (auto i = 0UL; i < mixedSizes.size(); i++) {
-      mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), size[i]);
+                                          SmallVector<int64_t> size)
+{
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(op);
+    if (auto insertSlice = dyn_cast<tensor::InsertSliceOp>(op))
+    {
+        SmallVector<OpFoldResult> mixedOffsets = insertSlice.getMixedOffsets();
+        SmallVector<OpFoldResult> mixedSizes = insertSlice.getMixedSizes();
+        SmallVector<OpFoldResult> mixedStrides = insertSlice.getMixedStrides();
+        for (auto &&[i, s] : llvm::enumerate(size))
+            mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
+        auto targetTensor = mlir::RankedTensorType::get(
+            size, insertSlice.getDest().getType().getElementType());
+        Value viewResult = tensorViewRankedTensor(rewriter, targetTensor, source);
+        rewriter.replaceOpWithNewOp<tensor::InsertSliceOp>(
+            insertSlice, viewResult, insertSlice.getDest(), mixedOffsets,
+            mixedSizes, mixedStrides);
     }
-    rewriter.replaceOpWithNewOp<tensor::InsertSliceOp>(
-        insertSlice, source, insertSlice.getDest(), mixedOffsets, mixedSizes,
-        mixedStrides);
-  }
 }
 
 using InnermostFullResultCallBackFn = std::function<FailureOr<linalg::LinalgOp>(
