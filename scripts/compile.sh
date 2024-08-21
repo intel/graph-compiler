@@ -129,7 +129,7 @@ build_llvm() {
             git fetch --all
         fi
 
-        git checkout dev
+        git checkout main
 
         cd "$llvm_dir"
         find "$mlir_ext_dir/build_tools/patches" -name '*.patch' -exec git apply  {} +
