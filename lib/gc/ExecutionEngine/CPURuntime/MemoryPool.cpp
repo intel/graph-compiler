@@ -230,13 +230,6 @@ void FILOMemoryPool::release() {
   current = nullptr;
 }
 
-void FILOMemoryPool::clear() {
-  for (auto cur = current; cur; cur = cur->prev) {
-    cur->allocated = sizeof(MemoryBlock);
-  }
-  current = buffers;
-}
-
 FILOMemoryPool::~FILOMemoryPool() { release(); }
 
 } // namespace
