@@ -168,7 +168,7 @@ double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
                                 ArrayRef<uint32_t> shape,
                                 const MatmulConfig &config,
                                 CPUTargetDescriptionAnalysis &sysDesc) {
-  uint32_t M = shape[0], N = shape[1], K = shape[2];
+  uint32_t M = shape[0], N = shape[1];
   double cost = 0;
   double MCost =
       (llvm::divideCeil(M / config.innerMostMBlock, config.MThreads) %
