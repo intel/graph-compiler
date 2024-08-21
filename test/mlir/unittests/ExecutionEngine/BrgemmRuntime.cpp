@@ -10,6 +10,12 @@
 #include <cstdlib>
 #include <cstring>
 
+// manually include xbyak header here to avoid no-exception compile issue
+#define XBYAK_NO_EXCEPTION
+#include <cpu/x64/xbyak/xbyak.h> // NOLINT
+#undef XBYAK_NO_EXCEPTION
+
+#include <cpu/x64/cpu_isa_traits.hpp>
 #include "gc/ExecutionEngine/CPURuntime/Microkernel/BrgemmInterface.h"
 
 extern "C" {
@@ -103,6 +109,8 @@ template <typename T> inline bool compareDataInt(T *ref, T *dst, size_t size) {
   return true;
 }
 
+using namespace dnnl::impl::cpu::x64;
+
 inline void testBrgemmRuntimeInt(int batch, int M, int N, int K, int LDA,
                                  int LDB, int LDC, int strideA, int strideB,
                                  float beta) {
@@ -138,6 +146,10 @@ inline void testBrgemmRuntimeInt(int batch, int M, int N, int K, int LDA,
 TEST(ExecutionEngine, TestBrgemmRuntimeF32) {
   gc_runtime_keep_alive = 0;
 
+  bool supported_platform = mayiuse(avx512_core_amx) || mayiuse(avx512_core) || mayiuse(avx2);
+  if (!supported_platform)
+	  GTEST_SKIP();
+
   srand(static_cast<unsigned>(time(nullptr)));
 
   constexpr int batch = 4;
@@ -154,6 +166,10 @@ TEST(ExecutionEngine, TestBrgemmRuntimeF32) {
 TEST(ExecutionEngine, TestBrgemmRuntimeBF16) {
   gc_runtime_keep_alive = 0;
 
+  bool supported_platform = mayiuse(avx512_core_amx) || mayiuse(avx512_core_bf16) || mayiuse(avx2_vnni_2);
+  if (!supported_platform)
+	  GTEST_SKIP();
+  
   srand(static_cast<unsigned>(time(nullptr)));
 
   constexpr int batch = 4;
@@ -169,6 +185,10 @@ TEST(ExecutionEngine, TestBrgemmRuntimeBF16) {
 
 TEST(ExecutionEngine, TestBrgemmRuntimeU8S8) {
   gc_runtime_keep_alive = 0;
+  
+  bool supported_platform = mayiuse(avx512_core_amx) || mayiuse(avx512_core_vnni) || mayiuse(avx512_core) || mayiuse(avx2_vnni_2) || mayiuse(avx2_vnni);
+  if (!supported_platform)
+	  GTEST_SKIP();
 
   srand(static_cast<unsigned>(time(nullptr)));
 
