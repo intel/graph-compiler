@@ -175,26 +175,26 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
 
   BrgemmDims brgemmDims;
 
-  auto checkAndGetPosInCodomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
-                                      OpOperand *operand) {
-    auto pos = getPosInCodomain(dimPos, operand, linalgOp);
+  auto checkAndGetPosInDomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
+                                    OpOperand *operand) {
+    auto pos = getPosInDomain(dimPos, operand, linalgOp);
     assert(pos && "Cannot find position in codomain");
     dim = *pos;
   };
 
   // A(batch, m, k)
-  checkAndGetPosInCodomain(brgemmDims.batchDimA, batchAffinePos, operandA);
-  checkAndGetPosInCodomain(brgemmDims.leadingDimA, {mAffinePos}, operandA);
-  checkAndGetPosInCodomain(brgemmDims.minorDimA, kAffinePos, operandA);
+  checkAndGetPosInDomain(brgemmDims.batchDimA, batchAffinePos, operandA);
+  checkAndGetPosInDomain(brgemmDims.leadingDimA, {mAffinePos}, operandA);
+  checkAndGetPosInDomain(brgemmDims.minorDimA, kAffinePos, operandA);
   // B(batch, k, n) or B(batch, k/vnni_step, n, vnni_step)
   // note: B does not use VNNI format K affine
-  checkAndGetPosInCodomain(brgemmDims.batchDimB, batchAffinePos, operandB);
-  checkAndGetPosInCodomain(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
-  checkAndGetPosInCodomain(brgemmDims.minorDimB, {nAffinePos}, operandB);
+  checkAndGetPosInDomain(brgemmDims.batchDimB, batchAffinePos, operandB);
+  checkAndGetPosInDomain(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
+  checkAndGetPosInDomain(brgemmDims.minorDimB, {nAffinePos}, operandB);
   // C(m, n)
   // Currently useless, no need to set
-  // checkAndGetPosInCodomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
-  // checkAndGetPosInCodomain(brgemmDims.minorDimC, kAffinePos, operandC);
+  // checkAndGetPosInDomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
+  // checkAndGetPosInDomain(brgemmDims.minorDimC, kAffinePos, operandC);
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] A batch dim: "
                           << brgemmDims.batchDimA
