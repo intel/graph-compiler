@@ -8,8 +8,9 @@
 #ifndef GC_PASSES_TILINGVECTOR_H
 #define GC_PASSES_TILINGVECTOR_H
 
-#include "gc/Transforms/Passes.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Microkernel/MicrokernelOps.h"
+#include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -35,11 +36,6 @@
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <deque>
@@ -48,6 +44,7 @@
 #include <tuple>
 #include <type_traits>
 #include <variant>
+
 namespace mlir {
 namespace gc {
 namespace {
@@ -420,7 +417,8 @@ public:
   void updateOpOperandResultInGroups(size_t opGid, Operation *op,
                                      const Value &init = Value(),
                                      const Value &result = Value());
-  void removeOpInCurrentGroups(size_t grpIdx, Operation *op);
+  void removeOpInCurrentGroups(size_t grpIdx, Operation *op,
+                               Operation *replacedOp);
   void updateOpGroupInfo(size_t grpIdx);
 
   Value

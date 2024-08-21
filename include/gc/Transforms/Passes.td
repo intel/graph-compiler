@@ -93,6 +93,16 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
   ];
 }
 
+def FoldTensorOperation : Pass<"fold-tensor-operation"> {
+  let summary = "Fold some tensor operation";
+  let description = [{
+    Remove some useless tensor operations.
+  }];
+  let dependentDialects = [
+    "::mlir::tensor::TensorDialect"
+  ];
+}
+
 def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
   let summary = "Lower tensor to tile vector.";
   let description = [{

@@ -64,10 +64,11 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
       mlir::microkernel::createConvertLinalgToMicrokernel());
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
+  pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   // TODO(yifei): remove lower pack here
-  pm.addPass(createLowerPackUnpack());
+  // pm.addPass(createLowerPackUnpack());
   populateCleanUpPasses(pm);
 }
 
@@ -87,7 +88,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
   // pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
-  // pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
+  pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
 }
@@ -142,7 +143,6 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(createLowerAffinePass());
-  pm.addPass(createConvertVectorToSCFPass());
   pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
