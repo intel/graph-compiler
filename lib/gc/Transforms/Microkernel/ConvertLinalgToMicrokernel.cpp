@@ -40,7 +40,7 @@ struct BrgemmDims {
   int64_t leadingDimB;
   int64_t minorDimB;
 
-  BrgemmDims() {}
+  BrgemmDims() = default;
   BrgemmDims(int64_t bdA, int64_t ldA, int64_t mdA, int64_t bdB, int64_t ldB,
              int64_t mdB)
       : batchDimA(bdA), leadingDimA(ldA), minorDimA(mdA), batchDimB(bdB),
@@ -230,7 +230,7 @@ static FailureOr<linalg::TransposeOp> getFusibleTranspose(SrcBrmmOpTy brmmOp,
   // For VNNI, it requires the last two dims to be non-permutedi
   for (size_t idx = permutation.size() - lastDimOffset;
        idx < permutation.size(); idx++)
-    lastDimContigious = lastDimContigious && (permutation[idx] == idx);
+    lastDimContigious = lastDimContigious && (permutation[idx] == long(idx));
 
   if (lastDimContigious)
     return transOp;
