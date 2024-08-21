@@ -117,7 +117,6 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
   // dims.k could be of 2 cases:
   //     1. dims.k.size() == 2: non-VNNI, K = dims.k[1]
   //     2. dims.k.size() == 3: VNNI, K = dims.k[1] * dims.k[2]
-  unsigned batchPos = dims.k.front();
   SmallVector<unsigned, 2> kPos;
   if (dims.k.size() == 2)
     kPos = {dims.k[1]};
@@ -125,6 +124,7 @@ inferBrgemmInfo(linalg::LinalgOp linalgOp,
     kPos = {dims.k[1], dims.k[2]};
   else
     return failure();
+  unsigned batchPos = dims.k.front();
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Candidate dims: "
                           << "\n");
