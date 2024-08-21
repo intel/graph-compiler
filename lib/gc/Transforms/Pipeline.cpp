@@ -54,7 +54,7 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addPass(createPostProcessPackUnpack());
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
-  pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
+  pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
 
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
@@ -99,6 +99,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
+  pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;

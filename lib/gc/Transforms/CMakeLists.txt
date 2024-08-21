@@ -19,7 +19,7 @@ gc_add_mlir_library(GcPasses
   PropagateLayout.cpp
   PostProcessPackUnpack.cpp
   LowerPackUnpack.cpp
-  DeepTileContractionNamedOp.cpp
+  DeepTileContractionOp.cpp
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
