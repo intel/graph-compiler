@@ -271,17 +271,11 @@ Operation *TickCollecter::getAllocScope(TickCollecterStates *s,
 FailureOr<size_t> TickCollecter::getAllocSize(TickCollecterStates *s,
                                               Operation *op) const {
   auto refType = cast<MemRefType>(op->getResultTypes().front());
-  // int64_t size = refType.getElementTypeBitWidth() / 8;
-  // // treat bool (i1) as 1 byte. It may not be true for all targets, but we at
-  // // least have a large enough size for i1
-  // size = (size != 0) ? size : 1;
-  // for (auto v : refType.getShape()) {
-  //   size *= v;
-  // }
-  int64_t numThreads = 1;
 
-  bool moveToUpperParellelLoop = needsHoistOutOfParallelLoop(op);
-  if (moveToUpperParellelLoop) {
+  // Get the total number of threads from top to the level of the parallel loop
+  // that the allocation located in.
+  int64_t numThreads = 1;
+  if (needsHoistOutOfParallelLoop(op)) {
     Operation *parent =
         op->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
     while (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
