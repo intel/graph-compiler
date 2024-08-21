@@ -170,19 +170,20 @@ double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
                                 CPUTargetDescriptionAnalysis &sysDesc) {
   uint32_t M = shape[0], N = shape[1], K = shape[2];
   double cost = 0;
-  cost +=
+  double MCost =
       (llvm::divideCeil(M / config.innerMostMBlock, config.MThreads) %
                llvm::divideCeil(config.MBlock, config.innerMostMBlock) !=
            0 ||
-       M / config.innerMostMBlock % config.MThreads != 0) &&
-      config.MBlock !=
-          config.innerMostMBlock +
-              (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
-                       llvm::divideCeil(config.NBlock,
-                                        config.innerMostNBlock) !=
-                   0 ||
-               N / config.innerMostNBlock % config.NThreads != 0) &&
-      config.NBlock != config.innerMostNBlock;
+       (M / config.innerMostMBlock % config.MThreads != 0 &&
+        config.MBlock != config.innerMostMBlock));
+  double NCost =
+      (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
+               llvm::divideCeil(config.NBlock, config.innerMostNBlock) !=
+           0 ||
+       (N / config.innerMostNBlock % config.NThreads != 0 &&
+        config.NBlock != config.innerMostNBlock));
+  cost = MCost + NCost;
+
   return cost;
 }
 
@@ -243,7 +244,7 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
       getCandidate((uint32_t)threads, 1U);
   std::vector<uint32_t> KThreadsCandidates =
       getCandidate((uint32_t)threads, 1U);
-  uint32_t noSmallBlockNeedThreshold = 8 * 8U;
+  uint32_t noSmallBlockNeedThreshold = 8 * 4U;
   std::vector<uint32_t> MBlockCandidates = getCandidate(
       (uint32_t)shape[0], shape[0] >= noSmallBlockNeedThreshold ? 8U : 1U,
       (uint32_t)shape[0]);
@@ -461,6 +462,7 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         // TODO: Could add a weight or priority for cost model
         SmallVector<std::tuple<CostModelFn, std::string, double>>
             costModelList = {
+                {dynamicBufferizationCost, "dynamicBufferizationCost", 0.9},
                 {workloadBalancedCost, "workloadBalancedCost", 1},
                 {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
                 {computationIntensityOnL2Cache, "computationIntensityOnL2Cache",

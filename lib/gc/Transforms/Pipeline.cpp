@@ -93,6 +93,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
+  pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
