@@ -17,8 +17,8 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
-#include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
+#include "gc/Dialect/Microkernel/MicrokernelOps.h"
 
 #define GET_OP_CLASSES
 #include "gc/Dialect/Microkernel/MicrokernelOps.cpp.inc"
