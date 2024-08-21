@@ -173,16 +173,15 @@ double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
       (llvm::divideCeil(M / config.innerMostMBlock, config.MThreads) %
                llvm::divideCeil(config.MBlock, config.innerMostMBlock) !=
            0 ||
-       M / config.innerMostMBlock % config.MThreads != 0) &&
+       (M / config.innerMostMBlock % config.MThreads != 0 &&
       config.MBlock !=
-          config.innerMostMBlock +
-              (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
-                       llvm::divideCeil(config.NBlock,
-                                        config.innerMostNBlock) !=
-                   0 ||
-               N / config.innerMostNBlock % config.NThreads != 0) &&
-      config.NBlock != config.innerMostNBlock;
-  return cost;
+          config.innerMostMBlock)) +
+      (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
+              llvm::divideCeil(config.NBlock,
+                               config.innerMostNBlock) !=
+          0 || (N / config.innerMostNBlock % config.NThreads != 0 && config.NBlock != config.innerMostNBlock));
+
+      return cost;
 }
 
 using CostModelFn = std::function<double(
