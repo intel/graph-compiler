@@ -31,6 +31,7 @@
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
@@ -61,11 +62,9 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
   // todo: fine-grain fusion pass
   // todo: lower linalg to arith/math on virtual vector pass
+  pm.addNestedPass<func::FuncOp>(
+      mlir::microkernel::createConvertLinalgToMicrokernel());
 
-  // REMOVE this pass after the above passes are added. Currently we add this
-  // pass to make the pipeline work properly
-  pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
-  // fold useless tensor operation pass
   pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
@@ -119,13 +118,16 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + func/microkernel
 void populateMicroKernelPasses(mlir::OpPassManager &pm) {
-  // todo: ConvertLinalgToMicrokernel pass
-  // todo: CleanupInvalidMicrokernel pass
-  // todo: InvariantMicrokernelMotion pass
-  // todo: ConvertMicrokernelToDnnlFunc to lower brgemm to dnnl call
-  // todo: ConvertMicrokernelToXsmm, to lower brgemm to libxsmm call
-  // todo: LowerMicrokernel pass
-  // todo: DispatchMicrokernel
+  pm.addNestedPass<func::FuncOp>(mlir::microkernel::createExpandMicrokernel());
+  pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
+  pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
+  pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
+  pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  // pm.addPass(createRemoveDeadValuesPass());
+  // pm.addPass(createInlinerPass());
+  populateCleanUpPasses(pm);
+  PrintIRPassOptions option{"MicroKernel passes result"};
+  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
@@ -179,10 +181,10 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateVectorPasses(pm);
   // back-end, arith/math/vector/memref dialects
   populateBufferizationPasses(pm);
+  populateMicroKernelPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
-  populateMicroKernelPasses(pm);
   populateCPURuntimePasses(pm);
   // back-end, llvm dialect
   populateLLVMPasses(pm);
