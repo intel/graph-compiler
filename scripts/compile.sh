@@ -163,6 +163,7 @@ build_llvm() {
 get_llvm() {
     if [ ! -z "$DEV_BUILD" ]; then
         mkdir -p "$EXTERNALS_DIR"
+        cd "$EXTERNALS_DIR"
         build_llvm
         cd "$PROJECT_DIR"
         return 0
