@@ -1,4 +1,4 @@
-gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR MLIRMicrokernel)
 
 include(onednn)
 
