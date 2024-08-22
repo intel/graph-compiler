@@ -51,7 +51,7 @@ namespace {
 // TODO: remove it in the future
 bool disableSpecialOp = false;
 bool disableBroadcastOp = false;
-bool enableDebugPrinter = true;
+bool enableDebugPrinter = false;
 
 void printQueue(const std::queue<Operation *> &opQueue) {
   auto tempQ(opQueue);
