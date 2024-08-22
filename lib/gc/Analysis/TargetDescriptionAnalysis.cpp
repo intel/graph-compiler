@@ -59,7 +59,7 @@ TargetDescriptionAnalysisBase::getPropertyValue(StringRef key) {
 }
 
 unsigned CPUTargetDescriptionAnalysis::getNumThreads() {
-  static const unsigned defaultNumThreads = 1;
+  static const unsigned defaultNumThreads = 56;
   std::optional<Attribute> numThreads = getPropertyValue(kNumThreads);
 
   if (numThreads)
