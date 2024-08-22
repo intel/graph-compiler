@@ -106,21 +106,6 @@ def MergeNestedForall : Pass<"merge-nested-forall"> {
   let dependentDialects = ["scf::SCFDialect"];
 }
 
-def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
-  let summary = "Lower tensor to tile vector.";
-  let description = [{
-    Lower tensor to tile vector form.
-  }];
-  let dependentDialects = [
-    "::mlir::func::FuncDialect",
-    "::mlir::math::MathDialect",
-    "::mlir::arith::ArithDialect",
-    "::mlir::tensor::TensorDialect",
-    "::mlir::linalg::LinalgDialect",
-    "::mlir::vector::VectorDialect",
-  ];
-}
-
 def CPUPhysicalRegisterPass : Pass<"CPU-physical-register-pass", "func::FuncOp"> {
   let summary = "Lower operation to cpu pysical register size.";
   let description = [{
