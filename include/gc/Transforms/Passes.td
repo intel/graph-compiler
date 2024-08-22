@@ -23,6 +23,17 @@ def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
 }
 #endif
 
+def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::FuncOp"> {
+  let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
+  let description = [{
+    Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
+  }];
+  let dependentDialects = [
+      "memref::MemRefDialect",
+      "cpuruntime::CPURuntimeDialect"
+  ];
+}
+
 #ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   let summary = "Convert linalg dialect to XeGPU dialect.";
@@ -118,6 +129,31 @@ def CPUPhysicalRegisterPass : Pass<"CPU-physical-register-pass", "func::FuncOp">
     "::mlir::tensor::TensorDialect",
     "::mlir::vector::VectorDialect",
     "::mlir::scf::SCFDialect",
+  ];
+}
+
+def FoldTensorOperation : Pass<"fold-tensor-operation"> {
+  let summary = "Fold some tensor operation";
+  let description = [{
+    Remove some useless tensor operations.
+  }];
+  let dependentDialects = [
+    "::mlir::tensor::TensorDialect"
+  ];
+}
+
+def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
+  let summary = "Lower tensor to tile (virtual) vector";
+  let description = [{
+    Lower operation operate on tensor to vector operation.
+  }];
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::linalg::LinalgDialect",
+    "::mlir::vector::VectorDialect",
   ];
 }
 
