@@ -18,13 +18,12 @@ gc_add_mlir_library(GcPasses
   VerifyTargetDescription.cpp
   DeepTileContractionNamedOp.cpp
   TilingUtil.cpp  
-  LowerTileVectorPass.cpp
-  CPUPhysicalResigterPass.cpp
 
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
+  CPUPhysicalRegisterPass.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

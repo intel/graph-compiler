@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --split-input-file --lower-to-tile-vector --CPU-physical-register-pass --mlir-print-ir-after-all | FileCheck %s
+// RUN: gc-opt %s --split-input-file --fold-tensor-operation --lower-to-tile-vector --CPU-physical-register-pass --mlir-print-ir-after-all | FileCheck %s
 
 // CHECK-LABEL: func @add_tensor_test0
 func.func @add_tensor_test0(%arg0: tensor<11008x4096xf32>, %arg1: tensor<11008x4096xf32>) -> tensor<11008x4096xf32> {

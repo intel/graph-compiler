@@ -420,7 +420,8 @@ public:
   void updateOpOperandResultInGroups(size_t opGid, Operation *op,
                                      const Value &init = Value(),
                                      const Value &result = Value());
-  void removeOpInCurrentGroups(size_t grpIdx, Operation *op);
+  void removeOpInCurrentGroups(size_t grpIdx, Operation *op,
+                               Operation *replacedOp);
   void updateOpGroupInfo(size_t grpIdx);
 
   Value
