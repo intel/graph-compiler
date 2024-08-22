@@ -151,6 +151,21 @@ def LowerPackUnpack : Pass<"lower-pack-unpack"> {
       ];
 }
 
+def CPUPhysicalRegisterPass : Pass<"CPU-physical-register-pass", "func::FuncOp"> {
+  let summary = "Lower operation to cpu pysical register size.";
+  let description = [{
+    Physical register size lowering pass.
+  }];
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::math::MathDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::tensor::TensorDialect",
+    "::mlir::vector::VectorDialect",
+    "::mlir::scf::SCFDialect",
+  ];
+}
+
 def FoldTensorOperation : Pass<"fold-tensor-operation"> {
   let summary = "Fold some tensor operation";
   let description = [{

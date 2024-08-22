@@ -21,10 +21,12 @@ gc_add_mlir_library(GcPasses
   LowerPackUnpack.cpp
   DeepTileContractionOp.cpp
   TilingUtil.cpp
+
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
+  CPUPhysicalRegisterPass.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
