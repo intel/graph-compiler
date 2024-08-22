@@ -20,8 +20,10 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/DenseMap.h"
 
+#include "gc/Analysis/MatmulConfigAnalysis.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Transforms/Passes.h"
 namespace mlir {
 namespace gc {
@@ -600,6 +602,61 @@ struct PackVNNI<linalg::GenericOp>
   }
 };
 
+// revert pack unpack on the input/output side
+struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
+  RevertMatmulPacking(MLIRContext *context, PatternBenefit benefit = 1)
+      : OpRewritePattern<linalg::GenericOp>(context, benefit) {}
+  LogicalResult matchAndRewrite(linalg::GenericOp matmulOp,
+                                PatternRewriter &rewriter) const override {
+    // match MM4D or MM4DVNNI
+    if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
+                                         linalgx::PackingType::VNNI_MM4D)) {
+      // replace VNNI_MM4D with unpack + VNNI_MM2D + pack
+      // get preceding pack
+      auto packOp =
+          matmulOp.getDpsInputOperand(0)->get().getDefiningOp<tensor::PackOp>();
+      if (!packOp)
+        return failure();
+      if (!matmulOp.getResults()[0].hasOneUse())
+        return failure();
+      auto consumer = matmulOp.getResults()[0].getUses().begin();
+      auto unPackOp = dyn_cast<tensor::UnPackOp>(consumer->getOwner());
+      if (!unPackOp)
+        return failure();
+      Location loc = matmulOp.getLoc();
+      auto packInnerTiles = packOp.getMixedTiles();
+      auto packInnerDimsPos = packOp.getInnerDimsPos();
+      auto packOuterDimsPerm = packOp.getInnerDimsPos();
+      Value unpackDest = tensor::UnPackOp::createDestinationTensor(
+          rewriter, loc, packOp, packInnerTiles, packInnerDimsPos,
+          packOuterDimsPerm);
+      Value reUnpack = rewriter.create<tensor::UnPackOp>(
+          loc, packOp, unpackDest, packInnerDimsPos, packInnerTiles,
+          packOuterDimsPerm);
+      Value output = matmulOp.getResults()[0];
+      auto VNNI2D = linalgx::makeGenericPackedMatmulOp(
+          rewriter, loc, linalgx::PackingType::VNNI_MM2D,
+          ValueRange{reUnpack, matmulOp.getDpsInputOperand(1)->get()},
+          ValueRange{output});
+      // insert pack before unpack
+      auto unPackInnerTiles = unPackOp.getMixedTiles();
+      auto unPackInnerDimsPos = unPackOp.getInnerDimsPos();
+      auto unPackOuterDimsPerm = unPackOp.getInnerDimsPos();
+      Value packDest = tensor::PackOp::createDestinationTensor(
+          rewriter, loc, (*VNNI2D)->getResult(0), unPackInnerTiles,
+          unPackInnerDimsPos, unPackOuterDimsPerm);
+      auto zeroAttr =
+          rewriter.getZeroAttr(getElementTypeOrSelf(packDest.getType()));
+      Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+      Value rePack = rewriter.create<tensor::PackOp>(
+          loc, packOp, packDest, unPackInnerDimsPos, unPackInnerTiles, zero,
+          unPackOuterDimsPerm);
+      rewriter.replaceOp(matmulOp, rePack);
+    }
+    return success();
+  }
+};
+
 /*
 Match patterns like broadcast + pack, uplift pack
 */
@@ -687,24 +744,28 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     mlir::linalg::BlockPackMatmulOptions options;
     auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
     auto matmulLayout = *(layoutAnalysisResult.getOpLayout(op));
-    TensorLayout LHSLayout = matmulLayout.getSupportedInputLayouts()[0];
-    TensorLayout RHSLayout = matmulLayout.getSupportedInputLayouts()[1];
+    // currently supported combination: plain & blocking & plain OR blocking &
+    // blocking & blocking
+    TensorLayout inputLayout = matmulLayout.getSupportedInputLayouts()[0];
+    TensorLayout outputLayout = matmulLayout.getSupportedOutputLayouts()[0];
     // hardcode to let B side to be NKkn
     options.rhsTransposeOuterBlocks = true;
     options.rhsTransposeInnerBlocks = false;
     // extract tile sizes
-    OpFoldResult M_block = LHSLayout.getTileSizes().empty()
-                               ? rewriter.getIndexAttr(1)
-                               : LHSLayout.getTileSizes()[0];
-    OpFoldResult K_block = LHSLayout.getTileSizes().empty()
-                               ? rewriter.getIndexAttr(1)
-                               : LHSLayout.getTileSizes()[1];
-    OpFoldResult N_block = RHSLayout.getTileSizes().empty()
-                               ? rewriter.getIndexAttr(1)
-                               : RHSLayout.getTileSizes()[0];
-    options.blockFactors.push_back(*getConstantIntValue(M_block));
-    options.blockFactors.push_back(*getConstantIntValue(K_block));
-    options.blockFactors.push_back(*getConstantIntValue(N_block));
+    auto matmulCfg = MatmulConfigAnalysis(op.getOperation()).getConfig();
+    OpFoldResult MBlock = rewriter.getIndexAttr(matmulCfg.innerMostMBlock),
+                 KBlock = rewriter.getIndexAttr(matmulCfg.innerMostKBlock),
+                 NBlock = rewriter.getIndexAttr(matmulCfg.innerMostNBlock);
+    if (!inputLayout.getTileSizes().empty())
+      assert(inputLayout.getTileSizes()[0] == MBlock &&
+             inputLayout.getTileSizes()[1] == KBlock &&
+             "Layout tile size and matmul block size mismatch.");
+    if (!outputLayout.getTileSizes().empty())
+      assert(outputLayout.getTileSizes()[1] == NBlock &&
+             "Layout tile size and matmul block size mismatch.");
+    options.blockFactors.push_back(*getConstantIntValue(MBlock));
+    options.blockFactors.push_back(*getConstantIntValue(KBlock));
+    options.blockFactors.push_back(*getConstantIntValue(NBlock));
     return options;
   };
   linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
@@ -721,6 +782,7 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     return signalPassFailure();
 
   // stage 2.5: revert necessary blocking on matmul op
+  // RevertMatmulPacking
 
   // stage3: propagate layout on other named ops
   ControlPackNamedOpsFn layoutControlFn =

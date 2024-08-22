@@ -247,7 +247,7 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
   auto CPackInfo = getPackingAxis(CRank, /*transposed*/ false);
   // query the cost model for tile sizes
   MatmulConfig cfg = MatmulConfigAnalysis(matmulOp.getOperation()).getConfig();
-  uint32_t iim = cfg.innerMostKBlock, iin = cfg.innerMostNBlock,
+  uint32_t iim = cfg.innerMostMBlock, iin = cfg.innerMostNBlock,
            iik = cfg.innerMostKBlock;
   if (forceBlocking) {
     TensorLayout ALayout(APackInfo.first, APackInfo.second,
