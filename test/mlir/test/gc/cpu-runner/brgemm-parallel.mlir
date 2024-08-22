@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --convert-microkernel-to-dnnl-func --convert-linalg-to-loops --convert-scf-to-cf --expand-strided-metadata --lower-affine -finalize-memref-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --convert-complex-to-llvm --canonicalize --cse --reconcile-unrealized-casts --symbol-dce | gc-cpu-runner -e main -entry-point-result=void 
+// RUN: gc-opt %s --convert-microkernel-to-dnnl-func --convert-linalg-to-loops --convert-scf-to-cf --expand-strided-metadata --lower-affine -finalize-memref-to-llvm --convert-cpuruntime-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --convert-complex-to-llvm --canonicalize --cse --reconcile-unrealized-casts --symbol-dce | gc-cpu-runner -e main -entry-point-result=void 
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 module {
@@ -42,9 +42,9 @@ module {
 
   func.func @main() {
     call @simple_brgemm() : ()->()
-    // COM: parallelcpu.printf "BRGEMM DONE\n"
+    cpuruntime.printf "BRGEMM DONE\n"
     return
   }
 
-  // COM: CHECK: BRGEMM DONE
+  // CHECK: BRGEMM DONE
 }
