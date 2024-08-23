@@ -339,18 +339,39 @@ module {
 
 module {
   /// CHECK-LABEL: @not_fuse_pack
-  func.func @not_fuse_pack(%arg0: tensor<1x32x4096xbf16>, %arg1: tensor<1x32x4096xbf16>) -> tensor<1x1x128x32x32xbf16> {
-    %dest0 = tensor.empty() : tensor<1x32x4096xbf16>
+  func.func @not_fuse_pack(%arg0: tensor<1x35x4096xbf16>, %arg1: tensor<1x35x4096xbf16>) -> tensor<1x2x128x32x32xbf16> {
+    %dest0 = tensor.empty() : tensor<1x35x4096xbf16>
     /// CHECK: scf.forall
     /// CHECK: linalg.add
-    %add = linalg.add ins(%arg0, %arg1 : tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>) outs(%dest0 : tensor<1x32x4096xbf16>) -> tensor<1x32x4096xbf16>
+    %add = linalg.add ins(%arg0, %arg1 : tensor<1x35x4096xbf16>, tensor<1x35x4096xbf16>) outs(%dest0 : tensor<1x35x4096xbf16>) -> tensor<1x35x4096xbf16>
     /// CHECK: }
-    %dest1 = tensor.empty() : tensor<1x1x128x32x32xbf16>
+    %dest1 = tensor.empty() : tensor<1x2x128x32x32xbf16>
+    %pad = arith.constant 0.000000e+00 : bf16
     /// CHECK: %[[PACK_OUT:.*]] = scf.forall
     /// CHECK: tensor.pack
-    %pack = tensor.pack %add outer_dims_perm = [0, 1, 2] inner_dims_pos = [1, 2] inner_tiles = [32, 32] into %dest1 : tensor<1x32x4096xbf16> -> tensor<1x1x128x32x32xbf16>
+    %pack = tensor.pack %add padding_value(%pad : bf16) outer_dims_perm = [0, 1, 2] inner_dims_pos = [1, 2] inner_tiles = [32, 32] into %dest1 : tensor<1x35x4096xbf16> -> tensor<1x2x128x32x32xbf16>
     /// CHECK: }
     /// CHECK: return %[[PACK_OUT]]
+    return %pack : tensor<1x2x128x32x32xbf16>
+  }
+}
+
+// -----
+
+module {
+  /// CHECK-LABEL: @fuse_pack
+  func.func @fuse_pack(%arg0: tensor<1x32x4096xbf16>, %arg1: tensor<1x32x4096xbf16>) -> tensor<1x1x128x32x32xbf16> {
+    %dest0 = tensor.empty() : tensor<1x32x4096xbf16>
+    /// CHECK: %[[FINAL_RESULT:.*]]:2 = scf.forall (%{{.*}}) = (0, 0) to (1, 4096) step (1, 32)
+    /// CHECK: linalg.add
+    %add = linalg.add ins(%arg0, %arg1 : tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>) outs(%dest0 : tensor<1x32x4096xbf16>) -> tensor<1x32x4096xbf16>
+    %dest1 = tensor.empty() : tensor<1x1x128x32x32xbf16>
+    /// CHECK: tensor.pack
+    %pack = tensor.pack %add outer_dims_perm = [0, 1, 2] inner_dims_pos = [1, 2] inner_tiles = [32, 32] into %dest1 : tensor<1x32x4096xbf16> -> tensor<1x1x128x32x32xbf16>
+    /// CHECK: scf.forall.in_parallel
+    /// CHECK: tensor.parallel_insert_slice
+    /// CHECK: tensor.parallel_insert_slice
+    /// CHECK: return %[[FINAL_RESULT]]#1
     return %pack : tensor<1x1x128x32x32xbf16>
   }
 }

@@ -74,8 +74,11 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
     Option<"useCostModel", "use-cost-model", "bool",
            /*default=*/"false",
            "Decide if enable cost model to control iterative fusion.">,
+    Option<"defaultNDTile", "default-nd-tile", "int",
+           /*default=*/"2",
+           "Set default ND-Tile size, such as 2[default] or 3.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
-           "Set default TileSize for the certain type of op, saying `matmul:{32,32}`">,
+           "Set default TileSize for the certain type of op, saying `matmul:{32,32}`.">,
     ];
 }
 def DeepTileContractionOp
