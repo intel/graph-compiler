@@ -764,8 +764,8 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
       assert(outputLayout.getTileSizes()[1] == NBlock &&
              "Layout tile size and matmul block size mismatch.");
     options.blockFactors.push_back(*getConstantIntValue(MBlock));
-    options.blockFactors.push_back(*getConstantIntValue(KBlock));
     options.blockFactors.push_back(*getConstantIntValue(NBlock));
+    options.blockFactors.push_back(*getConstantIntValue(KBlock));
     return options;
   };
   linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
