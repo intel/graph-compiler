@@ -13,18 +13,9 @@ if (NOT DEFINED GC_DNNL_INCLUDES)
         $<BUILD_INTERFACE:${dnnl_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${dnnl_SOURCE_DIR}/src>
     )
+    
     set_property(GLOBAL PROPERTY GC_DNNL_INCLUDES ${GC_DNNL_INCLUDES})
+    set_property(GLOBAL PROPERTY GC_DNNL_SOURCE_DIR ${dnnl_SOURCE_DIR})
 
-    # This allows to generate headers from *.in without adding the library to the build.
-    # If the build is required, remove this and the SKIP_ADD option above.
-    if (DEFINED CMAKE_GENERATOR)
-        set(GENERATOR_FLAG "-G ${CMAKE_GENERATOR}")
-    endif ()
-    execute_process(COMMAND ${CMAKE_COMMAND} ${GENERATOR_FLAG}
-            -Wno-dev
-            -S ${dnnl_SOURCE_DIR}
-            -B ${dnnl_BINARY_DIR}
-            -DDNNL_IS_MAIN_PROJECT=FALSE -DDNNL_BUILD_TESTS=FALSE -DDNNL_BUILD_EXAMPLES=FALSE
-            COMMAND_ERROR_IS_FATAL ANY
-    )
+    include(onednn_lite_config)
 endif ()

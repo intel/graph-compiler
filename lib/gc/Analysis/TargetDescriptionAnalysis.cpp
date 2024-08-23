@@ -25,7 +25,9 @@ template <typename T>
 void TargetDescriptionAnalysisBase::emitNotFoundWarning(Location loc,
                                                         StringRef key,
                                                         T value) {
-  mlir::emitWarning(loc) << key << " not found, using default value " << value;
+  if (emitWarning)
+    mlir::emitWarning(loc) << key << " not found, using default value "
+                           << value;
 }
 
 static bool isIntegerNumber(const std::string &token) {

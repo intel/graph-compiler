@@ -34,6 +34,11 @@
 
 namespace mlir::gc {
 
+void populateCleanUpPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCSEPass());
+}
+
 // linalg + linalgX + tensor
 void populateFrontendPasses(mlir::OpPassManager &pm) {
 #ifdef GC_HAS_ONEDNN_DIALECT
@@ -46,9 +51,12 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
-  // todo: linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
+  // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
+  pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
+
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
+  // todo: fine-grain fusion pass
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
@@ -56,6 +64,11 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
   // copied from tpp project
   pm.addNestedPass<func::FuncOp>(createDecomposeAggregatedOps());
+  // fold useless tensor operation pass
+  pm.addPass(createFoldTensorOperation());
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createControlFlowSinkPass());
+  populateCleanUpPasses(pm);
 }
 
 // scf + arith + math + vector + tensor + linalg.brgemm
@@ -74,6 +87,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
   // oneDNN graph spec
   pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
   // todo: lower to physical vector pass, device dependent pass
+  populateCleanUpPasses(pm);
 }
 
 // scf + arith + math + vector + memref + linalg.brgemm
@@ -93,6 +107,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
   pm.addPass(createBufferizationToMemRefPass());
+  populateCleanUpPasses(pm);
 }
 
 // scf + arith + math + vector + memref + func/microkernel
@@ -109,10 +124,21 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   // todo: flatten nested parallel pass to support coarse-grain usion
   // remove this pass after we add FlattenNestedParallel
+
+  pm.addPass(createSinkOpIntoInnerLoop());
+  pm.addPass(createMergeNestedForall());
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createControlFlowSinkPass());
+  pm.addPass(createForallToParallelLoopPass());
+  pm.addPass(createParallelLoopFusionPass());
+  pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
+  populateCleanUpPasses(pm);
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
@@ -120,6 +146,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createCSEPass());
@@ -136,7 +163,7 @@ void populateLLVMPasses(mlir::OpPassManager &pm) {
 
 void populateCPUPipeline(mlir::OpPassManager &pm) {
   // verify the target description attribute
-  pm.addNestedPass<func::FuncOp>(createVerifyTargetDescription());
+  pm.addPass(createVerifyTargetDescription());
   // front-end, oneDNN graph dialect
   populateFrontendPasses(pm);
   // middle-end, LinalgX/Linalg/tensor dialects
@@ -150,7 +177,7 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
   populateMicroKernelPasses(pm);
   populateCPURuntimePasses(pm);
-  // // back-end, llvm dialect
+  // back-end, llvm dialect
   populateLLVMPasses(pm);
 }
 
