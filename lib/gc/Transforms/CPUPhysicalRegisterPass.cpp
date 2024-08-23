@@ -6,22 +6,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Transforms/TilingVector.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Value.h"
-#include "mlir/IR/Visitors.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
-#include <functional>
-#include <limits>
 
 namespace mlir {
 namespace gc {
@@ -45,8 +30,7 @@ namespace {
       linalg::MatmulOp, linalg::BatchMatmulOp,                                 \
       linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp,        \
       linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
-      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp,               \
-      microkernel::BrgemmOp
+      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp
 
 // TODO: remove it in the future
 bool disableSpecialOp = false;
@@ -124,7 +108,7 @@ static inline bool isSpecialOp(Operation *op) {
 bool is_innermost_operation(Operation *op) {
   bool inner_most = true;
   op->walk([&inner_most](Operation *p) {
-    if (mlir::isa<scf::ForOp>(p)) {
+    if (isa<scf::ForOp>(p)) {
       inner_most = false;
       return WalkResult::interrupt();
     }
@@ -1888,14 +1872,10 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
       opBuilder, grpIdx, 0, currentLoopStateIdxMap, initArgs, nextAnchorResults,
       nextAnchorResultsIdxMap, inductionVars, originalOperandLoopArgsMap,
       loopArgsOriginalOperandMap, forResultOrignalResultMap, indiceLoopMap);
+  DenseSet<Operation *> forOpChildOps;
+  forOp->walk([&](Operation *op) { forOpChildOps.insert(op); });
   auto replaceIfFn = [&](OpOperand &use) {
-    auto walkResult = forOp->walk([&](Operation *op) {
-      if (use.getOwner() == op) {
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    return walkResult != WalkResult::interrupt();
+    return not forOpChildOps.contains(use.getOwner());
   };
   for (auto x : nextAnchorResults) {
     auto originalResult = forResultOrignalResultMap[x];
@@ -1918,7 +1898,7 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
     const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap) {
   auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
   vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
-  VectorType vtType = tpOp.getResultVectorType();
+  VectorType vtType = tpOp.getSourceVectorType();
   size_t rank = vtType.getRank();
 
   auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
@@ -1947,20 +1927,19 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
           auto padValue = b.create<arith::ConstantOp>(
               loc, b.getZeroAttr(vtType.getElementType()));
           SmallVector<bool> inBoundsVal(1, true);
-
-          auto transferReadOp = b.create<vector::TransferReadOp>(
-              loc,
-              /*vectorType=*/kernelType,
-              /*source=*/readSourceOp.getSource(),
-              /*indices=*/inductionVars,
-              /*padding=*/padValue,
-              /*inBounds=*/inBoundsVal);
           SmallVector<Value> writeVars;
           size_t itrIdx = 0;
           while (itrIdx < rank) {
             writeVars.emplace_back(inductionVars[tpAxisMap[itrIdx]]);
             itrIdx++;
           }
+          auto transferReadOp = b.create<vector::TransferReadOp>(
+              loc,
+              /*vectorType=*/kernelType,
+              /*source=*/readSourceOp.getSource(),
+              /*indices=*/writeVars,
+              /*padding=*/padValue,
+              /*inBounds=*/inBoundsVal);
 
           rectifyWriteOperationIndice(&successorWriteOp, writeVars);
 
@@ -2281,52 +2260,53 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   SmallVector<Value> inductionVars;
 
   // don't need to do the transpose
-  if (tpCanonicalizer.isTransposeOnAllOneDim()) {
-    removeOpInCurrentGroups(grpIdx, tpOp, tpOp->getOperand(0).getDefiningOp());
+  // if (tpCanonicalizer.isTransposeOnAllOneDim()) {
+  //   removeOpInCurrentGroups(grpIdx, tpOp,
+  //   tpOp->getOperand(0).getDefiningOp());
 
-    // generate nested for loop
-    SmallVector<Value, 4> nextLoopResults;
-    DenseMap<Value, int> resultIdxMap;
-    SmallVector<Value, 5> inductionVars;
-    DenseMap<Value, Value> forResultOrignalResultMap;
-    Operation *firstOp = getFusionStrategy().getOpGroups()[grpIdx].front();
-    OpBuilder b(firstOp);
-    VectorType groupVector =
-        getFusionStrategy().getGroupBiggestRankVectorType()[grpIdx];
-    ArrayRef<int64_t> shapes = groupVector.getShape();
+  //   // generate nested for loop
+  //   SmallVector<Value, 4> nextLoopResults;
+  //   DenseMap<Value, int> resultIdxMap;
+  //   SmallVector<Value, 5> inductionVars;
+  //   DenseMap<Value, Value> forResultOrignalResultMap;
+  //   Operation *firstOp = getFusionStrategy().getOpGroups()[grpIdx].front();
+  //   OpBuilder b(firstOp);
+  //   VectorType groupVector =
+  //       getFusionStrategy().getGroupBiggestRankVectorType()[grpIdx];
+  //   ArrayRef<int64_t> shapes = groupVector.getShape();
 
-    DenseMap<Operation *, DenseMap<size_t, size_t>> indiceLoopMap;
+  //   DenseMap<Operation *, DenseMap<size_t, size_t>> indiceLoopMap;
 
-    scf::ForOp forOp = constructNestedForOp(
-        0, grpIdx, b, firstOp->getLoc(), iterArgs, shapes, inductionVars,
-        operandIdxMap, originalOperandMap, operandOriginalMap, nextLoopResults,
-        resultIdxMap, forResultOrignalResultMap, indiceLoopMap);
+  //   scf::ForOp forOp = constructNestedForOp(
+  //       0, grpIdx, b, firstOp->getLoc(), iterArgs, shapes, inductionVars,
+  //       operandIdxMap, originalOperandMap, operandOriginalMap,
+  //       nextLoopResults, resultIdxMap, forResultOrignalResultMap,
+  //       indiceLoopMap);
 
-    auto replaceIfFn = [&](OpOperand &use) {
-      auto walkResult = forOp->walk([&](Operation *op) {
-        if (use.getOwner() == op) {
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
-      return walkResult != WalkResult::interrupt();
-    };
-    for (auto x : nextLoopResults) {
-      auto originalResult = forResultOrignalResultMap[x];
-      rewriter.replaceOpUsesWithIf(originalResult.getDefiningOp(),
-                                   forOp->getResults()[resultIdxMap[x]],
-                                   replaceIfFn);
-      rectifyGroupOperands(grpIdx, originalResult,
-                           forOp->getResults()[resultIdxMap[x]]);
-    }
-    // clear current group operation
-    clearCurrentOperationGroup(grpIdx);
-    return forOp;
-  }
+  //   forOp->dump();
+  //   DenseSet<Operation *> forOpChildOps;
+  //   forOp->walk([&](Operation *op) { forOpChildOps.insert(op); });
+  //   auto replaceIfFn = [&](OpOperand &use) {
+  //     return not forOpChildOps.contains(use.getOwner());
+  //   };
+  //   for (auto x : nextLoopResults) {
+  //     auto originalResult = forResultOrignalResultMap[x];
+  //     rewriter.replaceOpUsesWithIf(originalResult.getDefiningOp(),
+  //                                  forOp->getResults()[resultIdxMap[x]],
+  //                                  replaceIfFn);
+  //     rectifyGroupOperands(grpIdx, originalResult,
+  //                          forOp->getResults()[resultIdxMap[x]]);
+  //   }
+  //   // clear current group operation
+  //   clearCurrentOperationGroup(grpIdx);
+  //   return forOp;
+  // }
   OpBuilder b(tpOp);
   int tpStep = TransposeCanonicalizer::TRANSPOSE_KERNEL::KERNEL_16X16;
   // only contains last dim can use fast transpose algorithm
-  if (permuteSet.contains(rank - 1) and isTwoDTranspose) {
+  if ((tpCanonicalizer.getFirstTpIdx() == (rank - 1) or
+       tpCanonicalizer.getSecondTpIdx() == (rank - 1)) and
+      isTwoDTranspose) {
     scf::ForOp forOp = generateTransposeForLoopWithLastDim(
         b, grpIdx, 0, tpStep, tpOp.getLoc(), inductionVars, iterArgs,
         operandIdxMap, originalOperandMap);
@@ -2791,7 +2771,6 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
     DenseMap<Value, int> &nextAnchorResultsIdxMap,
     DenseMap<Value, Value> &forResultOrignalResultMap,
     DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap) {
-  llvm::outs() << groupIdx << "\n";
   const int loop_step = getFusionStrategy().getGroupMaxSteps()[groupIdx];
   // loop initialization variable
   auto zero = makeIndexArithConstantOp(b, loc, 0);
@@ -3197,10 +3176,10 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
                 getOperationVectorType(op2)->getShape());
           })
           .Case<vector::TransposeOp>([&](vector::TransposeOp transposeOp) {
-            SmallVector<int64_t> dims1, dims2;
-            getOperationDataAxis(op1, dims1);
-            getOperationDataAxis(op2, dims2);
             return true;
+            // SmallVector<int64_t> dims1, dims2;
+            // getOperationDataAxis(op1, dims1);
+            // getOperationDataAxis(op2, dims2);
             // if (!isSpecialOp(op2)) {
             //   return hasSameAxis(dims1, dims2);
             // }
@@ -3981,14 +3960,10 @@ mlir::FailureOr<scf::ForOp> ForLoopGenerator::generateVectorizedForLoop(
       0, groupId, rewriter, rewriter.getUnknownLoc(), forIterArgs, shapes,
       inductionVars, operandIdxMap, originalOperandMap, operandOriginalMap,
       nextLoopResults, resultIdxMap, forResultOrignalResultMap, indiceLoopMap);
+  DenseSet<Operation *> forOpChildOps;
+  forOp->walk([&](Operation *op) { forOpChildOps.insert(op); });
   auto replaceIfFn = [&](OpOperand &use) {
-    auto walkResult = forOp->walk([&](Operation *op) {
-      if (use.getOwner() == op) {
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    return walkResult != WalkResult::interrupt();
+    return not forOpChildOps.contains(use.getOwner());
   };
 
   for (auto x : nextLoopResults) {
