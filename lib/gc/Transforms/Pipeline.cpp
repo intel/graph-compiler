@@ -137,10 +137,11 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   pm.addPass(createSinkOpIntoInnerLoop());
   pm.addPass(createMergeNestedForall());
   pm.addPass(createLoopInvariantCodeMotionPass());
-  pm.addPass(createControlFlowSinkPass());
   pm.addPass(createForallToParallelLoopPass());
   pm.addPass(createParallelLoopFusionPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
+  pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);

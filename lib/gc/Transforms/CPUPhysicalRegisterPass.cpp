@@ -1899,7 +1899,7 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
     const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap) {
   auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
   vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
-  VectorType vtType = tpOp.getResultVectorType();
+  VectorType vtType = tpOp.getSourceVectorType();
   size_t rank = vtType.getRank();
 
   auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
@@ -1928,20 +1928,19 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
           auto padValue = b.create<arith::ConstantOp>(
               loc, b.getZeroAttr(vtType.getElementType()));
           SmallVector<bool> inBoundsVal(1, true);
-
-          auto transferReadOp = b.create<vector::TransferReadOp>(
-              loc,
-              /*vectorType=*/kernelType,
-              /*source=*/readSourceOp.getSource(),
-              /*indices=*/inductionVars,
-              /*padding=*/padValue,
-              /*inBounds=*/inBoundsVal);
           SmallVector<Value> writeVars;
           size_t itrIdx = 0;
           while (itrIdx < rank) {
             writeVars.emplace_back(inductionVars[tpAxisMap[itrIdx]]);
             itrIdx++;
           }
+          auto transferReadOp = b.create<vector::TransferReadOp>(
+              loc,
+              /*vectorType=*/kernelType,
+              /*source=*/readSourceOp.getSource(),
+              /*indices=*/writeVars,
+              /*padding=*/padValue,
+              /*inBounds=*/inBoundsVal);
 
           rectifyWriteOperationIndice(&successorWriteOp, writeVars);
 
@@ -2306,7 +2305,9 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   OpBuilder b(tpOp);
   int tpStep = TransposeCanonicalizer::TRANSPOSE_KERNEL::KERNEL_16X16;
   // only contains last dim can use fast transpose algorithm
-  if (permuteSet.contains(rank - 1) and isTwoDTranspose) {
+  if ((tpCanonicalizer.getFirstTpIdx() == (rank - 1) or
+       tpCanonicalizer.getSecondTpIdx() == (rank - 1)) and
+      isTwoDTranspose) {
     scf::ForOp forOp = generateTransposeForLoopWithLastDim(
         b, grpIdx, 0, tpStep, tpOp.getLoc(), inductionVars, iterArgs,
         operandIdxMap, originalOperandMap);
@@ -3176,10 +3177,10 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
                 getOperationVectorType(op2)->getShape());
           })
           .Case<vector::TransposeOp>([&](vector::TransposeOp transposeOp) {
-            SmallVector<int64_t> dims1, dims2;
-            getOperationDataAxis(op1, dims1);
-            getOperationDataAxis(op2, dims2);
             return true;
+            // SmallVector<int64_t> dims1, dims2;
+            // getOperationDataAxis(op1, dims1);
+            // getOperationDataAxis(op2, dims2);
             // if (!isSpecialOp(op2)) {
             //   return hasSameAxis(dims1, dims2);
             // }
