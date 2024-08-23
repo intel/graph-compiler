@@ -78,16 +78,17 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
            "Set default TileSize for the certain type of op, saying `matmul:{32,32}`">,
     ];
 }
-def DeepTileContractionNamedOp
-    : Pass<"deep-tile-contraction-named-op", "func::FuncOp"> {
-  let summary = "Tile linalg contraction named operation deeply";
+def DeepTileContractionOp
+    : Pass<"deep-tile-contraction-op", "func::FuncOp"> {
+  let summary = "Tile linalg contraction operation deeply";
   let description =
-      [{The pass tries to tile the linalg contraction named op deeply.}];
+      [{The pass tries to tile the linalg contraction op deeply.}];
   let dependentDialects = [
     "func::FuncDialect",
     "arith::ArithDialect",
     "tensor::TensorDialect",
     "linalg::LinalgDialect",
+    "linalgx::LinalgxDialect",
   ];
 }
 
