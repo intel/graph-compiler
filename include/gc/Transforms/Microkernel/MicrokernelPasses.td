@@ -31,6 +31,7 @@ def ConvertLinalgToMicrokernel: Pass<"convert-linalg-to-microkernel", "::mlir::f
     ```
   }];
   let dependentDialects = ["func::FuncDialect",
+                           "tensor::TensorDialect",
                            "memref::MemRefDialect",
                            "linalg::LinalgDialect",
                            "linalgx::LinalgxDialect",

@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -175,26 +176,29 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
 
   BrgemmDims brgemmDims;
 
-  auto checkAndGetPosInDomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
-                                    OpOperand *operand) {
-    auto pos = getPosInDomain(dimPos, operand, linalgOp);
-    assert(pos && "Cannot find position in codomain");
-    dim = *pos;
-  };
+#define CHECK_GET_POS_IN_DOMAIN(dim, dimPos, operand)                          \
+  pos = getPosInDomain(dimPos, operand, linalgOp);                             \
+  if (!pos) {                                                                  \
+    LLVM_DEBUG(llvm::dbgs() << "Cannot find position in domain for operand: "  \
+                            << operand << "\n");                               \
+    return failure();                                                          \
+  }                                                                            \
+  dim = *pos;
 
+  std::optional<unsigned> pos = std::nullopt;
   // A(batch, m, k)
-  checkAndGetPosInDomain(brgemmDims.batchDimA, batchAffinePos, operandA);
-  checkAndGetPosInDomain(brgemmDims.leadingDimA, {mAffinePos}, operandA);
-  checkAndGetPosInDomain(brgemmDims.minorDimA, kAffinePos, operandA);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.batchDimA, batchAffinePos, operandA);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.leadingDimA, {mAffinePos}, operandA);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.minorDimA, kAffinePos, operandA);
   // B(batch, k, n) or B(batch, k/vnni_step, n, vnni_step)
   // note: B does not use VNNI format K affine
-  checkAndGetPosInDomain(brgemmDims.batchDimB, batchAffinePos, operandB);
-  checkAndGetPosInDomain(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
-  checkAndGetPosInDomain(brgemmDims.minorDimB, {nAffinePos}, operandB);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.batchDimB, batchAffinePos, operandB);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.minorDimB, {nAffinePos}, operandB);
   // C(m, n)
-  // Currently useless, no need to set
-  // checkAndGetPosInDomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
-  // checkAndGetPosInDomain(brgemmDims.minorDimC, kAffinePos, operandC);
+  // Currently C dims are useless, no need to set
+
+#undef CHECK_GET_POS_IN_DOMAIN
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] A batch dim: "
                           << brgemmDims.batchDimA
