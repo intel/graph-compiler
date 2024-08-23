@@ -349,7 +349,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
       // infer current op's output layout accordingly
       if (supportedContractionNamedOpList(linalgOp)) {
         auto suggestedLayouts =
-            queryMatmulLayout(rewriter, linalgOp, curInputLayouts, true);
+            queryMatmulLayout(rewriter, linalgOp, curInputLayouts, false);
         layoutCache[linalgOp] = suggestedLayouts[0];
       } else if (mlir::gc::utils::isPackableNamedOp(op)) {
         // infer layout for non-contraction/non-convolution linalg named ops

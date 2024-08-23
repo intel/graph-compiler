@@ -477,9 +477,12 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
         mmt4dOp.getDpsInits());
     rewriter.replaceOp(mmt4dOp, vnniOp);
   } else {
-    auto result = mlir::gc::createAndReplaceWithGenericVNNIMatmul(
-        rewriter, mmt4dOp.getContext(), inputsValues, mmt4dOp.getDpsInits(),
-        batchDimSize, blockingFactor, mmt4dOp);
+    FailureOr<linalg::GenericOp> op = linalgx::makeGenericPackedMatmulOp(
+        rewriter, loc, linalgx::PackingType::VNNI_MM4D, inputsValues,
+        mmt4dOp.getDpsInits());
+    if (failed(op))
+      return failure();
+    rewriter.replaceOp(mmt4dOp, *op);
   }
   return success();
 }
@@ -570,9 +573,12 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
         loc, operandC.getType(), inputsValues, ValueRange{operandC});
     rewriter.replaceOp(matmulOp, VNNIMatmulOp);
   } else {
-    mlir::gc::createAndReplaceWithGenericVNNIMatmul(
-        rewriter, matmulOp.getContext(), inputsValues, matmulOp.getDpsInits(),
-        batchDimSize, blockingFactor, matmulOp);
+    FailureOr<linalg::GenericOp> op = linalgx::makeGenericPackedMatmulOp(
+        rewriter, loc, linalgx::PackingType::VNNI_MM4D, inputsValues,
+        matmulOp.getDpsInits());
+    if (failed(op))
+      return failure();
+    rewriter.replaceOp(matmulOp, *op);
   }
   return success();
 }
@@ -612,10 +618,12 @@ struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
     if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
                                          linalgx::PackingType::VNNI_MM4D)) {
       // replace VNNI_MM4D with unpack + VNNI_MM2D + pack
-      // get preceding pack
-      auto packOp =
+      // get preceding pack and successive unpack
+      auto packInputOp =
           matmulOp.getDpsInputOperand(0)->get().getDefiningOp<tensor::PackOp>();
-      if (!packOp)
+      auto packInitOp =
+          matmulOp.getDpsInitOperand(0)->get().getDefiningOp<tensor::PackOp>();
+      if (!packInputOp || !packInitOp)
         return failure();
       if (!matmulOp.getResults()[0].hasOneUse())
         return failure();
@@ -624,20 +632,33 @@ struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
       if (!unPackOp)
         return failure();
       Location loc = matmulOp.getLoc();
-      auto packInnerTiles = packOp.getMixedTiles();
-      auto packInnerDimsPos = packOp.getInnerDimsPos();
-      auto packOuterDimsPerm = packOp.getInnerDimsPos();
-      Value unpackDest = tensor::UnPackOp::createDestinationTensor(
-          rewriter, loc, packOp, packInnerTiles, packInnerDimsPos,
-          packOuterDimsPerm);
-      Value reUnpack = rewriter.create<tensor::UnPackOp>(
-          loc, packOp, unpackDest, packInnerDimsPos, packInnerTiles,
-          packOuterDimsPerm);
-      Value output = matmulOp.getResults()[0];
+      // unpack input
+      auto packInputInnerTiles = packInputOp.getMixedTiles();
+      auto packInputInnerDimsPos = packInputOp.getInnerDimsPos();
+      auto packInputOuterDimsPerm = packInputOp.getInnerDimsPos();
+      Value unpackInputDest = tensor::UnPackOp::createDestinationTensor(
+          rewriter, loc, packInputOp, packInputInnerTiles,
+          packInputInnerDimsPos, packInputOuterDimsPerm);
+      Value reUnpackInput = rewriter.create<tensor::UnPackOp>(
+          loc, packInputOp, unpackInputDest, packInputInnerDimsPos,
+          packInputInnerTiles, packInputOuterDimsPerm);
+      // unpack init
+      auto packInitInnerTiles = packInitOp.getMixedTiles();
+      auto packInitInnerDimsPos = packInitOp.getInnerDimsPos();
+      auto packInitOuterDimsPerm = packInitOp.getInnerDimsPos();
+      Value unpackInitDest = tensor::UnPackOp::createDestinationTensor(
+          rewriter, loc, packInitOp, packInitInnerTiles, packInitInnerDimsPos,
+          packInitOuterDimsPerm);
+      Value reUnpackInit = rewriter.create<tensor::UnPackOp>(
+          loc, packInitOp, unpackInitDest, packInitInnerDimsPos,
+          packInitInnerTiles, packInitOuterDimsPerm);
+      // replace vnni_4D with vnni_2D
       auto VNNI2D = linalgx::makeGenericPackedMatmulOp(
           rewriter, loc, linalgx::PackingType::VNNI_MM2D,
-          ValueRange{reUnpack, matmulOp.getDpsInputOperand(1)->get()},
-          ValueRange{output});
+          ValueRange{reUnpackInput, matmulOp.getDpsInputOperand(1)->get()},
+          ValueRange{reUnpackInit});
+      if (failed(VNNI2D))
+        return failure();
       // insert pack before unpack
       auto unPackInnerTiles = unPackOp.getMixedTiles();
       auto unPackInnerDimsPos = unPackOp.getInnerDimsPos();
@@ -649,11 +670,12 @@ struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
           rewriter.getZeroAttr(getElementTypeOrSelf(packDest.getType()));
       Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
       Value rePack = rewriter.create<tensor::PackOp>(
-          loc, packOp, packDest, unPackInnerDimsPos, unPackInnerTiles, zero,
-          unPackOuterDimsPerm);
+          loc, (*VNNI2D)->getResult(0), packDest, unPackInnerDimsPos,
+          unPackInnerTiles, zero, unPackOuterDimsPerm);
       rewriter.replaceOp(matmulOp, rePack);
+      return success();
     }
-    return success();
+    return failure();
   }
 };
 
@@ -737,7 +759,7 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   IRRewriter rewriter(ctx);
   mlir::Operation *graph = getOperation();
-  // stage1: pack matmul
+  // stage 1.1: pack matmul
   RewritePatternSet packMatmulPatterns(&getContext());
   mlir::linalg::ControlBlockPackMatmulFn packMatmulControlFn =
       [&](linalg::LinalgOp op) -> mlir::linalg::BlockPackMatmulOptions {
@@ -774,17 +796,22 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
           applyPatternsAndFoldGreedily(graph, std::move(packMatmulPatterns))))
     return signalPassFailure();
 
-  // stage2: pack VNNI
+  // stage 1.2: pack VNNI
   RewritePatternSet packVNNIPatterns(&getContext());
   packVNNIPatterns.add<PackVNNI<linalg::GenericOp>, PackVNNI<linalg::Mmt4DOp>,
                        PackVNNI<linalg::BatchMmt4DOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(graph, std::move(packVNNIPatterns))))
     return signalPassFailure();
 
-  // stage 2.5: revert necessary blocking on matmul op
+  // stage 1.3: revert necessary blocking on matmul op
   // RevertMatmulPacking
+  RewritePatternSet revertPackingPatterns(&getContext());
+  revertPackingPatterns.add<RevertMatmulPacking>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(graph,
+                                          std::move(revertPackingPatterns))))
+    return signalPassFailure();
 
-  // stage3: propagate layout on other named ops
+  // stage 2: propagate layout on other named ops
   ControlPackNamedOpsFn layoutControlFn =
       [&](Operation *op) -> FailureOr<OperatorLayout> {
     auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
@@ -793,7 +820,7 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   if (failed(namedOpLayoutPropagation(ctx, graph, layoutControlFn)))
     return signalPassFailure();
 
-  // stage4: uplift pack through broadcast
+  // stage 3: uplift pack through broadcast
   RewritePatternSet upliftPatterns(&getContext());
   upliftPatterns.add<UpliftPackOverBroadcast>(ctx);
   if (failed(applyPatternsAndFoldGreedily(graph, std::move(upliftPatterns))))
