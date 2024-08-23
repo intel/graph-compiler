@@ -119,10 +119,10 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
 // scf + arith + math + vector + memref + func/microkernel
 void populateMicroKernelPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(mlir::microkernel::createExpandMicrokernel());
-  pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
+  // pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
   pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
-  pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
-  pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  // pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
+  // pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
   // pm.addPass(createRemoveDeadValuesPass());
   // pm.addPass(createInlinerPass());
   populateCleanUpPasses(pm);

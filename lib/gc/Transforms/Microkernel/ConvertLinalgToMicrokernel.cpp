@@ -304,6 +304,7 @@ public:
       return failure();
 
     DenseMap<Value, Value> replaceMap;
+    /*
     // Check for fusible linalg::TransposeOp on operand A & B
     Value operandA = op.getDpsInputOperands()[0]->get();
     Value operandB = op.getDpsInputOperands()[1]->get();
@@ -337,6 +338,7 @@ public:
         isInitOutput = true;
       }
     }
+    */
 
     replaceOpWithMicrokernelOp(rewriter, op, *brgemmDims, replaceMap,
                                isInitOutput);
