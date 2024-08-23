@@ -304,6 +304,7 @@ public:
       return failure();
 
     DenseMap<Value, Value> replaceMap;
+    bool isInitOutput = false;
     /*
     // Check for fusible linalg::TransposeOp on operand A & B
     Value operandA = op.getDpsInputOperands()[0]->get();
