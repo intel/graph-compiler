@@ -110,6 +110,7 @@ def DecomposeAggregatedOps : Pass<"decompose-aggregated-ops", "func::FuncOp"> {
   let description = [{
     Decompose operations that implement the `AggregatedOpInterface`.
   }];
+}
 
 def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
   let summary = "Sink operations into inner loops";
