@@ -9,10 +9,12 @@
 #ifndef MLIR_ANALYSIS_TARGETDESCRIPTIONANALYSIS_H
 #define MLIR_ANALYSIS_TARGETDESCRIPTIONANALYSIS_H
 
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/IR/BuiltinDialect.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir {
