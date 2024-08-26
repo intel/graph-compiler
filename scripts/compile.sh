@@ -129,11 +129,11 @@ build_llvm() {
             git fetch --all
         fi
 
-        IMEX_HASH=$(cat cmake/imex-version.txt)
+        IMEX_HASH=$(cat "$PROJECT_DIR/cmake/imex-version.txt")
         git checkout ${IMEX_HASH}
 
         cd "$llvm_dir"
-        find "$mlir_ext_dir/build_tools/patches" -name '*.patch' -exec git apply  {} +
+        find "$mlir_ext_dir/build_tools/patches" -name '*.patch' | sort -V | xargs git apply
     fi
 
     cmake -G Ninja llvm -B build \
@@ -149,7 +149,7 @@ build_llvm() {
         -DLLVM_LINK_LLVM_DYLIB=$DYN_LINK \
         -DLLVM_INCLUDE_RUNTIMES=OFF \
         -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_TESTS=ON \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_INCLUDE_DOCS=OFF \
         -DLLVM_INSTALL_UTILS=ON \
