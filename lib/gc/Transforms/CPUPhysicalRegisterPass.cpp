@@ -61,9 +61,12 @@ void printGroupOps(SmallVector<std::queue<Operation *>, 8> &opGroups) {
   }
 }
 
+static inline bool isUsedByOtherOp(Operation *op) {
+  return isa<affine::AffineApplyOp>(op);
+}
+
 static inline bool isCandidateMoveOperations(Operation *op) {
-  return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp,
-             affine::AffineApplyOp>(op);
+  return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp>(op);
 }
 
 static inline bool isSpecialLinalgOp(Operation *op) {
@@ -103,6 +106,14 @@ static inline bool isSpecialOp(Operation *op) {
   return isa<vector::TransposeOp, vector::ReductionOp, vector::BroadcastOp,
              vector::ShapeCastOp, vector::MultiDimReductionOp, func::CallOp>(
       op);
+}
+
+static inline void moveOpBeginingOfBlock(Operation *op) {
+  Block *block = op->getBlock();
+  assert(not block->getOperations().empty() && "Empty block.");
+  if (&block->front() == op)
+    return;
+  op->moveBefore(&block->front());
 }
 
 /// operation should not contain for loop
@@ -4055,22 +4066,23 @@ moveFront(Operation *op,
     }
   }
   if (allBlockArgs) {
-    rewriter.moveOpAfter(op, op->getBlock(), op->getBlock()->begin());
+    moveOpBeginingOfBlock(op);
     return success();
   }
   for (auto operand : op->getOperands()) {
-    if (isa<BlockArgument>(operand)) {
+    if (isa<BlockArgument>(operand))
       continue;
-    }
-    if (operationPosition[operand.getDefiningOp()] > pos and
-        operand.getDefiningOp()->getBlock() == op->getBlock()) {
-      backOperation = operand.getDefiningOp();
-      pos = operationPosition[operand.getDefiningOp()];
+
+    Operation *sourceOp = operand.getDefiningOp();
+    if (operationPosition[sourceOp] > pos and
+        sourceOp->getBlock() == op->getBlock()) {
+      backOperation = sourceOp;
+      pos = operationPosition[sourceOp];
     }
   }
   if (pos == 0) {
     // extract operand operation all in previous block
-    rewriter.moveOpBefore(op, op->getBlock(), op->getBlock()->begin());
+    moveOpBeginingOfBlock(op);
     return success();
   }
   if (backOperation) {
@@ -4084,16 +4096,16 @@ LogicalResult moveBack(Operation *op,
                        llvm::DenseMap<Operation *, size_t> &operationPosition) {
   IRRewriter rewriter(op);
   Operation *firstOperation;
-  size_t pos = 0;
+  size_t pos = std::numeric_limits<size_t>::max();
   for (auto user : op->getUsers()) {
-    if (operationPosition[user] > pos and user->getBlock() == op->getBlock()) {
+    if (operationPosition[user] < pos and user->getBlock() == op->getBlock()) {
       firstOperation = user;
       pos = operationPosition[user];
     }
   }
-  if (pos == 0) {
+  if (pos == std::numeric_limits<size_t>::max()) {
     // Don't move.
-    // TODO: need to consider move to before the block which use it.
+    // TODO: need to consider move before the block which use it.
     return success();
   }
   if (firstOperation) {
@@ -4197,7 +4209,10 @@ struct CPUPhysicalRegisterPass
       LDBG("Not support operation appears in current function.");
       return;
     }
-    std::function<bool(Operation *)> candidateFunc = isCandidateMoveOperations;
+    // affineApply operation is always used by other operations.
+    std::function<bool(Operation *)> candidateFunc = isUsedByOtherOp;
+    moveSomeInterferenceOperation(&func, ctx, candidateFunc);
+    candidateFunc = isCandidateMoveOperations;
     moveSomeInterferenceOperation(&func, ctx, candidateFunc);
     // canonicalize vector operation, default use vector-based fusion
     // strategy.
