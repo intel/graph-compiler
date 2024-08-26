@@ -674,21 +674,15 @@ struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
       auto packInputInnerTiles = packInputOp.getMixedTiles();
       auto packInputInnerDimsPos = packInputOp.getInnerDimsPos();
       auto packInputOuterDimsPerm = packInputOp.getInnerDimsPos();
-      Value unpackInputDest = tensor::UnPackOp::createDestinationTensor(
-          rewriter, loc, packInputOp, packInputInnerTiles,
-          packInputInnerDimsPos, packInputOuterDimsPerm);
       Value reUnpackInput = rewriter.create<tensor::UnPackOp>(
-          loc, packInputOp, unpackInputDest, packInputInnerDimsPos,
+          loc, packInputOp, packInputOp.getSource(), packInputInnerDimsPos,
           packInputInnerTiles, packInputOuterDimsPerm);
       // unpack init
       auto packInitInnerTiles = packInitOp.getMixedTiles();
       auto packInitInnerDimsPos = packInitOp.getInnerDimsPos();
       auto packInitOuterDimsPerm = packInitOp.getInnerDimsPos();
-      Value unpackInitDest = tensor::UnPackOp::createDestinationTensor(
-          rewriter, loc, packInitOp, packInitInnerTiles, packInitInnerDimsPos,
-          packInitOuterDimsPerm);
       Value reUnpackInit = rewriter.create<tensor::UnPackOp>(
-          loc, packInitOp, unpackInitDest, packInitInnerDimsPos,
+          loc, packInitOp, packInitOp.getSource(), packInitInnerDimsPos,
           packInitInnerTiles, packInitOuterDimsPerm);
       // replace vnni_4D with vnni_2D
       auto VNNI2D = linalgx::makeGenericPackedMatmulOp(
