@@ -78,19 +78,13 @@ static bool isForallLoopBoundStatic(Operation *op) {
     SmallVector<Value> lowerBounds = forallOp.getLowerBound(builder);
 
     isStatic &= llvm::all_of(upperBounds, [](Value &ub) {
-      if (ub.getDefiningOp() &&
-          isa<arith::ConstantIndexOp>(ub.getDefiningOp())) {
-        return true;
-      }
-      return false;
+      return (ub.getDefiningOp() &&
+              isa<arith::ConstantIndexOp>(ub.getDefiningOp()));
     });
 
     isStatic &= llvm::all_of(lowerBounds, [](Value &lb) {
-      if (lb.getDefiningOp() &&
-          isa<arith::ConstantIndexOp>(lb.getDefiningOp())) {
-        return true;
-      }
-      return false;
+      return (lb.getDefiningOp() &&
+              isa<arith::ConstantIndexOp>(lb.getDefiningOp()));
     });
 
     return isStatic;
