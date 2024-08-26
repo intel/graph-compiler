@@ -9,8 +9,8 @@
 // This transformation pass performs a constant subgraph transform in MLIR.
 //
 //===----------------------------------------------------------------------===//
-
 #include <deque>
+#include <iostream>
 #include <unordered_set>
 
 #include "mlir/Transforms/Passes.h"
@@ -496,6 +496,14 @@ void getInputsAndOutputs(Block &block,
                         [](Operation *child) {
                           return !isInConstantSubgraph(child);
                         })) {
+          // skip case: memref v -> bufferization.to_tensor -> tensor t.
+          if (valuesOnTheWay.size() == 2 && v.hasOneUse() &&
+              isa<bufferization::ToTensorOp>(v.getDefiningOp())) {
+            inputTypes.pop_back();
+            inputValues.pop_back();
+            constArgsIndexes.erase(id);
+            continue;
+          }
           if (std::find(outputValues.begin(), outputValues.end(), v) ==
               outputValues.end()) {
             outputTypes.push_back(v.getType());
@@ -777,13 +785,17 @@ void ConstantTensorFolding::runOnOperation() {
     getInputsAndOutputs(block, compiletimeConstArgsIndexes,
                         compiletimeInputTypes, compiletimeInputValues,
                         compiletimeOutputTypes, compiletimeOutputValues);
+    assert(compiletimeInputTypes.size() == compiletimeInputValues.size());
+    assert(compiletimeOutputTypes.size() == compiletimeOutputValues.size());
 
-    func::FuncOp compiletimeFoldFunc =
-        buildFoldFunc(context, builder, topOp, "compiletime_fold", constOps,
-                      compiletimeInputTypes, compiletimeInputValues,
-                      compiletimeOutputTypes, compiletimeOutputValues);
-    (void)compiletimeFoldFunc;
-    canonicalizeAndClean(context, compiletimeFoldFunc.getOperation());
+    if (!compiletimeOutputTypes.empty()) {
+      func::FuncOp compiletimeFoldFunc =
+          buildFoldFunc(context, builder, topOp, "compiletime_fold", constOps,
+                        compiletimeInputTypes, compiletimeInputValues,
+                        compiletimeOutputTypes, compiletimeOutputValues);
+      (void)compiletimeFoldFunc;
+      canonicalizeAndClean(context, compiletimeFoldFunc.getOperation());
+    }
 
     // ===== build runtime folding function =====
     SmallVector<Type> runtimeInputTypes; // types of constant tensors
@@ -795,12 +807,16 @@ void ConstantTensorFolding::runOnOperation() {
     getInputsAndOutputs(block, runtimeConstArgsIndexes, runtimeInputTypes,
                         runtimeInputValues, runtimeOutputTypes,
                         runtimeOutputValues);
+    assert(runtimeInputTypes.size() == runtimeInputValues.size());
+    assert(runtimeOutputTypes.size() == runtimeOutputValues.size());
 
-    func::FuncOp runtimeFoldFunc = buildFoldFunc(
-        context, builder, topOp, "runtime_fold", constOps, runtimeInputTypes,
-        runtimeInputValues, runtimeOutputTypes, runtimeOutputValues);
-    (void)runtimeFoldFunc;
-    canonicalizeAndClean(context, runtimeFoldFunc.getOperation());
+    if (!runtimeOutputTypes.empty()) {
+      func::FuncOp runtimeFoldFunc = buildFoldFunc(
+          context, builder, topOp, "runtime_fold", constOps, runtimeInputTypes,
+          runtimeInputValues, runtimeOutputTypes, runtimeOutputValues);
+      (void)runtimeFoldFunc;
+      canonicalizeAndClean(context, runtimeFoldFunc.getOperation());
+    }
 
     // ===== build computing function =====
     std::unordered_set<int> constArgsIndexes = compiletimeConstArgsIndexes;
@@ -811,8 +827,10 @@ void ConstantTensorFolding::runOnOperation() {
     SmallVector<Value> outputValues = compiletimeOutputValues;
     outputValues.insert(outputValues.end(), runtimeOutputValues.begin(),
                         runtimeOutputValues.end());
-    modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
-                      outputTypes, outputValues);
+    if (!outputTypes.empty()) {
+      modifyComputeFunc(context, builder, topOp, topFunc, block,
+                        constArgsIndexes, outputTypes, outputValues);
+    }
   } else {
     std::unordered_set<int> constArgsIndexes = compiletimeConstArgsIndexes;
     constArgsIndexes.merge(runtimeConstArgsIndexes);
@@ -827,16 +845,20 @@ void ConstantTensorFolding::runOnOperation() {
     getArithConstantOutputs(block, outputTypes, outputValues);
     getInputsAndOutputs(block, constArgsIndexes, inputTypes, inputValues,
                         outputTypes, outputValues);
+    assert(inputTypes.size() == inputValues.size());
+    assert(outputTypes.size() == outputValues.size());
 
-    func::FuncOp foldFunc =
-        buildFoldFunc(context, builder, topOp, "runtime_fold", constOps,
-                      inputTypes, inputValues, outputTypes, outputValues);
-    (void)foldFunc;
-    canonicalizeAndClean(context, foldFunc.getOperation());
+    if (!outputTypes.empty()) {
+      func::FuncOp foldFunc =
+          buildFoldFunc(context, builder, topOp, "runtime_fold", constOps,
+                        inputTypes, inputValues, outputTypes, outputValues);
+      (void)foldFunc;
+      canonicalizeAndClean(context, foldFunc.getOperation());
 
-    // ===== build computing function =====
-    modifyComputeFunc(context, builder, topOp, topFunc, block, constArgsIndexes,
-                      outputTypes, outputValues);
+      // ===== build computing function =====
+      modifyComputeFunc(context, builder, topOp, topFunc, block,
+                        constArgsIndexes, outputTypes, outputValues);
+    }
   }
 
   canonicalizeAndClean(context, topOp);
