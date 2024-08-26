@@ -45,7 +45,7 @@ static bool needsHoistOutOfParallelLoop(Operation *op) {
   Operation *parent =
       op->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
   if (parent && isa<scf::ForallOp>(parent)) {
-    // check if the current allocation is between nested pfor, and use
+    // check if the current allocation is between the nested pfor, and use
     // inside the inner parallel loop
     SmallVector<Operation *, 4> parallelOpInCurBlock;
     Block *curBlock = op->getBlock();
@@ -55,12 +55,13 @@ static bool needsHoistOutOfParallelLoop(Operation *op) {
       }
     }
 
-    if (!parallelOpInCurBlock.empty()) {
-      for (auto *use : op->getUsers()) {
-        for (auto *parallelOp : parallelOpInCurBlock) {
-          if (parallelOp->isAncestor(use)) {
-            return true;
-          }
+    if (parallelOpInCurBlock.empty())
+      return false;
+
+    for (auto *use : op->getUsers()) {
+      for (auto *parallelOp : parallelOpInCurBlock) {
+        if (parallelOp->isAncestor(use)) {
+          return true;
         }
       }
     }
@@ -91,6 +92,7 @@ static bool isForallLoopBoundStatic(Operation *op) {
       }
       return false;
     });
+
     return isStatic;
   } else {
     return false;
@@ -255,16 +257,15 @@ Operation *TickCollecter::getAllocScope(TickCollecterStates *s,
     if (!parent) {
       return nullptr;
     }
-    if (!isa<scf::ForOp>(parent)) {
-      if (isa<scf::ForallOp>(parent)) {
-        // skip for dynamic range
-        moveToUpperParellelLoop &= isForallLoopBoundStatic(parent);
-        if (moveToUpperParellelLoop)
-          continue;
-      } else {
-        return parent;
-      }
-    }
+
+    if (isa<scf::ForOp>(parent))
+      continue;
+
+    if (isa<scf::ForallOp>(parent) &&
+        (moveToUpperParellelLoop && isForallLoopBoundStatic(parent)))
+      continue;
+
+    return parent;
   }
 }
 
@@ -272,25 +273,25 @@ FailureOr<size_t> TickCollecter::getAllocSize(TickCollecterStates *s,
                                               Operation *op) const {
   auto refType = cast<MemRefType>(op->getResultTypes().front());
 
-  // Get the total number of threads from top to the level of the parallel loop
-  // that the allocation located in.
+  // Get the total number of threads from the outermost to the current level of
+  // the parallel loop that the allocation located in.
   int64_t numThreads = 1;
   if (needsHoistOutOfParallelLoop(op)) {
     Operation *parent =
         op->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
     while (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
-      if (isForallLoopBoundStatic(forallOp)) {
-        OpBuilder builder{forallOp->getContext()};
-        SmallVector<Value> ubs = forallOp.getUpperBound(builder);
-        if (std::optional<int64_t> ubs0_int = getConstantIntValue(ubs[0])) {
-          int64_t innerLoopUpperBound = ubs0_int.value();
-          numThreads *= innerLoopUpperBound;
-        } else {
-          op->emitError("Expecting static loop range!");
-        }
-      } else {
+      if (!isForallLoopBoundStatic(forallOp))
         break;
+
+      OpBuilder builder{forallOp->getContext()};
+      SmallVector<Value> ubs = forallOp.getUpperBound(builder);
+      if (std::optional<int64_t> ubs0_int = getConstantIntValue(ubs[0])) {
+        int64_t innerLoopUpperBound = ubs0_int.value();
+        numThreads *= innerLoopUpperBound;
+      } else {
+        op->emitError("Expecting static loop range!");
       }
+
       parent = parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
     }
   }
@@ -487,68 +488,63 @@ Value MergeAllocDefaultMutator::buildView(OpBuilder &builder, Block *scope,
                                           Value mergedAlloc,
                                           int64_t byteOffset) const {
   builder.setInsertionPoint(origAllocOp);
-  // auto byteShift =
-  //     builder.create<arith::ConstantIndexOp>(origAllocOp->getLoc(),
-  //     byteOffset);
-  // return builder.create<memref::ViewOp>(origAllocOp->getLoc(),
   auto loc = origAllocOp->getLoc();
   auto byteShift = builder.create<arith::ConstantIndexOp>(loc, byteOffset);
 
   bool moveToUpperParellelLoop = needsHoistOutOfParallelLoop(origAllocOp);
-  if (moveToUpperParellelLoop) {
-    Operation *parent =
-        origAllocOp->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
-    if (parent && isa<scf::ForallOp>(parent)) {
-      // get the real inductorVar
-      bool isOuterMostLoop = true;
-      Value inductVar;
-      int64_t innerLoopUpperBound = 1;
-      while (parent) {
-        if (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
-          if (isForallLoopBoundStatic(forallOp)) {
-            SmallVector<Value> upperBounds = forallOp.getUpperBound(builder);
-            if (std::optional<int64_t> ubs0_int =
-                    getConstantIntValue(upperBounds[0])) {
-              if (isOuterMostLoop) {
-                inductVar = forallOp.getInductionVar(0);
-                isOuterMostLoop = false;
-              } else {
-                Value innerLoopBoundVal =
-                    builder.create<arith::ConstantIndexOp>(loc,
-                                                           innerLoopUpperBound);
-                Value intermediateVal = builder.create<arith::MulIOp>(
-                    loc, forallOp.getInductionVar(0), innerLoopBoundVal);
-                inductVar = builder.create<arith::AddIOp>(loc, inductVar,
-                                                          intermediateVal);
-              }
-              innerLoopUpperBound = ubs0_int.value();
-            }
+  Operation *parent =
+      origAllocOp->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+  if (!moveToUpperParellelLoop || !parent || !isa<scf::ForallOp>(parent))
+    return builder.create<memref::ViewOp>(loc,
+                                          origAllocOp->getResultTypes().front(),
+                                          mergedAlloc, byteShift, ValueRange{});
+
+  // get the aggregated inductorVar
+  Value inductVar;
+  bool isOuterMostLoop = true;
+  int64_t innerLoopUpperBound = 1;
+  while (parent) {
+    if (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
+      if (isForallLoopBoundStatic(forallOp)) {
+        SmallVector<Value> upperBounds = forallOp.getUpperBound(builder);
+        if (std::optional<int64_t> ubs0_int =
+                getConstantIntValue(upperBounds[0])) {
+          if (isOuterMostLoop) {
+            inductVar = forallOp.getInductionVar(0);
+            isOuterMostLoop = false;
+          } else {
+            Value innerLoopBoundVal = builder.create<arith::ConstantIndexOp>(
+                loc, innerLoopUpperBound);
+            Value intermediateVal = builder.create<arith::MulIOp>(
+                loc, forallOp.getInductionVar(0), innerLoopBoundVal);
+            inductVar =
+                builder.create<arith::AddIOp>(loc, inductVar, intermediateVal);
           }
+          innerLoopUpperBound = ubs0_int.value();
         }
-        parent =
-            parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
-      }
-
-      if (!isOuterMostLoop) {
-        // get original shape size
-        auto memType = cast<MemRefType>(origAllocOp->getResultTypes().front());
-        int64_t size = getSizeInBytes(memType);
-        Value origSize = builder.create<arith::ConstantIndexOp>(loc, size);
-        Value offsetPerThread =
-            builder.create<arith::MulIOp>(loc, inductVar, origSize);
-        Value byteShiftPerThread =
-            builder.create<arith::AddIOp>(loc, byteShift, offsetPerThread);
-
-        return builder.create<memref::ViewOp>(
-            loc, origAllocOp->getResultTypes().front(), mergedAlloc,
-            byteShiftPerThread, ValueRange{});
       }
     }
+
+    parent = parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
   }
 
-  return builder.create<memref::ViewOp>(loc,
-                                        origAllocOp->getResultTypes().front(),
-                                        mergedAlloc, byteShift, ValueRange{});
+  if (!isOuterMostLoop) {
+    // get original shape size
+    auto memType = cast<MemRefType>(origAllocOp->getResultTypes().front());
+    int64_t size = getSizeInBytes(memType);
+    Value origSize = builder.create<arith::ConstantIndexOp>(loc, size);
+    Value offsetPerThread =
+        builder.create<arith::MulIOp>(loc, inductVar, origSize);
+    Value byteShiftPerThread =
+        builder.create<arith::AddIOp>(loc, byteShift, offsetPerThread);
+
+    return builder.create<memref::ViewOp>(
+        loc, origAllocOp->getResultTypes().front(), mergedAlloc,
+        byteShiftPerThread, ValueRange{});
+  } else
+    return builder.create<memref::ViewOp>(loc,
+                                          origAllocOp->getResultTypes().front(),
+                                          mergedAlloc, byteShift, ValueRange{});
 }
 
 LogicalResult
