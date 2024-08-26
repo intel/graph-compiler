@@ -588,6 +588,10 @@ public:
     if (!is_target)
       return rewriter.notifyMatchFailure(op, "Not expected operations.");
 
+    if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(op)) {
+      return rewriter.notifyMatchFailure(op, "Don't need to lower this op.");
+    }
+
     if (failed(convert2TargetOperation(rewriter, op, inputVectorSizes)))
       return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
 
