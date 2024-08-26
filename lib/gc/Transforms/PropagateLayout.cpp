@@ -450,8 +450,9 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
     return rewriter.notifyMatchFailure(mmt4dOp, "require bf16/int8 data type");
   Location loc = mmt4dOp.getLoc();
   // BNKnk --> BNKkn2k
-  int64_t weightRank =
-      cast<ShapedType>(mmt4dOp.getInputs()[1].getType()).getShape().size();
+  auto weightShape =
+      cast<ShapedType>(mmt4dOp.getInputs()[1].getType()).getShape();
+  int64_t weightRank = weightShape.size();
   // pack innermost k axis
   SmallVector<int64_t> innerPos{weightRank - 1};
   int64_t blockingFactor = elementType.isBF16() ? 2 : 4;
@@ -470,7 +471,25 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
   Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
   Value VNNIPack = rewriter.create<tensor::PackOp>(
       loc, RHSOperand->get(), dest, innerPos, tileSize, zero, outerPerm);
+  // check whether VNNIPack causes padding
+  int64_t innermostKDim = weightShape[weightRank - 1];
+  int64_t paddingSize = (innermostKDim % blockingFactor)
+                            ? (blockingFactor - innermostKDim % blockingFactor)
+                            : 0;
   SmallVector<Value> inputsValues{mmt4dOp.getInputs()[0], VNNIPack};
+  if (paddingSize) {
+    // insert padOp
+    auto inputShape =
+        cast<ShapedType>(mmt4dOp.getInputs()[0].getType()).getShape();
+    SmallVector<OpFoldResult> lowPad(inputShape.size(),
+                                     rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> highPad(inputShape.size(),
+                                      rewriter.getIndexAttr(0));
+    highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
+    auto padOp = rewriter.create<tensor::PadOp>(
+        loc, /*result=*/Type(), mmt4dOp.getInputs()[0], lowPad, highPad, zero);
+    inputsValues[0] = padOp;
+  }
   if (useNamedOp) {
     auto vnniOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
         loc, mmt4dOp.getDpsInits().getTypes(), inputsValues,
@@ -553,9 +572,10 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
   Location loc = matmulOp.getLoc();
   int64_t blockingFactor = elementType.isBF16() ? 2 : 4;
   SmallVector<OpFoldResult> tileSize{rewriter.getIndexAttr(blockingFactor)};
-  // get weight's rank
-  int64_t weightRank =
-      cast<ShapedType>(weight.get().getType()).getShape().size();
+  // BNKkn, get weight's rank
+  auto weightShape =
+      cast<ShapedType>(matmulOp.getInputs()[1].getType()).getShape();
+  int64_t weightRank = weightShape.size();
   auto innerPos = SmallVector<int64_t>{weightRank - 2};
   // pack weight
   Value dest = tensor::PackOp::createDestinationTensor(
@@ -567,6 +587,24 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
 
   int64_t batchDimSize = weightRank - 4;
   SmallVector<Value> inputsValues{matmulOp.getInputs()[0], VNNIPack};
+  // check whether VNNIPack causes padding, weightShape is BNKkn
+  int64_t innermostKDim = weightShape[weightRank - 2];
+  int64_t paddingSize = (innermostKDim % blockingFactor)
+                            ? (blockingFactor - innermostKDim % blockingFactor)
+                            : 0;
+  if (paddingSize) {
+    // insert padOp
+    auto inputShape =
+        cast<ShapedType>(matmulOp.getInputs()[0].getType()).getShape();
+    SmallVector<OpFoldResult> lowPad(inputShape.size(),
+                                     rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> highPad(inputShape.size(),
+                                      rewriter.getIndexAttr(0));
+    highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
+    auto padOp = rewriter.create<tensor::PadOp>(
+        loc, /*result=*/Type(), matmulOp.getInputs()[0], lowPad, highPad, zero);
+    inputsValues[0] = padOp;
+  }
   if (useNamedOp) {
     Value operandC = matmulOp.getDpsInits()[0];
     auto VNNIMatmulOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
