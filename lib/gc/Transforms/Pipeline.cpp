@@ -54,7 +54,7 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addPass(createConstantSubgraphAnalysisPass());
   pm.addPass(createConstantTensorFoldingPass());
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
-  pm.addNestedPass<func::FuncOp>(createDeepTileContractionNamedOp());
+  pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
 
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
@@ -64,6 +64,10 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // REMOVE this pass after the above passes are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+  // copied from tpp project
+  pm.addNestedPass<func::FuncOp>(createDecomposeAggregatedOps());
+  // fold useless tensor operation pass
+  pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   populateCleanUpPasses(pm);
@@ -95,6 +99,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   options.setFunctionBoundaryTypeConversion(
       bufferization::LayoutMapOption::IdentityLayoutMap);
   pm.addPass(bufferization::createOneShotBufferizePass(options));
+  pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
@@ -144,6 +149,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createCSEPass());

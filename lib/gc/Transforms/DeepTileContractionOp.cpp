@@ -1,4 +1,4 @@
-//===-- DeepTileContractionNamedOp.cpp - tile named op deeply ---*- C++ -*-===//
+//===-- DeepTileContractionOp.cpp - tile named op deeply --------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,7 +8,9 @@
 
 #include "./TilingUtil.hpp"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -22,9 +24,11 @@
 
 #include <memory>
 
+#define DEBUG_TYPE "gc-deep-tile-contraction-op"
+
 namespace mlir {
 namespace gc {
-#define GEN_PASS_DEF_DEEPTILECONTRACTIONNAMEDOP
+#define GEN_PASS_DEF_DEEPTILECONTRACTIONOP
 #include "gc/Transforms/Passes.h.inc"
 
 namespace {
@@ -101,16 +105,6 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
     result = transposeOp->getResult(0);
   }
   return result;
-}
-
-// Check if the loop is dummy loop(has only one iteration)
-bool isDummyLoop(LoopLikeOpInterface loop) {
-  std::optional<int64_t> tripCount = mlir::constantTripCount(
-      *loop.getSingleLowerBound(), *loop.getSingleUpperBound(),
-      *loop.getSingleStep());
-  if (tripCount)
-    return *tripCount == 1;
-  return false;
 }
 
 // Build the linalg region for a linalg op
@@ -394,13 +388,11 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
         if (failed(tilingResult))
           return failure();
 
-        if (!isDummyLoop(tilingResult->loops.back())) {
-          b.replaceOp(currentOp, tilingResult->replacements);
-          currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
-          if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
-            result.reductionLoops.push_back(tilingResult->loops.back());
-          result.loops.push_back(tilingResult->loops.back());
-        }
+        b.replaceOp(currentOp, tilingResult->replacements);
+        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+        if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
+          result.reductionLoops.push_back(tilingResult->loops.back());
+        result.loops.push_back(tilingResult->loops.back());
       }
     } else if (loopType == OuterLoopGenerationOption::LoopType::ForallOp) {
       SmallVector<OpFoldResult> tileSizes(
@@ -665,6 +657,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     Operation *fillOp;
     bool needLowPrecisionCast;
     SmallVector<LoopLikeOpInterface> KLoopHandles;
+    MatmulConfig cfg;
   };
 
   LogicalResult innerBodyGeneration(RewriterBase &rewriter,
@@ -674,8 +667,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     Location loc = currentOp->getLoc();
     FailureOr<SmallVector<SmallVector<DimType>>> operandDimTypes =
         getOprandDimType(originOp);
-    MatmulConfig cfg =
-        MatmulConfigAnalysis(originOp.getOperation()).getConfig();
+    MatmulConfig &cfg = option.cfg;
     ArrayRef<int64_t> AShape =
         originOp.getShape(originOp.getDpsInputOperand(0));
     ArrayRef<int64_t> BShape =
@@ -753,7 +745,6 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                                 cfg.innerMostKBlock,
                                             cfg.innerMostNBlock};
     }
-
     // Get the data/wei/dst data type
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(currentOp);
@@ -809,17 +800,32 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                  CInnermostDims.end()),
             resultType),
         currentOp.getDpsInits()[0]);
+
     // Create the brgemm op and replace the origin linalg op
     linalg::LinalgOp matmul;
     if (dyn_cast<mlir::ShapedType>(weightOprand.getType()).getShape().size() ==
-        3)
+        3) {
       matmul = rewriter.create<linalg::BatchReduceMatmulOp>(
           loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
           resultOprand);
-    else
+    } else {
+      // TODO: replace liangx brgemm with the generic in the comment when
+      // microkernel is ready
       matmul = rewriter.create<linalgx::BatchReduceMatmulVnniOp>(
           loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
           resultOprand);
+
+      // auto inputRange = ValueRange{dataOprand, weightOprand};
+      // auto resRange = ValueRange{resultOprand};
+      // auto res = linalgx::makeGenericPackedMatmulOp(
+      //     rewriter, loc, linalgx::PackingType::VNNI_BRMM3D, inputRange,
+      //     resRange);
+      // if (succeeded(res))
+      //   matmul = *res;
+      // else
+      //   return failure();
+    }
+
     Value result = matmul.getOperation()->getResult(0);
 
     // Insert the result back to the original tensor
@@ -923,9 +929,14 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 
   bool checkLinalgMatmulType(linalg::LinalgOp linalgOp) const {
-    return llvm::isa<linalg::MatmulOp>(linalgOp) ||
-           llvm::isa<linalgx::Mm2DVnniOp>(linalgOp) ||
-           llvm::isa<linalgx::Mm4DVnniOp>(linalgOp);
+    return llvm::isa<linalg::MatmulOp, linalgx::Mm2DVnniOp,
+                     linalgx::Mm4DVnniOp>(linalgOp) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::VNNI_MM2D) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::VNNI_MM4D) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::MM4D);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
@@ -947,9 +958,12 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
-    MatmulConfig cfg =
-        MatmulConfigAnalysis(originOp.getOperation()).getConfig();
-    linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
+    MatmulConfigAnalysis cfgAnalysis =
+        MatmulConfigAnalysis(originOp.getOperation());
+    cfgAnalysis.setAllowIndivisibleInnerBlock(false);
+    MatmulConfig cfg = cfgAnalysis.getConfig();
+    if (!llvm::isa<linalg::GenericOp>(linalgOp))
+      linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
     bool needLowPrecisionCast = needToLegalizeDtype(linalgOp);
     if (cfg.KThreads > 1) {
       FailureOr<DtypeLegalizeResult> result =
@@ -957,8 +971,6 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       if (succeeded(result) && result->castOp && result->linalgOp) {
         rewriter.replaceOp(linalgOp, result->castOp);
         linalgOp = dyn_cast<linalg::LinalgOp>(result->linalgOp);
-      } else {
-        return failure();
       }
       needLowPrecisionCast = false;
     }
@@ -972,7 +984,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     // Step 3 generate inner loop body, convert the linalg.generic to brgemm
     innerBodyGenerationOption option = innerBodyGenerationOption{
-        fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops};
+        fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops, cfg};
 
     if (failed(innerBodyGeneration(rewriter, originOp, linalgOp, option)))
       return failure();
@@ -981,8 +993,8 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   }
 };
 
-struct DeepTileContractionNamedOp
-    : public impl::DeepTileContractionNamedOpBase<DeepTileContractionNamedOp> {
+struct DeepTileContractionOp
+    : public impl::DeepTileContractionOpBase<DeepTileContractionOp> {
 public:
   void runOnOperation() final {
     MLIRContext &ctx = getContext();
@@ -991,10 +1003,6 @@ public:
 
     patterns.add<DeepTileMatmul>(patterns.getContext());
     linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
-    linalg::ControlDropUnitDims options;
-    options.rankReductionStrategy =
-        linalg::ControlDropUnitDims::RankReductionStrategy::ExtractInsertSlice;
-    linalg::populateFoldUnitExtentDimsPatterns(patterns, options);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
 
     for (Dialect *dialect : ctx.getLoadedDialects())

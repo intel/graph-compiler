@@ -18,10 +18,13 @@ gc_add_mlir_library(GcPasses
   VerifyTargetDescription.cpp
   ConstantSubgraphAnalysis.cpp
   ConstantTensorFolding.cpp
-  DeepTileContractionNamedOp.cpp
+  DecomposeAggregatedOps.cpp
+  DeepTileContractionOp.cpp
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  FoldTensorOperation.cpp
+  LowerToTileVector.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

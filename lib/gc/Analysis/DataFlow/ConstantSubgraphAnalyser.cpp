@@ -50,7 +50,7 @@ void IsConstantTensor::print(raw_ostream &os) const {
 // ConstantSubgraphAnalyser
 //===----------------------------------------------------------------------===//
 
-void ConstantSubgraphAnalyser::visitOperation(
+LogicalResult ConstantSubgraphAnalyser::visitOperation(
     Operation *op, ArrayRef<const Lattice<IsConstantTensor> *> operands,
     ArrayRef<Lattice<IsConstantTensor> *> results) {
   LLVM_DEBUG(llvm::dbgs() << "ConstantSubgraphAnalyser: Visiting operation:\n"
@@ -89,6 +89,7 @@ void ConstantSubgraphAnalyser::visitOperation(
       propagateIfChanged(lattice, lattice->join(IsConstantTensor(true, true)));
     }
   }
+  return LogicalResult::success();
 }
 
 void ConstantSubgraphAnalyser::setToEntryState(

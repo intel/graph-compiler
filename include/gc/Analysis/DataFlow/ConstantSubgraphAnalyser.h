@@ -93,7 +93,7 @@ class ConstantSubgraphAnalyser
 public:
   using SparseForwardDataFlowAnalysis::SparseForwardDataFlowAnalysis;
 
-  void visitOperation(Operation *op,
+  LogicalResult visitOperation(Operation *op,
                       ArrayRef<const Lattice<IsConstantTensor> *> operands,
                       ArrayRef<Lattice<IsConstantTensor> *> results) override;
 
