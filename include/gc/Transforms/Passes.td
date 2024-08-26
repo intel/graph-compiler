@@ -88,6 +88,7 @@ def DeepTileContractionOp
     "arith::ArithDialect",
     "tensor::TensorDialect",
     "linalg::LinalgDialect",
+    "linalgx::LinalgxDialect",
   ];
 }
 
@@ -102,6 +103,13 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
            /*default=*/"\"CPU\"",
            "The device to verify. Supported device: CPU, ">,
   ];
+}
+
+def DecomposeAggregatedOps : Pass<"decompose-aggregated-ops", "func::FuncOp"> {
+  let summary = "Decompose aggregated operations.";
+  let description = [{
+    Decompose operations that implement the `AggregatedOpInterface`.
+  }];
 }
 
 def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {

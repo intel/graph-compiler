@@ -20,6 +20,7 @@ gc_add_mlir_library(GcPasses
   PropagateLayout.cpp
   PostProcessPackUnpack.cpp
   LowerPackUnpack.cpp
+  DecomposeAggregatedOps.cpp
   DeepTileContractionOp.cpp
   TilingUtil.cpp
 

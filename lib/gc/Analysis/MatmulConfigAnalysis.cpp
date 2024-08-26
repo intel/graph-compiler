@@ -37,6 +37,19 @@ static llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
   return ss;
 }
 
+bool validateConfig(const MatmulConfig &cfg) {
+  if (cfg.MThreads <= 0 || cfg.NThreads <= 0 || cfg.KThreads <= 0 ||
+      cfg.MBlock <= 0 || cfg.NBlock <= 0 || cfg.KBlock <= 0 ||
+      cfg.innerMostMBlock <= 0 || cfg.innerMostNBlock <= 0 ||
+      cfg.innerMostKBlock <= 0)
+    return false;
+  if (cfg.MBlock % cfg.innerMostMBlock != 0 ||
+      cfg.NBlock % cfg.innerMostNBlock != 0 ||
+      cfg.KBlock % cfg.innerMostKBlock != 0)
+    return false;
+  return true;
+}
+
 // generate the candidate for the block size(factor of `num`, pow of 2 which is
 // less than `num`)
 std::vector<uint32_t>
@@ -100,10 +113,7 @@ double workloadBalancedCost(linalg::LinalgOp &linalgOp,
                             ArrayRef<uint32_t> shape,
                             const MatmulConfig &config,
                             CPUTargetDescriptionAnalysis &sysDesc) {
-  if (shape.size() < 3) {
-    // Has an invalid shape
-    return 0;
-  }
+  assert(shape.size() >= 3 && "shape.size() should >= 3");
   uint32_t M = shape[0], N = shape[1], K = shape[2];
   uint32_t MTaskNum = llvm::divideCeil(M, config.MBlock);
   uint32_t NTaskNum = llvm::divideCeil(N, config.NBlock);
@@ -124,10 +134,7 @@ double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
                                      ArrayRef<uint32_t> shape,
                                      const MatmulConfig &config,
                                      CPUTargetDescriptionAnalysis &sysDesc) {
-  if (shape.size() < 3) {
-    // Has an invalid shape
-    return 0;
-  }
+  assert(shape.size() >= 3 && "shape.size() should >= 3");
   uint32_t M = shape[0], N = shape[1], K = shape[2];
   size_t dtypeSize = DataLayout().getTypeSize(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
@@ -164,26 +171,31 @@ double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
 
 // Bufferization may insert more memref.copy/brgemm cannot verify sucessfully
 // and fall back to linalg lower if the buffer is dynamic
+// Bufferization may insert more memref.copy/brgemm cannot verify sucessfully
+// and fall back to linalg lower if the buffer is dynamic
 double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
                                 ArrayRef<uint32_t> shape,
                                 const MatmulConfig &config,
                                 CPUTargetDescriptionAnalysis &sysDesc) {
+  assert(validateConfig(config) && "config is invalid");
+  assert(shape.size() >= 3 && "shape.size() should >= 3");
   uint32_t M = shape[0], N = shape[1];
   double cost = 0;
-  double MCost =
-      (llvm::divideCeil(M / config.innerMostMBlock, config.MThreads) %
-               llvm::divideCeil(config.MBlock, config.innerMostMBlock) !=
-           0 ||
-       (M / config.innerMostMBlock % config.MThreads != 0 &&
-        config.MBlock != config.innerMostMBlock));
-  double NCost =
-      (llvm::divideCeil(N / config.innerMostNBlock, config.NThreads) %
-               llvm::divideCeil(config.NBlock, config.innerMostNBlock) !=
-           0 ||
-       (N / config.innerMostNBlock % config.NThreads != 0 &&
-        config.NBlock != config.innerMostNBlock));
+  uint32_t MNumBlockPerThread =
+      llvm::divideCeil(M / config.innerMostMBlock, config.MThreads);
+  uint32_t MNumInnerBlockPerBlock =
+      llvm::divideCeil(config.MBlock, config.innerMostMBlock);
+  uint32_t MCost = MNumBlockPerThread % MNumInnerBlockPerBlock != 0 ||
+                   (M / config.innerMostNBlock % config.MThreads != 0 &&
+                    config.MBlock != config.innerMostMBlock);
+  uint32_t NNumBlockPerThread =
+      llvm::divideCeil(N / config.innerMostNBlock, config.NThreads);
+  uint32_t NNumInnerBlockPerBlock =
+      llvm::divideCeil(config.NBlock, config.innerMostNBlock);
+  uint32_t NCost = NNumBlockPerThread % NNumInnerBlockPerBlock != 0 ||
+                   (N / config.innerMostNBlock % config.NThreads != 0 &&
+                    config.NBlock != config.innerMostNBlock);
   cost = MCost + NCost;
-
   return cost;
 }
 
@@ -230,12 +242,8 @@ std::vector<MatmulConfig>
 prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                         ArrayRef<uint32_t> shape,
                         ArrayRef<uint32_t> givenInnermostBlock,
-                        bool allowUndivisibleInnerblock = false) {
-  if (shape.size() < 3) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "The shape is invalid, no candidate is generated\n");
-    return {};
-  }
+                        bool allowIndivisibleInnerblock = false) {
+  assert(shape.size() >= 3 && "shape.size() should >= 3");
   std::vector<MatmulConfig> configs;
   uint32_t threads = sysDesc.getNumThreads();
   std::vector<uint32_t> MThreadsCandidates =
@@ -281,13 +289,13 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
           for (uint32_t innerMostMBlock : innerMostMBlockCandidates) {
             if (MBlock % innerMostMBlock != 0 ||
                 (shape[0] % innerMostMBlock != 0 &&
-                 !allowUndivisibleInnerblock))
+                 !allowIndivisibleInnerblock))
               continue;
             for (uint32_t NBlock : NBlockCandidates) {
               for (uint32_t innerMostNBlock : innerMostNBlockCandidates) {
                 if (NBlock % innerMostNBlock != 0 ||
                     (shape[1] % innerMostNBlock != 0 &&
-                     !allowUndivisibleInnerblock))
+                     !allowIndivisibleInnerblock))
                   continue;
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
@@ -296,7 +304,7 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                     if (KBlock % innerMostKBlock != 0 ||
                         ((shape[2] / KThreads % KBlock != 0 ||
                           shape[2] / KThreads % innerMostKBlock != 0) &&
-                         !allowUndivisibleInnerblock))
+                         !allowIndivisibleInnerblock))
                       continue;
                     MatmulConfig config{
                         MThreads,        NThreads,        KThreads,
@@ -316,19 +324,6 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
       llvm::dbgs() << "Finish generating candidates. ConfigCandidates size: "
                    << configs.size() << "\n");
   return configs;
-}
-
-bool validateConfig(const MatmulConfig &cfg) {
-  if (cfg.MThreads <= 0 || cfg.NThreads <= 0 || cfg.KThreads <= 0 ||
-      cfg.MBlock <= 0 || cfg.NBlock <= 0 || cfg.KBlock <= 0 ||
-      cfg.innerMostMBlock <= 0 || cfg.innerMostNBlock <= 0 ||
-      cfg.innerMostKBlock <= 0)
-    return false;
-  if (cfg.MBlock % cfg.innerMostMBlock != 0 ||
-      cfg.NBlock % cfg.innerMostNBlock != 0 ||
-      cfg.KBlock % cfg.innerMostKBlock != 0)
-    return false;
-  return true;
 }
 
 // read the config from the attributes for tuning
@@ -411,7 +406,7 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
           K *= s;
       }
 
-      // innermost Block, if the layout is blockied layout, the innermost block
+      // innermost Block, if the layout is blocked layout, the innermost block
       // will derived from the layout directly
       uint32_t defaultBlock = 32;
       config.innerMostMBlock = M % defaultBlock == 0 ? defaultBlock : M;
@@ -462,7 +457,8 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         // TODO: Could add a weight or priority for cost model
         SmallVector<std::tuple<CostModelFn, std::string, double>>
             costModelList = {
-                {dynamicBufferizationCost, "dynamicBufferizationCost", 0.9},
+                // threshold 0 mean using static shape if possible
+                {dynamicBufferizationCost, "dynamicBufferizationCost", 0},
                 {workloadBalancedCost, "workloadBalancedCost", 1},
                 {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
                 {computationIntensityOnL2Cache, "computationIntensityOnL2Cache",
@@ -472,7 +468,7 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         SmallVector<uint32_t> shape = {M, N, K};
         std::vector<MatmulConfig> configCandidates =
             prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock,
-                                    allowUndivisibleInnerBlock);
+                                    allowIndivisibleInnerBlock);
         for (auto &&[fn, name, threshold] : costModelList)
           configCandidates = filterConfigByCostModel(
               configCandidates, linalgOp, shape, sysDesc, fn, 0.5, threshold);
@@ -486,6 +482,8 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
     }
     hasConfig = true;
   }
+
+  assert(validateConfig(config) && "config is invalid");
   return config;
 }
 } // namespace gc

@@ -8,6 +8,7 @@
 
 #include "./TilingUtil.hpp"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Dialect/Linalgx/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -959,7 +960,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     // cast(f32->bf16) if K slicing is needed
     MatmulConfigAnalysis cfgAnalysis =
         MatmulConfigAnalysis(originOp.getOperation());
-    cfgAnalysis.setAllowUndivisibleInnerBlock(false);
+    cfgAnalysis.setAllowIndivisibleInnerBlock(false);
     MatmulConfig cfg = cfgAnalysis.getConfig();
     if (!llvm::isa<linalg::GenericOp>(linalgOp))
       linalgOp = *linalg::generalizeNamedOp(rewriter, linalgOp);
