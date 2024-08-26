@@ -178,10 +178,10 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   pos = getPosInDomain(dimPos, operand, linalgOp);                             \
   if (!pos) {                                                                  \
     LLVM_DEBUG(llvm::dbgs() << "Cannot find position in domain for operand: "  \
-                            << operand << "\n");                               \
+                            << (operand) << "\n");                             \
     return failure();                                                          \
   }                                                                            \
-  dim = *pos;
+  (dim) = *pos;
 
   std::optional<unsigned> pos = std::nullopt;
   // A(batch, m, k)
