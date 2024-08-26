@@ -60,9 +60,9 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
   let description = [{
     The pass tries to fuse any MLIR operation which can be tiled. Moreover, this pass aims to support:
       1. Matmul fusion with element-wise/reduce/broadcast ops.
-      2. Pre-op and post-op fusion.
-      3. Multi-consumer and multi-producer support.
-      4. Multiple level of nest loops and candidates.
+      2. Producer and consumer fusion.
+      3. Arbitrary topology, including residual pattern with multiple consumers .
+      4. Nest loops structure with multiple level candidates.
       5. Flexible option to control the boundary of iterative process.
       6. Default tiling when no op is tiled before fusion.
       7. Cost-model to determine whether to fuse or not.
@@ -74,9 +74,9 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
     Option<"useCostModel", "use-cost-model", "bool",
            /*default=*/"false",
            "Decide if enable cost model to control iterative fusion.">,
-    Option<"defaultNDTile", "default-nd-tile", "int",
+    Option<"defaultNDTile", "default-nd-tile", "unsigned",
            /*default=*/"2",
-           "Set default ND-Tile size, such as 2[default] or 3.">,
+           "Set default amount of non-one dimensions in TileSize, such as 1, 2[default, a.k.a. 2D-Tile], etc.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
            "Set default TileSize for the certain type of op, saying `matmul:{32,32}`.">,
     ];

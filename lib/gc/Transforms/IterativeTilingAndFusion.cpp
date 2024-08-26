@@ -479,8 +479,8 @@ tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
     return std::nullopt;
 
   // c. Check the producer of root source if is tilable.
-  Operation *producer = realProducer->getDefiningOp<TilingInterface>();
-  if (!producer)
+  Operation *producerOp = realProducer->getDefiningOp<TilingInterface>();
+  if (!producerOp)
     return std::nullopt;
 
   CandidateDefOrUse defOrUse{*realProducer};
@@ -537,8 +537,8 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
   SmallVector<scf::SCFFuseConsumerOfSliceResult> fusedResultList;
   for (auto useOperand : *realConsumers) {
     // c. Check the consumer of top level result if is tilable.
-    Operation *consumer = dyn_cast<TilingInterface>(useOperand->getOwner());
-    if (!consumer)
+    Operation *consumerOp = dyn_cast<TilingInterface>(useOperand->getOwner());
+    if (!consumerOp)
       continue;
 
     CandidateDefOrUse defOrUse{useOperand};
@@ -560,7 +560,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       // f. Manually run cse on region which contains original consumer op in
       // avoid of conflict with subsequent `tileAndFuseConsumerOfSlice` get nest
       // loops between next candidate sliceOp and tiled producer.
-      (void)mlir::simplifyRegions(rewriter, {*consumer->getParentRegion()});
+      (void)mlir::simplifyRegions(rewriter, {*consumerOp->getParentRegion()});
     }
   }
   if (fusedResultList.empty())
@@ -652,7 +652,7 @@ struct defaultTileConfig {
   // OpTy-to-TileSize mapping
   OpTileSizeMap tsMap;
   // ND-tile size
-  int ndTile;
+  unsigned ndTile;
 };
 
 /// Default Tiling function only effective for certain `OpTy` operation
@@ -690,7 +690,7 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
     SmallVector<int64_t> tsOrder = {32, 16};
     // Record how many dims have been tiled, including fully tiled, i.e.
     // tileSize == dimSize.
-    int nonOneTileDims =
+    unsigned nonOneTileDims =
         (isa<mlir::linalg::LinalgOp>(op) && !linalgx::isMatmulOp(op))
             ? cast<mlir::linalg::LinalgOp>(op).getNumReductionLoops()
             : 0;

@@ -366,7 +366,9 @@ module {
     /// CHECK: linalg.add
     %add = linalg.add ins(%arg0, %arg1 : tensor<1x32x4096xbf16>, tensor<1x32x4096xbf16>) outs(%dest0 : tensor<1x32x4096xbf16>) -> tensor<1x32x4096xbf16>
     %dest1 = tensor.empty() : tensor<1x1x128x32x32xbf16>
-    /// CHECK: tensor.pack
+    /// CHECK-NEXT: affine.apply
+    /// CHECK-NEXT: tensor.extract_slice
+    /// CHECK-NEXT: tensor.pack
     %pack = tensor.pack %add outer_dims_perm = [0, 1, 2] inner_dims_pos = [1, 2] inner_tiles = [32, 32] into %dest1 : tensor<1x32x4096xbf16> -> tensor<1x1x128x32x32xbf16>
     /// CHECK: scf.forall.in_parallel
     /// CHECK: tensor.parallel_insert_slice
