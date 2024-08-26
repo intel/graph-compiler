@@ -25,9 +25,13 @@ python -m pip install test/benchgc/dist/benchgc-*.whl
 
 ## Synopsis
 ```
-python -m benchgc [OPTIONS] --driver [DRIVER] --case [CASE]
+python -m benchgc [OPTIONS] --mode [MODE] --driver [DRIVER] --case [CASE]
 ```
 ## Flags
+### --mode [str]
+* C : correctness testing (by default)
+* P : performance testing
+
 ###  --driver [str]
 * linalg: test the single op in linalg dialect
 * mlir: upload a mlir file and run
@@ -97,7 +101,24 @@ module {
 | Norm check | N | threshold |
 | Benchdnn driver | D | driver_name:dtype:case |
 
-## Example
+### --pattern
+
+
+
+
+## Perfermance testing flags
+### --bench_kind [str]
+* py
+* wrapper
+
+### --warm_up [int]
+* warm-up times of the execution
+
+### --repeat
+* repeat times of the execution
+
+### Example
+### Correctness testing example
 ```
 # single add op test 
 # using the same data filling / compare strategy as the benchdnn primitive driver if not set
