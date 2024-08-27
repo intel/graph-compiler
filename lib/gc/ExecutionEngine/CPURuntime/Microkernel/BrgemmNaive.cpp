@@ -7,12 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include <assert.h>
-#include <math.h>
 #include <mutex>
 #include <shared_mutex>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <vector>
 
 #include "oneapi/dnnl/dnnl_types.h"
