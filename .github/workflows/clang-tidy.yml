@@ -42,13 +42,14 @@ jobs:
         echo RUN_ID=$(gh run list -w "LLVM Build" --repo intel/graph-compiler --json databaseId --jq '.[0].databaseId') >> $GITHUB_ENV
 
     - name: Fetch llvm artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: "llvm-${{ env.LLVM_HASH }}"
-        path: llvm
-        github-token: ${{ github.token }}
-        run-id: ${{ env.RUN_ID }}
-    
+      run: |
+        set -x
+        gh run download \
+          --repo ${{ github.repository }} \
+          -n "llvm-${{ env.LLVM_HASH }}" \
+          --dir llvm
+        tar -zxf llvm.tgz
+     
     - name: Unwrap pre-built llvm
       run: |
         cd llvm
