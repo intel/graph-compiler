@@ -14,7 +14,12 @@
 # limitations under the License.
 ################################################################################
 
-import pathlib
-import sys
+from .base import Pattern
+from .mlp import MLP
 
-sys.path.append(pathlib.Path(__file__).parent.resolve().__str__())
+__all__ = ["Pattern", "MLP", "get_pattern_clz"]
+
+def get_pattern_clz(name: str):
+    """Function getting pattern class by name."""
+    clz = {"mlp": MLP}[name]
+    return clz

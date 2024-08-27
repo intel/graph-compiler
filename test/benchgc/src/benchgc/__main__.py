@@ -33,7 +33,7 @@ from benchgc.arg import (
 from benchgc.arg.arg import Arg
 from benchgc.mlir.arg import get_mlir_args
 from benchgc.mlir.bench import mlir_wrapper_bench, py_timeit_bench
-from benchgc.pattern.mlp import MLP
+from benchgc.pattern import get_pattern_clz
 from gc_mlir import ir
 from gc_mlir.graph_compiler import GraphCompiler
 
@@ -175,11 +175,6 @@ def add_bench_options(parser: argparse.ArgumentParser):
         parser.add_argument("--repeat", type=int, default=100)
         parser.add_argument("--entry", type=str, default="main_entry")
 
-
-def get_pattern_clz(driver_str: str):
-    """Function getting Pattern class by name."""
-    clz = {"mlp": MLP}[driver_str]
-    return clz
 
 
 def add_pattern_options(parser: argparse.ArgumentParser):

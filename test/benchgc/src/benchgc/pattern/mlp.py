@@ -16,64 +16,13 @@
 ################################################################################
 
 import argparse
-from abc import ABC, abstractmethod
-from typing import List
 
 from benchgc.mlir.util import str_to_mlir_dtype
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
 
-
-def to_int_list(s: str) -> List[int]:
-    """
-    Parsing the cmd for list of int values
-
-    Args:
-        s (str): int values in cmd, example: 2x3x4
-
-    Returns:
-        List[int]: int values in list, example: [2, 3, 4]
-    """
-    if not s or len(s) == 0:
-        return []
-    return [int(i) for i in s.strip().split("x")]
-
-
-def to_bool_list(s: str) -> List[bool]:
-    """
-    Parsing the cmd for list of bool values
-
-    Args:
-        s (str): bools in cmd, example: 1x0x1
-
-    Returns:
-        List[bool]: bools in list, example: [True, False, True]
-    """
-    if not s or len(s) == 0:
-        return []
-    return [bool(int(i)) for i in s.strip().split("x")]
-
-
-class Pattern(ABC):
-    """Abstract class for driver."""
-
-    @staticmethod
-    @abstractmethod
-    def add_args(parser: argparse.ArgumentParser):
-        """Add arguments to parser"""
-
-    @abstractmethod
-    def handle_args(self, args: argparse.Namespace):
-        """Get and handle the args"""
-
-    def __init__(self, ctx: ir.Context, args: argparse.Namespace):
-        self.main_entry = "entry"
-        self.handle_args(args)
-        self.ir_module = self.init_module(ctx)
-
-    @abstractmethod
-    def init_module(self, ctx: ir.Context) -> ir.Module:
-        """Create MLIR moudule by args"""
+from .base import Pattern
+from .util import to_bool_list, to_int_list
 
 
 class MLP(Pattern):
