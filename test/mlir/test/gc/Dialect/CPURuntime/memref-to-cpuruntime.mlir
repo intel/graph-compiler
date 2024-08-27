@@ -66,3 +66,20 @@ func.func @alloc_dealloc_view() {
   memref.dealloc %subview : memref<16xf32>
   return
 }
+
+func.func @alloc_dealloc_FIFO() {
+  // CHECK-LABEL: func @alloc_dealloc_FIFO()
+  // CHECK: %[[m0:.*]] = memref.alloc() : memref<16xf32>
+  // CHECK: %[[m1:.*]] = memref.alloc() : memref<128xf32>
+  // CHECK: %[[m2:.*]] = cpuruntime.alloc() : memref<128xf32>
+  %alloc = memref.alloc() : memref<16xf32>
+  %alloc_0 = memref.alloc() : memref<128xf32>
+  %alloc_1 = memref.alloc() : memref<128xf32>
+  // CHECK: memref.dealloc %[[m0]] : memref<16xf32>
+  memref.dealloc %alloc : memref<16xf32>
+  // CHECK: memref.dealloc %[[m1]] : memref<128xf32>
+  memref.dealloc %alloc_0 : memref<128xf32>
+  // CHECK: cpuruntime.dealloc %[[m2]] : memref<128xf32>
+  memref.dealloc %alloc_1 : memref<128xf32>
+  return
+}
