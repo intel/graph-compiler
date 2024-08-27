@@ -19,6 +19,7 @@ from .mlp import MLP
 
 __all__ = ["Pattern", "MLP", "get_pattern_clz"]
 
+
 def get_pattern_clz(name: str):
     """Function getting pattern class by name."""
     clz = {"mlp": MLP}[name]
