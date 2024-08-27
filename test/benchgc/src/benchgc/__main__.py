@@ -175,9 +175,9 @@ def add_bench_options(parser: argparse.ArgumentParser):
         parser.add_argument("--entry", type=str, default="main_entry")
 
 
-def get_pattern_clz(diver_str: str):
+def get_pattern_clz(driver_str: str):
     """Function getting Pattern class by name."""
-    clz = {"mlp": MLP}[diver_str]
+    clz = {"mlp": MLP}[driver_str]
     return clz
 
 
@@ -188,7 +188,7 @@ def add_pattern_options(parser: argparse.ArgumentParser):
         get_pattern_clz(pattern_name).add_args(parser)
 
 
-def get_moudle_and_args(flags):
+def get_module_and_args(flags):
 
     args: List[Arg] = []
 
@@ -355,7 +355,7 @@ if __name__ == "__main__":
     add_pattern_options(arg_parser)
     flags = arg_parser.parse_args()
     benchgc.util.set_seed(flags.seed)
-    ir_module, module_args = get_moudle_and_args(flags)
+    ir_module, module_args = get_module_and_args(flags)
     if flags.mode == "C":
         correctness_testing(flags, ir_module, module_args)
     elif flags.mode == "P":
