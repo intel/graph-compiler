@@ -21,6 +21,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Utils/StructuredOpMatcher.h"
 #include "gc/Transforms/Utils/ValueUtils.h"
@@ -52,7 +53,9 @@ customInferContractionDims(linalg::LinalgOp linalgOp) {
   auto dims = linalg::inferContractionDims(linalgOp);
   if (failed(dims))
     return failure();
-  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp)) {
+  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp) ||
+      linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                       linalgx::PackingType::VNNI_BRMM3D)) {
     // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
     // linalg utils because they form complex affine in operand A; Manually add
     // them here
@@ -296,6 +299,10 @@ public:
   using OpRewritePattern<ContractionOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
+    if (llvm::isa<linalg::GenericOp>(op) &&
+        !linalgx::isGenericPackedMatmulOp(op.getOperation(),
+                                          linalgx::PackingType::VNNI_BRMM3D))
+      return failure();
     if (!op.hasPureTensorSemantics())
       return failure();
 
@@ -356,6 +363,8 @@ public:
             &getContext());
     patterns.add<
         ConvertContractionOpToBrgemmRewriter<linalgx::BatchReduceMatmulVnniOp>>(
+        &getContext());
+    patterns.add<ConvertContractionOpToBrgemmRewriter<linalg::GenericOp>>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))

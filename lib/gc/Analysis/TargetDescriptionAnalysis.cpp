@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
+#include "mlir/Support/LLVM.h"
 #include <limits>
 #include <llvm/Support/Debug.h>
 #include <regex>
@@ -59,44 +60,44 @@ TargetDescriptionAnalysisBase::getPropertyValue(StringRef key) {
 }
 
 unsigned CPUTargetDescriptionAnalysis::getNumThreads() {
-  static const unsigned defaultNumThreads = 56;
-  std::optional<Attribute> numThreads = getPropertyValue(kNumThreads);
-
-  if (numThreads)
-    return getIntFromAttribute(*numThreads);
-  emitNotFoundWarning(getLocation(), kNumThreads, defaultNumThreads);
-  return defaultNumThreads;
+    char *numThreads = getenv("OMP_NUM_THREADS");
+    if (numThreads)
+    {
+        return std::stoi(numThreads);
+    }
+    return 1;
 }
 
 unsigned CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) {
   assert(cacheLevel > 0 && cacheLevel < 4 && "Invalid cache level");
-  llvm::DenseMap<StringRef, unsigned> CPUTargetCacheSizeValueMap = {
-      {CPUTargetDescriptionAnalysis::kL1CacheSize, 32 * 1024},
-      {CPUTargetDescriptionAnalysis::kL2CacheSize, 1024 * 1024},
-      {CPUTargetDescriptionAnalysis::kL3CacheSize, 32 * 1024 * 1024},
-  };
-  StringLiteral key = "";
   if (cacheLevel == 1)
-    key = kL1CacheSize;
+  {
+      char *cacheSize = getenv("L1_CACHE_SIZE");
+      if (cacheSize)
+      {
+          return std::stoi(cacheSize);
+      }
+  }
   else if (cacheLevel == 2)
-    key = kL2CacheSize;
+  {
+      char *cacheSize = getenv("L2_CACHE_SIZE");
+      if (cacheSize)
+      {
+          return std::stoi(cacheSize);
+      }
+  }
   else if (cacheLevel == 3)
-    key = kL3CacheSize;
-
-  std::optional<Attribute> cacheSize = getPropertyValue(key);
-  if (cacheSize)
-    return getIntFromAttribute(*cacheSize);
-
-  emitNotFoundWarning(getLocation(), key, CPUTargetCacheSizeValueMap[key]);
-  return CPUTargetCacheSizeValueMap[key];
+  {
+      char *cacheSize = getenv("L3_CACHE_SIZE");
+      if (cacheSize)
+      {
+          return std::stoi(cacheSize);
+      }
+  }
 }
 
 unsigned CPUTargetDescriptionAnalysis::getMaxVectorWidth() {
   static const unsigned defaultMaxVectorWidth = 512;
-  std::optional<Attribute> maxVectorWidth = getPropertyValue(kMaxVectorWidth);
-  if (maxVectorWidth)
-    return getIntFromAttribute(*maxVectorWidth);
-  emitNotFoundWarning(getLocation(), kMaxVectorWidth, defaultMaxVectorWidth);
   return defaultMaxVectorWidth;
 }
 

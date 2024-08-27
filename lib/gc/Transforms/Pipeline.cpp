@@ -112,14 +112,15 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
   pm.addPass(createCanonicalizerPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
-  // todo: buffer schedule pass
-  // todo: Need to improve this pass to support nested parallel.
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
+  pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createPromoteBuffersToStackPass());
+  mlir::bufferization::BufferDeallocationPipelineOptions deallocOption;
+  bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
 }
@@ -150,7 +151,7 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createConvertVectorToSCFPass());
   pm.addPass(createConvertVectorToLLVMPass());
-  pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
+  // pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
 }
