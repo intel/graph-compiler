@@ -20,4 +20,4 @@ def context_init_hook(context):
 
         register_onednn_graph_dialect(context)
     except ModuleNotFoundError:
-        print("onednn_graph dialect not found")
+        pass
