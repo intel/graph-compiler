@@ -82,7 +82,7 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::OpPassManager &pm) {
 
-  pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
+  // pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
   // Do promotion for math / arith ops
   pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
@@ -103,6 +103,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
+  pm.addPass(bufferization::createEmptyTensorEliminationPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
   options.setFunctionBoundaryTypeConversion(
@@ -110,6 +111,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
