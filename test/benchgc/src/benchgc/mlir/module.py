@@ -34,7 +34,7 @@ def init_module(
         module = ir.Module.create()
         with ir.InsertionPoint(module.body):
             f = func.FuncOp(
-                name=get_entry_name(),
+                name=entry_name,
                 type=ir.FunctionType.get(
                     inputs=[x.get_mlir_type(ctx) for x in inputs],
                     results=[x.get_mlir_type(ctx) for x in outputs],
