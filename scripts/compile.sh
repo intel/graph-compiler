@@ -82,15 +82,13 @@ else
 fi
 
 load_llvm() {
-    local run_id
-
     if [ "$ENABLE_IMEX"  = "true" ]; then
         local llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
         local llvm_version="llvm-${LLVM_HASH}"
     fi
 
-    gh run download "$run_id" \
+    gh run download \
         --repo "$REPO" \
         -n "$llvm_version" \
         --dir "$llvm_dir"
