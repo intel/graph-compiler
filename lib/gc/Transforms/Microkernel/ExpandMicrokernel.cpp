@@ -129,9 +129,7 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
          "Expecting matching shapes of inputs");
 
   // C(m, n)
-  auto ldc = checkAndGetLdStride(0, operandC);
-  if (failed(ldc))
-    return failure();
+  auto ldc = checkTypeAndGetShape(operandC)->back();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Ld stride on C: " << ldc
                           << "\n");
 
@@ -158,7 +156,7 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] final BrgemmInfo: m(" << *M
                           << "), n(" << *N << "), k(" << *KB << "), batch("
                           << *batchA << "), lda(" << *lda << "), ldb(" << *ldb
-                          << "), ldc(" << *ldc << "), strideA(" << *strideA
+                          << "), ldc(" << ldc << "), strideA(" << *strideA
                           << "), strideB(" << *strideB << ")\n");
   BrgemmInfo info{*M,
                   *N,
@@ -167,11 +165,12 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
                   0 /* addrLen useless under stride mode */,
                   *lda,
                   *ldb,
-                  *ldc,
+                  ldc,
                   *strideA,
                   *strideB,
                   isInit,
                   BrgemmInfo::STRIDE_MODE};
+
   return info;
 }
 
@@ -247,6 +246,7 @@ public:
       return failure();
 
     replaceOpWithMicrokernelOpSet(rewriter, op, *brgemmInfo);
+
     return success();
   }
 };
