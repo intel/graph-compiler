@@ -797,7 +797,9 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   IRRewriter rewriter(ctx);
   mlir::Operation *graph = getOperation();
-  // stage 1.1: pack matmul
+  // stage 1.1: pack matmul with `BlockPackMatmulPatterns` if any side of it
+  // requires packing; do nothing if the matmul is computed on plain format
+  // TODO(yifei): deal with transposed plain matmul...
   RewritePatternSet packMatmulPatterns(&getContext());
   mlir::linalg::ControlBlockPackMatmulFn packMatmulControlFn =
       [&](linalg::LinalgOp op) -> mlir::linalg::BlockPackMatmulOptions {
@@ -807,8 +809,12 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     // currently supported combination: plain & blocking & plain OR blocking &
     // blocking & blocking
     TensorLayout inputLayout = matmulLayout.getSupportedInputLayouts()[0];
+    TensorLayout weightLayout = matmulLayout.getSupportedInputLayouts()[1];
     TensorLayout outputLayout = matmulLayout.getSupportedOutputLayouts()[0];
-    // hardcode to let B side to be NKkn
+    if (!inputLayout.isBlocking() && !weightLayout.isBlocking() &&
+        !outputLayout.isBlocking())
+      return options; // return default options to skip packing
+    // specify B side as be NKkn
     options.rhsTransposeOuterBlocks = true;
     options.rhsTransposeInnerBlocks = false;
     // extract tile sizes
