@@ -19,7 +19,6 @@ import random
 from functools import reduce
 from typing import Any, Callable, List, Tuple, Union
 
-import ml_dtypes
 import numpy
 import torch
 
@@ -144,12 +143,6 @@ def get_dtype(dtype: str) -> torch.dtype:
         return torch.int32
     else:
         raise Exception(f"data type not support: {dtype}")
-
-
-def tensor_to_ndarray(tensor: torch.Tensor) -> Any:
-    if tensor.dtype == torch.bfloat16:
-        return tensor.view(dtype=torch.uint16).numpy().view(ml_dtypes.bfloat16)
-    return tensor.numpy()
 
 
 def get_eps(dtype: torch.dtype) -> float:

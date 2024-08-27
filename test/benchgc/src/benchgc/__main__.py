@@ -16,14 +16,17 @@
 
 
 import argparse
+import json
 import sys
 from typing import Dict, List
 
-import benchgc.mlir.util
-import benchgc.util
 import gc_mlir.ir
 import runner
 import torch
+from gc_mlir.graph_compiler import GraphCompiler
+
+import benchgc.mlir.util
+import benchgc.util
 from benchgc.arg import (
     compare_tensor,
     fill_tensor,
@@ -33,7 +36,7 @@ from benchgc.arg import (
 from benchgc.arg.arg import Arg
 from benchgc.mlir.arg import get_mlir_args
 from benchgc.pattern.mlp import MLP
-from gc_mlir.graph_compiler import GraphCompiler
+from benchgc.mlir.bench import mlir_wrapper_bench, py_timeit_bench
 
 def add_common_options(parser: argparse.ArgumentParser):
     parser.add_argument(
@@ -157,23 +160,25 @@ def add_common_options(parser: argparse.ArgumentParser):
 def add_bench_options(parser: argparse.ArgumentParser):
     ''' add options for bench mode'''
     if parser.parse_known_args()[0].mode == "P":
-        parser.add_argument("-p", "--print_ir", 
-                           action="store_true",
-                           help="if need print the IR after pipeline",
-                           required=False
-                           )
         parser.add_argument(
-        "--disable_results_to_params", 
-            action="store_true", 
-            default=False
-        )       
+            "-p",
+            "--print_ir",
+            action="store_true",
+            help="if need print the IR after pipeline",
+            required=False,
+        )
         parser.add_argument(
-        "--bench_kind", 
-         type=str, choices=["py", "wrapper"],default="py"
-        )       
+            "--bench_kind", type=str, choices=["py", "wrapper"], default="py"
+        )
         parser.add_argument("--warm_up", type=int, default=100)
         parser.add_argument("--repeat", type=int, default=100)
         parser.add_argument("--entry", type=str, default="main_entry")
+
+
+def get_pattern_clz(diver_str: str):
+    """Function getting Pattern class by name."""
+    clz = {"mlp": MLP}[diver_str]
+    return clz
 
 
 def add_pattern_options(parser: argparse.ArgumentParser):
@@ -183,14 +188,10 @@ def add_pattern_options(parser: argparse.ArgumentParser):
         get_pattern_clz(pattern_name).add_args(parser)
 
 
-def get_pattern_clz(diver_str: str):
-    """Function getting Pattern class by name."""
-    clz = {"mlp": MLP}[diver_str]
-    return clz
-
 def get_moudle_and_args(flags):
-    '''get module and args''' 
+
     args: List[Arg] = []
+
     if flags.driver == "mlir":
         # we need to find all args by reading the entry function
         with open(flags.case, "r") as mlir_file:
@@ -275,8 +276,7 @@ def correctness_testing(flags, module, args):
         else:
             gc_args.append(tensor)
 
-
-    entry = "entry"
+    entry = benchgc.mlir.util.get_entry(module)
     # ref_out contains return value of the entry
     ref_out = runner.ref_run(entry, ref_tensors)
 
@@ -285,15 +285,13 @@ def correctness_testing(flags, module, args):
         for i in range(len(ref_out)):
             ref_args[0 - i - 1] = ref_out[0 - i - 1]
 
-    
-
     mlir_args = get_mlir_args(gc_args)
     passes = "any(gc-cpu-pipeline)"
 
     with module.context:
         compiler = GraphCompiler(passes)
         engine = compiler.compile_and_jit(module)
-        engine.invoke(entry, *mlir_args)
+        engine.invoke("entry", *mlir_args)
 
     fail, mistrust = False, False
     for i in range(len(args)):

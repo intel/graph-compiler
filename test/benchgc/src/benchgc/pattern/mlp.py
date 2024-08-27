@@ -25,7 +25,6 @@ from gc_mlir.dialects import arith, func, linalg, tensor
 from gc_mlir.ir import BF16Type, FloatAttr
 from benchgc.mlir.util import (
     str_to_mlir_dtype,
-    get_kernel_func_from_module,
 )
 
 

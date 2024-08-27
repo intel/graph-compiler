@@ -199,7 +199,7 @@ def reduce_loop(
                 )
             else:
                 in_idx[depth] = i
-                out_idx[depth - reduce_axis] = i
+                out_idx[depth - reduced_axis] = i
                 reduce_loop(
                     cache,
                     op,
