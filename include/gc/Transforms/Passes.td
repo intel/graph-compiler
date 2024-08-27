@@ -105,6 +105,13 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
   ];
 }
 
+def DecomposeAggregatedOps : Pass<"decompose-aggregated-ops", "func::FuncOp"> {
+  let summary = "Decompose aggregated operations.";
+  let description = [{
+    Decompose operations that implement the `AggregatedOpInterface`.
+  }];
+}
+
 def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
   let summary = "Sink operations into inner loops";
   let description = [{The pass tries to sink operations into inner loops as deep as possible to maximize the chance for outer loop optimization.

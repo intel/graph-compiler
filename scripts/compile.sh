@@ -129,7 +129,8 @@ build_llvm() {
             git fetch --all
         fi
 
-        git checkout dev
+        IMEX_HASH=$(cat cmake/imex-version.txt)
+        git checkout ${IMEX_HASH}
 
         cd "$llvm_dir"
         find "$mlir_ext_dir/build_tools/patches" -name '*.patch' -exec git apply  {} +
