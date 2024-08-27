@@ -16,13 +16,13 @@
 
 from typing import Callable, List, Tuple
 
-import gc_mlir.dialects.tensor
 from benchgc.mlir.arg import MLIRArg
 from gc_mlir import ir
 from gc_mlir.dialects import func
 
 
 def init_module(
+    entry_name: str,
     inputs: Tuple[MLIRArg, ...],
     outputs: Tuple[MLIRArg, ...],
     op_func: Callable[
@@ -34,7 +34,7 @@ def init_module(
         module = ir.Module.create()
         with ir.InsertionPoint(module.body):
             f = func.FuncOp(
-                name="entry",
+                name=get_entry_name(),
                 type=ir.FunctionType.get(
                     inputs=[x.get_mlir_type(ctx) for x in inputs],
                     results=[x.get_mlir_type(ctx) for x in outputs],

@@ -21,16 +21,6 @@ import torch
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
 
-# only python 3.11 support
-# from typing import Self
-
-
-def get_entry(module: ir.Module, entry: str = '"entry"') -> func.FuncOp:
-    for op in module.operation.opview.regions[0].blocks[0].operations:
-        if str(op.name) == entry:
-            return op
-    raise Exception(f"entry function {entry} is not found at the top level")
-
 
 # calling python binding consumes a lot of time e.g. get_name()
 # we need to cache some result to avoid duplicate call
@@ -149,7 +139,7 @@ def emit_benchmark_wrapped_main_func(
 
 
 def get_kernel_func_from_module(
-    module: ir.Module, func_name: str = "main_entry"
+    module: ir.Module, func_name: str = "entry"
 ) -> func.FuncOp:
     """Get the func op by the name from a module"""
     assert (

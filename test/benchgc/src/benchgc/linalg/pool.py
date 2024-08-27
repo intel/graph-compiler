@@ -42,6 +42,7 @@ def ref_pooling_nchw_max(
 
 def mlir_pooling_nchw_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -83,6 +84,7 @@ def ref_pooling_nchw_sum(
 
 def mlir_pooling_nchw_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -114,6 +116,7 @@ def ref_pooling_ncw_max(
 
 def mlir_pooling_ncw_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -155,6 +158,7 @@ def ref_pooling_ncw_sum(
 
 def mlir_pooling_ncw_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -188,6 +192,7 @@ def ref_pooling_ndhwc_max(
 
 def mlir_pooling_ndhwc_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -231,6 +236,7 @@ def ref_pooling_ndhwc_sum(
 
 def mlir_pooling_ndhwc_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -264,6 +270,7 @@ def ref_pooling_nhwc_max(
 
 def mlir_pooling_nhwc_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -307,6 +314,7 @@ def ref_pooling_nhwc_sum(
 
 def mlir_pooling_nhwc_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -341,6 +349,7 @@ def ref_pooling_nhwc_min(
 
 def mlir_pooling_nhwc_min(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -374,6 +383,7 @@ def ref_pooling_nwc_max(
 
 def mlir_pooling_nwc_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -408,6 +418,7 @@ def ref_pooling_nwc_min(
 
 def mlir_pooling_nwc_min(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -451,6 +462,7 @@ def ref_pooling_nwc_sum(
 
 def mlir_pooling_nwc_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [

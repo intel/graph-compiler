@@ -30,6 +30,7 @@ COMPARE_VERBOSE = 3  # + print threshold for comparison
 ERROR_OUTPUT_VERBOSE = 4  # + print all error data points if failed
 OUTPUT_VERBOSE = 5  # + print all result including passed tensor
 INPUT_VERBOSE = 6  # + print input torch tensors
+PIPELINE_VERBOSE = 7  # + print ir when running pipeline
 
 """
 acc | acc | elems | value_range | worst case

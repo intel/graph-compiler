@@ -34,6 +34,7 @@ def ref_batch_matmul(
 
 def mlir_batch_matmul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -52,6 +53,7 @@ def mlir_batch_matmul_transpose_a(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -70,6 +72,7 @@ def mlir_batch_matmul_transpose_b(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -89,6 +92,7 @@ def ref_batch_matvec(
 
 def mlir_batch_matvec(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -126,6 +130,7 @@ def ref_batch_mmt4d(
 
 def mlir_batch_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -150,6 +155,7 @@ def ref_batch_reduce_matmul(
 
 def mlir_batch_reduce_matmul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -168,6 +174,7 @@ def ref_batch_vecmat(
 
 def mlir_batch_vecmat(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -184,6 +191,7 @@ def ref_dot(
 
 def mlir_dot(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -200,6 +208,7 @@ def ref_matmul(
 
 def mlir_matmul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -218,6 +227,7 @@ def ref_matmul_transpose_a(
 
 def mlir_matmul_transpose_a(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -236,6 +246,7 @@ def ref_matmul_transpose_b(
 
 def mlir_matmul_transpose_b(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -254,6 +265,7 @@ def ref_matvec(
 
 def mlir_matvec(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -285,6 +297,7 @@ def ref_mmt4d(
 
 def mlir_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -303,6 +316,7 @@ def ref_vecmat(
 
 def mlir_vecmat(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [

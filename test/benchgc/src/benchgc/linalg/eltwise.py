@@ -33,6 +33,7 @@ def ref_abs(
 
 def mlir_abs(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.abs(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -47,6 +48,7 @@ def ref_ceil(
 
 def mlir_ceil(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.ceil(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -61,6 +63,7 @@ def ref_floor(
 
 def mlir_floor(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.floor(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -75,6 +78,7 @@ def ref_erf(
 
 def mlir_erf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.erf(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -83,6 +87,7 @@ def mlir_erf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
 
 def mlir_log(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.log(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -97,6 +102,7 @@ def ref_log(
 
 def mlir_negf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.negf(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -117,6 +123,7 @@ def ref_exp(
 
 def mlir_exp(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.negf(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -135,6 +142,7 @@ def ref_round(
 
 def mlir_round(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.round(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -149,6 +157,7 @@ def ref_rsqrt(
 
 def mlir_rsqrt(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.rsqrt(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -163,6 +172,7 @@ def ref_sqrt(
 
 def mlir_sqrt(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.sqrt(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -177,6 +187,7 @@ def ref_square(
 
 def mlir_square(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.square(arg0, outs=[args[1].get_zero_op(ctx)])],
@@ -191,6 +202,7 @@ def ref_tanh(
 
 def mlir_tanh(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [linalg.tanh(arg0, outs=[args[1].get_zero_op(ctx)])],

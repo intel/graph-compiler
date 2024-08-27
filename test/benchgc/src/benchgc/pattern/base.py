@@ -33,9 +33,9 @@ class Pattern(ABC):
     def handle_args(self, args: argparse.Namespace):
         """Get and handle the args"""
 
-    def __init__(self, ctx: ir.Context, args: argparse.Namespace):
-        self.main_entry = "entry"
-        self.handle_args(args)
+    def __init__(self, ctx: ir.Context, flags: argparse.Namespace):
+        self.main_entry = flags.entry
+        self.handle_args(flags)
         self.ir_module = self.init_module(ctx)
 
     @abstractmethod

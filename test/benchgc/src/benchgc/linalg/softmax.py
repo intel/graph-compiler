@@ -34,6 +34,7 @@ def ref_softmax(
 
 def mlir_softmax(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [

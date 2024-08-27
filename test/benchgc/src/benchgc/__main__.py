@@ -107,67 +107,71 @@ def add_common_options(parser: argparse.ArgumentParser):
             benchgc.util.ERROR_OUTPUT_VERBOSE,
             benchgc.util.OUTPUT_VERBOSE,
             benchgc.util.INPUT_VERBOSE,
+            benchgc.util.PIPELINE_VERBOSE,
         ],
     )
+
     parser.add_argument(
-        "--cast",
+        "--entry",
         required=False,
-        default="cast_signed",
-        help="define attribute supported by linalg op such as matmul_transpose_b",
-        choices=["cast_signed", "cast_unsigned"],
+        default="entry",
+        help="the entry func name of a mlir",
         type=str,
     )
 
-    # single dimension index
-    # linalg.softmax
-    parser.add_argument(
-        "--dimension",
-        required=False,
-        default=None,
-        help="define the dimension attribute in linalg op",
-        type=int,
-    )
+    if parser.parse_known_args()[0].driver == "linalg":
+        parser.add_argument(
+            "--cast",
+            required=False,
+            default="cast_signed",
+            help="define attribute supported by linalg op such as matmul_transpose_b",
+            choices=["cast_signed", "cast_unsigned"],
+            type=str,
+        )
 
-    # multiple dimensions array
-    # linalg.broadcast / linalg.reduce
-    parser.add_argument(
-        "--dimensions",
-        required=False,
-        default=None,
-        action="append",
-        help="define the dimensions attribute in linalg op",
-        type=int,
-    )
+        # single dimension index
+        # linalg.softmax
+        parser.add_argument(
+            "--dimension",
+            required=False,
+            default=None,
+            help="define the dimension attribute in linalg op",
+            type=int,
+        )
 
-    parser.add_argument(
-        "--dilations",
-        required=False,
-        default=None,
-        action="append",
-        help="define the dilations attribute in linalg op",
-        type=int,
-    )
+        # multiple dimensions array
+        # linalg.broadcast / linalg.reduce
+        parser.add_argument(
+            "--dimensions",
+            required=False,
+            default=None,
+            action="append",
+            help="define the dimensions attribute in linalg op",
+            type=int,
+        )
 
-    parser.add_argument(
-        "--strides",
-        required=False,
-        default=None,
-        action="append",
-        help="define the strides attribute in linalg op",
-        type=int,
-    )
+        parser.add_argument(
+            "--dilations",
+            required=False,
+            default=None,
+            action="append",
+            help="define the dilations attribute in linalg op",
+            type=int,
+        )
+
+        parser.add_argument(
+            "--strides",
+            required=False,
+            default=None,
+            action="append",
+            help="define the strides attribute in linalg op",
+            type=int,
+        )
 
 
 def add_bench_options(parser: argparse.ArgumentParser):
     """add options for bench mode"""
     if parser.parse_known_args()[0].mode == "P":
-        parser.add_argument(
-            "-p",
-            "--print_ir",
-            action="store_true",
-            help="if need print the IR after pipeline",
-            required=False,
-        )
         parser.add_argument(
             "--bench_kind", type=str, choices=["py", "wrapper"], default="py"
         )
@@ -196,7 +200,7 @@ def get_module_and_args(flags):
                 pattern_clz = get_pattern_clz(flags.case)
                 module = pattern_clz(ctx, flags).ir_module
 
-        entry = benchgc.mlir.util.get_entry(module)
+        entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
         idx: int = 0
         # FIXME: only support RankTensorType now
         for i in entry.type.inputs:
@@ -246,7 +250,7 @@ def get_module_and_args(flags):
         idx = int(cmp[:colon])
         args[idx].set_cmp(cmp[colon + 1 :])
 
-    entry = benchgc.mlir.util.get_entry(module)
+    entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
 
     for i, arg in enumerate(args):
         # use zero filling if the arg is return value
@@ -277,7 +281,7 @@ def correctness_testing(flags, module, args):
         else:
             gc_args.append(tensor)
 
-    entry = benchgc.mlir.util.get_entry(module)
+    entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
     # ref_out contains return value of the entry
     ref_out = runner.ref_run(entry, ref_tensors)
 
@@ -289,10 +293,13 @@ def correctness_testing(flags, module, args):
     mlir_args = get_mlir_args(gc_args)
     passes = "any(gc-cpu-pipeline)"
 
-    with module.context:
+    with module.context as ctx:
+        ir_printing = flags.verbose >= benchgc.util.PIPELINE_VERBOSE
+        if ir_printing:
+            ctx.enable_multithreading(False)
         compiler = GraphCompiler(passes)
-        engine = compiler.compile_and_jit(module)
-        engine.invoke("entry", *mlir_args)
+        engine = compiler.compile_and_jit(module, ir_printing)
+        engine.invoke(flags.entry, *mlir_args)
 
     fail, mistrust = False, False
     for i in range(len(args)):
@@ -326,15 +333,16 @@ def performance_testing(flags, module, args):
 
     mlir_args = get_mlir_args(gc_args)
     with module.context as ctx:
-        if flags.print_ir:
+        ir_printing = flags.verbose >= benchgc.util.PIPELINE_VERBOSE
+        if ir_printing:
             ctx.enable_multithreading(False)
         bench_kind = py_timeit_bench if flags.bench_kind == "py" else mlir_wrapper_bench
         execute_cost, compile_cost = bench_kind(
             module,
-            "entry",
+            flags.entry,
             "any(gc-cpu-pipeline)",
             mlir_args,
-            flags.print_ir,
+            ir_printing,
             flags.repeat,
             flags.warm_up,
         )

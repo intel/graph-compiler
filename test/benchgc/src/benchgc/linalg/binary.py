@@ -33,6 +33,7 @@ def ref_add(
 
 def mlir_add(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -49,6 +50,7 @@ def ref_powf(
 
 def mlir_powf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -65,6 +67,7 @@ def ref_div(
 
 def mlir_div(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -81,6 +84,7 @@ def ref_max(
 
 def mlir_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -97,6 +101,7 @@ def ref_min(
 
 def mlir_min(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -113,6 +118,7 @@ def ref_mul(
 
 def mlir_mul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -129,6 +135,7 @@ def ref_sub(
 
 def mlir_sub(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [

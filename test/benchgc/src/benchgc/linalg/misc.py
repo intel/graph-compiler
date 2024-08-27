@@ -45,6 +45,7 @@ def ref_broadcast(
 def mlir_broadcast(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
 
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [
@@ -63,6 +64,7 @@ def ref_fill(
 
 def mlir_fill(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [
@@ -86,6 +88,7 @@ def ref_copy(
 def mlir_copy(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
 
     return init_module(
+        flags.entry,
         (args[0],),
         (args[1],),
         lambda ctx, arg0: [

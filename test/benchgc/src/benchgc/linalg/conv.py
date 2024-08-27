@@ -42,6 +42,7 @@ def ref_conv_1d_ncw_fcw(
 
 def mlir_conv_1d_ncw_fcw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -80,6 +81,7 @@ def ref_conv_1d_nwc_wcf(
 
 def mlir_conv_1d_nwc_wcf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -111,6 +113,7 @@ def ref_conv_1d_ncw_fcw(
 
 def mlir_conv_1d_ncw_fcw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -140,6 +143,7 @@ def ref_conv_1d(
 
 def mlir_conv_1d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -169,6 +173,7 @@ def ref_conv_2d_nchw_fchw(
 
 def mlir_conv_2d_nchw_fchw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -215,6 +220,7 @@ def ref_conv_2d_ngchw_fgchw(
 
 def mlir_conv_2d_ngchw_fgchw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -259,6 +265,7 @@ def ref_conv_2d_ngchw_gfchw(
 
 def mlir_conv_2d_ngchw_gfchw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -292,6 +299,7 @@ def ref_conv_2d_nhwc_fhwc(
 
 def mlir_conv_2d_nhwc_fhwc(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -325,6 +333,7 @@ def ref_conv_2d_nhwc_hwcf(
 
 def mlir_conv_2d_nhwc_hwcf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -354,6 +363,7 @@ def ref_conv_2d(
 
 def mlir_conv_2d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -383,6 +393,7 @@ def ref_conv_3d_ncdhw_fcdhw(
 
 def mlir_conv_3d_ncdhw_fcdhw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -416,6 +427,7 @@ def ref_conv_3d_ndhwc_dhwcf(
 
 def mlir_conv_3d_ndhwc_dhwcf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -445,6 +457,7 @@ def ref_conv_3d(
 
 def mlir_conv_3d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -478,6 +491,7 @@ def mlir_depthwise_conv_1d_ncw_cw(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -515,6 +529,7 @@ def mlir_depthwise_conv_1d_nwc_wc(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -557,6 +572,7 @@ def mlir_depthwise_conv_1d_nwc_wcm(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -592,6 +608,7 @@ def mlir_depthwise_conv_2d_nchw_chw(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -629,6 +646,7 @@ def mlir_depthwise_conv_2d_nhwc_hwc(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -674,6 +692,7 @@ def mlir_depthwise_conv_2d_nhwc_hwcm(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -709,6 +728,7 @@ def mlir_depthwise_conv_3d_ncdhw_cdhw(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -746,6 +766,7 @@ def mlir_depthwise_conv_3d_ndhwc_dhwc(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -800,6 +821,7 @@ def mlir_depthwise_conv_3d_ndhwc_dhwcm(
     flags: argparse.Namespace, args: List[Arg]
 ) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
