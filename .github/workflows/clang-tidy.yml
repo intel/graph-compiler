@@ -42,7 +42,6 @@ jobs:
 
     - name: Fetch llvm artifact
       run: |
-        set -x
         gh run download \
           --repo ${{ github.repository }} \
           -n "llvm-${{ env.LLVM_HASH }}" \
