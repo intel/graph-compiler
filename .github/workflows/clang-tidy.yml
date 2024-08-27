@@ -39,7 +39,6 @@ jobs:
       shell: bash
       run: |
         echo LLVM_HASH=$(cat graph-compiler/cmake/llvm-version.txt) >> $GITHUB_ENV
-        echo RUN_ID=$(gh run list -w "LLVM Build" --repo intel/graph-compiler --json databaseId --jq '.[0].databaseId') >> $GITHUB_ENV
 
     - name: Fetch llvm artifact
       run: |
