@@ -159,7 +159,7 @@ def add_common_options(parser: argparse.ArgumentParser):
 
 
 def add_bench_options(parser: argparse.ArgumentParser):
-    ''' add options for bench mode'''
+    """add options for bench mode"""
     if parser.parse_known_args()[0].mode == "P":
         parser.add_argument(
             "-p",
@@ -183,7 +183,7 @@ def get_pattern_clz(driver_str: str):
 
 
 def add_pattern_options(parser: argparse.ArgumentParser):
-    '''add options for each pattern'''
+    """add options for each pattern"""
     if parser.parse_known_args()[0].driver == "pattern":
         pattern_name = parser.parse_known_args()[0].case
         get_pattern_clz(pattern_name).add_args(parser)
@@ -265,6 +265,7 @@ def get_module_and_args(flags):
         print(module)
     return module, args
 
+
 def correctness_testing(flags, module, args):
     ref_args: List[torch.Tensor] = []
     gc_args: List[torch.Tensor | int] = []
@@ -319,7 +320,7 @@ def correctness_testing(flags, module, args):
 
 def performance_testing(flags, module, args):
     gc_args: List[torch.Tensor | int] = []
-    gc_tensors: Dict[str, torch.Tensor] = {}  
+    gc_tensors: Dict[str, torch.Tensor] = {}
     for i in range(len(args)):
         tensor = fill_tensor(flags, args[i], i)
         gc_tensors["%arg" + str(i)] = tensor
@@ -327,11 +328,11 @@ def performance_testing(flags, module, args):
             gc_args.append(tensor.data_ptr())
         else:
             gc_args.append(tensor)
-    
+
     mlir_args = get_mlir_args(gc_args)
-    with module.context as ctx: 
+    with module.context as ctx:
         if flags.print_ir:
-            ctx.enable_multithreading(False) 
+            ctx.enable_multithreading(False)
         bench_kind = py_timeit_bench if flags.bench_kind == "py" else mlir_wrapper_bench
         execute_cost, compile_cost = bench_kind(
             module,
@@ -341,7 +342,7 @@ def performance_testing(flags, module, args):
             flags.print_ir,
             flags.repeat,
             flags.warm_up,
-        )     
+        )
         print("===========bench result===========")
         json_res = json.dumps(
             {
@@ -352,6 +353,7 @@ def performance_testing(flags, module, args):
             indent=4,
         )
         print(json_res)
+
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")

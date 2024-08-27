@@ -18,16 +18,16 @@
 import ctypes
 import random
 import timeit
-from typing import List, Sequence, Tuple
+from typing import List, Tuple
 
 import numpy as np
-from gc_mlir import ir, runtime
-from gc_mlir.graph_compiler import GraphCompiler
 from benchgc.mlir.util import (
     emit_benchmark_wrapped_main_func,
     emit_nano_time,
     get_kernel_func_from_module,
 )
+from gc_mlir import ir, runtime
+from gc_mlir.graph_compiler import GraphCompiler
 
 
 def py_timeit_bench(

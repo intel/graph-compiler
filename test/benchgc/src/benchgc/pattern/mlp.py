@@ -53,6 +53,7 @@ def to_bool_list(s: str) -> List[bool]:
         return []
     return [bool(int(i)) for i in s.strip().split("x")]
 
+
 class Pattern(ABC):
     """Abstract class for driver."""
 
