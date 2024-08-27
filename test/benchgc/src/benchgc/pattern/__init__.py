@@ -14,7 +14,7 @@
 # limitations under the License.
 ################################################################################
 
-import sys
 import pathlib
+import sys
 
 sys.path.append(pathlib.Path(__file__).parent.resolve().__str__())

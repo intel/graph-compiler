@@ -109,8 +109,6 @@ def str_to_mlir_typed_attr(ctx: ir.Context, dtype: str, value: Any) -> ir.Attrib
         raise Exception(f"data type not support: {dtype}")
 
 
-
-
 def emit_nano_time() -> func.FuncOp:
     """Emit a nanoTime function that returns the current time in nanoseconds."""
     nanoTime = func.FuncOp(
