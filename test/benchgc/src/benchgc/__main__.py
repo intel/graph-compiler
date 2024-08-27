@@ -177,7 +177,6 @@ def add_bench_options(parser: argparse.ArgumentParser):
         )
         parser.add_argument("--warm_up", type=int, default=100)
         parser.add_argument("--repeat", type=int, default=100)
-        parser.add_argument("--entry", type=str, default="main_entry")
 
 
 

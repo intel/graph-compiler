@@ -27,7 +27,7 @@ python -m pip install test/benchgc/dist/benchgc-*.whl
 ```
 python -m benchgc [OPTIONS] --mode [MODE] --driver [DRIVER] --case [CASE]
 ```
-## Flags
+## Common Options
 ### --mode [str]
 * C : correctness testing (by default)
 * P : performance testing
@@ -41,6 +41,9 @@ python -m benchgc [OPTIONS] --mode [MODE] --driver [DRIVER] --case [CASE]
 * if driver=mlir, please provide a mlir file here to test
 * if driver=pattern, please provide the pre-defined pattern name, such as mlp here
 * if driver is a dialect name, please provide the detail op name to start a single op test
+
+### --entry [str]
+* the entry name of the kernel of input mlir or generated mlir
 
 ### --seed [int]
 * set the seed to generate the test data and reprodce the test
@@ -101,15 +104,10 @@ module {
 | Norm check | N | threshold |
 | Benchdnn driver | D | driver_name:dtype:case |
 
-### --pattern
-
-
-
-
-## Perfermance testing flags
+## Bench Options
 ### --bench_kind [str]
-* py
-* wrapper
+* py : use the MLIR Python API to invoke the kernel and use Python to calculate the time cost
+* wrapper : modify MLIR by wrapping the kernel into a new method and calling the `nanoTime()` method before and after calling the kernel. Finally, calculate the difference as the time cost
 
 ### --warm_up [int]
 * warm-up times of the execution
@@ -117,7 +115,16 @@ module {
 ### --repeat
 * repeat times of the execution
 
-### Example
+## pattern options
+Each pattern has its own unique options.
+### mlp
+* `--batch_size`: the input
+* `--hidden_size_list`: hidden_sizes of mlp, example: 32x16x64
+* `--has_bias`: if the matmul op has bias, example: 1x0
+* `--act_type`: choices=["noop", "relu", "sigmoid"]
+* `--dtype`: choices=["bf16", "f32"]
+
+## Example
 ### Correctness testing example
 ```
 # single add op test 
@@ -275,4 +282,48 @@ p2p check: threshold: 0.0000000
               (1, 0): ref:   25.1690636 res:   25.1690636 abs_diff:    0.0000000 rel_diff:    0.0000000
               (1, 1): ref:   -7.8600063 res:   -7.8600044 abs_diff:    0.0000019 rel_diff:    0.0000002
 FAIL: linalg.matmul_transpose_b
+```
+
+### Perf testing example
+```
+python3 -m benchgc --verbose 1  --mode P  --driver linalg --case add --md 0:4x5xf32 --md 1:4x5xf32 --md 2:4x5xf32
+
+module {
+  func.func @entry(%arg0: tensor<4x5xf32>, %arg1: tensor<4x5xf32>) -> tensor<4x5xf32> attributes {llvm.emit_c_interface} {
+    %cst = arith.constant 0.000000e+00 : f32
+    %0 = tensor.empty() : tensor<4x5xf32>
+    %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<4x5xf32>) -> tensor<4x5xf32>
+    %2 = linalg.add ins(%arg0, %arg1 : tensor<4x5xf32>, tensor<4x5xf32>) outs(%1 : tensor<4x5xf32>) -> tensor<4x5xf32>
+    return %2 : tensor<4x5xf32>
+  }
+}
+
+===========bench result===========
+{
+    "args": {
+        "mode": "P",
+        "driver": "linalg",
+        "case": "add",
+        "md": [
+            "0:4x5xf32",
+            "1:4x5xf32",
+            "2:4x5xf32"
+        ],
+        "fill": [],
+        "cmp": [],
+        "seed": 0,
+        "verbose": 1,
+        "entry": "entry",
+        "cast": "cast_signed",
+        "dimension": null,
+        "dimensions": null,
+        "dilations": null,
+        "strides": null,
+        "bench_kind": "py",
+        "warm_up": 100,
+        "repeat": 100
+    },
+    "compile_cost(ms)": 33.73148664832115,
+    "execute_cost(ms)": 0.1422157883644104
+}
 ```
