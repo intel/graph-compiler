@@ -19,13 +19,9 @@ import argparse
 from abc import ABC, abstractmethod
 from typing import List
 
-import numpy as np
+from benchgc.mlir.util import str_to_mlir_dtype
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
-from gc_mlir.ir import BF16Type, FloatAttr
-from benchgc.mlir.util import (
-    str_to_mlir_dtype,
-)
 
 
 def to_int_list(s: str) -> List[int]:
@@ -70,7 +66,7 @@ class Pattern(ABC):
         """Get and handle the args"""
 
     def __init__(self, ctx: ir.Context, args: argparse.Namespace):
-        self.main_entry = "main_entry"
+        self.main_entry = "entry"
         self.handle_args(args)
         self.ir_module = self.init_module(ctx)
 
@@ -120,7 +116,7 @@ class MLP(Pattern):
         with ctx, ir.Location.unknown():
             layers = len(self.hidden_size_list) - 1
             module = ir.Module.create()
-            dtype = str_to_mlir_dtype(self.dtype, ctx)
+            dtype = str_to_mlir_dtype(ctx, self.dtype)
             src = ir.RankedTensorType.get(
                 [self.batch_size, self.hidden_size_list[0]], dtype
             )
@@ -186,7 +182,7 @@ class MLP(Pattern):
                             )
 
                         if self.act_type == "relu":
-                            element = FloatAttr.get(dtype, 0)
+                            element = ir.FloatAttr.get(dtype, 0)
                             tensor_type = ir.RankedTensorType.get(
                                 layer_out_shape, dtype
                             )
@@ -205,7 +201,7 @@ class MLP(Pattern):
         parser.add_argument("--hidden_size_list", type=str, default="")
         parser.add_argument("--has_bias", required=False, type=str)
         parser.add_argument(
-            "--act_type", type=str, choices=["noop", "relu", "sigmoid"], default="noop"
+            "--act_type", type=str, choices=["noop", "relu"], default="noop"
         )
         parser.add_argument(
             "--dtype",
@@ -240,7 +236,7 @@ class MLP(Pattern):
         with ctx, ir.Location.unknown():
             layers = len(self.hidden_size_list) - 1
             module = ir.Module.create()
-            dtype = str_to_mlir_dtype(self.dtype, ctx)
+            dtype = str_to_mlir_dtype(ctx, self.dtype)
             src = ir.RankedTensorType.get(
                 [self.batch_size, self.hidden_size_list[0]], dtype
             )
@@ -306,7 +302,7 @@ class MLP(Pattern):
                             )
 
                         if self.act_type == "relu":
-                            element = FloatAttr.get(dtype, 0)
+                            element = ir.FloatAttr.get(dtype, 0)
                             tensor_type = ir.RankedTensorType.get(
                                 layer_out_shape, dtype
                             )

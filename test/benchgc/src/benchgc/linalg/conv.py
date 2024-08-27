@@ -17,19 +17,19 @@
 import argparse
 from typing import Dict, List, Tuple
 
-import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.module import init_module
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 from gc_mlir.dialects import linalg
 
 
 def ref_conv_1d_ncw_fcw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv1d(
             var[cache.opr[0]],
@@ -40,9 +40,7 @@ def ref_conv_1d_ncw_fcw(
     )
 
 
-def mlir_conv_1d_ncw_fcw(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_1d_ncw_fcw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -59,10 +57,10 @@ def mlir_conv_1d_ncw_fcw(
 
 
 def ref_conv_1d_nwc_wcf(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     # src: nwc -> ncw
     # wei: wcf -> fcw
@@ -80,9 +78,7 @@ def ref_conv_1d_nwc_wcf(
     )
 
 
-def mlir_conv_1d_nwc_wcf(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_1d_nwc_wcf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -99,10 +95,10 @@ def mlir_conv_1d_nwc_wcf(
 
 
 def ref_conv_1d_ncw_fcw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv1d(
             var[cache.opr[0]],
@@ -113,9 +109,7 @@ def ref_conv_1d_ncw_fcw(
     )
 
 
-def mlir_conv_1d_ncw_fcw(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_1d_ncw_fcw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -132,7 +126,7 @@ def mlir_conv_1d_ncw_fcw(
 
 
 def ref_conv_1d(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.conv1d(
@@ -144,7 +138,7 @@ def ref_conv_1d(
     )
 
 
-def mlir_conv_1d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_conv_1d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -159,10 +153,10 @@ def mlir_conv_1d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Modul
 
 
 def ref_conv_2d_nchw_fchw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv2d(
             var[cache.opr[0]],
@@ -173,9 +167,7 @@ def ref_conv_2d_nchw_fchw(
     )
 
 
-def mlir_conv_2d_nchw_fchw(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_2d_nchw_fchw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -192,10 +184,10 @@ def mlir_conv_2d_nchw_fchw(
 
 
 def ref_conv_2d_ngchw_fgchw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     src = var[cache.opr[0]]
     wei = var[cache.opr[1]]
@@ -221,9 +213,7 @@ def ref_conv_2d_ngchw_fgchw(
     )  # split group axis from output channel
 
 
-def mlir_conv_2d_ngchw_fgchw(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_2d_ngchw_fgchw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -240,10 +230,10 @@ def mlir_conv_2d_ngchw_fgchw(
 
 
 def ref_conv_2d_ngchw_gfchw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     src = var[cache.opr[0]]
     wei = var[cache.opr[1]]
@@ -267,9 +257,7 @@ def ref_conv_2d_ngchw_gfchw(
     )  # split group axis from output channel
 
 
-def mlir_conv_2d_ngchw_gfchw(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_2d_ngchw_gfchw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -286,10 +274,10 @@ def mlir_conv_2d_ngchw_gfchw(
 
 
 def ref_conv_2d_nhwc_fhwc(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv2d(
             var[cache.opr[0]].permute([0, 3, 1, 2]),
@@ -302,9 +290,7 @@ def ref_conv_2d_nhwc_fhwc(
     )
 
 
-def mlir_conv_2d_nhwc_fhwc(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_2d_nhwc_fhwc(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -321,10 +307,10 @@ def mlir_conv_2d_nhwc_fhwc(
 
 
 def ref_conv_2d_nhwc_hwcf(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv2d(
             var[cache.opr[0]].permute([0, 3, 1, 2]),
@@ -337,9 +323,7 @@ def ref_conv_2d_nhwc_hwcf(
     )
 
 
-def mlir_conv_2d_nhwc_hwcf(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_2d_nhwc_hwcf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -356,7 +340,7 @@ def mlir_conv_2d_nhwc_hwcf(
 
 
 def ref_conv_2d(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.conv2d(
@@ -368,7 +352,7 @@ def ref_conv_2d(
     )
 
 
-def mlir_conv_2d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_conv_2d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -383,10 +367,10 @@ def mlir_conv_2d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Modul
 
 
 def ref_conv_3d_ncdhw_fcdhw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv3d(
             var[cache.opr[0]],
@@ -397,9 +381,7 @@ def ref_conv_3d_ncdhw_fcdhw(
     )
 
 
-def mlir_conv_3d_ncdhw_fcdhw(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_3d_ncdhw_fcdhw(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -416,10 +398,10 @@ def mlir_conv_3d_ncdhw_fcdhw(
 
 
 def ref_conv_3d_ndhwc_dhwcf(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.conv3d(
             var[cache.opr[0]].permute([0, 4, 1, 2, 3]),
@@ -432,9 +414,7 @@ def ref_conv_3d_ndhwc_dhwcf(
     )
 
 
-def mlir_conv_3d_ndhwc_dhwcf(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_conv_3d_ndhwc_dhwcf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -451,7 +431,7 @@ def mlir_conv_3d_ndhwc_dhwcf(
 
 
 def ref_conv_3d(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.conv3d(
@@ -463,7 +443,7 @@ def ref_conv_3d(
     )
 
 
-def mlir_conv_3d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_conv_3d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -478,10 +458,10 @@ def mlir_conv_3d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Modul
 
 
 def ref_depthwise_conv_1d_ncw_cw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[1]
     return (
         torch.conv1d(
@@ -496,7 +476,7 @@ def ref_depthwise_conv_1d_ncw_cw(
 
 def mlir_depthwise_conv_1d_ncw_cw(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -513,10 +493,10 @@ def mlir_depthwise_conv_1d_ncw_cw(
 
 
 def ref_depthwise_conv_1d_nwc_wc(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[-1]
     return (
         torch.conv1d(
@@ -533,7 +513,7 @@ def ref_depthwise_conv_1d_nwc_wc(
 
 def mlir_depthwise_conv_1d_nwc_wc(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -550,10 +530,10 @@ def mlir_depthwise_conv_1d_nwc_wc(
 
 
 def ref_depthwise_conv_1d_nwc_wcm(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     src = var[cache.opr[0]]
     groups: int = src.shape[-1]
     wei = var[cache.opr[1]]
@@ -575,7 +555,7 @@ def ref_depthwise_conv_1d_nwc_wcm(
 
 def mlir_depthwise_conv_1d_nwc_wcm(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -592,10 +572,10 @@ def mlir_depthwise_conv_1d_nwc_wcm(
 
 
 def ref_depthwise_conv_2d_nchw_chw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[1]
     return (
         torch.conv2d(
@@ -610,7 +590,7 @@ def ref_depthwise_conv_2d_nchw_chw(
 
 def mlir_depthwise_conv_2d_nchw_chw(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -627,10 +607,10 @@ def mlir_depthwise_conv_2d_nchw_chw(
 
 
 def ref_depthwise_conv_2d_nhwc_hwc(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[-1]
     return (
         torch.conv2d(
@@ -647,7 +627,7 @@ def ref_depthwise_conv_2d_nhwc_hwc(
 
 def mlir_depthwise_conv_2d_nhwc_hwc(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -664,10 +644,10 @@ def mlir_depthwise_conv_2d_nhwc_hwc(
 
 
 def ref_depthwise_conv_2d_nhwc_hwcm(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[-1]
     wei = var[cache.opr[1]]
     dst = (
@@ -692,7 +672,7 @@ def ref_depthwise_conv_2d_nhwc_hwcm(
 
 def mlir_depthwise_conv_2d_nhwc_hwcm(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -709,10 +689,10 @@ def mlir_depthwise_conv_2d_nhwc_hwcm(
 
 
 def ref_depthwise_conv_3d_ncdhw_cdhw(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[1]
     return (
         torch.conv3d(
@@ -727,7 +707,7 @@ def ref_depthwise_conv_3d_ncdhw_cdhw(
 
 def mlir_depthwise_conv_3d_ncdhw_cdhw(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -744,10 +724,10 @@ def mlir_depthwise_conv_3d_ncdhw_cdhw(
 
 
 def ref_depthwise_conv_3d_ndhwc_dhwc(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[-1]
     return (
         torch.conv3d(
@@ -764,7 +744,7 @@ def ref_depthwise_conv_3d_ndhwc_dhwc(
 
 def mlir_depthwise_conv_3d_ndhwc_dhwc(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -781,10 +761,10 @@ def mlir_depthwise_conv_3d_ndhwc_dhwc(
 
 
 def ref_depthwise_conv_3d_ndhwc_dhwcm(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     groups: int = var[cache.opr[0]].shape[-1]
     wei = var[cache.opr[1]]
     dst = (
@@ -818,7 +798,7 @@ def ref_depthwise_conv_3d_ndhwc_dhwcm(
 
 def mlir_depthwise_conv_3d_ndhwc_dhwcm(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),

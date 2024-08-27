@@ -20,13 +20,10 @@ import json
 import sys
 from typing import Dict, List
 
-import gc_mlir.ir
-import runner
-import torch
-from gc_mlir.graph_compiler import GraphCompiler
-
 import benchgc.mlir.util
 import benchgc.util
+import runner
+import torch
 from benchgc.arg import (
     compare_tensor,
     fill_tensor,
@@ -35,10 +32,14 @@ from benchgc.arg import (
 )
 from benchgc.arg.arg import Arg
 from benchgc.mlir.arg import get_mlir_args
-from benchgc.pattern.mlp import MLP
 from benchgc.mlir.bench import mlir_wrapper_bench, py_timeit_bench
+from benchgc.pattern.mlp import MLP
+from gc_mlir import ir
+from gc_mlir.graph_compiler import GraphCompiler
+
 
 def add_common_options(parser: argparse.ArgumentParser):
+    """common options for benchgc"""
     parser.add_argument(
         "--mode",
         required=False,
@@ -184,35 +185,39 @@ def get_pattern_clz(driver_str: str):
 def add_pattern_options(parser: argparse.ArgumentParser):
     '''add options for each pattern'''
     if parser.parse_known_args()[0].driver == "pattern":
-        pattern_name = parser.parse_known_args()[0].driver
+        pattern_name = parser.parse_known_args()[0].case
         get_pattern_clz(pattern_name).add_args(parser)
 
 
 def get_module_and_args(flags):
-
     args: List[Arg] = []
-
-    if flags.driver == "mlir":
+    if flags.driver in ["mlir", "pattern"]:
         # we need to find all args by reading the entry function
-        with open(flags.case, "r") as mlir_file:
-            with gc_mlir.ir.Context() as ctx:
-                module = gc_mlir.ir.Module.parse(mlir_file.read())
-                entry = benchgc.mlir.util.get_entry(module)
-                idx: int = 0
-                # FIXME: only support RankTensorType now
-                for i in entry.type.inputs:
-                    args.append(Arg(idx))
-                    args[-1].dtype = str(i.element_type)
-                    args[-1].shape = list(i.shape)
-                    args[-1].set_scalar()
-                    idx += 1
+        with ir.Context() as ctx:
+            if flags.driver == "mlir":
+                with open(flags.case, "r") as mlir_file:
+                    module = ir.Module.parse(mlir_file.read())
+            elif flags.driver == "pattern":
+                pattern_clz = get_pattern_clz(flags.case)
+                module = pattern_clz(ctx, flags).ir_module
 
-                for o in entry.type.results:
-                    args.append(Arg(idx))
-                    args[-1].dtype = str(o.element_type)
-                    args[-1].shape = list(o.shape)
-                    args[-1].set_scalar()
-                    idx += 1
+        entry = benchgc.mlir.util.get_entry(module)
+        idx: int = 0
+        # FIXME: only support RankTensorType now
+        for i in entry.type.inputs:
+            args.append(Arg(idx))
+            args[-1].dtype = str(i.element_type)
+            args[-1].shape = list(i.shape)
+            args[-1].set_scalar()
+            idx += 1
+
+        for o in entry.type.results:
+            args.append(Arg(idx))
+            args[-1].dtype = str(o.element_type)
+            args[-1].shape = list(o.shape)
+            args[-1].set_scalar()
+            idx += 1
+
     elif flags.driver in ["linalg"]:
         # all arg shape/dt should be provided in single op test
         for i in range(len(flags.md)):

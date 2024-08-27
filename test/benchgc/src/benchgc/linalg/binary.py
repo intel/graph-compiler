@@ -17,21 +17,21 @@
 import argparse
 from typing import Dict, List, Tuple
 
-import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.module import init_module
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 from gc_mlir.dialects import linalg
 
 
 def ref_add(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.add(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_add(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_add(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -42,12 +42,12 @@ def mlir_add(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_powf(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.pow(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_powf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_powf(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -58,12 +58,12 @@ def mlir_powf(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_div(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.div(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_div(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_div(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -74,12 +74,12 @@ def mlir_div(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_max(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.max(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_max(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -90,12 +90,12 @@ def mlir_max(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_min(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.min(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_min(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_min(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -106,12 +106,12 @@ def mlir_min(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_mul(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.mul(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_mul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_mul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),
@@ -122,12 +122,12 @@ def mlir_mul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_sub(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.sub(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_sub(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_sub(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0], args[1]),
         (args[2],),

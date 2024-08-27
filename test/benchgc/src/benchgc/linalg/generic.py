@@ -18,14 +18,14 @@ from typing import Any, Dict, List, Tuple
 
 import benchgc.runner
 import benchgc.util
-import gc_mlir.ir
 import torch
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 
 
 def generic_loop(
     cache: MLIRCache,
-    op: gc_mlir.ir.OpView,
+    op: ir.OpView,
     depth: int,
     iterspace: Dict[str, Tuple[int, int, int]],
     affine_from: List[str],
@@ -42,7 +42,7 @@ def generic_loop(
             # region cache
             cache.next.append(MLIRCache())
 
-        block: gc_mlir.ir.Block = op.regions[0].blocks[0]
+        block: ir.Block = op.regions[0].blocks[0]
         if len(cache.next[0].next) == 0:
             # region->block cache
             cache.next[0].next.append(MLIRCache())
@@ -96,7 +96,7 @@ def generic_loop(
 
 
 def ref_generic(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, tensors: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     affine_from: List[str] = []
     affine_to: List[List[str]] = []
@@ -110,7 +110,7 @@ def ref_generic(
     # TODO: support affine expression
 
     iterspace: Dict[str, Tuple[int, int, int]] = {}
-    operands: List[gc_mlir.ir.OpOperand] = list(op.operands)
+    operands: List[ir.OpOperand] = list(op.operands)
 
     loop_var: Dict[str, torch.Tensor] = {}
     for d in affine_from:
@@ -142,7 +142,7 @@ def ref_generic(
 
 def reduce_loop(
     cache: MLIRCache,
-    op: gc_mlir.ir.OpView,
+    op: ir.OpView,
     depth: int,
     in_shape: List[int],
     var: Dict[str, torch.Tensor],
@@ -155,7 +155,7 @@ def reduce_loop(
         # we need to execute the block here
         # we will need to read the block argument name and save it into the cache
 
-        block: gc_mlir.ir.Block = op.regions[0].blocks[0]
+        block: ir.Block = op.regions[0].blocks[0]
 
         if len(cache.next) == 0:
             # region cache
@@ -180,7 +180,7 @@ def reduce_loop(
         # perform the yield operation
         result_tensor[tuple(out_idx)] = res[0]
     else:
-        dimensions: gc_mlir.ir.DenseI64ArrayAttr = op.attributes["dimensions"]
+        dimensions: ir.DenseI64ArrayAttr = op.attributes["dimensions"]
         reduce_axis: bool = depth in list(dimensions)
 
         for i in range(in_shape[depth]):
@@ -214,7 +214,7 @@ def reduce_loop(
 
 
 def ref_reduce(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, tensors: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     # create the buffer for result tensors
     tensors[cache.res[0]] = tensors[cache.opr[-1]].clone()

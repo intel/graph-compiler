@@ -17,22 +17,22 @@
 import argparse
 from typing import Dict, List, Tuple
 
-import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.module import init_module
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 from gc_mlir.dialects import linalg
 
 
 def ref_softmax(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    dimension: gc_mlir.ir.IntegerAttr = op.attributes["dimension"]
+    dimension: ir.IntegerAttr = op.attributes["dimension"]
     return (torch.softmax(var[cache.opr[0]], dimension.value),)
 
 
-def mlir_softmax(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_softmax(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
         (args[0],),
         (args[1],),

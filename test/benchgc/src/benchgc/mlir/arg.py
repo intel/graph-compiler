@@ -21,9 +21,9 @@ import benchgc.util
 import gc_mlir.dialects.arith
 import gc_mlir.dialects.linalg
 import gc_mlir.dialects.tensor
-import gc_mlir.ir
 import torch
 from benchgc.mlir.util import dtype_to_ctype, str_to_mlir_dtype, str_to_mlir_typed_attr
+from gc_mlir import ir
 
 
 # scalar should give a address
@@ -118,24 +118,18 @@ class MLIRArg:
             ret = ret * dim
         return ret
 
-    def get_mlir_type(self, ctx: gc_mlir.ir.Context) -> gc_mlir.ir.Type:
+    def get_mlir_type(self, ctx: ir.Context) -> ir.Type:
         if self.scalar:
             return str_to_mlir_dtype(ctx, self.dtype)
         else:
-            return gc_mlir.ir.RankedTensorType.get(
+            return ir.RankedTensorType.get(
                 self.shape, str_to_mlir_dtype(ctx, self.dtype)
             )
 
-    def get_ranked_tensor_type(
-        self, ctx: gc_mlir.ir.Context
-    ) -> gc_mlir.ir.RankedTensorType:
-        return gc_mlir.ir.RankedTensorType.get(
-            self.shape, str_to_mlir_dtype(ctx, self.dtype)
-        )
+    def get_ranked_tensor_type(self, ctx: ir.Context) -> ir.RankedTensorType:
+        return ir.RankedTensorType.get(self.shape, str_to_mlir_dtype(ctx, self.dtype))
 
-    def get_constant_op(
-        self, ctx: gc_mlir.ir.Context, cst: Any
-    ) -> gc_mlir.dialects.tensor.OpView:
+    def get_constant_op(self, ctx: ir.Context, cst: Any) -> ir.OpView:
         zero = gc_mlir.dialects.arith.ConstantOp(
             value=str_to_mlir_typed_attr(ctx, self.dtype, cst),
             result=str_to_mlir_dtype(ctx, self.dtype),
@@ -152,21 +146,17 @@ class MLIRArg:
                 ],
             )
 
-    def get_zero_op(self, ctx: gc_mlir.ir.Context) -> gc_mlir.dialects.tensor.OpView:
+    def get_zero_op(self, ctx: ir.Context) -> ir.OpView:
         return self.get_constant_op(ctx, 0)
 
-    def get_max_value_op(
-        self, ctx: gc_mlir.ir.Context
-    ) -> gc_mlir.dialects.tensor.OpView:
+    def get_max_value_op(self, ctx: ir.Context) -> ir.OpView:
         dtype = benchgc.util.get_dtype(self.dtype)
         if dtype.is_floating_point:
             return self.get_constant_op(ctx, torch.finfo(dtype).max)
         else:
             return self.get_constant_op(ctx, torch.iinfo(dtype).max)
 
-    def get_min_value_op(
-        self, ctx: gc_mlir.ir.Context
-    ) -> gc_mlir.dialects.tensor.OpView:
+    def get_min_value_op(self, ctx: ir.Context) -> ir.OpView:
         dtype = benchgc.util.get_dtype(self.dtype)
         if dtype.is_floating_point:
             return self.get_constant_op(ctx, torch.finfo(dtype).min)
