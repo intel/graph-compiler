@@ -656,7 +656,7 @@ struct LowerToTileVectorPass
     // transpose or braodcast semantic etc.
     vector::populateVectorTransferPermutationMapLoweringPatterns(secondPattern);
     // Remove unnessary broadcast operation
-    vector::populateSinkVectorBroadcastPatterns(secondPattern);
+    vector::populateSinkVectorOpsPatterns(secondPattern);
     // Second fold (with the help of the `applyPatternsAndFoldGreedily`
     // function) can help us to eliminate redundant operation like consecutive
     // read and write.

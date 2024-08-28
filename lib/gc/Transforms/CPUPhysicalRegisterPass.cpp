@@ -30,7 +30,8 @@ namespace {
       linalg::MatmulOp, linalg::BatchMatmulOp,                                 \
       linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp,        \
       linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
-      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp
+      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp,               \
+      tensor::CollapseShapeOp, tensor::ExpandShapeOp
 
 // TODO: remove it in the future
 bool disableSpecialOp = false;
@@ -60,9 +61,12 @@ void printGroupOps(SmallVector<std::queue<Operation *>, 8> &opGroups) {
   }
 }
 
+static inline bool isUsedByOtherOp(Operation *op) {
+  return isa<affine::AffineApplyOp>(op);
+}
+
 static inline bool isCandidateMoveOperations(Operation *op) {
-  return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp,
-             affine::AffineApplyOp>(op);
+  return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp>(op);
 }
 
 static inline bool isSpecialLinalgOp(Operation *op) {
@@ -102,6 +106,14 @@ static inline bool isSpecialOp(Operation *op) {
   return isa<vector::TransposeOp, vector::ReductionOp, vector::BroadcastOp,
              vector::ShapeCastOp, vector::MultiDimReductionOp, func::CallOp>(
       op);
+}
+
+static inline void moveOpBeginingOfBlock(Operation *op) {
+  Block *block = op->getBlock();
+  assert(not block->getOperations().empty() && "Empty block.");
+  if (&block->front() == op)
+    return;
+  op->moveBefore(&block->front());
 }
 
 /// operation should not contain for loop
@@ -1937,7 +1949,7 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
               loc,
               /*vectorType=*/kernelType,
               /*source=*/readSourceOp.getSource(),
-              /*indices=*/writeVars,
+              /*indices=*/inductionVars,
               /*padding=*/padValue,
               /*inBounds=*/inBoundsVal);
 
@@ -3214,6 +3226,9 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
     Operation *prevOp = nullptr;
     prevOp = getNotReadWriteOperaiton(tmpQ);
     if (!prevOp) {
+      if (opGroups.back().back()->getParentOp() != op->getParentOp()) {
+        return true;
+      }
       return false;
     }
 
@@ -3479,11 +3494,19 @@ mlir::FailureOr<Value> getOperationOperateTensor(Operation *op) {
   return TypeSwitch<Operation *, mlir::FailureOr<Value>>(op)
       .Case<vector::TransferWriteOp>(
           [&](vector::TransferWriteOp transferWriteOp) {
-            LDBG(" DPS operation : " << *op << "\n");
-            return transferWriteOp->getOperand(1);
+            // find original tensor.empty operation
+            auto writeTensor = transferWriteOp->getOperand(1);
+            while (auto wtOp = dyn_cast<vector::TransferWriteOp>(
+                       writeTensor.getDefiningOp())) {
+              if (transferWriteOp->getBlock() !=
+                  writeTensor.getDefiningOp()->getBlock()) {
+                break;
+              }
+              writeTensor = wtOp->getOperand(1);
+            }
+            return writeTensor;
           })
       .Case<vector::TransferReadOp>([&](vector::TransferReadOp transferReadOp) {
-        LDBG(" DPS operation : " << *op << "\n");
         return transferReadOp->getOperand(0);
       })
       .Default([&](Operation *op) {
@@ -3803,6 +3826,15 @@ void VectorOperationAnalyzer::analysisGroupOperaion() {
                       vector::TransferWriteOp>(sourceOp, sourceOpGid)) {
                 auto writeOpresult = writeOp->getResults()[0];
                 auto writeTensor = writeOp->getOperands()[1];
+                // find original tensor.empty operation
+                while (auto wtOp = dyn_cast<vector::TransferWriteOp>(
+                           writeTensor.getDefiningOp())) {
+                  if (sourceOp->getBlock() !=
+                      writeTensor.getDefiningOp()->getBlock()) {
+                    break;
+                  }
+                  writeTensor = wtOp->getOperand(1);
+                }
                 srcOpCanoniclizedMap.insert(
                     {sourceOp, {writeTensor, writeOpresult}});
                 groupOpInitArgs[sourceOpGid].insert(writeTensor);
@@ -4054,22 +4086,23 @@ moveFront(Operation *op,
     }
   }
   if (allBlockArgs) {
-    rewriter.moveOpAfter(op, op->getBlock(), op->getBlock()->begin());
+    moveOpBeginingOfBlock(op);
     return success();
   }
   for (auto operand : op->getOperands()) {
-    if (isa<BlockArgument>(operand)) {
+    if (isa<BlockArgument>(operand))
       continue;
-    }
-    if (operationPosition[operand.getDefiningOp()] > pos and
-        operand.getDefiningOp()->getBlock() == op->getBlock()) {
-      backOperation = operand.getDefiningOp();
-      pos = operationPosition[operand.getDefiningOp()];
+
+    Operation *sourceOp = operand.getDefiningOp();
+    if (operationPosition[sourceOp] > pos and
+        sourceOp->getBlock() == op->getBlock()) {
+      backOperation = sourceOp;
+      pos = operationPosition[sourceOp];
     }
   }
   if (pos == 0) {
     // extract operand operation all in previous block
-    rewriter.moveOpBefore(op, op->getBlock(), op->getBlock()->begin());
+    moveOpBeginingOfBlock(op);
     return success();
   }
   if (backOperation) {
@@ -4083,16 +4116,16 @@ LogicalResult moveBack(Operation *op,
                        llvm::DenseMap<Operation *, size_t> &operationPosition) {
   IRRewriter rewriter(op);
   Operation *firstOperation;
-  size_t pos = 0;
+  size_t pos = std::numeric_limits<size_t>::max();
   for (auto user : op->getUsers()) {
-    if (operationPosition[user] > pos and user->getBlock() == op->getBlock()) {
+    if (operationPosition[user] < pos and user->getBlock() == op->getBlock()) {
       firstOperation = user;
       pos = operationPosition[user];
     }
   }
-  if (pos == 0) {
+  if (pos == std::numeric_limits<size_t>::max()) {
     // Don't move.
-    // TODO: need to consider move to before the block which use it.
+    // TODO: need to consider move before the block which use it.
     return success();
   }
   if (firstOperation) {
@@ -4196,7 +4229,10 @@ struct CPUPhysicalRegisterPass
       LDBG("Not support operation appears in current function.");
       return;
     }
-    std::function<bool(Operation *)> candidateFunc = isCandidateMoveOperations;
+    // affineApply operation is always used by other operations.
+    std::function<bool(Operation *)> candidateFunc = isUsedByOtherOp;
+    moveSomeInterferenceOperation(&func, ctx, candidateFunc);
+    candidateFunc = isCandidateMoveOperations;
     moveSomeInterferenceOperation(&func, ctx, candidateFunc);
     // canonicalize vector operation, default use vector-based fusion
     // strategy.
