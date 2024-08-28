@@ -476,20 +476,22 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
   int64_t paddingSize = (innermostKDim % blockingFactor)
                             ? (blockingFactor - innermostKDim % blockingFactor)
                             : 0;
+  assert(!paddingSize && "Padding shall not be introduced by VNNI pack.");
   SmallVector<Value> inputsValues{mmt4dOp.getInputs()[0], VNNIPack};
-  if (paddingSize) {
-    // insert padOp
-    auto inputShape =
-        cast<ShapedType>(mmt4dOp.getInputs()[0].getType()).getShape();
-    SmallVector<OpFoldResult> lowPad(inputShape.size(),
-                                     rewriter.getIndexAttr(0));
-    SmallVector<OpFoldResult> highPad(inputShape.size(),
-                                      rewriter.getIndexAttr(0));
-    highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
-    auto padOp = rewriter.create<tensor::PadOp>(
-        loc, /*result=*/Type(), mmt4dOp.getInputs()[0], lowPad, highPad, zero);
-    inputsValues[0] = padOp;
-  }
+  // if (paddingSize) {
+  //   // insert padOp
+  //   auto inputShape =
+  //       cast<ShapedType>(mmt4dOp.getInputs()[0].getType()).getShape();
+  //   SmallVector<OpFoldResult> lowPad(inputShape.size(),
+  //                                    rewriter.getIndexAttr(0));
+  //   SmallVector<OpFoldResult> highPad(inputShape.size(),
+  //                                     rewriter.getIndexAttr(0));
+  //   highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
+  //   auto padOp = rewriter.create<tensor::PadOp>(
+  //       loc, /*result=*/Type(), mmt4dOp.getInputs()[0], lowPad, highPad,
+  //       zero);
+  //   inputsValues[0] = padOp;
+  // }
   if (useNamedOp) {
     auto vnniOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
         loc, mmt4dOp.getDpsInits().getTypes(), inputsValues,
@@ -508,28 +510,29 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
 
 // strictly check whether the packed matmul is BMKmk & BNKkn
 static bool isMM4DMatmul(linalg::GenericOp matmulOp) {
-  SmallVector<AffineMap> indexingMaps = matmulOp.getIndexingMapsArray();
-  auto iterators = matmulOp.getIteratorTypesArray();
-  AffineMap inputMap = indexingMaps[0], weightMap = indexingMaps[1],
-            outputMap = indexingMaps[2];
-  int64_t inputRank = inputMap.getNumResults(),
-          weightRank = weightMap.getNumResults(),
-          outputRank = outputMap.getNumResults();
-  // check rank
-  if ((weightRank < 4) || (inputRank != weightRank) ||
-      (weightRank != outputRank))
-    return false;
-  // check mapping --> find batch, M, N, K
-  FailureOr<mlir::linalg::ContractionDimensions> res =
-      mlir::linalg::inferContractionDims(matmulOp);
-  assert(succeeded(res) && "unexpected failure in infer contraction dims");
-  unsigned batchDimSize = res->batch.size();
-  SmallVector<unsigned> expectedM{batchDimSize, batchDimSize + 3};
-  SmallVector<unsigned> expectedN{batchDimSize + 1, batchDimSize + 4};
-  SmallVector<unsigned> expectedK{batchDimSize + 2, batchDimSize + 5};
-  if (expectedM == res->m && expectedN == res->n && expectedK == res->k)
-    return true;
-  return false;
+  // SmallVector<AffineMap> indexingMaps = matmulOp.getIndexingMapsArray();
+  // auto iterators = matmulOp.getIteratorTypesArray();
+  // AffineMap inputMap = indexingMaps[0], weightMap = indexingMaps[1],
+  //           outputMap = indexingMaps[2];
+  // int64_t inputRank = inputMap.getNumResults(),
+  //         weightRank = weightMap.getNumResults(),
+  //         outputRank = outputMap.getNumResults();
+  // // check rank
+  // if ((weightRank < 4) || (inputRank != weightRank) ||
+  //     (weightRank != outputRank))
+  //   return false;
+  // // check mapping --> find batch, M, N, K
+  // FailureOr<mlir::linalg::ContractionDimensions> res =
+  //     mlir::linalg::inferContractionDims(matmulOp);
+  // assert(succeeded(res) && "unexpected failure in infer contraction dims");
+  // unsigned batchDimSize = res->batch.size();
+  // SmallVector<unsigned> expectedM{batchDimSize, batchDimSize + 3};
+  // SmallVector<unsigned> expectedN{batchDimSize + 1, batchDimSize + 4};
+  // SmallVector<unsigned> expectedK{batchDimSize + 2, batchDimSize + 5};
+  // if (expectedM == res->m && expectedN == res->n && expectedK == res->k)
+  //   return true;
+  return linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
+                                          linalgx::PackingType::MM4D);
 }
 
 /*
@@ -592,19 +595,21 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
   int64_t paddingSize = (innermostKDim % blockingFactor)
                             ? (blockingFactor - innermostKDim % blockingFactor)
                             : 0;
-  if (paddingSize) {
-    // insert padOp
-    auto inputShape =
-        cast<ShapedType>(matmulOp.getInputs()[0].getType()).getShape();
-    SmallVector<OpFoldResult> lowPad(inputShape.size(),
-                                     rewriter.getIndexAttr(0));
-    SmallVector<OpFoldResult> highPad(inputShape.size(),
-                                      rewriter.getIndexAttr(0));
-    highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
-    auto padOp = rewriter.create<tensor::PadOp>(
-        loc, /*result=*/Type(), matmulOp.getInputs()[0], lowPad, highPad, zero);
-    inputsValues[0] = padOp;
-  }
+  assert(!paddingSize && "Padding shall not be introduced by VNNI pack.");
+  // if (paddingSize) {
+  //   // insert padOp
+  //   auto inputShape =
+  //       cast<ShapedType>(matmulOp.getInputs()[0].getType()).getShape();
+  //   SmallVector<OpFoldResult> lowPad(inputShape.size(),
+  //                                    rewriter.getIndexAttr(0));
+  //   SmallVector<OpFoldResult> highPad(inputShape.size(),
+  //                                     rewriter.getIndexAttr(0));
+  //   highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
+  //   auto padOp = rewriter.create<tensor::PadOp>(
+  //       loc, /*result=*/Type(), matmulOp.getInputs()[0], lowPad, highPad,
+  //       zero);
+  //   inputsValues[0] = padOp;
+  // }
   if (useNamedOp) {
     Value operandC = matmulOp.getDpsInits()[0];
     auto VNNIMatmulOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(

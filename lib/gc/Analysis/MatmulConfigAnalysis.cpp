@@ -298,6 +298,9 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                           shape[2] / KThreads % innerMostKBlock != 0) &&
                          !allowUndivisibleInnerblock))
                       continue;
+                    if (getElementTypeOrSelf(root->getOperandTypes()[1])
+                            .isBF16())
+                      innerMostKBlock = (innerMostKBlock + innerMostKBlock % 2);
                     MatmulConfig config{
                         MThreads,        NThreads,        KThreads,
                         MBlock,          NBlock,          KBlock,
