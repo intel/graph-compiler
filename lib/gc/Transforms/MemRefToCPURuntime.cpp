@@ -77,7 +77,6 @@ struct ConvertMemRefToCPURuntime
     auto *ctx = &getContext();
     // Create a local set to store operations that should not be transformed.
     llvm::SmallSet<Operation *, 16> noTransformOps;
-    llvm::SmallVector<Operation *, 16> allocStack;
 
     // Walk through the module to find func::FuncOp instances.
     getOperation()->walk([&](func::FuncOp funcOp) {
@@ -93,27 +92,50 @@ struct ConvertMemRefToCPURuntime
                 if (Operation *allocOp =
                         alias.getDefiningOp<memref::AllocOp>()) {
                   noTransformOps.insert(allocOp);
+                  UnitAttr unitAttr = UnitAttr::get(ctx);
+                  allocOp->setAttr("leak", unitAttr);
                 }
               }
             }
           }
-        } else if (isa<memref::AllocOp>(op)) {
-          allocStack.push_back(op);
+        }
+      });
+    });
+    getOperation()->walk([&](func::FuncOp funcOp) {
+      Region &region = funcOp.getBody();
+      SmallVector<Operation *, 16> allocStack;
+      // Walk through the operations within the region.
+      region.walk([&](Operation *op) {
+        if (isa<memref::AllocOp>(op)) {
+          // If it's an AllocOp and does not have a "leak" attribute, add it to
+          // the stack.
+          if (!op->getAttr("leak"))
+            allocStack.push_back(op);
         } else if (isa<memref::DeallocOp>(op)) {
-          // fallback alloc / dealloc not in FILO fashion
+          // If it's a DeallocOp, check if it matches with an AllocOp in the
+          // stack.
           Value deallocMemref = op->getOperands().front();
-          Value topAllocMemref = allocStack.back()->getResults().front();
-          if (deallocMemref == topAllocMemref) {
-            allocStack.pop_back();
-          } else {
-            noTransformOps.insert(op);
-            for (int i = allocStack.size() - 1; i >= 0; --i) {
-              Operation *curAlloc = allocStack[i];
-              if (deallocMemref == curAlloc->getResults().front()) {
-                noTransformOps.insert(curAlloc);
-                allocStack.erase(allocStack.begin() + i);
+          if (!allocStack.empty()) {
+            Value topAllocMemref = allocStack.back()->getResults().front();
+            if (deallocMemref == topAllocMemref) {
+              // If it matches, remove it from the stack.
+              allocStack.pop_back();
+            } else {
+              // If it does not match, add the dealloc and all matching allocs
+              // to noTransformOps.
+              noTransformOps.insert(op);
+              for (int i = allocStack.size() - 1; i >= 0; --i) {
+                Operation *curAlloc = allocStack[i];
+                if (deallocMemref == curAlloc->getResults().front()) {
+                  noTransformOps.insert(curAlloc);
+                  allocStack.erase(allocStack.begin() + i);
+                  break; // Assuming each dealloc corresponds to a single alloc.
+                }
               }
             }
+          } else {
+            // If the stack is empty, there is no corresponding alloc.
+            noTransformOps.insert(op);
           }
         }
       });
