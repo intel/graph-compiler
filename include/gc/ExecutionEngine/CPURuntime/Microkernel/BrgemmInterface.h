@@ -11,6 +11,8 @@
 
 #include <cmath>
 
+#include "gc/ExecutionEngine/CPURuntime/Utils.h"
+
 extern "C" {
 // Runtime interfaces
 
@@ -26,24 +28,25 @@ extern "C" {
  * 	                given in dnnl type value.
  * Output: A handle of dispatched kernel.
  */
-int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
-                             int64_t LDB, int64_t LDC, int64_t stride_a,
-                             int64_t stride_b, float beta, int64_t dtypeA,
-                             int64_t dtypeB);
+GC_DLL_EXPORT int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K,
+                                           int64_t LDA, int64_t LDB,
+                                           int64_t LDC, int64_t stride_a,
+                                           int64_t stride_b, float beta,
+                                           int64_t dtypeA, int64_t dtypeB);
 
 /**
  * Config the AMX tile context for given kernel.
  * Inputs: A handle of dispatched kernel.
  * Output: None.
  */
-void dnnl_brgemm_tileconfig(int64_t kernel);
+GC_DLL_EXPORT void dnnl_brgemm_tileconfig(int64_t kernel);
 
 /**
  * Release the current AMX tile context.
  * Inputs: None.
  * Output: None.
  */
-void dnnl_brgemm_tilerelease();
+GC_DLL_EXPORT void dnnl_brgemm_tilerelease();
 
 /**
  * Execute the given kernel with given parameters.
@@ -54,9 +57,10 @@ void dnnl_brgemm_tilerelease();
  * 	num: Batch size of Brgemm.
  * Output: None.
  */
-void dnnl_brgemm_execute(int64_t kernel, void *A, uint64_t A_offset, void *B,
-                         uint64_t B_offset, void *C, uint64_t C_offset,
-                         int num);
+GC_DLL_EXPORT void dnnl_brgemm_execute(int64_t kernel, void *A,
+                                       uint64_t A_offset, void *B,
+                                       uint64_t B_offset, void *C,
+                                       uint64_t C_offset, int num);
 }
 
 struct bf16_t {
