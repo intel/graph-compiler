@@ -261,10 +261,20 @@ struct ErasedOpListener : public RewriterBase::Listener {
 private:
   /// Pointers to all erased operations and blocks.
   DenseSet<void *> erased;
+  // Hook old listener.
+  OpBuilder::Listener *oldListenerHook = nullptr;
 
 public:
   ErasedOpListener() = default;
-  void notifyOperationErased(Operation *op) override { erased.insert(op); }
+  ErasedOpListener(OpBuilder::Listener *oldListener)
+      : oldListenerHook(oldListener) {}
+  void notifyOperationErased(Operation *op) override {
+    // Call old listener hook.
+    if (auto *oldListener =
+            dyn_cast_if_present<RewriterBase::Listener>(oldListenerHook))
+      oldListener->notifyOperationErased(op);
+    erased.insert(op);
+  }
   bool isErased(Operation *op) { return erased.count(op); }
 };
 
@@ -313,8 +323,8 @@ mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
     // Cache old listener.
     OpBuilder::Listener *oldListener = rewriter.getListener();
     // Set new listener.
-    ErasedOpListener *newListener = new ErasedOpListener();
-    rewriter.setListener(newListener);
+    ErasedOpListener newListener = ErasedOpListener(oldListener);
+    rewriter.setListener(&newListener);
 
     auto producerOp =
         cast<TilingInterface>(fuseProducerResult->origProducer.getDefiningOp());
@@ -327,11 +337,9 @@ mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
     // Explicitly execute DCE.
     (void)mlir::simplifyRegions(rewriter, {*producerOp->getParentRegion()});
     // If fused producer has multiple users.
-    bool yieldReplacement = !newListener->isErased(producerOp);
+    bool yieldReplacement = !newListener.isErased(producerOp);
     // Reset to old listener.
     rewriter.setListener(oldListener);
-    // Delete new listener.
-    delete newListener;
 
     if (yieldReplacement) {
       OpBuilder::InsertionGuard g(rewriter);
