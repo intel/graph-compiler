@@ -92,6 +92,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
+  // The flow follows https://mlir.llvm.org/docs/Bufferization/#overview
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
@@ -111,7 +112,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
   pm.addNestedPass<func::FuncOp>(
       bufferization::createPromoteBuffersToStackPass());
-  mlir::bufferization::BufferDeallocationPipelineOptions deallocOption;
+  bufferization::BufferDeallocationPipelineOptions deallocOption;
   bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
