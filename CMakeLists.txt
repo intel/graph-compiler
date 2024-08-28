@@ -49,6 +49,7 @@ option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 option(GC_ENABLE_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend for debug purpose." OFF)
+option(GC_BENCH_ENABLE "Build benchgc." ON)
 
 if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)

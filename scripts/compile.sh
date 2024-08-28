@@ -1,6 +1,9 @@
 #!/bin/bash -e
 
-repo=intel/graph-compiler
+cd "$(dirname "$0")/.."
+PROJECT_DIR="$PWD"
+EXTERNALS_DIR="$PWD/externals"
+REPO=intel/graph-compiler
 
 set -e
 
@@ -31,10 +34,6 @@ for arg in "$@"; do
             ENABLE_IMEX=true
             ;;
         -l | --dyn)
-            if [ "$ENABLE_IMEX" = "true" ]; then
-                echo "IMEX doesn't support dynamical linking of LLVM"
-                exit 1
-            fi
             DYN_LINK=ON
             DEV_BUILD=true
             ;;
@@ -58,6 +57,11 @@ for arg in "$@"; do
     esac
 done
 
+if [ "$ENABLE_IMEX" = "true" ] && [ "$DYN_LINK" = "ON" ]; then
+    echo "IMEX doesn't support dynamical linking of LLVM"
+    exit 1
+fi
+
 if [ ! -z "$REL_BUILD" ]; then
     BUILD_TYPE=Release
 elif [ ! -z "$DEV_BUILD" ]; then
@@ -71,9 +75,6 @@ if [ -z "$MAX_JOBS" ]; then
     [ $MAX_JOBS -gt 0 ] || MAX_JOBS=1
 fi
 
-cd $(dirname "$0")/..
-PROJECT_DIR=$PWD
-
 if [ "$ENABLE_IMEX" = "true" ]; then
     LLVM_HASH=$(cat cmake/llvm-version-imex.txt)
 else
@@ -81,31 +82,28 @@ else
 fi
 
 load_llvm() {
-    local run_id
-
     if [ "$ENABLE_IMEX"  = "true" ]; then
-        llvm_version="llvm-${LLVM_HASH}-imex-patched"
+        local llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
-        llvm_version="llvm-${LLVM_HASH}"
+        local llvm_version="llvm-${LLVM_HASH}"
     fi
 
-    gh run download "$run_id" \
-        --repo "$repo" \
+    gh run download \
+        --repo "$REPO" \
         -n "$llvm_version" \
         --dir "$llvm_dir"
-    cd "$llvm_dir"
     tar -zxf llvm.tgz
 
     MLIR_DIR="$PWD/lib/cmake/mlir"
-    cd "$PROJECT_DIR"
 }
 
 build_llvm() {
-    if ! [ -d "llvm-project" ]; then
+    local llvm_dir="$EXTERNALS_DIR/llvm-project"
+    if ! [ -d "$llvm_dir" ]; then
         git clone https://github.com/llvm/llvm-project.git
-        cd llvm-project
+        cd "$llvm_dir"
     else
-        cd llvm-project
+        cd "$llvm_dir"
         git fetch --all
         # discard all unstaged changes (there could be remaining patches from the IMEX
         # build that would break 'git checkout ${LLVM_HASH}')
@@ -119,19 +117,21 @@ build_llvm() {
 
     if [ "$ENABLE_IMEX" = "true" ]; then
         # clone IMEX and apply patches
-        cd ../
-        if ! [ -d "mlir-extensions" ]; then
+        local mlir_ext_dir="$EXTERNALS_DIR/mlir-extensions"
+        if ! [ -d "$mlir_ext_dir" ]; then
+            cd "$EXTERNALS_DIR"
             git clone https://github.com/Menooker/mlir-extensions.git
-            cd mlir-extensions
+            cd "$mlir_ext_dir"
         else
-            cd mlir-extensions
+            cd "$mlir_ext_dir"
             git fetch --all
         fi
 
-        git checkout dev
+        IMEX_HASH=$(cat "$PROJECT_DIR/cmake/imex-version.txt")
+        git checkout ${IMEX_HASH}
 
-        cd ../llvm-project
-        git apply ../mlir-extensions/build_tools/patches/*
+        cd "$llvm_dir"
+        find "$mlir_ext_dir/build_tools/patches" -name '*.patch' | sort -V | xargs git apply
     fi
 
     cmake -G Ninja llvm -B build \
@@ -147,7 +147,7 @@ build_llvm() {
         -DLLVM_LINK_LLVM_DYLIB=$DYN_LINK \
         -DLLVM_INCLUDE_RUNTIMES=OFF \
         -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_TESTS=ON \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_INCLUDE_DOCS=OFF \
         -DLLVM_INSTALL_UTILS=ON \
@@ -156,27 +156,24 @@ build_llvm() {
     cmake --build build --parallel $MAX_JOBS
 
     MLIR_DIR="$PWD/build/lib/cmake/mlir"
-    cd ..
 }
 
 # MLIR_DIR is set on all passes
 get_llvm() {
     if [ ! -z "$DEV_BUILD" ]; then
-        mkdir -p externals
-        cd externals
-        build_llvm 
-        cd ..
+        mkdir -p "$EXTERNALS_DIR"
+        cd "$EXTERNALS_DIR"
+        build_llvm
+        cd "$PROJECT_DIR"
         return 0
     fi
 
-    llvm_dir=$PROJECT_DIR/../install/llvm
-    if [ "$ENABLE_IMEX" =  "true" ]; then
-        llvm_version="llvm-${LLVM_HASH}-imex-patched"
-    else
-        llvm_version="llvm-${LLVM_HASH}"
-    fi
-    if ! [ -f "$llvm_dir/$llvm_name"/llvm.tgz ]; then
-        load_llvm 
+    local llvm_dir="$PROJECT_DIR/../install/llvm"
+    if ! [ -f "$llvm_dir/$llvm_name/llvm.tgz" ]; then
+        mkdir -p "$llvm_dir"
+        cd "$llvm_dir"
+        load_llvm
+        cd "$PROJECT_DIR"
     else 
         MLIR_DIR="$llvm_dir/lib/cmake/mlir"
     fi
