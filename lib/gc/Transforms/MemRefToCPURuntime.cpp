@@ -102,16 +102,14 @@ struct ConvertMemRefToCPURuntime
         } else if (isa<memref::DeallocOp>(op)) {
           // fallback alloc / dealloc not in FILO fashion
           Value deallocMemref = op->getOperands().front();
-          auto aliases = analysis.resolveReverse(deallocMemref);
           Value topAllocMemref = allocStack.back()->getResults().front();
-          if (aliases.find(topAllocMemref) != aliases.end()) {
+          if (deallocMemref == topAllocMemref) {
             allocStack.pop_back();
           } else {
             noTransformOps.insert(op);
             for (int i = allocStack.size() - 1; i >= 0; --i) {
               Operation *curAlloc = allocStack[i];
-              if (aliases.find(curAlloc->getResults().front()) !=
-                  aliases.end()) {
+              if (deallocMemref == curAlloc->getResults().front()) {
                 noTransformOps.insert(curAlloc);
                 allocStack.erase(allocStack.begin() + i);
               }

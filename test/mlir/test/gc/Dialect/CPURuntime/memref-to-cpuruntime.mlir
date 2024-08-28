@@ -63,7 +63,7 @@ func.func @alloc_dealloc_view() {
   %view = memref.view %alloc[%c0][] : memref<128xi8> to memref<32xf32>
   %subview = memref.subview %view[0][16][1] : memref<32xf32> to memref<16xf32>
   // CHECK: cpuruntime.dealloc
-  memref.dealloc %subview : memref<16xf32>
+  memref.dealloc %alloc : memref<128xi8>
   return
 }
 
