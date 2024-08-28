@@ -6,8 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef GC_EXECUTIONENGINE_CPURUNTIME_UTILS_H
+#define GC_EXECUTIONENGINE_CPURUNTIME_UTILS_H
+
 #if defined _WIN32 || defined __CYGWIN__
 #define GC_DLL_EXPORT __declspec(dllexport)
 #else
 #define GC_DLL_EXPORT __attribute__((visibility("default")))
+#endif
+
 #endif
