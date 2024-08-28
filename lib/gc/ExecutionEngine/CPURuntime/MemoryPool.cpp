@@ -239,16 +239,24 @@ static thread_local FILOMemoryPool mainMemoryPool_{mainChunkSize};
 // if the current thread is a worker thread, use this pool
 static thread_local FILOMemoryPool threadMemoryPool_{threadlocalChunkSize};
 
-extern "C" void *gcAlignedMalloc(size_t sz) noexcept {
+#if defined _WIN32 || defined __CYGWIN__
+#define GC_DLL_EXPORT __declspec(dllexport)
+#else
+#define GC_DLL_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" GC_DLL_EXPORT void *gcAlignedMalloc(size_t sz) noexcept {
   return mainMemoryPool_.alloc(sz);
 }
 
-extern "C" void gcAlignedFree(void *p) noexcept { mainMemoryPool_.dealloc(p); }
+extern "C" GC_DLL_EXPORT void gcAlignedFree(void *p) noexcept {
+  mainMemoryPool_.dealloc(p);
+}
 
-extern "C" void *gcThreadAlignedMalloc(size_t sz) noexcept {
+extern "C" GC_DLL_EXPORT void *gcThreadAlignedMalloc(size_t sz) noexcept {
   return threadMemoryPool_.alloc(sz);
 }
 
-extern "C" void gcThreadAlignedFree(void *p) noexcept {
+extern "C" GC_DLL_EXPORT void gcThreadAlignedFree(void *p) noexcept {
   threadMemoryPool_.dealloc(p);
 }
