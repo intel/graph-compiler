@@ -55,7 +55,6 @@ if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)
 endif()
 
-
 if (GC_ENABLE_IMEX)
   # normalize the value for lit config
   set(GC_ENABLE_IMEX ON)
