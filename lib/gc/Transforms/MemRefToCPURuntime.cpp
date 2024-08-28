@@ -38,9 +38,11 @@ bool hasParallelParent(Operation *op) {
   }
   return false;
 }
-struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
-  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(memref::AllocOp op,
+
+template <typename OpTy>
+struct AlignedAllocLowering : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+  LogicalResult matchAndRewrite(OpTy op,
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     MemRefType type = op.getMemref().getType();
@@ -69,6 +71,9 @@ struct AlignedDeallocLowering : public OpRewritePattern<memref::DeallocOp> {
     return success();
   }
 };
+
+using LowerAlloca = AlignedAllocLowering<memref::AllocaOp>;
+using LowerAlloc = AlignedAllocLowering<memref::AllocOp>;
 
 struct ConvertMemRefToCPURuntime
     : public impl::ConvertMemRefToCPURuntimeBase<ConvertMemRefToCPURuntime> {
@@ -101,44 +106,44 @@ struct ConvertMemRefToCPURuntime
         }
       });
     });
-    getOperation()->walk([&](func::FuncOp funcOp) {
-      Region &region = funcOp.getBody();
-      SmallVector<Operation *, 16> allocStack;
-      // Walk through the operations within the region.
-      region.walk([&](Operation *op) {
-        if (isa<memref::AllocOp>(op)) {
-          // If it's an AllocOp and does not have a "leak" attribute, add it to
-          // the stack.
-          if (!op->getAttr("leak"))
-            allocStack.push_back(op);
-        } else if (isa<memref::DeallocOp>(op)) {
-          // If it's a DeallocOp, check if it matches with an AllocOp in the
-          // stack.
-          Value deallocMemref = op->getOperands().front();
-          if (!allocStack.empty()) {
-            Value topAllocMemref = allocStack.back()->getResults().front();
-            if (deallocMemref == topAllocMemref) {
-              // If it matches, remove it from the stack.
-              allocStack.pop_back();
-            } else {
-              // If it does not match, add the dealloc and all matching allocs
-              // to noTransformOps.
-              noTransformOps.insert(op);
-              for (int i = allocStack.size() - 1; i >= 0; --i) {
-                Operation *curAlloc = allocStack[i];
-                if (deallocMemref == curAlloc->getResults().front()) {
-                  noTransformOps.insert(curAlloc);
-                  allocStack.erase(allocStack.begin() + i);
-                  break; // Assuming each dealloc corresponds to a single alloc.
+    getOperation()->walk([&](Operation *op) {
+      for (Region &region : op->getRegions()) {
+        SmallVector<Operation *, 4> allocStack;
+        region.walk([&](Operation *nestedOp) {
+          Region *parentRegion = nestedOp->getParentRegion();
+          if (parentRegion == &region) {
+            if (isa<memref::AllocOp>(nestedOp)) {
+              if (nestedOp->getAttr("leak") == nullptr) {
+                allocStack.push_back(nestedOp);
+              }
+            } else if (isa<memref::DeallocOp>(nestedOp)) {
+              Value deallocMemref = nestedOp->getOperands().front();
+              if (!allocStack.empty()) {
+                Value topAllocMemref = allocStack.back()->getResults().front();
+                if (deallocMemref == topAllocMemref) {
+                  allocStack.pop_back();
+                } else {
+                  noTransformOps.insert(nestedOp);
+                  for (int i = allocStack.size() - 1; i >= 0; --i) {
+                    Operation *curAlloc = allocStack[i];
+                    if (deallocMemref == curAlloc->getResults().front()) {
+                      noTransformOps.insert(curAlloc);
+                      allocStack.erase(allocStack.begin() + i);
+                      break;
+                    }
+                  }
                 }
+              } else {
+                noTransformOps.insert(nestedOp);
               }
             }
-          } else {
-            // If the stack is empty, there is no corresponding alloc.
-            noTransformOps.insert(op);
           }
+        });
+        while (!allocStack.empty()) {
+          noTransformOps.insert(allocStack.back());
+          allocStack.pop_back();
         }
-      });
+      }
     });
 
     // add lowering target
@@ -151,9 +156,11 @@ struct ConvertMemRefToCPURuntime
           // it dynamically legal.
           return noTransformOps.find(op) != noTransformOps.end();
         });
+    target.addIllegalOp<memref::AllocaOp>();
     // set pattern
     RewritePatternSet patterns(ctx);
-    patterns.add<AlignedAllocLowering>(ctx);
+    patterns.add<LowerAlloca>(ctx);
+    patterns.add<LowerAlloc>(ctx);
     patterns.add<AlignedDeallocLowering>(ctx);
     // perform conversion
     if (failed(
