@@ -1949,7 +1949,7 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
               loc,
               /*vectorType=*/kernelType,
               /*source=*/readSourceOp.getSource(),
-              /*indices=*/writeVars,
+              /*indices=*/inductionVars,
               /*padding=*/padValue,
               /*inBounds=*/inBoundsVal);
 
@@ -3226,6 +3226,9 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
     Operation *prevOp = nullptr;
     prevOp = getNotReadWriteOperaiton(tmpQ);
     if (!prevOp) {
+      if (opGroups.back().back()->getParentOp() != op->getParentOp()) {
+        return true;
+      }
       return false;
     }
 
@@ -3491,11 +3494,19 @@ mlir::FailureOr<Value> getOperationOperateTensor(Operation *op) {
   return TypeSwitch<Operation *, mlir::FailureOr<Value>>(op)
       .Case<vector::TransferWriteOp>(
           [&](vector::TransferWriteOp transferWriteOp) {
-            LDBG(" DPS operation : " << *op << "\n");
-            return transferWriteOp->getOperand(1);
+            // find original tensor.empty operation
+            auto writeTensor = transferWriteOp->getOperand(1);
+            while (auto wtOp = dyn_cast<vector::TransferWriteOp>(
+                       writeTensor.getDefiningOp())) {
+              if (transferWriteOp->getBlock() !=
+                  writeTensor.getDefiningOp()->getBlock()) {
+                break;
+              }
+              writeTensor = wtOp->getOperand(1);
+            }
+            return writeTensor;
           })
       .Case<vector::TransferReadOp>([&](vector::TransferReadOp transferReadOp) {
-        LDBG(" DPS operation : " << *op << "\n");
         return transferReadOp->getOperand(0);
       })
       .Default([&](Operation *op) {
@@ -3815,6 +3826,15 @@ void VectorOperationAnalyzer::analysisGroupOperaion() {
                       vector::TransferWriteOp>(sourceOp, sourceOpGid)) {
                 auto writeOpresult = writeOp->getResults()[0];
                 auto writeTensor = writeOp->getOperands()[1];
+                // find original tensor.empty operation
+                while (auto wtOp = dyn_cast<vector::TransferWriteOp>(
+                           writeTensor.getDefiningOp())) {
+                  if (sourceOp->getBlock() !=
+                      writeTensor.getDefiningOp()->getBlock()) {
+                    break;
+                  }
+                  writeTensor = wtOp->getOperand(1);
+                }
                 srcOpCanoniclizedMap.insert(
                     {sourceOp, {writeTensor, writeOpresult}});
                 groupOpInitArgs[sourceOpGid].insert(writeTensor);
