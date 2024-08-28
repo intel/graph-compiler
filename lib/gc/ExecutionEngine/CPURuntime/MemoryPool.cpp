@@ -21,6 +21,8 @@
 #include <unistd.h>
 #endif
 
+#include "gc/ExecutionEngine/CPURuntime/Utils.h"
+
 #ifdef _MSC_VER
 #define __builtin_expect(EXP_, C) (EXP_)
 #endif
@@ -238,12 +240,6 @@ FILOMemoryPool::~FILOMemoryPool() { release(); }
 static thread_local FILOMemoryPool mainMemoryPool_{mainChunkSize};
 // if the current thread is a worker thread, use this pool
 static thread_local FILOMemoryPool threadMemoryPool_{threadlocalChunkSize};
-
-#if defined _WIN32 || defined __CYGWIN__
-#define GC_DLL_EXPORT __declspec(dllexport)
-#else
-#define GC_DLL_EXPORT __attribute__((visibility("default")))
-#endif
 
 extern "C" GC_DLL_EXPORT void *gcAlignedMalloc(size_t sz) noexcept {
   return mainMemoryPool_.alloc(sz);
