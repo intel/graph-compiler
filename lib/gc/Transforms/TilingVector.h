@@ -112,16 +112,18 @@ public:
   VectorFusionStrategy(func::FuncOp &func) : func(func) {}
   VectorFusionStrategy(func::FuncOp &func, TypeHelper &typeHelper)
       : TypeHelper(typeHelper), func(func) {}
+
   VectorFusionStrategy(VectorFusionStrategy &strategy)
       : func(strategy.func), opGroups(strategy.opGroups),
         groupMaxSteps(strategy.groupMaxSteps),
         opGroupIndexMap(strategy.opGroupIndexMap),
-        opAnchorPos(strategy.opAnchorPos){};
+        opAnchorPos(strategy.opAnchorPos) {};
+
   VectorFusionStrategy(VectorFusionStrategy &&strategy)
       : func(std::move(strategy.func)), opGroups(std::move(strategy.opGroups)),
         groupMaxSteps(std::move(strategy.groupMaxSteps)),
         opGroupIndexMap(std::move(strategy.opGroupIndexMap)),
-        opAnchorPos(std::move(strategy.opAnchorPos)){};
+        opAnchorPos(std::move(strategy.opAnchorPos)) {};
 
   VectorFusionStrategy &operator=(VectorFusionStrategy &&) = default;
 
@@ -217,7 +219,7 @@ public:
     isStandaloneOp = candidateRdOps.size() == 1;
     prepareSpecialOperationInfo();
   };
-  virtual ~MultiReductionCanonicalizer(){};
+  virtual ~MultiReductionCanonicalizer() {};
   int64_t getTypeRank();
   void getReductionAxisAndParallelAxis();
   bool hasLastDimReduction();
@@ -255,7 +257,7 @@ public:
   BroadcastCanonicalizer(
       const llvm::SmallVector<vector::BroadcastOp, 4> &candidateBcOps)
       : SpecialOperationCanonicalizer<vector::BroadcastOp>(
-            candidateBcOps, SpecialOperationKind::OP_Broadcast){};
+            candidateBcOps, SpecialOperationKind::OP_Broadcast) {};
   virtual ~BroadcastCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -272,7 +274,7 @@ public:
   TransposeCanonicalizer(
       const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps)
       : SpecialOperationCanonicalizer<vector::TransposeOp>(
-            candidateTpOps, SpecialOperationKind::OP_Transpose){};
+            candidateTpOps, SpecialOperationKind::OP_Transpose) {};
   virtual ~TransposeCanonicalizer() {}
   void prepareSpecialOperationInfo() override;
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -295,7 +297,7 @@ public:
   ShapeCastCanonicalizer(
       const llvm::SmallVector<vector::ShapeCastOp, 4> &candidateScOps)
       : SpecialOperationCanonicalizer<vector::ShapeCastOp>(
-            candidateScOps, SpecialOperationKind::OP_ShapeCast){};
+            candidateScOps, SpecialOperationKind::OP_ShapeCast) {};
   virtual ~ShapeCastCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -331,7 +333,7 @@ private:
 public:
   CanonicalizerCommonUsedData() = default;
   CanonicalizerCommonUsedData(VectorFusionStrategy &fusionStrategy)
-      : fusionStrategy(fusionStrategy){};
+      : fusionStrategy(fusionStrategy) {};
 
   CanonicalizerCommonUsedData(
       VectorFusionStrategy &fusionStrategy,
@@ -342,7 +344,7 @@ public:
       llvm::DenseMap<Operation *, AffineMap> &opPermuationMap)
       : fusionStrategy(fusionStrategy), groupOpResults(groupOpResults),
         groupOpInitArgs(groupOpInitArgs), opPermuationMap(opPermuationMap) {}
-  virtual ~CanonicalizerCommonUsedData(){};
+  virtual ~CanonicalizerCommonUsedData() {};
 
   /// Set fusion strategy
   void setFuseStrategy(VectorFusionStrategy &&strategy) {
@@ -638,7 +640,7 @@ private:
   DenseMap<Operation *, size_t> visitedOperation;
 
 public:
-  virtual ~VectorOperationAnalyzer(){};
+  virtual ~VectorOperationAnalyzer() {};
   VectorOperationAnalyzer() {}
   VectorOperationAnalyzer(func::FuncOp &func) : func(func) {}
 
@@ -693,7 +695,7 @@ public:
       setFuseStrategy(std::move(fusionStrategy));
     }
   }
-  virtual ~CanonicalizerVectorOperation(){};
+  virtual ~CanonicalizerVectorOperation() = default;
 
   // get functions
   func::FuncOp &getFunc() { return func; };
