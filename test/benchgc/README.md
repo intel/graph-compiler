@@ -9,18 +9,29 @@ Benchgc is a tool used to verify the correctness and performance of graph compil
 * torch >= 2.2
 * Enable mlir python binding, Refer to [`python/README.md`](../../python/README.md) for detail
 
-## Build and install
+## Build 
+There are two ways for using benchgc
+
+* Build `.whl` and install benchgc
 ```
 # Please execute at the top level of the project
 
-mkdir -p build
-cd build
-
+mkdir build && cd build
 cmake .. -DMLIR_DIR=$MLIR_PATH -DGC_TEST_ENABLE=ON -DGC_ENABLE_BINDINGS_PYTHON=ON -DGC_BENCH_ENABLE=ON
 make -j benchgc
-
 python -m pip install test/benchgc/dist/benchgc-*.whl
 
+```
+
+* Run benchgc from source code
+
+```
+# Please execute at the top level of the project
+
+mkdir build && cd build
+cmake .. -DMLIR_DIR=$MLIR_PATH -DGC_TEST_ENABLE=ON -DGC_ENABLE_BINDINGS_PYTHON=ON -DGC_BENCH_ENABLE=ON
+make -j GcPythonModules
+export PYTHONPATH=$(pwd)/python_packages/gc_mlir_core/:$(pwd)/../test/benchgc/src/
 ```
 
 ## Synopsis
@@ -58,6 +69,9 @@ python -m benchgc [OPTIONS] --mode [MODE] --driver [DRIVER] --case [CASE]
 * 4 : ERROR_OUTPUT_VERBOSE, + print all error data points if failed
 * 5 : OUTPUT_VERBOSE, + print all result including passed tensor
 * 6 : INPUT_VERBOSE, + print input torch tensors
+
+### --ir_printing (action=store_true)
+* Print the ir during the pass-pipeline 
 
 ### --md index:SHAPExTYPE
 * Describe the shape and data type for argument

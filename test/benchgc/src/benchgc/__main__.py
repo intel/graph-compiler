@@ -120,9 +120,8 @@ def add_common_options(parser: argparse.ArgumentParser):
 
     parser.add_argument(
         "--ir_printing",
-        default=False,
+        action="store_true",
         help="if we need print the ir during the pass-pipeline",
-        type=bool,
     )
 
     if parser.parse_known_args()[0].driver == "linalg":
