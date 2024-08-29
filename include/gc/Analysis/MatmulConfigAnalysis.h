@@ -116,15 +116,15 @@ public:
   // Get the matmul configuration
   MatmulConfig getConfig();
 
-  void setAllowUndivisibleInnerBlock(bool allow) {
-    allowUndivisibleInnerBlock = allow;
+  void setAllowIndivisibleInnerBlock(bool allow) {
+    allowIndivisibleInnerBlock = allow;
   }
 
 private:
   MatmulConfig config = MatmulConfig{1, 1, 1, 1, 1, 1, 1, 1, 1};
   Operation *root;
   bool hasConfig = false;
-  bool allowUndivisibleInnerBlock = true;
+  bool allowIndivisibleInnerBlock = true;
 };
 
 } // namespace gc

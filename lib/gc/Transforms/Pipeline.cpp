@@ -64,7 +64,9 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: lower linalg to arith/math on virtual vector pass
   pm.addNestedPass<func::FuncOp>(
       mlir::microkernel::createConvertLinalgToMicrokernel());
-
+  // copied from tpp project
+  pm.addNestedPass<func::FuncOp>(createDecomposeAggregatedOps());
+  // fold useless tensor operation pass
   pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
@@ -97,6 +99,8 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
+  // The flow follows https://mlir.llvm.org/docs/Bufferization/#overview
+  pm.addPass(bufferization::createEmptyTensorEliminationPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
   options.setFunctionBoundaryTypeConversion(
@@ -104,14 +108,19 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
+  // todo: buffer schedule pass
+  // todo: Need to improve this pass to support nested parallel.
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
-  // todo: buffer schedule pass
-  // todo: Need to improve this pass to support nested parallel.
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
+  pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
+  pm.addNestedPass<func::FuncOp>(
+      bufferization::createPromoteBuffersToStackPass());
+  bufferization::BufferDeallocationPipelineOptions deallocOption;
+  bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
 }
