@@ -107,6 +107,16 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
   return result;
 }
 
+// Check if the loop is dummy loop(has only one iteration)
+bool isDummyLoop(LoopLikeOpInterface loop) {
+  std::optional<int64_t> tripCount = mlir::constantTripCount(
+      *loop.getSingleLowerBound(), *loop.getSingleUpperBound(),
+      *loop.getSingleStep());
+  if (tripCount)
+    return *tripCount == 1;
+  return false;
+}
+
 // Build the linalg region for a linalg op
 static void buildLinalgRegion(Operation *op, bool createTemporaryOp = false) {
   SmallVector<Type> argTypes;
@@ -387,12 +397,17 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
             b, cast<TilingInterface>(currentOp.getOperation()), tileOption);
         if (failed(tilingResult))
           return failure();
-
-        b.replaceOp(currentOp, tilingResult->replacements);
-        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
-        if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
-          result.reductionLoops.push_back(tilingResult->loops.back());
-        result.loops.push_back(tilingResult->loops.back());
+        if (!isDummyLoop(tilingResult->loops.back())) {
+          b.replaceOp(currentOp, tilingResult->replacements);
+          currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+          if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
+            result.reductionLoops.push_back(tilingResult->loops.back());
+          result.loops.push_back(tilingResult->loops.back());
+        } else {
+          LoopLikeOpInterface loop = tilingResult->loops.back();
+          Operation *op = loop.getOperation();
+          b.eraseOp(op);
+        }
       }
     } else if (loopType == OuterLoopGenerationOption::LoopType::ForallOp) {
       SmallVector<OpFoldResult> tileSizes(
