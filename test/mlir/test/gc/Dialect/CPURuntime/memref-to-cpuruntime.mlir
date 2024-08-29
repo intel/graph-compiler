@@ -40,6 +40,9 @@ func.func @loop_nested_if_alloca(%arg0: index, %arg1: index, %arg2: index, %arg3
       // CHECK: yield %[[m0]] : memref<2xf32>
       scf.yield %alloca : memref<2xf32>
     } else {
+      // CHECK: %[[m1:.*]] = cpuruntime.alloc() : memref<2xf32>
+      // CHECK: cpuruntime.dealloc %[[m1]] : memref<2xf32>
+      %alloca_0 = memref.alloca() : memref<2xf32>
       scf.yield %arg6 : memref<2xf32>
     }
     scf.yield %2 : memref<2xf32>

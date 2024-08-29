@@ -62,19 +62,42 @@ struct ConvertMemRefToCPURuntime
 
     // Create deallocOp accoresponding to the alloca's localtion
     getOperation()->walk([&](func::FuncOp funcOp) {
-      OpBuilder builder(funcOp.getContext());
       funcOp.walk([&](memref::AllocaOp op) {
         Region *parentRegion = op->getParentRegion();
-        Block &lastBlock = parentRegion->back();
-        builder.setInsertionPointToEnd(&lastBlock);
-        if (!lastBlock.empty() &&
-            lastBlock.back().hasTrait<OpTrait::IsTerminator>()) {
-          builder.setInsertionPoint(&lastBlock.back());
+        OpBuilder builder(op);
+        // Find the first deallocOp in the current region
+        cpuruntime::DeallocOp firstDeallocOp;
+        for (Block &block : parentRegion->getBlocks()) {
+          for (Operation &operation : block) {
+            if (auto deallocOp = dyn_cast<cpuruntime::DeallocOp>(&operation)) {
+              firstDeallocOp = deallocOp;
+              break;
+            }
+          }
+          if (firstDeallocOp)
+            break;
         }
+
+        // If a deallocOp was found, insert the new dealloc before it
+        if (firstDeallocOp) {
+          builder.setInsertionPoint(firstDeallocOp);
+        } else {
+          // If no deallocOp was found, insert at the end of the region before
+          // the terminator
+          Block &lastBlock = parentRegion->back();
+          builder.setInsertionPointToEnd(&lastBlock);
+          if (!lastBlock.empty() &&
+              lastBlock.back().hasTrait<OpTrait::IsTerminator>()) {
+            builder.setInsertionPoint(&lastBlock.back());
+          }
+        }
+
+        // Create the dealloc operation
         auto deallocOp =
             builder.create<cpuruntime::DeallocOp>(op.getLoc(), op.getResult());
-        if (hasParallelParent(op))
+        if (hasParallelParent(op)) {
           deallocOp.setThreadLocal(true);
+        }
       });
     });
 
