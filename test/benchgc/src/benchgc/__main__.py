@@ -107,7 +107,6 @@ def add_common_options(parser: argparse.ArgumentParser):
             benchgc.util.ERROR_OUTPUT_VERBOSE,
             benchgc.util.OUTPUT_VERBOSE,
             benchgc.util.INPUT_VERBOSE,
-            benchgc.util.PIPELINE_VERBOSE,
         ],
     )
 
@@ -117,6 +116,13 @@ def add_common_options(parser: argparse.ArgumentParser):
         default="entry",
         help="the entry func name of a mlir",
         type=str,
+    )
+
+    parser.add_argument(
+        "--ir_printing",
+        default=False,
+        help="if we need print the ir during the pass-pipeline",
+        type=bool,
     )
 
     if parser.parse_known_args()[0].driver == "linalg":
@@ -293,11 +299,10 @@ def correctness_testing(flags, module, args):
     passes = "any(gc-cpu-pipeline)"
 
     with module.context as ctx:
-        ir_printing = flags.verbose >= benchgc.util.PIPELINE_VERBOSE
-        if ir_printing:
+        if flags.ir_printing:
             ctx.enable_multithreading(False)
         compiler = GraphCompiler(passes)
-        engine = compiler.compile_and_jit(module, ir_printing)
+        engine = compiler.compile_and_jit(module, flags.ir_printing)
         engine.invoke(flags.entry, *mlir_args)
 
     fail, mistrust = False, False
@@ -331,9 +336,8 @@ def performance_testing(flags, module, args):
             gc_args.append(tensor)
 
     mlir_args = get_mlir_args(gc_args)
-    with module.context as ctx:
-        ir_printing = flags.verbose >= benchgc.util.PIPELINE_VERBOSE
-        if ir_printing:
+    with module.context as ctx, ir.Location.unknown():
+        if flags.ir_printing:
             ctx.enable_multithreading(False)
         bench_kind = py_timeit_bench if flags.bench_kind == "py" else mlir_wrapper_bench
         execute_cost, compile_cost = bench_kind(
@@ -341,7 +345,7 @@ def performance_testing(flags, module, args):
             flags.entry,
             "any(gc-cpu-pipeline)",
             mlir_args,
-            ir_printing,
+            flags.ir_printing,
             flags.repeat,
             flags.warm_up,
         )

@@ -18,11 +18,11 @@
 import argparse
 
 from benchgc.mlir.util import str_to_mlir_dtype
+from benchgc.util import to_bool_list, to_int_list
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
 
 from .base import Pattern
-from .util import to_bool_list, to_int_list
 
 
 class MLP(Pattern):

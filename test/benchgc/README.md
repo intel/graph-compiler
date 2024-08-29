@@ -2,12 +2,12 @@
 
 ## Description
 
-Benchgc is a tool used to verify the correctness and performance of graph compiler. Benchgc accepts MLIR files based on the OneDNN graph dialect as test cases and prepares test data for them. For correctness verification, Benchgc will use PyTorch as a reference for comparison.
+Benchgc is a tool used to verify the correctness and performance of graph compiler. Benchgc accepts MLIR files as test cases and prepares test data for them. For correctness verification, Benchgc will use PyTorch as a reference for comparison.
 
 ## Prerequisite
 * python >= 3.10
 * torch >= 2.2
-* pybind11
+* Enable mlir python binding, Refer to [`python/README.md`](../../python/README.md) for detail
 
 ## Build and install
 ```
@@ -43,13 +43,21 @@ python -m benchgc [OPTIONS] --mode [MODE] --driver [DRIVER] --case [CASE]
 * if driver is a dialect name, please provide the detail op name to start a single op test
 
 ### --entry [str]
+* default : "entry"
 * the entry name of the kernel of input mlir or generated mlir
 
 ### --seed [int]
 * set the seed to generate the test data and reprodce the test
 
 ### --verbose [int]
-* set the verbose level
+* set the verbose level, default : 0
+* 0 : NO_VERBOSE
+* 1 : MODULE_VERBOSE, print the module will be executed
+* 2 : ARG_VERBOSE, + print arg information
+* 3 : COMPARE_VERBOSE, + print threshold for comparison
+* 4 : ERROR_OUTPUT_VERBOSE, + print all error data points if failed
+* 5 : OUTPUT_VERBOSE, + print all result including passed tensor
+* 6 : INPUT_VERBOSE, + print input torch tensors
 
 ### --md index:SHAPExTYPE
 * Describe the shape and data type for argument
@@ -112,16 +120,16 @@ module {
 ### --warm_up [int]
 * warm-up times of the execution
 
-### --repeat
+### --repeat [int]
 * repeat times of the execution
 
-## pattern options
+## Pattern Options
 Each pattern has its own unique options.
 ### mlp
 * `--batch_size`: the input
 * `--hidden_size_list`: hidden_sizes of mlp, example: 32x16x64
 * `--has_bias`: if the matmul op has bias, example: 1x0
-* `--act_type`: choices=["noop", "relu", "sigmoid"]
+* `--act_type`: choices=["noop", "relu"]
 * `--dtype`: choices=["bf16", "f32"]
 
 ## Example
@@ -285,6 +293,7 @@ FAIL: linalg.matmul_transpose_b
 ```
 
 ### Perf testing example
+* single op example
 ```
 python3 -m benchgc --verbose 1  --mode P  --driver linalg --case add --md 0:4x5xf32 --md 1:4x5xf32 --md 2:4x5xf32
 
@@ -326,4 +335,80 @@ module {
     "compile_cost(ms)": 33.73148664832115,
     "execute_cost(ms)": 0.1422157883644104
 }
+```
+
+* mlir example
+```
+python3 -m benchgc --mode P --verbose 1  --driver mlir --case=./test.mlir  --bench_kind wrapper --warm_up 50 --repeat 200 
+module {
+  func.func @entry(%arg0: tensor<5x6xf32>) -> tensor<5x6xf32> attributes {llvm.emit_c_interface} {
+    %cst = arith.constant 0.000000e+00 : f32
+    %0 = tensor.empty() : tensor<5x6xf32>
+    %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<5x6xf32>) -> tensor<5x6xf32>
+    %2 = linalg.abs ins(%arg0 : tensor<5x6xf32>) outs(%1 : tensor<5x6xf32>) -> tensor<5x6xf32>
+    return %2 : tensor<5x6xf32>
+  }
+}
+
+===========bench result===========
+{
+    "args": {
+        "mode": "P",
+        "driver": "mlir",
+        "case": "/home/xurui/gc_v2/test.mlir",
+        "md": [],
+        "fill": [],
+        "cmp": [],
+        "seed": 0,
+        "verbose": 1,
+        "entry": "entry",
+        "ir_printing": false,
+        "bench_kind": "wrapper",
+        "warm_up": 50,
+        "repeat": 200
+    },
+    "compile_cost(ms)": 38.10911998152733,
+    "execute_cost(ms)": 0.077024335
+}
+```
+* mlp example
+```
+python3 -m benchgc --verbose 1 --mode P --driver pattern --case mlp --batch_size=32 --hidden_size_list=32x16x64 --has_bias=0x0 --act_type=noop --dtype=f32 
+
+module {
+  func.func @entry(%arg0: tensor<32x32xf32>, %arg1: tensor<32x16xf32>, %arg2: tensor<16x64xf32>) -> tensor<32x64xf32> attributes {llvm.emit_c_interface} {
+    %0 = tensor.empty() : tensor<32x16xf32>
+    %1 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<32x32xf32>, tensor<32x16xf32>) outs(%0 : tensor<32x16xf32>) -> tensor<32x16xf32>
+    %2 = tensor.empty() : tensor<32x64xf32>
+    %3 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%1, %arg2 : tensor<32x16xf32>, tensor<16x64xf32>) outs(%2 : tensor<32x64xf32>) -> tensor<32x64xf32>
+    return %3 : tensor<32x64xf32>
+  }
+}
+
+===========bench result===========
+{
+    "args": {
+        "mode": "P",
+        "driver": "pattern",
+        "case": "mlp",
+        "md": [],
+        "fill": [],
+        "cmp": [],
+        "seed": 0,
+        "verbose": 1,
+        "entry": "entry",
+        "ir_printing": false,
+        "bench_kind": "py",
+        "warm_up": 100,
+        "repeat": 100,
+        "batch_size": 32,
+        "hidden_size_list": "32x16x64",
+        "has_bias": "0x0",
+        "act_type": "noop",
+        "dtype": "f32"
+    },
+    "compile_cost(ms)": 69.51220706105232,
+    "execute_cost(ms)": 0.43220914900302887
+}
+
 ```

@@ -30,7 +30,6 @@ COMPARE_VERBOSE = 3  # + print threshold for comparison
 ERROR_OUTPUT_VERBOSE = 4  # + print all error data points if failed
 OUTPUT_VERBOSE = 5  # + print all result including passed tensor
 INPUT_VERBOSE = 6  # + print input torch tensors
-PIPELINE_VERBOSE = 7  # + print ir when running pipeline
 
 """
 acc | acc | elems | value_range | worst case
@@ -333,3 +332,33 @@ class Checker:
 
 def nelem(shape: List[int]) -> int:
     return reduce(operator.mul, shape)
+
+
+def to_int_list(s: str) -> List[int]:
+    """
+    Parsing the cmd for list of int values
+
+    Args:
+        s (str): int values in cmd, example: 2x3x4
+
+    Returns:
+        List[int]: int values in list, example: [2, 3, 4]
+    """
+    if not s or len(s) == 0:
+        return []
+    return [int(i) for i in s.strip().split("x")]
+
+
+def to_bool_list(s: str) -> List[bool]:
+    """
+    Parsing the cmd for list of bool values
+
+    Args:
+        s (str): bools in cmd, example: 1x0x1
+
+    Returns:
+        List[bool]: bools in list, example: [True, False, True]
+    """
+    if not s or len(s) == 0:
+        return []
+    return [bool(int(i)) for i in s.strip().split("x")]
