@@ -11,6 +11,7 @@
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Dialect/Linalgx/Utils.h"
+#include "mlir/Dialect/Affine/Transforms/Transforms.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -107,6 +108,16 @@ tensorViewRankedTensor(RewriterBase &rewriter, RankedTensorType outTensorType,
   return result;
 }
 
+// Check if the loop is dummy loop(has only one iteration)
+bool isDummyLoop(LoopLikeOpInterface loop) {
+  std::optional<int64_t> tripCount = mlir::constantTripCount(
+      *loop.getSingleLowerBound(), *loop.getSingleUpperBound(),
+      *loop.getSingleStep());
+  if (tripCount)
+    return *tripCount == 1;
+  return false;
+}
+
 // Build the linalg region for a linalg op
 static void buildLinalgRegion(Operation *op, bool createTemporaryOp = false) {
   SmallVector<Type> argTypes;
@@ -175,19 +186,40 @@ matmulDtypeLegalize(RewriterBase &rewriter, Operation *op,
     Value initValue = initOp->getResult(0);
     ShapedType initType = cast<ShapedType>(initValue.getType());
     ArrayRef<int64_t> tensorShape = initType.getShape();
-    SmallVector<OpFoldResult> mixedShape;
+    SmallVector<OpFoldResult> mixedShape, boundShape;
     for (auto &&[i, t] : llvm::enumerate(tensorShape)) {
       if (initType.isDynamicDim(i)) {
         Value val = rewriter.create<tensor::DimOp>(loc, initValue, i);
+        auto valBound = affine::reifyIndexValueBound(rewriter, loc, presburger::BoundType::UB, val, [&](Value v, std::optional<int64_t> d, ValueBoundsConstraintSet &cstr)
+                                                     { return getConstantIntValue(v) != std::nullopt; }, true);
+        if(failed(valBound)) {
+            boundShape.push_back(val);
+        } else {
+            boundShape.push_back(*valBound);
+        }
         mixedShape.push_back(val);
       } else {
         mixedShape.push_back(getAsIndexOpFoldResult(rewriter.getContext(), t));
+        boundShape.push_back(mixedShape.back());
       }
     }
     Operation *currentOp;
 
     currentOp = rewriter.create<tensor::EmptyOp>(
-        loc, mixedShape, Float32Type::get(op->getContext()));
+        loc, boundShape, Float32Type::get(op->getContext()));
+    {
+        SmallVector<OpFoldResult> extractSliceOffsets(mixedShape.size());
+        SmallVector<OpFoldResult> extractSliceStrides(mixedShape.size());
+        for (auto &&[i, s] : llvm::enumerate(mixedShape)) {
+            extractSliceOffsets[i] = getAsIndexOpFoldResult(rewriter.getContext(), 0);
+            extractSliceStrides[i] = getAsIndexOpFoldResult(rewriter.getContext(), 1);
+        }
+
+        currentOp = rewriter.create<tensor::ExtractSliceOp>(
+            loc, currentOp->getResult(0), extractSliceOffsets,
+            mixedShape, extractSliceStrides);
+    }
+
     if (needCopyInit)
       currentOp = rewriter.create<linalg::CopyOp>(loc, initOp->getResult(0),
                                                   currentOp->getResult(0));
@@ -387,12 +419,18 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
             b, cast<TilingInterface>(currentOp.getOperation()), tileOption);
         if (failed(tilingResult))
           return failure();
-
-        b.replaceOp(currentOp, tilingResult->replacements);
-        currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
-        if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
-          result.reductionLoops.push_back(tilingResult->loops.back());
-        result.loops.push_back(tilingResult->loops.back());
+        if (!isDummyLoop(tilingResult->loops.back()))
+        {
+            b.replaceOp(currentOp, tilingResult->replacements);
+            currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+            if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
+                result.reductionLoops.push_back(tilingResult->loops.back());
+            result.loops.push_back(tilingResult->loops.back());
+        } else {
+            LoopLikeOpInterface loop = tilingResult->loops.back();
+            Operation * op = loop.getOperation();
+            b.eraseOp(op);
+        }
       }
     } else if (loopType == OuterLoopGenerationOption::LoopType::ForallOp) {
       SmallVector<OpFoldResult> tileSizes(
@@ -981,7 +1019,6 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     if (failed(outerLoopResult))
       return failure();
     linalgOp = dyn_cast<linalg::LinalgOp>(outerLoopResult->tiledOps.back());
-
     // Step 3 generate inner loop body, convert the linalg.generic to brgemm
     innerBodyGenerationOption option = innerBodyGenerationOption{
         fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops, cfg};
@@ -1002,8 +1039,6 @@ public:
     RewritePatternSet patterns(&ctx);
 
     patterns.add<DeepTileMatmul>(patterns.getContext());
-    linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
-    tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
 
     for (Dialect *dialect : ctx.getLoadedDialects())
       dialect->getCanonicalizationPatterns(patterns);
