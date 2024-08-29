@@ -23,7 +23,6 @@ import gc_mlir.dialects.linalg
 import gc_mlir.dialects.tensor
 import torch
 from benchgc.mlir.util import dtype_to_ctype, str_to_mlir_dtype, str_to_mlir_typed_attr
-from benchgc.util import to_int_list
 from gc_mlir import ir
 
 
@@ -96,7 +95,7 @@ class MLIRArg:
         self.dtype = splited[-1]
         self.shape = []
 
-        self.shape = to_int_list(splited[:-1])
+        self.shape = [int(x) for x in splited[:-1]]
         self.set_scalar()
 
     def set_scalar(self):
