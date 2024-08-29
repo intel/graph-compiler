@@ -31,8 +31,8 @@ from benchgc.arg import (
     set_default_fill,
 )
 from benchgc.arg.arg import Arg
+from benchgc.bench import mlir_wrapper_bench, py_timeit_bench
 from benchgc.mlir.arg import get_mlir_args
-from benchgc.mlir.bench import mlir_wrapper_bench, py_timeit_bench
 from benchgc.pattern import get_pattern_clz
 from gc_mlir import ir
 from gc_mlir.graph_compiler import GraphCompiler
