@@ -21,7 +21,7 @@
 #ifdef _WIN32
 #define OCL_RUNTIME_EXPORT __declspec(dllexport)
 #else
-#define OCL_RUNTIME_EXPORT
+#define OCL_RUNTIME_EXPORT __attribute__((visibility("default")))
 #endif // _WIN32
 
 namespace {
@@ -388,6 +388,14 @@ extern "C" OCL_RUNTIME_EXPORT void gpuMemFree(GPUCLQUEUE *queue, void *ptr) {
   if (queue && ptr) {
     deallocDeviceMemory(queue, ptr);
   }
+}
+
+extern "C" OCL_RUNTIME_EXPORT void gpuMemCopy(GPUCLQUEUE *queue, void *dst,
+                                              void *src, uint64_t size) {
+  auto func = queue->ext_table_ ? queue->ext_table_->enqueneMemcpy
+                                : (clEnqueueMemcpyINTEL_fn)queryCLExtFunc(
+                                      queue->device_, EnqueueMemcpyName);
+  CL_SAFE_CALL(func(queue->queue_, true, dst, src, size, 0, nullptr, nullptr));
 }
 
 extern "C" OCL_RUNTIME_EXPORT cl_program
