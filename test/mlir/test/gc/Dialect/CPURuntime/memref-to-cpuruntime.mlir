@@ -1,106 +1,22 @@
 // RUN: gc-opt --split-input-file --convert-memref-to-cpuruntime %s -verify-diagnostics | FileCheck %s
 
-func.func @alloc() {
-  // CHECK-LABEL: func @alloc()
+func.func @alloca() {
+  // CHECK-LABEL: func @alloca()
   // CHECK: %[[m0:.*]] = cpuruntime.alloc() : memref<1024xf32>
-  %m0 = memref.alloc() : memref<1024xf32>
+  %m0 = memref.alloca() : memref<1024xf32>
   scf.forall (%i) in (32) {
   }
   // CHECK: cpuruntime.dealloc %[[m0]] : memref<1024xf32>
-  memref.dealloc %m0 : memref<1024xf32>
   return
 }
 
-func.func @thread_alloc() {
-  // CHECK-LABEL: func.func @thread_alloc()
+func.func @thread_alloca() {
+  // CHECK-LABEL: func.func @thread_alloca()
   // CHECK: %[[m0:.*]] = cpuruntime.alloc thread_local() : memref<1024xf32>
   scf.forall (%i) in (32) {
-    %0 = memref.alloc() : memref<1024xf32>
+    %0 = memref.alloca() : memref<1024xf32>
     // CHECK: cpuruntime.dealloc thread_local %[[m0]] : memref<1024xf32>
-    memref.dealloc %0 : memref<1024xf32>
   }
-  return
-}
-
-func.func @return_alloc() -> memref<32x18xf32> {
-  // CHECK-LABEL: func @return_alloc() -> memref<32x18xf32>
-  // CHECK: %[[m0:.*]] = memref.alloc() {leak} : memref<32x18xf32>
-  %0 = memref.alloc() : memref<32x18xf32>
-  return %0 : memref<32x18xf32>
-}
-
-func.func @yield_alloc() -> memref<32x18xf32> {
-  // CHECK-LABEL: func @yield_alloc() -> memref<32x18xf32>
-  // CHECK: %[[m0:.*]] = memref.alloc() {leak} : memref<32x18xf32>
-  %c32 = arith.constant 32 : index
-  %c1 = arith.constant 1 : index
-  %c0 = arith.constant 0 : index
-  %lastBuffer = memref.alloc() : memref<32x18xf32>
-  scf.for %arg3 = %c0 to %c32 step %c1 iter_args(%arg1 = %lastBuffer) -> (memref<32x18xf32>) {
-    // CHECK: %[[m1:.*]] = memref.alloc() {leak} : memref<32x18xf32>
-    %newBuffer = memref.alloc() : memref<32x18xf32>
-    memref.dealloc %arg1 : memref<32x18xf32>
-    scf.yield %newBuffer : memref<32x18xf32>
-  }
-  return %lastBuffer : memref<32x18xf32>
-}
-
-func.func @return_view_alloc() -> memref<16xf32> {
-  // CHECK-LABEL: func @return_view_alloc() -> memref<16xf32>
-  // CHECK: %[[m0:.*]] = memref.alloc() {leak} : memref<128xi8>
-  %c0 = arith.constant 0: index
-  %f0 = arith.constant 0.0: f32
-  %alloc = memref.alloc() : memref<128xi8>
-  %view = memref.view %alloc[%c0][] : memref<128xi8> to memref<32xf32>
-  %subview = memref.subview %view[0][16][1] : memref<32xf32> to memref<16xf32>
-  return %subview : memref<16xf32>
-}
-
-func.func @alloc_dealloc_view() {
-  // CHECK-LABEL: func @alloc_dealloc_view()
-  // CHECK: %[[m0:.*]] = cpuruntime.alloc() : memref<128xi8>
-  %c0 = arith.constant 0: index
-  %f0 = arith.constant 0.0: f32
-  %alloc = memref.alloc() : memref<128xi8>
-  %view = memref.view %alloc[%c0][] : memref<128xi8> to memref<32xf32>
-  %subview = memref.subview %view[0][16][1] : memref<32xf32> to memref<16xf32>
-  // CHECK: cpuruntime.dealloc
-  memref.dealloc %alloc : memref<128xi8>
-  return
-}
-
-func.func @alloc_dealloc_FIFO() -> memref<128xf32> {
-  // CHECK-LABEL: func @alloc_dealloc_FIFO()
-  // CHECK: %[[m0:.*]] = cpuruntime.alloc() : memref<128xf32>
-  // CHECK: %[[m1:.*]] = cpuruntime.alloc() : memref<128xf32>
-  // CHECK: %[[m2:.*]] = memref.alloc() {leak} : memref<128xf32>
-  %alloc = memref.alloc() : memref<128xf32>
-  %alloc_0 = memref.alloc() : memref<128xf32>
-  %alloc_1 = memref.alloc() : memref<128xf32>
-  // CHECK: cpuruntime.dealloc %[[m1]] : memref<128xf32>
-  memref.dealloc %alloc_0 : memref<128xf32>
-  // CHECK: cpuruntime.dealloc %[[m0]] : memref<128xf32>
-  memref.dealloc %alloc : memref<128xf32>
-  return %alloc_1 : memref<128xf32>
-}
-
-func.func @alloc_dealloc_in_block(%arg0: i1) {
-  // CHECK-LABEL: func @alloc_dealloc_in_block(%arg0: i1)
-  // CHECK: %[[m0:.*]] = memref.alloc() : memref<128xf32>
-  // CHECK: %[[m1:.*]] = memref.alloc() : memref<128xf32>
-  // CHECK: %[[m2:.*]] = memref.alloc() : memref<128xf32>
-  %alloc = memref.alloc() : memref<128xf32>
-  %alloc_0 = memref.alloc() : memref<128xf32>
-  %alloc_1 = memref.alloc() : memref<128xf32>
-  scf.if %arg0 {
-    // CHECK: memref.dealloc %[[m2]] : memref<128xf32>
-    memref.dealloc %alloc_1 : memref<128xf32>
-  } else {
-    // CHECK: memref.dealloc %[[m1]] : memref<128xf32>
-    memref.dealloc %alloc_0 : memref<128xf32>
-  }
-  // CHECK: memref.dealloc %[[m0]] : memref<128xf32>
-  memref.dealloc %alloc : memref<128xf32>
   return
 }
 
@@ -108,6 +24,7 @@ func.func @dynamic_ranked_alloca(%arg0: memref<*xf32>) {
   // CHECK-LABEL: func @dynamic_ranked_alloca(%arg0: memref<*xf32>)
   // CHECK: %[[RANK:.*]] = memref.rank %{{.*}} : memref<*xf32>
   // CHECK: %[[m0:.*]] = cpuruntime.alloc(%[[RANK]]) : memref<?xindex>
+  // CHECK: cpuruntime.dealloc %[[m0]] : memref<?xindex>
   %0 = memref.rank %arg0 : memref<*xf32>
   %alloca = memref.alloca(%0) : memref<?xindex>
   return
@@ -127,17 +44,6 @@ func.func @loop_nested_if_alloca(%arg0: index, %arg1: index, %arg2: index, %arg3
     }
     scf.yield %2 : memref<2xf32>
   }
-  return
-}
-
-func.func @loop_alloc_alloca(%arg0: index, %arg1: index, %arg2: index, %arg3: memref<2xf32>) {
-  // CHECK-LABEL: func @loop_alloc_alloca(%arg0: index, %arg1: index, %arg2: index, %arg3: memref<2xf32>)
-  // CHECK: %[[m0:.*]] = cpuruntime.alloc() : memref<2xf32>
-  %alloca = memref.alloca() : memref<2xf32>
-  %0 = scf.for %arg5 = %arg0 to %arg1 step %arg2 iter_args(%arg6 = %arg3) -> (memref<2xf32>) {
-    %1 = arith.cmpi eq, %arg5, %arg1 : index
-    %alloc = memref.alloc() : memref<2xf32>
-    scf.yield %alloc : memref<2xf32>
-  }
+  // CHECK: cpuruntime.dealloc %[[m0]] : memref<2xf32>
   return
 }
