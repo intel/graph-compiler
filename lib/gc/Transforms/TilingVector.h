@@ -1,4 +1,4 @@
-//===- TilingVector.h - Tiling large vector to small vector ---*- C++ -*-===//
+//===- TilingVector.h - Tiling large vector to small vector -----*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,6 +8,7 @@
 #ifndef GC_PASSES_TILINGVECTOR_H
 #define GC_PASSES_TILINGVECTOR_H
 
+#include "gc/Analysis/TargetDescriptionAnalysis.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -634,6 +635,7 @@ class VectorOperationAnalyzer : virtual public CanonicalizerCommonUsedData {
 private:
   func::FuncOp func;
   DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
+  DenseMap<Operation *, size_t> visitedOperation;
 
 public:
   virtual ~VectorOperationAnalyzer(){};
@@ -653,6 +655,18 @@ public:
   ///
   void updateReturnResultKind(Operation *sourceOp, size_t sourceOpGid,
                               ReturnTypeKind rtKind);
+
+  /// process the operation which need to return result
+  /// \param *op current operation
+  void groupOperationNeedReturnResult(size_t sourceOpGid, Operation *sourceOp,
+                                      Operation *op, size_t operandIdx,
+                                      bool inSameGroupNeedReturn);
+  /// source operation write it's result to a tensor
+  void makeSourceOpWriteResultToTensor(Operation *sourceOp, size_t sourceOpGid,
+                                       ReturnTypeKind rtKind);
+  /// analysis constant operation and replace it with a new constant operation
+  void replaceConstantOpAsNewOp(Operation *op, Operation *sourceOp,
+                                size_t operandIdx);
 };
 /// Vectorize vector operation with target machines simd instructions.
 class CanonicalizerVectorOperation : virtual public ForLoopGenerator,
