@@ -83,10 +83,9 @@ struct ConvertMemRefToCPURuntime
     // Create a local set to store operations that should not be transformed.
     llvm::SmallSet<Operation *, 16> noTransformOps;
 
-    // Walk through the module to find func::FuncOp instances.
+    // Check the alloc ops with leaky risk, do not do transform on these ops.
     getOperation()->walk([&](func::FuncOp funcOp) {
       BufferViewFlowAnalysis analysis(funcOp);
-      // Now walk through the operations within the func::FuncOp.
       funcOp.walk([&](Operation *op) {
         if (op->hasTrait<OpTrait::ReturnLike>()) {
           for (Value operand : op->getOperands()) {
@@ -106,6 +105,8 @@ struct ConvertMemRefToCPURuntime
         }
       });
     });
+
+    // Filter out the non-FILO alloc / dealloc.
     getOperation()->walk([&](Operation *op) {
       for (Region &region : op->getRegions()) {
         SmallVector<Operation *, 4> allocStack;
