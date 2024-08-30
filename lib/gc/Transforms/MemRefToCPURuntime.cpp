@@ -12,7 +12,6 @@
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.h"
 #include "gc/Transforms/Passes.h"
-#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
