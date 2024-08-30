@@ -12,6 +12,7 @@
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeDialect.h"
 #include "gc/Dialect/CPURuntime/IR/CPURuntimeOps.h"
 #include "gc/Transforms/Passes.h"
+#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/Bufferization/Transforms/BufferViewFlowAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -19,6 +20,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallSet.h"
 
 namespace mlir {
 namespace gc {
@@ -36,6 +38,34 @@ bool hasParallelParent(Operation *op) {
     }
   }
   return false;
+}
+
+uint64_t getMemRefSizeInBytes(MemRefType memrefType) {
+  if (ShapedType::isDynamicShape(memrefType.getShape()))
+    return UINT64_MAX;
+  ShapedType shapeType = cast<ShapedType>(memrefType);
+  int elementSize = shapeType.getElementTypeBitWidth() / 8;
+  AffineMap layout = memrefType.getLayout().getAffineMap();
+  ArrayRef<int64_t> shape = memrefType.getShape();
+  if (!layout.isIdentity()) {
+    int64_t offset;
+    SmallVector<int64_t, 4> strides;
+    if (failed(getStridesAndOffset(memrefType, strides, offset))) {
+      return UINT64_MAX;
+    }
+
+    int totalSize = elementSize;
+    for (size_t i = 0; i < shape.size(); ++i) {
+      totalSize *= (i == shape.size() - 1) ? strides[i] : shape[i];
+    }
+    return totalSize;
+  } else {
+    int totalSize = elementSize;
+    for (int64_t dim : shape) {
+      totalSize *= dim;
+    }
+    return totalSize;
+  }
 }
 
 struct AlignedAllocLowering : public OpRewritePattern<memref::AllocaOp> {
@@ -59,43 +89,42 @@ struct ConvertMemRefToCPURuntime
 
   void runOnOperation() final {
     auto *ctx = &getContext();
+    llvm::SmallSet<Operation *, 16> noTransformOps;
 
     // Create deallocOp accoresponding to the alloca's localtion
     getOperation()->walk([&](func::FuncOp funcOp) {
-      funcOp.walk([&](memref::AllocaOp op) {
-        Region *parentRegion = op->getParentRegion();
-        OpBuilder builder(op);
-        // Find the first deallocOp in the current region
-        cpuruntime::DeallocOp firstDeallocOp;
-        for (Block &block : parentRegion->getBlocks()) {
-          for (Operation &operation : block) {
-            if (auto deallocOp = dyn_cast<cpuruntime::DeallocOp>(&operation)) {
-              firstDeallocOp = deallocOp;
-              break;
-            }
-          }
-          if (firstDeallocOp)
-            break;
+      funcOp.walk([&](memref::AllocaOp allocaOp) {
+        uint64_t allocSize =
+            getMemRefSizeInBytes(allocaOp.getResult().getType());
+        if (allocSize < 128) {
+          noTransformOps.insert(allocaOp);
+          return;
+        }
+        Operation *scopeOp =
+            allocaOp->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+        OpBuilder builder(allocaOp);
+        Region &scopeRegion = scopeOp->getRegion(0);
+        // Set the insertion point to the end of the region before the
+        // terminator
+        Block &lastBlock = scopeRegion.back();
+        builder.setInsertionPointToEnd(&lastBlock);
+        if (!lastBlock.empty() &&
+            lastBlock.back().hasTrait<OpTrait::IsTerminator>()) {
+          builder.setInsertionPoint(&lastBlock.back());
         }
 
-        // If a deallocOp was found, insert the new dealloc before it
-        if (firstDeallocOp) {
-          builder.setInsertionPoint(firstDeallocOp);
-        } else {
-          // If no deallocOp was found, insert at the end of the region before
-          // the terminator
-          Block &lastBlock = parentRegion->back();
-          builder.setInsertionPointToEnd(&lastBlock);
-          if (!lastBlock.empty() &&
-              lastBlock.back().hasTrait<OpTrait::IsTerminator>()) {
-            builder.setInsertionPoint(&lastBlock.back());
-          }
+        // Move the insertion point back if the operation before is a deallocOp
+        Operation *currentOp = builder.getInsertionPoint()->getPrevNode();
+        while (currentOp && isa<cpuruntime::DeallocOp>(currentOp)) {
+          // Move the insertion point before the found deallocOp
+          builder.setInsertionPoint(currentOp);
+          currentOp = currentOp->getPrevNode();
         }
 
         // Create the dealloc operation
-        auto deallocOp =
-            builder.create<cpuruntime::DeallocOp>(op.getLoc(), op.getResult());
-        if (hasParallelParent(op)) {
+        auto deallocOp = builder.create<cpuruntime::DeallocOp>(
+            allocaOp.getLoc(), allocaOp.getResult());
+        if (hasParallelParent(allocaOp)) {
           deallocOp.setThreadLocal(true);
         }
       });
@@ -105,7 +134,11 @@ struct ConvertMemRefToCPURuntime
     ConversionTarget target(getContext());
     // Make all operations legal by default.
     target.markUnknownOpDynamicallyLegal([](Operation *op) { return true; });
-    target.addIllegalOp<memref::AllocaOp>();
+    target.addDynamicallyLegalOp<memref::AllocaOp>([&](Operation *op) {
+      // Return true if the operation is in the noTransformOps set, making
+      // it dynamically legal.
+      return noTransformOps.find(op) != noTransformOps.end();
+    });
     // set pattern
     RewritePatternSet patterns(ctx);
     patterns.add<AlignedAllocLowering>(ctx);
