@@ -31,7 +31,7 @@ namespace {
       linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
       linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp,               \
       tensor::CollapseShapeOp, tensor::ExpandShapeOp, tensor::ExtractSliceOp,  \
-      tensor::InsertSliceOp
+      tensor::InsertSliceOp, microkernel::BrgemmOp
 
 /// TODO: remove it in the future
 bool disableSpecialOp = false;

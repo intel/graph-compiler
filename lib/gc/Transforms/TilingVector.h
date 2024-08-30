@@ -10,6 +10,7 @@
 
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
