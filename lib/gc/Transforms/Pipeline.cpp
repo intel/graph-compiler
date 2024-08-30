@@ -92,6 +92,8 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
+  // The flow follows https://mlir.llvm.org/docs/Bufferization/#overview
+  pm.addPass(bufferization::createEmptyTensorEliminationPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
   options.setFunctionBoundaryTypeConversion(
@@ -99,14 +101,19 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
+  pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
+  // todo: buffer schedule pass
+  // todo: Need to improve this pass to support nested parallel.
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
-  // todo: buffer schedule pass
-  // todo: Need to improve this pass to support nested parallel.
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createBufferDeallocationPass());
+  pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
+  pm.addNestedPass<func::FuncOp>(
+      bufferization::createPromoteBuffersToStackPass());
+  bufferization::BufferDeallocationPipelineOptions deallocOption;
+  bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
 }
@@ -175,7 +182,7 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateBufferizationPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
-  pm.addNestedPass<func::FuncOp>(createConvertLinalgToParallelLoopsPass());
+  pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
   populateMicroKernelPasses(pm);
   populateCPURuntimePasses(pm);
   // back-end, llvm dialect
