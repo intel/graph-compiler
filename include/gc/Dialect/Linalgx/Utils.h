@@ -44,7 +44,8 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
 bool isGenericPackedMatmulOp(Operation *op, PackingType opType);
 
 template <typename... Args>
-bool isGenericPackedMatmulOp(Operation *op, PackingType first, Args... args) {
+inline bool isGenericPackedMatmulOp(Operation *op, PackingType first,
+                                    Args... args) {
   return isGenericPackedMatmulOp(op, first) ||
          isGenericPackedMatmulOp(op, args...);
 }
@@ -52,16 +53,17 @@ bool isGenericPackedMatmulOp(Operation *op, PackingType first, Args... args) {
 /// @brief identify a generic packed matmul Op based on any PackingType
 /// @param op the op
 /// @return true if op is a generic packed matmul Op
-template <int T, int N> bool isAnyGenericPackedMatmulOp(Operation *op) {
+template <int T, int N> inline bool isAnyGenericPackedMatmulOp(Operation *op) {
   return isGenericPackedMatmulOp(op, (PackingType)N) ||
          isAnyGenericPackedMatmulOp<T + 1, N>(op);
 }
 constexpr int NUM_ALL_TYPES = (int)PackingType::NUM_TYPES;
 template <>
-bool isAnyGenericPackedMatmulOp<NUM_ALL_TYPES, NUM_ALL_TYPES>(Operation *op) {
+inline bool
+isAnyGenericPackedMatmulOp<NUM_ALL_TYPES, NUM_ALL_TYPES>(Operation *op) {
   return false;
 }
-bool isAnyGenericPackedMatmulOp(Operation *op) {
+inline bool isAnyGenericPackedMatmulOp(Operation *op) {
   return isAnyGenericPackedMatmulOp<0, NUM_ALL_TYPES>(op);
 }
 
