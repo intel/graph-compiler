@@ -306,6 +306,8 @@ public:
   bool isReadWriteOnLastDim();
 };
 
+/// operation return kind, which is used to determine whether the operation need
+/// to return it's result in current for loop
 enum class ReturnTypeKind {
   RT_Both,
   RT_OutGroup,
@@ -440,7 +442,7 @@ public:
   Operation *getNextTargetOperationInCurrentGroup(Operation *curOp,
                                                   const size_t grpIdx);
 };
-
+/// generate for loop for each operation.
 class ForLoopGenerator : virtual public CanonicalizerCommonUsedData {
 private:
   func::FuncOp func;
@@ -453,6 +455,19 @@ public:
   void setGeneratorFunc(func::FuncOp &func) { this->func = func; }
   void clearCurrentOperationGroup(size_t grpIdx);
   void generateGroupOpVectorizedIR(const int idx);
+
+  /// prepare for loop iteration args
+  ValueRange
+  prepareForLoopArgs(const size_t grpIdx,
+                     DenseMap<Value, int> &currentLoopStateIdxMap,
+                     DenseMap<Value, Value> &originalOperandLoopArgsMap,
+                     DenseMap<Value, Value> &loopArgsOriginalOperandMap);
+
+  /// replace original operation result with corresponding for loop result
+  void replaceOpUsersWithForLoopResult(
+      scf::ForOp forOp, int grpIdx, SmallVector<Value, 4> &nextAnchorResults,
+      DenseMap<Value, int> &nextAnchorResultsIdxMap,
+      DenseMap<Value, Value> &forResultOrignalResultMap);
 
   /// mark which operation need to set correct for loop var idx
   /// due to sometimes we need to chage for loop order like reduce operation.
@@ -563,6 +578,11 @@ public:
       DenseMap<Value, Value> &forResultOrignalResultMap);
   // multireduction forloop  methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
+  /// Rearrange the current opIR to facilitate the generation of the correct
+  /// reduction IR
+  void rearrageMultiReductionIR(
+      const size_t grpIdx,
+      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
   scf::ForOp reductionAxisGenerateForLoop(
       OpBuilder &opBuilder, const int groupIdx, const size_t reductionIdx,
       const int anchorIdx, llvm::DenseMap<Value, int> &currentLoopStateIdxMap,
@@ -640,21 +660,22 @@ private:
   DenseMap<Operation *, size_t> visitedOperation;
 
 public:
-  virtual ~VectorOperationAnalyzer() {};
-  VectorOperationAnalyzer() {}
+  virtual ~VectorOperationAnalyzer() = default;
+  VectorOperationAnalyzer() = default;
   VectorOperationAnalyzer(func::FuncOp &func) : func(func) {}
 
   void setAnalysisFunc(func::FuncOp &func) { this->func = func; }
   ///  remove the useless operation, due to it result is not require by other
   // operation
   void analysisEmptyGroup();
+  /// get each operation in each group maximum support vectorization length
   void analysisGroupMaxSteps();
   /// analysis operation result of current group whether needed by other
   /// operation
   void analysisGroupOperaion();
 
   void specialOperationRectify(DenseMap<Operation *, size_t> &visitedOperation);
-  ///
+  /// update operation result kind
   void updateReturnResultKind(Operation *sourceOp, size_t sourceOpGid,
                               ReturnTypeKind rtKind);
 
