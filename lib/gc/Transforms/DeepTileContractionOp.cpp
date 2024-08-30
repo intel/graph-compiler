@@ -270,31 +270,34 @@ static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
 // set the dynamic size to static size for ExtractSliceOp according to the tile
 // config
 static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
-                                           Operation *op, bool isExtract,
+                                           Operation *op, Operation *userOp,
                                            SmallVector<int64_t> size,
                                            int shrinDimNum = 0) {
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(op);
+  Operation *currentOp = op;
   if (auto extractSlice = dyn_cast<tensor::ExtractSliceOp>(op)) {
     SmallVector<OpFoldResult> mixedOffsets = extractSlice.getMixedOffsets();
     SmallVector<OpFoldResult> mixedSizes = extractSlice.getMixedSizes();
     SmallVector<OpFoldResult> mixedStrides = extractSlice.getMixedStrides();
-    auto targetTensor = mlir::RankedTensorType::get(
-        SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
-        extractSlice.getResult().getType().getElementType());
     for (auto &&[i, s] : llvm::enumerate(size))
       mixedSizes[i] = getAsIndexOpFoldResult(rewriter.getContext(), s);
-    Operation *newExtractSliceOp = rewriter.create<tensor::ExtractSliceOp>(
+    currentOp = rewriter.create<tensor::ExtractSliceOp>(
         extractSlice->getLoc(), extractSlice.getSource(), mixedOffsets,
         mixedSizes, mixedStrides);
-    if (shrinDimNum > 0) {
-      rewriter.setInsertionPointAfter(newExtractSliceOp);
-      Value viewResult = tensorViewRankedTensor(
-          rewriter, targetTensor, newExtractSliceOp->getResult(0));
-      rewriter.replaceOp(extractSlice, viewResult);
-    } else {
-      rewriter.replaceOp(extractSlice, newExtractSliceOp);
-    }
+    rewriter.replaceOp(op, currentOp);
+  }
+
+  if (shrinDimNum > 0) {
+    assert(currentOp->getNumResults() == 1 &&
+           "The number of init op result should be 1");
+    auto targetTensor = mlir::RankedTensorType::get(
+        SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
+        cast<ShapedType>(currentOp->getResult(0).getType()).getElementType());
+    rewriter.setInsertionPointAfter(currentOp);
+    Value viewResult =
+        tensorViewRankedTensor(rewriter, targetTensor, currentOp->getResult(0));
+    userOp->replaceUsesOfWith(currentOp->getResult(0), viewResult);
   }
 }
 
@@ -772,17 +775,16 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     mlir::Type resultType =
         dyn_cast<mlir::ShapedType>(currentOp.getDpsInits()[0].getType())
             .getElementType();
-
     // update the extractSlice to static size, replace it with
     // useBlockedLayout when
     setStaticSizeForExtractSliceOp(rewriter,
                                    currentOp.getDpsInputs()[1].getDefiningOp(),
-                                   true, BInnermostDims, NDimNum > 1);
+                                   currentOp, BInnermostDims, NDimNum > 1);
     setStaticSizeForExtractSliceOp(rewriter,
                                    currentOp.getDpsInputs()[0].getDefiningOp(),
-                                   true, AInnermostDims, MDimNum > 1);
+                                   currentOp, AInnermostDims, MDimNum > 1);
     for (const Value &init : currentOp.getDpsInits()) {
-      setStaticSizeForExtractSliceOp(rewriter, init.getDefiningOp(), true,
+      setStaticSizeForExtractSliceOp(rewriter, init.getDefiningOp(), currentOp,
                                      CInnermostDims, MDimNum > 1 ? 2 : 0);
     }
 
@@ -940,6 +942,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       }
       rewriter.replaceOp(currentOp, ifOp);
     }
+
     return success();
   }
 
@@ -1003,6 +1006,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     if (failed(innerBodyGeneration(rewriter, originOp, linalgOp, option)))
       return failure();
+
     rewriter.eraseOp(originOp);
     return success();
   }
