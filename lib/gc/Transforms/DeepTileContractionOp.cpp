@@ -678,35 +678,38 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     MatmulConfig cfg;
   };
 
-  LogicalResult innerBodyGeneration(RewriterBase &rewriter,
-                                    linalg::LinalgOp originOp,
-                                    linalg::LinalgOp currentOp,
-                                    innerBodyGenerationOption &option) const {
+  SmallVector<ArrayRef<int64_t>> getShapes(linalg::LinalgOp op) const {
+    ArrayRef<int64_t> AShape = op.getShape(op.getDpsInputOperand(0));
+    ArrayRef<int64_t> BShape = op.getShape(op.getDpsInputOperand(1));
+    ArrayRef<int64_t> CShape = op.getShape(op.getDpsInitOperand(0));
+    return SmallVector<ArrayRef<int64_t>>{AShape, BShape, CShape};
+  }
+
+  LogicalResult
+  innerBodyGeneration(RewriterBase &rewriter, linalg::LinalgOp currentOp,
+                      ArrayRef<ArrayRef<int64_t>> allShape,
+                      ArrayRef<SmallVector<DimType>> operandDimTypes,
+                      innerBodyGenerationOption &option) const {
     Location loc = currentOp->getLoc();
-    FailureOr<SmallVector<SmallVector<DimType>>> operandDimTypes =
-        getOprandDimType(originOp);
     MatmulConfig &cfg = option.cfg;
-    ArrayRef<int64_t> AShape =
-        originOp.getShape(originOp.getDpsInputOperand(0));
-    ArrayRef<int64_t> BShape =
-        originOp.getShape(originOp.getDpsInputOperand(1));
-    ArrayRef<int64_t> CShape = originOp.getShape(originOp.getDpsInitOperand(0));
+    assert(allShape.size() == 3 &&
+           "The size of linalg op shape should be equal to 3");
+    ArrayRef<int64_t> AShape = allShape[0];
+    ArrayRef<int64_t> BShape = allShape[1];
+    ArrayRef<int64_t> CShape = allShape[2];
 
-    if (failed(operandDimTypes))
-      return failure();
-
-    size_t MDimNum = std::count_if((*operandDimTypes)[0].begin(),
-                                   (*operandDimTypes)[0].end(),
-                                   [](DimType d) { return d == DimType::M; });
-    size_t NDimNum = std::count_if((*operandDimTypes)[1].begin(),
-                                   (*operandDimTypes)[1].end(),
-                                   [](DimType d) { return d == DimType::N; });
+    size_t MDimNum =
+        std::count_if(operandDimTypes[0].begin(), operandDimTypes[0].end(),
+                      [](DimType d) { return d == DimType::M; });
+    size_t NDimNum =
+        std::count_if(operandDimTypes[1].begin(), operandDimTypes[1].end(),
+                      [](DimType d) { return d == DimType::N; });
     // TODO: support plain in/block out format
     // Calculate the innermost block size according to the config
     SmallVector<int64_t> AInnermostDims, BInnermostDims, CInnermostDims;
     bool firstM = true, firstK = true, firstN = true;
     if (MDimNum > 1) {
-      for (auto &&[idx, iter] : llvm::enumerate((*operandDimTypes)[0])) {
+      for (auto &&[idx, iter] : llvm::enumerate(operandDimTypes[0])) {
         if (iter == DimType::M && firstM) {
           AInnermostDims.push_back(1);
           firstM = false;
@@ -721,7 +724,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       }
       firstM = true;
       firstN = true;
-      for (auto &&[idx, iter] : llvm::enumerate((*operandDimTypes)[2])) {
+      for (auto &&[idx, iter] : llvm::enumerate(operandDimTypes[2])) {
         if (iter == DimType::M && firstM) {
           CInnermostDims.push_back(1);
           firstM = false;
@@ -745,7 +748,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     if (NDimNum > 1) {
       firstN = true;
       firstK = true;
-      for (auto &&[idx, iter] : llvm::enumerate((*operandDimTypes)[1])) {
+      for (auto &&[idx, iter] : llvm::enumerate(operandDimTypes[1])) {
         if (iter == DimType::N && firstN) {
           BInnermostDims.push_back(1);
           firstN = false;
@@ -970,14 +973,18 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(linalgOp);
-    linalg::LinalgOp originOp =
-        dyn_cast<linalg::LinalgOp>(*rewriter.clone(*(linalgOp.getOperation())));
+    FailureOr<SmallVector<SmallVector<DimType>>> operandDimTypes =
+        getOprandDimType(linalgOp);
+    if (failed(operandDimTypes))
+      return failure();
+
+    SmallVector<ArrayRef<int64_t>> originShapes = getShapes(linalgOp);
     Operation *fillOp = findParentFillOp(linalgOp.getDpsInits()[0]);
 
     // Step 1. Split matmul(bf16xbf16->bf16) to matmul(bf16xbf16->f32) +
     // cast(f32->bf16) if K slicing is needed
     MatmulConfigAnalysis cfgAnalysis =
-        MatmulConfigAnalysis(originOp.getOperation());
+        MatmulConfigAnalysis(linalgOp.getOperation());
     cfgAnalysis.setAllowIndivisibleInnerBlock(false);
     MatmulConfig cfg = cfgAnalysis.getConfig();
     if (!llvm::isa<linalg::GenericOp>(linalgOp))
@@ -1004,10 +1011,10 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     innerBodyGenerationOption option = innerBodyGenerationOption{
         fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops, cfg};
 
-    if (failed(innerBodyGeneration(rewriter, originOp, linalgOp, option)))
+    if (failed(innerBodyGeneration(rewriter, linalgOp, originShapes,
+                                   *operandDimTypes, option)))
       return failure();
 
-    rewriter.eraseOp(originOp);
     return success();
   }
 };
