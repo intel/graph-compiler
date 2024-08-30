@@ -46,6 +46,8 @@ getClosestExtractSliceOfOperand(OpOperand &operand) {
     if (auto loop =
             dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp()))
       return getClosestExtractSliceOfOperand(*loop.getTiedLoopInit(iterArg));
+    else
+      return failure();
   }
 
   Operation *defineOp = operand.get().getDefiningOp();
