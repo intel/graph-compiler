@@ -18,7 +18,7 @@ namespace mlir {
 namespace linalgx {
 
 /// @brief enum of type of matmul packing
-enum class PackingType {
+enum class PackingType : int {
   MM4D = 0,    // MKmk x NKkn
   VNNI_MM2D,   // MK x NKknV
   VNNI_MM4D,   // MKmk x NKknV
@@ -42,6 +42,28 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
 /// @param opType the PackingType
 /// @return true if op is a generic packed matmul Op
 bool isGenericPackedMatmulOp(Operation *op, PackingType opType);
+
+template <typename... Args>
+bool isGenericPackedMatmulOp(Operation *op, PackingType first, Args... args) {
+  return isGenericPackedMatmulOp(op, first) ||
+         isGenericPackedMatmulOp(op, args...);
+}
+
+/// @brief identify a generic packed matmul Op based on any PackingType
+/// @param op the op
+/// @return true if op is a generic packed matmul Op
+template <int T, int N> bool isAnyGenericPackedMatmulOp(Operation *op) {
+  return isGenericPackedMatmulOp(op, (PackingType)N) ||
+         isAnyGenericPackedMatmulOp<T + 1, N>(op);
+}
+constexpr int NUM_ALL_TYPES = (int)PackingType::NUM_TYPES;
+template <>
+bool isAnyGenericPackedMatmulOp<NUM_ALL_TYPES, NUM_ALL_TYPES>(Operation *op) {
+  return false;
+}
+bool isAnyGenericPackedMatmulOp(Operation *op) {
+  return isAnyGenericPackedMatmulOp<0, NUM_ALL_TYPES>(op);
+}
 
 /// @brief identify a matmul Op based on ContractionOp and PackingType
 /// @param op the op

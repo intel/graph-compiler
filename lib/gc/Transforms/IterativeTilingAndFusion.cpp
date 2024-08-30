@@ -612,8 +612,7 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
 
 /// This is a workaround to deal with LinalgXOp
 static bool isTilableLinalgXOp(Operation *op) {
-  return isa<linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,
-             linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp>(op);
+  return linalgx::isAnyGenericPackedMatmulOp(op);
 }
 
 /// Check if tiled op inside a loop?
