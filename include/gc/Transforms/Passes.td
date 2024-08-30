@@ -101,9 +101,9 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
   let description = [{
     The pass tries to fuse any MLIR operation which can be tiled. Moreover, this pass aims to support:
       1. Matmul fusion with element-wise/reduce/broadcast ops.
-      2. Pre-op and post-op fusion.
-      3. Multi-consumer and multi-producer support.
-      4. Multiple level of nest loops and candidates.
+      2. Producer and consumer fusion.
+      3. Arbitrary topology, including residual pattern with multiple consumers .
+      4. Nest loops structure with multiple level candidates.
       5. Flexible option to control the boundary of iterative process.
       6. Default tiling when no op is tiled before fusion.
       7. Cost-model to determine whether to fuse or not.
@@ -115,20 +115,24 @@ def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
     Option<"useCostModel", "use-cost-model", "bool",
            /*default=*/"false",
            "Decide if enable cost model to control iterative fusion.">,
+    Option<"defaultNDTile", "default-nd-tile", "unsigned",
+           /*default=*/"2",
+           "Set default amount of non-one dimensions in TileSize, such as 1, 2[default, a.k.a. 2D-Tile], etc.">,
     ListOption<"defaultTileSize", "default-tile-size", "std::string",
-           "Set default TileSize for the certain type of op, saying `matmul:{32,32}`">,
+           "Set default TileSize for the certain type of op, saying `matmul:{32,32}`.">,
     ];
 }
-def DeepTileContractionNamedOp
-    : Pass<"deep-tile-contraction-named-op", "func::FuncOp"> {
-  let summary = "Tile linalg contraction named operation deeply";
+def DeepTileContractionOp
+    : Pass<"deep-tile-contraction-op", "func::FuncOp"> {
+  let summary = "Tile linalg contraction operation deeply";
   let description =
-      [{The pass tries to tile the linalg contraction named op deeply.}];
+      [{The pass tries to tile the linalg contraction op deeply.}];
   let dependentDialects = [
     "func::FuncDialect",
     "arith::ArithDialect",
     "tensor::TensorDialect",
     "linalg::LinalgDialect",
+    "linalgx::LinalgxDialect",
   ];
 }
 
@@ -143,6 +147,13 @@ def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
            /*default=*/"\"CPU\"",
            "The device to verify. Supported device: CPU, ">,
   ];
+}
+
+def DecomposeAggregatedOps : Pass<"decompose-aggregated-ops", "func::FuncOp"> {
+  let summary = "Decompose aggregated operations.";
+  let description = [{
+    Decompose operations that implement the `AggregatedOpInterface`.
+  }];
 }
 
 def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {

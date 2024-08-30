@@ -16,7 +16,8 @@ gc_add_mlir_library(GcPasses
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
-  DeepTileContractionNamedOp.cpp
+  DecomposeAggregatedOps.cpp
+  DeepTileContractionOp.cpp
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
@@ -40,3 +41,5 @@ gc_add_mlir_library(GcPasses
 if(GC_ENABLE_IMEX)
   add_subdirectory(GPU)
 endif()
+
+add_subdirectory(Microkernel)

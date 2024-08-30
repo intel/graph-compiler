@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <memory.h>
 #include <stdexcept>

@@ -22,3 +22,24 @@ jobs:
         run: |
           clang-format --version
           find . -name *.cpp -or -name *.hpp  | xargs clang-format --dry-run --Werror -style=file
+
+  python_format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout base version
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: checkout head version
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: install darker
+        run: "python3 -m pip install darker darker[isort] darker[flynt]"
+
+      - name: check python format
+        run: "python3 -m darker --check -i -f --diff -r `git merge-base ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}`...HEAD ."
