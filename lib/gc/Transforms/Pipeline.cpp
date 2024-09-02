@@ -71,7 +71,7 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   // TODO(yifei): remove lower pack here
-  pm.addPass(createLowerPackUnpack());
+  // pm.addPass(createLowerPackUnpack());
   populateCleanUpPasses(pm);
 }
 

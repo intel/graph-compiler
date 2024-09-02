@@ -10,7 +10,6 @@
 
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
-#include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -50,6 +49,7 @@
 #include <tuple>
 #include <type_traits>
 #include <variant>
+#include "gc/Dialect/Microkernel/MicrokernelOps.h"
 namespace mlir {
 namespace gc {
 namespace {
@@ -469,11 +469,11 @@ public:
   void generateGroupOpVectorizedIR(const int idx);
 
   /// prepare for loop iteration args
-  ValueRange
-  prepareForLoopArgs(const size_t grpIdx,
-                     DenseMap<Value, int> &currentLoopStateIdxMap,
-                     DenseMap<Value, Value> &originalOperandLoopArgsMap,
-                     DenseMap<Value, Value> &loopArgsOriginalOperandMap);
+  void prepareForLoopArgs(const size_t grpIdx,
+                          DenseMap<Value, int> &currentLoopStateIdxMap,
+                          DenseMap<Value, Value> &originalOperandLoopArgsMap,
+                          DenseMap<Value, Value> &loopArgsOriginalOperandMap,
+                          SmallVector<Value> &loopArgs);
 
   /// replace original operation result with corresponding for loop result
   void replaceOpUsersWithForLoopResult(
