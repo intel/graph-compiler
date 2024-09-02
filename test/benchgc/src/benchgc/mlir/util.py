@@ -157,6 +157,8 @@ def get_kernel_func_from_module(
 
 
 def attch_dlti(module: ir.Module):
+    if module.operation.attributes["dlti.target_system_spec"] is not None:
+        return
     info = cpuinfo.get_cpu_info()
     l1_data_cache_size = info.get("l1_data_cache_size")
     l2_cache_size = info.get("l2_cache_size")
