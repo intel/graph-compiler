@@ -23,7 +23,6 @@ from benchgc.mlir.util import str_to_mlir_dtype
 from benchgc.util import to_bool_list, to_int_list
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
-from numpy import dtype
 
 from .base import Pattern
 
@@ -105,9 +104,13 @@ class MLP(Pattern):
                     ),
                 )
                 f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
+
                 with ir.InsertionPoint(f.add_entry_block()):
                     data = f.entry_block.arguments[0]
                     bias_idx = len(weights) + 1
+                    zero = arith.ConstantOp(
+                        value=ir.FloatAttr.get(dtype, 0.0), result=dtype
+                    ).result
                     for i in range(layers):
                         weight = f.entry_block.arguments[i + 1]
                         if self.has_bias[i]:
@@ -119,10 +122,10 @@ class MLP(Pattern):
                             self.batch_size,
                             self.hidden_size_list[i + 1],
                         ]
-
-                        data = linalg.matmul(
-                            data, weight, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
+                        out = linalg.fill(
+                            zero, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
                         )
+                        data = linalg.matmul(data, weight, outs=[out])
                         if bias:
                             broadcast_bias = linalg.broadcast(
                                 bias,
