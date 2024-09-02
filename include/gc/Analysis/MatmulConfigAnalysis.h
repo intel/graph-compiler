@@ -47,15 +47,67 @@ inline SmallVector<unsigned> extractDimTypeIdx(ArrayRef<DimType> tyList,
   return idxList;
 }
 
+inline void getDimTypeFromIterators(linalg::LinalgOp linalgOp,
+                                    SmallVectorImpl<DimType> &dimTypes) {
+  SmallVector<utils::IteratorType> iteratorTypes =
+      linalgOp.getIteratorTypesArray();
+
+  for (const auto &&[idx, iterType] : llvm::enumerate(iteratorTypes)) {
+    if (iterType == utils::IteratorType::parallel) {
+      SmallVector<std::pair<Value, unsigned>> operandDimPairs;
+      linalgOp.mapIterationSpaceDimToAllOperandDims(idx, operandDimPairs);
+      if (operandDimPairs.size() == 3) {
+        dimTypes.push_back(DimType::Batch);
+      } else if (llvm::any_of(operandDimPairs,
+                              [&](std::pair<Value, unsigned> pair) {
+                                return pair.first ==
+                                       dyn_cast<linalg::ContractionOpInterface>(
+                                           linalgOp.getOperation())
+                                           .lhs();
+                              })) {
+        dimTypes.push_back(DimType::M);
+      } else {
+        dimTypes.push_back(DimType::N);
+      }
+    } else if (iterType == utils::IteratorType::reduction) {
+      dimTypes.push_back(DimType::K);
+    }
+  }
+}
+
+inline SmallVector<DimType>
+matchOperandToDimTypes(linalg::LinalgOp linalgOp, OpOperand *operand,
+                       ArrayRef<DimType> allDimTypes) {
+  ArrayRef<AffineExpr> map =
+      linalgOp.getMatchingIndexingMap(operand).getResults();
+  SmallVector<DimType> res;
+  for (const AffineExpr &dim : map) {
+    AffineDimExpr dimExpr = dyn_cast<AffineDimExpr>(dim);
+    res.push_back(allDimTypes[dimExpr.getPosition()]);
+  }
+  return res;
+}
+
+inline SmallVector<SmallVector<DimType>>
+getContractionOpOperandDimType(linalg::LinalgOp linalgOp) {
+  SmallVector<DimType> dimTypes;
+  getDimTypeFromIterators(linalgOp, dimTypes);
+  SmallVector<DimType> ADimTypes = matchOperandToDimTypes(
+      linalgOp, linalgOp.getDpsInputOperand(0), dimTypes);
+  SmallVector<DimType> BDimTypes = matchOperandToDimTypes(
+      linalgOp, linalgOp.getDpsInputOperand(1), dimTypes);
+  SmallVector<DimType> CDimTypes =
+      matchOperandToDimTypes(linalgOp, linalgOp.getDpsInitOperand(0), dimTypes);
+
+  return SmallVector<SmallVector<DimType>>{ADimTypes, BDimTypes, CDimTypes};
+}
+
 // Get the operand dim type for every operand for the given linalg op
 inline FailureOr<SmallVector<SmallVector<DimType>>>
 getOprandDimType(linalg::LinalgOp &linalgOp) {
   // TODO: replace the linalgx op with generic op
-  if (llvm::isa<linalg::MatmulOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::M, DimType::N}};
+  if (llvm::isa<linalg::ContractionOpInterface>(linalgOp.getOperation())) {
+    return getContractionOpOperandDimType(linalgOp);
   } else if (linalgx::isGenericPackedMatmulOp(
                  linalgOp.getOperation(), linalgx::PackingType::VNNI_MM2D) ||
              llvm::isa<linalgx::Mm2DVnniOp>(linalgOp)) {
@@ -72,31 +124,6 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
         SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
                              DimType::K},
         SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::MatmulTransposeAOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::K, DimType::M},
-        SmallVector<DimType>{DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::MatmulTransposeBOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::N, DimType::K},
-        SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulTransposeAOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::M},
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulTransposeBOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::N, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
   } else if (linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
                                               linalgx::PackingType::MM4D)) {
     return SmallVector<SmallVector<DimType>>{
