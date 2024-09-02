@@ -18,11 +18,9 @@
 #include <stdexcept>
 #include <vector>
 
-#ifdef _WIN32
-#define OCL_RUNTIME_EXPORT __declspec(dllexport)
-#else
-#define OCL_RUNTIME_EXPORT
-#endif // _WIN32
+#include "gc_utils.h"
+
+#define OCL_RUNTIME_EXPORT GC_DLL_EXPORT
 
 namespace {
 

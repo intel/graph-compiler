@@ -21,7 +21,7 @@
 #include <unistd.h>
 #endif
 
-#include "gc/ExecutionEngine/CPURuntime/Utils.h"
+#include "gc_utils.h"
 
 #ifdef _MSC_VER
 #define __builtin_expect(EXP_, C) (EXP_)

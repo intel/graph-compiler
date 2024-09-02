@@ -11,7 +11,7 @@
 
 #include <cmath>
 
-#include "gc/ExecutionEngine/CPURuntime/Utils.h"
+#include "gc_utils.h"
 
 extern "C" {
 // Runtime interfaces
