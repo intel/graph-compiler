@@ -8,6 +8,8 @@ Benchgc is a tool used to verify the correctness and performance of graph compil
 * python >= 3.10
 * torch >= 2.2
 * Enable mlir python binding, Refer to [`python/README.md`](../../python/README.md) for detail
+* Set the envs
+  * GC_NUM_THREADS [int] : the `num_threads` for dlti attr, default = 1
 
 ## Build 
 There are two ways for using benchgc
