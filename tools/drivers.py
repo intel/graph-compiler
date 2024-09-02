@@ -180,6 +180,9 @@ class MLP(Driver):
                 with ir.InsertionPoint(f.add_entry_block()):
                     data = f.entry_block.arguments[0]
                     bias_idx = len(weights) + 1
+                    zero = arith.ConstantOp(
+                        value=ir.FloatAttr.get(dtype, 0.0), result=dtype
+                    ).result
                     for i in range(layers):
                         weight = f.entry_block.arguments[i + 1]
                         if self.has_bias[i]:
@@ -190,10 +193,12 @@ class MLP(Driver):
                         layer_out_shape = [
                             self.batch_size,
                             self.hidden_size_list[i + 1],
-                        ]
-
+                        ]                        
+                        out = linalg.fill(
+                            zero, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
+                        )
                         data = linalg.matmul(
-                            data, weight, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
+                            data, weight, outs=[out]
                         )
                         if bias:
                             broadcast_bias = linalg.broadcast(
