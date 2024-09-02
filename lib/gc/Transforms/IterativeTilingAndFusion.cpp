@@ -46,8 +46,8 @@ getClosestExtractSliceOfOperand(OpOperand &operand) {
     if (auto loop =
             dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp()))
       return getClosestExtractSliceOfOperand(*loop.getTiedLoopInit(iterArg));
-    else
-      return failure();
+    // If operand is not using loop init.
+    return failure();
   }
 
   Operation *defineOp = operand.get().getDefiningOp();
@@ -529,7 +529,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       return false;
     unsigned index = std::distance(uses.begin(), iter);
     SmallVector<unsigned> indices =
-        llvm::to_vector(llvm::seq<unsigned>(0, numberUses));
+        llvm::to_vector(llvm::seq<unsigned>(numberUses));
     indices.push_back(indices[index]);
     indices.erase(indices.begin() + index);
     operand->get().shuffleUseList(indices);
@@ -636,12 +636,9 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
     return failure();
 
   // 3. check whether has either extract or insert slice op
-  auto walkResult = forOp->walk(
-      [](tensor::ExtractSliceOp) { return WalkResult::interrupt(); });
-  if (!walkResult.wasInterrupted())
-    return failure();
-  walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
-    return isa<tensor::InsertSliceOp, tensor::ParallelInsertSliceOp>(op)
+  auto walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
+    return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp,
+               tensor::ParallelInsertSliceOp>(op)
                ? WalkResult::interrupt()
                : WalkResult::advance();
   });
