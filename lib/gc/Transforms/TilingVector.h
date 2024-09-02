@@ -53,13 +53,19 @@ namespace mlir {
 namespace gc {
 namespace {
 
+//===----------------------------------------------------------------------===//
+// helper function
+//===----------------------------------------------------------------------===//
+
+/// build a constant operation of index type
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
+/// set correct operand for the operation
 void setOperationCorrectOperand(
-    Operation *op, const ValueRange &iterArgs,
-    const llvm::DenseMap<Value, int> &operandIdxMap,
+    Operation *op, ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
     DenseMap<Value, Value> &originalOperandLoopArgsMap,
     ArrayRef<Value> inductionVars,
-    const llvm::DenseMap<Operation *, AffineMap> &opPermuationMap);
+    DenseMap<Operation *, AffineMap> &opPermuationMap);
+/// get operation read or write tensor
 mlir::FailureOr<Value> getOperationOperateTensor(Operation *op);
 
 struct HardWareInfo {
@@ -67,16 +73,21 @@ struct HardWareInfo {
   bool favx2 = true;
 };
 
-/// VectorType conversion helper class
+/// Vector type conversion helper class
 class TypeHelper {
 private:
   HardWareInfo HWInfo;
 
 public:
+  /// use \param info to set hardware information
   void setHardWareInfo(HardWareInfo &info) { HWInfo = info; }
+  /// get vector \param type max loop step according to hardware information
   int getDataTypeValidSteps(VectorType type);
+  /// get vector \param type an even for loop step
   int generateValidSteps(int steps, VectorType type);
+  /// get vector \param type max simd length according to hardware information
   int getDataTypeMAXSIMDLength(VectorType type);
+  /// get operation's vector type
   VectorType getVectorzedType(Operation *op, uint32_t loopStep = 0);
 };
 
@@ -361,7 +372,7 @@ public:
       for (size_t i = 0; i < opGroups.size(); i++) {
         groupOpResults.emplace_back(
             llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>());
-        groupOpInitArgs.emplace_back(llvm::SetVector<Value>());
+        groupOpInitArgs.emplace_back(SetVector<Value>());
       }
     }
   }
@@ -614,13 +625,13 @@ public:
       llvm::SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
       MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel);
 
-  /// transpose operation related
+  /// generate for loop for transpose operation
   scf::ForOp generateTransposeForLoop(const size_t groupId);
   scf::ForOp generateTransposeForLoopWithLastDim(
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
       const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
-      const ValueRange &iterArgs, DenseMap<Value, int> &operandIdxMap,
-      DenseMap<Value, Value> &originalOperandMap);
+      ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
+      DenseMap<Value, Value> &originalOperandMap, Operation *successorWriteOp);
 
   scf::ForOp generateTransposeScalarDataMovement(
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,

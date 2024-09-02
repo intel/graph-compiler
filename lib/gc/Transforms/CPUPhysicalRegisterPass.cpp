@@ -220,14 +220,14 @@ int TypeHelper::generateValidSteps(int steps, VectorType type) {
   const int favx2bits = 256;
   if (HWInfo.favx512f) {
     return favx512bits / typebits;
-  } else if (HWInfo.favx2) {
-    return favx2bits / typebits;
-  } else {
-    // invalid hardware
-    LDBG("Please check the hardware information.");
-    assert(false && "Invalid hardware.");
-    return -1;
   }
+  if (HWInfo.favx2) {
+    return favx2bits / typebits;
+  }
+  // invalid hardware
+  LDBG("Please check the hardware information.");
+  assert(false && "Invalid hardware.");
+  return -1;
 }
 
 /// Get a appropriate for loop step for current vector type
@@ -1742,8 +1742,8 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
 scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
     OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
     const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
-    const ValueRange &iterArgs, DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandMap) {
+    ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
+    DenseMap<Value, Value> &originalOperandMap, Operation *successorWriteOp) {
   auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
   vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
   VectorType vtType = tpOp.getVector().getType();
@@ -1770,12 +1770,6 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
           Value source = tpOp->getOperand(0);
           auto readSourceOp =
               cast<vector::TransferReadOp>(source.getDefiningOp());
-          vector::TransferWriteOp successorWriteOp;
-          for (Operation *x : tpOp->getUsers()) {
-            if (isa<vector::TransferWriteOp>(x)) {
-              successorWriteOp = cast<vector::TransferWriteOp>(x);
-            }
-          }
           auto padValue = b.create<arith::ConstantOp>(
               loc, b.getZeroAttr(vtType.getElementType()));
           SmallVector<bool> inBoundsVal(2, true);
@@ -1808,7 +1802,7 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
           // outter loop
           auto nxtFor = generateTransposeForLoopWithLastDim(
               b, grpIdx, forDimIdx + 1, tpSteps, loc, inductionVars, loopState,
-              operandIdxMap, originalOperandMap);
+              operandIdxMap, originalOperandMap, successorWriteOp);
           maybeYieldValue(b, loc, nxtFor->getResults());
         }
       });
@@ -2014,7 +2008,7 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
       });
 }
 
-// generate simple data movement for loop
+/// generate simple data movement for loop
 scf::ForOp ForLoopGenerator::generateShapeCastReadWriteLoop(
     OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
     const size_t steps, const Location &loc, SmallVector<Value> &inductionVars,
@@ -2173,19 +2167,19 @@ void ForLoopGenerator::rectifyWriteOperationIndice(
 void ForLoopGenerator::rectifyReadOperationIndice(
     vector::TransferReadOp *originalReadOp, VectorType loopType,
     ArrayRef<Value> inductionVars, SmallVectorImpl<Value> &readVars) {
-  VectorType originalReadVectorType = originalReadOp->getVectorType();
+  ShapedType readTensorType =
+      cast<ShapedType>(originalReadOp->getSource().getType());
   // currently only broadcast (fuse as transfer_read) will move into more inner
   // loop
-  // TODO: Need to better process the broadcast operation
-  if (originalReadVectorType.getRank() - 1 <
+  if (readTensorType.getRank() - 1 >=
       getFusionStrategy().getOpAnchorPos()[*originalReadOp]) {
     return;
   }
+
   int64_t itrIdx = loopType.getRank() - 1;
-  int64_t readIdx = originalReadVectorType.getRank() - 1;
+  int64_t readIdx = readTensorType.getRank() - 1;
   while (itrIdx >= 0 and readIdx >= 0) {
-    if (originalReadVectorType.getShape()[readIdx] ==
-        loopType.getShape()[itrIdx]) {
+    if (readTensorType.getShape()[readIdx] == loopType.getShape()[itrIdx]) {
       readVars[readIdx] = inductionVars[itrIdx];
       readIdx--;
     }
@@ -2272,7 +2266,6 @@ void ForLoopGenerator::clearCurrentOperationGroup(size_t grpIdx) {
   std::queue<Operation *>().swap(getFusionStrategy().getOpGroups()[grpIdx]);
 };
 
-/// generate transpose for loop
 scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
 
   // transpose rank must bigger than 2
@@ -2294,28 +2287,18 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   DenseSet<int64_t> permuteSet(permutation.begin(), permutation.end());
   bool isTwoDTranspose = tpCanonicalizer.isTwoDTranspose();
 
-  vector::TransferWriteOp successorWriteOp;
-  for (Operation *x : tpOp->getUsers()) {
-    if (isa<vector::TransferWriteOp>(x)) {
-      successorWriteOp = cast<vector::TransferWriteOp>(x);
-      break;
-    }
-  }
-  // iterArgs.emplace_back(successorWriteOp->getOperands()[1]);
-  SmallVector<Value, 4> operands;
+  Operation *successorWriteOp =
+      getNextTargetOperationInCurrentGroup<vector::TransferWriteOp>(tpOp,
+                                                                    grpIdx);
+
   DenseMap<Value, int> operandIdxMap;
   DenseMap<Value, Value> originalOperandMap, operandOriginalMap, resultIdxMap,
       forResultOrignalResultMap;
-  SetVector<Value> &initArgs = getGroupOpInitArgs()[grpIdx];
-  for (Value x : initArgs) {
-    operands.emplace_back(x);
-    operandIdxMap[x] = operands.size() - 1;
-    originalOperandMap[x] = x;
-    operandOriginalMap[x] = x;
-  }
-  SmallVector<Value> iterArgs(operands.begin(), operands.end());
+  SmallVector<Value> iterArgs = prepareForLoopArgs(
+      grpIdx, operandIdxMap, originalOperandMap, operandOriginalMap);
   SmallVector<Value> inductionVars;
 
+  // TODO: need to process transpose on all one dim
   // don't need to do the transpose
   // if (tpCanonicalizer.isTransposeOnAllOneDim()) {
   //   removeOpInCurrentGroups(grpIdx, tpOp,
@@ -2366,7 +2349,7 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
       isTwoDTranspose) {
     scf::ForOp forOp = generateTransposeForLoopWithLastDim(
         b, grpIdx, 0, tpStep, tpOp.getLoc(), inductionVars, iterArgs,
-        operandIdxMap, originalOperandMap);
+        operandIdxMap, originalOperandMap, successorWriteOp);
 
     rewriter.replaceOp(successorWriteOp, forOp);
     // clear current group operation
@@ -3280,11 +3263,6 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
       return true;
     }
 
-    // read and write operation dependency
-    // if (readWriteDependency(prevOp, op)) {
-    //   return true;
-    // }
-
     // special operation need to check data dependency axis
     if (hasDataDependency(prevOp, op)) {
       return true;
@@ -3622,11 +3600,15 @@ void CanonicalizerCommonUsedData::updateOpOperandResultInGroups(
           getFusionStrategy().getOpAnchorPos()[op];
     }
     // directly use the read operation to do the fusion
-    if (isa<vector::BroadcastOp>(op) and !tmpOpQueue.empty()) {
-      IRRewriter rewrite(op);
-      rewrite.replaceOp(op, op->getOperand(0).getDefiningOp());
-      continue;
-    }
+    // if (isa<vector::BroadcastOp>(op) and not disableBroadcastOp) {
+    //   auto srcOp = op->getOperand(0).getDefiningOp();
+    //   getFusionStrategy().getOpAnchorPos()[srcOp] =
+    //       getFusionStrategy().getOpAnchorPos()[op];
+
+    //   IRRewriter rewrite(op);
+    //   rewrite.replaceOp(op, srcOp);
+    //   continue;
+    // }
     newOpQueue.push(op);
 
     if (result && !failed(getOperationVectorType(result.getDefiningOp()))) {
@@ -3656,7 +3638,6 @@ void CanonicalizerCommonUsedData::generateEmptyTensorAndWrite(
   auto [tsr, writeOpresult] =
       canonicalizeSourceOperation(sourceOp, visitedOperation);
   auto writeOp = writeOpresult.getDefiningOp<vector::TransferWriteOp>();
-  assert(writeOp);
   srcOpCanoniclizedMap.insert({sourceOp, {tsr, writeOpresult}});
   updateOpOperandResultInGroups(sourceOpGid, sourceOp, tsr, writeOpresult);
   groupOpInitArgs[sourceOpGid].insert(tsr);
@@ -3743,17 +3724,15 @@ void VectorOperationAnalyzer::specialOperationRectify(
       auto op = tmpQueue.front();
       tmpQueue.pop();
       //  remain transfer read operation to do the broadcast fusion
-      if (isa<vector::BroadcastOp>(op) and !disableBroadcastOp) {
+      if (isa<vector::BroadcastOp>(op) and not disableBroadcastOp) {
         auto srcOp = op->getOperand(0).getDefiningOp();
         assert(isa<vector::TransferReadOp>(srcOp));
         // only have write operation, otherwise the group size will bigger
         // than 1. Because the last operation is always a write operation in
         // each group
-        if (tmpQueue.size() <= 1)
-          continue;
-
         getFusionStrategy().getOpAnchorPos()[srcOp] =
             getFusionStrategy().getOpAnchorPos()[op];
+
         rewriter.replaceOp(op, srcOp);
         continue;
       }
@@ -3763,21 +3742,6 @@ void VectorOperationAnalyzer::specialOperationRectify(
         getFusionStrategy().getOpAnchorPos()[accSourceOp] =
             getOperationVectorType(accSourceOp)->getRank() - 1;
       }
-      // // case:
-      // // %1 = some op
-      // // %2 = tensor.empty()
-      // // %3 = vector.transfer_write %1, %2
-      // // -> move emtpy operation before %1 for better generate %1
-      // if (isa<vector::TransferWriteOp>(op)) {
-      //   auto srcOp = op->getOperand(1).getDefiningOp();
-      //   if (isa_and_nonnull<tensor::EmptyOp>(srcOp)) {
-      //     Operation *writeVectorOp = op->getOperands()[0].getDefiningOp();
-      //     if (visitedOperation[srcOp] >= visitedOperation[writeVectorOp]) {
-      //       srcOp->moveBefore(writeVectorOp);
-      //       visitedOperation[srcOp] = visitedOperation[writeVectorOp];
-      //     }
-      //   }
-      // }
       newQueue.push(op);
     }
     getFusionStrategy().getOpGroups()[idx] = newQueue;
