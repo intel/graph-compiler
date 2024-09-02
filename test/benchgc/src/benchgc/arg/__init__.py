@@ -27,6 +27,7 @@ import benchgc.arg.softmax as softmax
 import benchgc.util
 import torch
 from benchgc.arg.arg import Arg
+from benchgc.pattern import get_pattern_clz
 
 onednn_module = {
     "binary": binary,
@@ -52,6 +53,9 @@ def set_default_fill(
     for _, module in onednn_module.items():
         if flags.driver + "." + flags.case in module.op:
             module.default_fill(flags, arg, arglist)
+            return
+        elif flags.driver == "pattern":
+            get_pattern_clz(flags.case).default_fill(flags, arg, arglist)
             return
     # use N(0, 1) as default
     arg.fill_type = "N"

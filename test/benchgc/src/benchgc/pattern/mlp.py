@@ -16,11 +16,14 @@
 ################################################################################
 
 import argparse
+from typing import List
 
+from benchgc.arg.arg import Arg
 from benchgc.mlir.util import str_to_mlir_dtype
 from benchgc.util import to_bool_list, to_int_list
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
+from numpy import dtype
 
 from .base import Pattern
 
@@ -144,3 +147,39 @@ class MLP(Pattern):
                             )
                     func.ReturnOp([data])
         return module
+
+    def default_fill(
+        flags: argparse.Namespace,
+        arg: Arg,
+        arglist: List[Arg],
+    ):
+        layers = len(flags.hidden_size_list.strip().split("x"))
+        if arg.index == 0:
+            # src
+            arg.fill_type = "D"
+            arg.fill_param = [
+                "matmul",
+                "src",
+                arglist[0].dtype,
+                arglist[0].dtype,
+                arglist[0].dtype,
+                1,
+            ]
+        elif arg.index <= layers:
+            # wei
+            arg.fill_type = "D"
+            arg.fill_param = [
+                "matmul",
+                "wei",
+                arglist[0].dtype,
+                arglist[0].dtype,
+                arglist[0].dtype,
+                1,
+            ]
+        else:
+            # bias
+            arg.fill_type = "N"
+            if arg.dtype in ["f32", "bf16", "f16"]:
+                arg.fill_param = ["-8", "8"]
+            else:
+                arg.fill_param = ["0", "8"]
