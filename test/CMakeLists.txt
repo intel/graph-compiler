@@ -4,4 +4,3 @@ if (NOT GC_ENABLE_TEST)
 endif ()
 
 include(gtest)
-

@@ -419,17 +419,16 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
             b, cast<TilingInterface>(currentOp.getOperation()), tileOption);
         if (failed(tilingResult))
           return failure();
-        if (!isDummyLoop(tilingResult->loops.back()))
-        {
-            b.replaceOp(currentOp, tilingResult->replacements);
-            currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
-            if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
-                result.reductionLoops.push_back(tilingResult->loops.back());
-            result.loops.push_back(tilingResult->loops.back());
+        if (!isDummyLoop(tilingResult->loops.back())) {
+          b.replaceOp(currentOp, tilingResult->replacements);
+          currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+          if (iteratorTypes[d] == mlir::utils::IteratorType::reduction)
+            result.reductionLoops.push_back(tilingResult->loops.back());
+          result.loops.push_back(tilingResult->loops.back());
         } else {
-            LoopLikeOpInterface loop = tilingResult->loops.back();
-            Operation * op = loop.getOperation();
-            b.eraseOp(op);
+          LoopLikeOpInterface loop = tilingResult->loops.back();
+          Operation *op = loop.getOperation();
+          b.eraseOp(op);
         }
       }
     } else if (loopType == OuterLoopGenerationOption::LoopType::ForallOp) {

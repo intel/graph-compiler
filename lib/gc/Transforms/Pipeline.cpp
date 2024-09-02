@@ -103,6 +103,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
+  // The flow follows https://mlir.llvm.org/docs/Bufferization/#overview
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
@@ -114,12 +115,15 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(createCanonicalizerPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferHoistingPass());
   pm.addNestedPass<func::FuncOp>(bufferization::createBufferLoopHoistingPass());
+  // todo: buffer schedule pass
+  // todo: Need to improve this pass to support nested parallel.
   bufferization::BufferResultsToOutParamsOpts opt{};
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createPromoteBuffersToStackPass());
-  mlir::bufferization::BufferDeallocationPipelineOptions deallocOption;
+  pm.addNestedPass<func::FuncOp>(
+      bufferization::createPromoteBuffersToStackPass());
+  bufferization::BufferDeallocationPipelineOptions deallocOption;
   bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
@@ -191,10 +195,10 @@ void populateCPUPipeline(mlir::OpPassManager &pm) {
   populateVectorPasses(pm);
   // back-end, arith/math/vector/memref dialects
   populateBufferizationPasses(pm);
-  populateMicroKernelPasses(pm);
   // REMOVE this pass after the TensorPasses are added. Currently we add this
   // pass to make the pipeline work properly
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
+  populateMicroKernelPasses(pm);
   populateCPURuntimePasses(pm);
   // back-end, llvm dialect
   populateLLVMPasses(pm);

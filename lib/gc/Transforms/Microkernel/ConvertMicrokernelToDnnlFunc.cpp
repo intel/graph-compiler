@@ -76,9 +76,9 @@ public:
     }
 
     // beta
-    auto flags = op.getFlagsAttr();
+    ArrayAttr flags = op.getFlagsAttr();
     float beta = 1.0f;
-    for (auto flag : flags) {
+    for (Attribute flag : flags) {
       auto brgemmFlag = dyn_cast_or_null<microkernel::BrgemmFlagsAttr>(flag);
       if (!brgemmFlag)
         return rewriter.notifyMatchFailure(op, "unknown flag for BRGEMM");

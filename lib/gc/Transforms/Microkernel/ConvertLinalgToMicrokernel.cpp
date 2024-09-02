@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LogicalResult.h"
@@ -115,8 +116,6 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   auto validBrgemmMatcher = StructuredOpMatcher::make<linalg::LinalgOp>()
                                 .output(MatchAll(), HasStaticShape())
                                 .input(MatchAll(), HasStaticShape())
-                                .output(MatchAll(), HasStaticStrides())
-                                .input(MatchAll(), HasStaticStrides())
                                 .operation(NumOfLoops(GreaterThanOrEqualTo(3)));
   if (!validBrgemmMatcher.match(linalgOp))
     return failure();
@@ -178,26 +177,29 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
 
   BrgemmDims brgemmDims;
 
-  auto checkAndGetPosInDomain = [&](int64_t &dim, ArrayRef<unsigned> dimPos,
-                                    OpOperand *operand) {
-    auto pos = getPosInDomain(dimPos, operand, linalgOp);
-    assert(pos && "Cannot find position in codomain");
-    dim = *pos;
-  };
+#define CHECK_GET_POS_IN_DOMAIN(dim, dimPos, operand)                          \
+  pos = getPosInDomain(dimPos, operand, linalgOp);                             \
+  if (!pos) {                                                                  \
+    LLVM_DEBUG(llvm::dbgs() << "Cannot find position in domain for operand: "  \
+                            << (operand) << "\n");                             \
+    return failure();                                                          \
+  }                                                                            \
+  (dim) = *pos;
 
+  std::optional<unsigned> pos = std::nullopt;
   // A(batch, m, k)
-  checkAndGetPosInDomain(brgemmDims.batchDimA, batchAffinePos, operandA);
-  checkAndGetPosInDomain(brgemmDims.leadingDimA, {mAffinePos}, operandA);
-  checkAndGetPosInDomain(brgemmDims.minorDimA, kAffinePos, operandA);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.batchDimA, batchAffinePos, operandA);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.leadingDimA, {mAffinePos}, operandA);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.minorDimA, kAffinePos, operandA);
   // B(batch, k, n) or B(batch, k/vnni_step, n, vnni_step)
   // note: B does not use VNNI format K affine
-  checkAndGetPosInDomain(brgemmDims.batchDimB, batchAffinePos, operandB);
-  checkAndGetPosInDomain(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
-  checkAndGetPosInDomain(brgemmDims.minorDimB, {nAffinePos}, operandB);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.batchDimB, batchAffinePos, operandB);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.leadingDimB, {kAffinePos[0]}, operandB);
+  CHECK_GET_POS_IN_DOMAIN(brgemmDims.minorDimB, {nAffinePos}, operandB);
   // C(m, n)
-  // Currently useless, no need to set
-  // checkAndGetPosInDomain(brgemmDims.leadingDimC, {mAffinePos}, operandC);
-  // checkAndGetPosInDomain(brgemmDims.minorDimC, kAffinePos, operandC);
+  // Currently C dims are useless, no need to set
+
+#undef CHECK_GET_POS_IN_DOMAIN
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] A batch dim: "
                           << brgemmDims.batchDimA
@@ -293,6 +295,52 @@ static bool isZeroArithConstant(arith::ConstantOp op) {
 }
 
 template <typename ContractionOp>
+static std::pair<bool, bool>
+checkFusibleTransposeOp(BrgemmDims &brgemmDims,
+                        DenseMap<Value, Value> &replaceMap, ContractionOp op) {
+  // Check for fusible linalg::TransposeOp on operand A & B
+  Value operandA = op.getDpsInputOperands()[0]->get();
+  Value operandB = op.getDpsInputOperands()[1]->get();
+  auto fusibleTransA = getFusibleTranspose(op, operandA);
+  auto fusibleTransB = getFusibleTranspose(op, operandB);
+  // Presumably minorDims are last dims and not permutated, so no need to
+  // transform them
+  if (!failed(fusibleTransA)) {
+    ArrayRef<int64_t> permutation = fusibleTransA->getPermutation();
+    brgemmDims.batchDimA = permutation[brgemmDims.batchDimA];
+    brgemmDims.leadingDimA = permutation[brgemmDims.leadingDimA];
+    replaceMap[fusibleTransA->getResult()[0]] = fusibleTransA->getInput();
+  }
+  if (!failed(fusibleTransB)) {
+    ArrayRef<int64_t> permutation = fusibleTransB->getPermutation();
+    brgemmDims.batchDimB = permutation[brgemmDims.batchDimB];
+    brgemmDims.leadingDimB = permutation[brgemmDims.leadingDimB];
+    replaceMap[fusibleTransB->getResult()[0]] = fusibleTransB->getInput();
+  }
+  return {!failed(fusibleTransA), !failed(fusibleTransB)};
+}
+
+template <typename ContractionOp>
+static bool checkFusibleFillOp(DenseMap<Value, Value> &replaceMap,
+                               ContractionOp op) {
+  // Check for fusible linalg::FillOp on operand C
+  bool fuseFill = false;
+  Value operandC = op.getDpsInitsMutable()[0].get();
+  auto defOp = operandC.getDefiningOp();
+  if (!defOp)
+    return false;
+  if (auto fillOp = dyn_cast<linalg::FillOp>(defOp)) {
+    auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
+        fillOp.getInputs()[0].getDefiningOp());
+    if (isZeroArithConstant(inputCst)) {
+      replaceMap[fillOp.getResultTensors()[0]] = fillOp.getOutputs()[0];
+      fuseFill = true;
+    }
+  }
+  return fuseFill;
+}
+
+template <typename ContractionOp>
 class ConvertContractionOpToBrgemmRewriter
     : public OpRewritePattern<ContractionOp> {
 public:
@@ -311,39 +359,9 @@ public:
       return failure();
 
     DenseMap<Value, Value> replaceMap;
-    // Check for fusible linalg::TransposeOp on operand A & B
-    Value operandA = op.getDpsInputOperands()[0]->get();
-    Value operandB = op.getDpsInputOperands()[1]->get();
-    auto fusibleTransA = getFusibleTranspose(op, operandA);
-    auto fusibleTransB = getFusibleTranspose(op, operandB);
-    // Presumably minorDims are last dims and not permutated, so no need to
-    // transform them
-    if (!failed(fusibleTransA)) {
-      ArrayRef<int64_t> permutation = fusibleTransA->getPermutation();
-      brgemmDims->batchDimA = permutation[brgemmDims->batchDimA];
-      brgemmDims->leadingDimA = permutation[brgemmDims->leadingDimA];
-      replaceMap[fusibleTransA->getResult()[0]] = fusibleTransA->getInput();
-    }
-    if (!failed(fusibleTransB)) {
-      ArrayRef<int64_t> permutation = fusibleTransB->getPermutation();
-      brgemmDims->batchDimB = permutation[brgemmDims->batchDimB];
-      brgemmDims->leadingDimB = permutation[brgemmDims->leadingDimB];
-      replaceMap[fusibleTransB->getResult()[0]] = fusibleTransB->getInput();
-    }
 
-    // Check for fusible linalg::FillOp on operand C
-    bool isInitOutput = false;
-    Value operandC = op.getDpsInitsMutable()[0].get();
-    auto defOp = operandC.getDefiningOp();
-    if (llvm::isa<linalg::FillOp>(defOp)) {
-      auto fillOp = dyn_cast_or_null<linalg::FillOp>(defOp);
-      auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
-          fillOp.getInputs()[0].getDefiningOp());
-      if (isZeroArithConstant(inputCst)) {
-        replaceMap[fillOp.getResultTensors()[0]] = fillOp.getOutputs()[0];
-        isInitOutput = true;
-      }
-    }
+    checkFusibleTransposeOp(*brgemmDims, replaceMap, op);
+    bool isInitOutput = checkFusibleFillOp(replaceMap, op);
 
     replaceOpWithMicrokernelOp(rewriter, op, *brgemmDims, replaceMap,
                                isInitOutput);

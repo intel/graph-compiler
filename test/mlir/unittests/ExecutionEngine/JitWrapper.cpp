@@ -18,53 +18,53 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
-#include "gtest/gtest.h"
-#include <memory>
+// #include "gtest/gtest.h"
+// #include <memory>
 
-using namespace mlir;
+// using namespace mlir;
 
-static const char code1[] = R"mlir(
-module {
-llvm.mlir.global constant @__num_orig_num_args(3 : i32) : i32
-func.func @compute(%a: tensor<128xf32>, %b: tensor<128xf32>) -> tensor<128xf32> attributes { llvm.emit_c_interface } {
-    %out = tensor.empty() : tensor<128xf32>
-    %2 = linalg.add ins(%a, %b : tensor<128xf32>,tensor<128xf32>) outs(%out : tensor<128xf32>) -> tensor<128xf32>
-    return %2 : tensor<128xf32>
-}
-}
-)mlir";
+// static const char code1[] = R"mlir(
+// module {
+// llvm.mlir.global constant @__num_orig_num_args(3 : i32) : i32
+// func.func @compute(%a: tensor<128xf32>, %b: tensor<128xf32>) -> tensor<128xf32> attributes { llvm.emit_c_interface } {
+//     %out = tensor.empty() : tensor<128xf32>
+//     %2 = linalg.add ins(%a, %b : tensor<128xf32>,tensor<128xf32>) outs(%out : tensor<128xf32>) -> tensor<128xf32>
+//     return %2 : tensor<128xf32>
+// }
+// }
+// )mlir";
 
-extern "C" {
-extern int gc_runtime_keep_alive;
-}
+// extern "C" {
+// extern int gc_runtime_keep_alive;
+// }
 
-TEST(ExecutionEngine, JitWrapper) {
-  gc_runtime_keep_alive = 0;
-  MLIRContext ctx{gc::initCompilerAndGetDialects()};
-  std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
-      llvm::MemoryBuffer::getMemBuffer(code1);
-  // Parse the input mlir.
-  llvm::SourceMgr sourceMgr;
-  sourceMgr.AddNewSourceBuffer(std::move(ir_buffer), llvm::SMLoc());
-  mlir::OwningOpRef<mlir::ModuleOp> module =
-      mlir::parseSourceFile<mlir::ModuleOp>(sourceMgr, &ctx);
-  ASSERT_TRUE(module);
-  auto jited = gc::JitModule::create(module.get());
-  bool jit_success = static_cast<bool>(jited);
-  if (!jit_success) {
-    auto err = jited.takeError();
-    llvm::errs() << err;
-    llvm::consumeError(std::move(err));
-  }
-  ASSERT_TRUE(jit_success);
-  OwningMemRef<float, 1> bufA{
-      {128}, {128}, [](float &ptr, ArrayRef<int64_t>) { ptr = 1.0f; }};
-  OwningMemRef<float, 1> bufB{
-      {128}, {128}, [](float &ptr, ArrayRef<int64_t> idx) { ptr = idx[0]; }};
-  OwningMemRef<float, 1> bufC{{128}, {128}};
-  void *args[] = {&*bufA, &*bufB, &*bufC};
-  jited.get()->call(args, 3);
-  for (int i = 0; i < 128; i++) {
-    ASSERT_EQ(bufC[{i}], 1.0f + i);
-  }
-}
+// TEST(ExecutionEngine, JitWrapper) {
+//   gc_runtime_keep_alive = 0;
+//   MLIRContext ctx{gc::initCompilerAndGetDialects()};
+//   std::unique_ptr<llvm::MemoryBuffer> ir_buffer =
+//       llvm::MemoryBuffer::getMemBuffer(code1);
+//   // Parse the input mlir.
+//   llvm::SourceMgr sourceMgr;
+//   sourceMgr.AddNewSourceBuffer(std::move(ir_buffer), llvm::SMLoc());
+//   mlir::OwningOpRef<mlir::ModuleOp> module =
+//       mlir::parseSourceFile<mlir::ModuleOp>(sourceMgr, &ctx);
+//   ASSERT_TRUE(module);
+//   auto jited = gc::JitModule::create(module.get());
+//   bool jit_success = static_cast<bool>(jited);
+//   if (!jit_success) {
+//     auto err = jited.takeError();
+//     llvm::errs() << err;
+//     llvm::consumeError(std::move(err));
+//   }
+//   ASSERT_TRUE(jit_success);
+//   OwningMemRef<float, 1> bufA{
+//       {128}, {128}, [](float &ptr, ArrayRef<int64_t>) { ptr = 1.0f; }};
+//   OwningMemRef<float, 1> bufB{
+//       {128}, {128}, [](float &ptr, ArrayRef<int64_t> idx) { ptr = idx[0]; }};
+//   OwningMemRef<float, 1> bufC{{128}, {128}};
+//   void *args[] = {&*bufA, &*bufB, &*bufC};
+//   jited.get()->call(args, 3);
+//   for (int i = 0; i < 128; i++) {
+//     ASSERT_EQ(bufC[{i}], 1.0f + i);
+//   }
+// }

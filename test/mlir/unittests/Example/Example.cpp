@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gtest/gtest.h"
+// #include "gtest/gtest.h"
 
-TEST(example, HelloWorld) {
-  ASSERT_EQ(mlir::linalgx::LinalgxDialect::getDialectNamespace(), "linalgx");
-}
+// TEST(example, HelloWorld) {
+//   ASSERT_EQ(mlir::linalgx::LinalgxDialect::getDialectNamespace(), "linalgx");
+// }

@@ -55,9 +55,10 @@ bool validateConfig(const MatmulConfig &cfg) {
 std::vector<uint32_t>
 getCandidate(uint32_t num, uint32_t floor,
              uint32_t ceil = std::numeric_limits<uint32_t>::max()) {
+  int defaultBlock = 32;
   // factor
   std::vector<uint32_t> candidates;
-  uint32_t upperbound = std::min(num, ceil);
+  uint32_t upperbound = std::min(llvm::divideCeil(num, defaultBlock), ceil);
   for (uint32_t i = floor; i <= upperbound; i++)
     if (num % i == 0)
       candidates.push_back(i);
@@ -243,6 +244,8 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                         ArrayRef<uint32_t> shape,
                         ArrayRef<uint32_t> givenInnermostBlock,
                         bool allowIndivisibleInnerblock = false) {
+  LLVM_DEBUG(llvm::dbgs() << "allowIndivisibleInnerblock: "
+                          << allowIndivisibleInnerblock << "\n");
   assert(shape.size() >= 3 && "shape.size() should >= 3");
   std::vector<MatmulConfig> configs;
   uint32_t threads = sysDesc.getNumThreads();
@@ -278,6 +281,13 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
           : getCandidate((uint32_t)shape[2],
                          shape[2] >= noSmallBlockNeedThreshold ? 8U : 1U, 256U);
 
+  if (allowIndivisibleInnerblock) {
+    innerMostKBlockCandidates = {16, 32, 64};
+    innerMostNBlockCandidates = {16, 32, 64};
+    NBlockCandidates = innerMostNBlockCandidates;
+    KBlockCandidates = innerMostKBlockCandidates;
+  }
+
   // TODO: improve via multi threading or add more constraints to restrict the
   // candidate size
   for (uint32_t MThreads : MThreadsCandidates) {
@@ -306,6 +316,9 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                           shape[2] / KThreads % innerMostKBlock != 0) &&
                          !allowIndivisibleInnerblock))
                       continue;
+                    if (getElementTypeOrSelf(root->getOperandTypes()[1])
+                            .isBF16())
+                      innerMostKBlock = (innerMostKBlock + innerMostKBlock % 2);
                     MatmulConfig config{
                         MThreads,        NThreads,        KThreads,
                         MBlock,          NBlock,          KBlock,
