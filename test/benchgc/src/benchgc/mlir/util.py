@@ -15,8 +15,10 @@
 ################################################################################
 
 import ctypes
+import os
 from typing import Any, List
 
+import cpuinfo
 import torch
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
@@ -152,3 +154,39 @@ def get_kernel_func_from_module(
         if type(f) is func.FuncOp and str(f.name).strip('"') == func_name:
             return f
     raise ValueError("can not find the entry function")
+
+
+def attch_dlti(module: ir.Module):
+    info = cpuinfo.get_cpu_info()
+    l1_data_cache_size = info.get("l1_data_cache_size")
+    l2_cache_size = info.get("l2_cache_size")
+    l3_cache_size = info.get("l3_cache_size")
+    if "GC_NUM_THREADS" not in os.environ:
+        print("GC_NUM_THREADS is not found, using 1 as default")
+    num_threads = os.environ.get("GC_NUM_THREADS", 1)
+    flags = info.get("flags")
+    max_vector_width = 64
+    for flag in flags:
+        if "avx512f" == flag:
+            max_vector_width = max(512, max_vector_width)
+        elif "avx2" == flag or "avx" == flag:
+            max_vector_width = max(256, max_vector_width)
+        elif "sse" in flag:
+            max_vector_width = max(128, max_vector_width)
+
+    dlti_template = f"""
+    module attributes {{
+        dlti.target_system_spec = #dlti.target_system_spec<
+        "CPU": #dlti.target_device_spec<
+            #dlti.dl_entry<"L1_cache_size_in_bytes", {l1_data_cache_size} : ui32>,
+            #dlti.dl_entry<"L2_cache_size_in_bytes", {l2_cache_size} : ui64>,
+            #dlti.dl_entry<"L3_cache_size_in_bytes", {l3_cache_size} : ui64>,
+            #dlti.dl_entry<"num_threads", {num_threads} : i32>,
+            #dlti.dl_entry<"max_vector_width", {max_vector_width} : i64>>
+        >}} {{}}
+    """
+    with module.context:
+        template_module = ir.Module.parse(dlti_template)
+        module.operation.attributes["dlti.target_system_spec"] = (
+            template_module.operation.attributes["dlti.target_system_spec"]
+        )
