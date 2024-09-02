@@ -161,15 +161,6 @@ static size_t getTargetInputIdx(ArrayRef<TensorLayout> curInputLayouts) {
   return 0;
 }
 
-static bool supportedContractionNamedOpList(linalg::LinalgOp &linalgOp) {
-  if (isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
-          linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
-          linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
-          linalgOp))
-    return true;
-  return false;
-}
-
 std::pair<SmallVector<int64_t>, SmallVector<int64_t>>
 getPackingAxis(int64_t numRank, bool transposed) {
   assert(numRank >= 2 &&
@@ -347,7 +338,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         }
       }
       // infer current op's output layout accordingly
-      if (supportedContractionNamedOpList(linalgOp)) {
+      if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp)) {
         auto suggestedLayouts =
             queryMatmulLayout(rewriter, linalgOp, curInputLayouts, false);
         layoutCache[linalgOp] = suggestedLayouts[0];
@@ -511,11 +502,20 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 }
 
 namespace utils {
+bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp) {
+  if (isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
+          linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
+          linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
+          linalgOp))
+    return true;
+  return false;
+}
+
 bool isPackableNamedOp(Operation *op) {
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
     if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
         !isa<linalg::ConvolutionOpInterface>(linalgOp.getOperation()) &&
-        !supportedContractionNamedOpList(linalgOp)) {
+        !isSupportedContractionNamedOp(linalgOp)) {
       return true;
     }
   } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::PadOp>(

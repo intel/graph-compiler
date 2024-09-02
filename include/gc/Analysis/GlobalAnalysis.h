@@ -152,8 +152,10 @@ private:
 };
 
 namespace utils {
+bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp);
+
 bool isPackableNamedOp(Operation *op);
-}
+} // namespace utils
 } // namespace gc
 } // namespace mlir
 
