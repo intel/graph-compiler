@@ -1033,7 +1033,6 @@ public:
 
     patterns.add<DeepTileMatmul>(patterns.getContext());
     linalg::populateLinalgTilingCanonicalizationPatterns(patterns);
-    tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
 
     for (Dialect *dialect : ctx.getLoadedDialects())
       dialect->getCanonicalizationPatterns(patterns);
