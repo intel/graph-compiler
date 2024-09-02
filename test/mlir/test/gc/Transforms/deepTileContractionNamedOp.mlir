@@ -130,8 +130,6 @@ func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: ten
     %1 = linalg.fill ins(%cst_0 : bf16) outs(%0 : tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
     // CHECK: scf.forall
     // CHECK: tensor.extract_slice
-    // CHECK: scf.forall
-    // CHECK: tensor.extract_slice
     // CHECK: scf.for
     // CHECK: tensor.extract_slice
     // CHECK: scf.for
@@ -146,7 +144,6 @@ func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: ten
     // CHECK: linalgx.batch_reduce_matmul_vnni
     // CHECK: else
     // CHECK: linalgx.batch_reduce_matmul_vnni
-    // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
     %2 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) outs(%1 : tensor<4096x4096xbf16>)  -> tensor<4096x4096xbf16>
     return %2 : tensor<4096x4096xbf16>
