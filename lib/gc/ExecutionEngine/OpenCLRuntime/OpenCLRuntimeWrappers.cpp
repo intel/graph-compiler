@@ -73,7 +73,7 @@ struct CLExtTable {
   clSharedMemAllocINTEL_fn allocShared;
   clMemBlockingFreeINTEL_fn blockingFree;
   clSetKernelArgMemPointerINTEL_fn setKernelArgMemPtr;
-  clEnqueueMemcpyINTEL_fn enqueneMemcpy;
+  clEnqueueMemcpyINTEL_fn enqueueMemcpy;
   CLExtTable() = default;
   CLExtTable(cl_platform_id plat) {
     allocDev =
@@ -84,7 +84,7 @@ struct CLExtTable {
         (clMemBlockingFreeINTEL_fn)queryCLExtFunc(plat, MemBlockingFreeName);
     setKernelArgMemPtr = (clSetKernelArgMemPointerINTEL_fn)queryCLExtFunc(
         plat, SetKernelArgMemPointerName);
-    enqueneMemcpy =
+    enqueueMemcpy =
         (clEnqueueMemcpyINTEL_fn)queryCLExtFunc(plat, EnqueueMemcpyName);
   }
 };
@@ -392,7 +392,7 @@ extern "C" OCL_RUNTIME_EXPORT void gpuMemFree(GPUCLQUEUE *queue, void *ptr) {
 
 extern "C" OCL_RUNTIME_EXPORT void gpuMemCopy(GPUCLQUEUE *queue, void *dst,
                                               void *src, uint64_t size) {
-  auto func = queue->ext_table_ ? queue->ext_table_->enqueneMemcpy
+  auto func = queue->ext_table_ ? queue->ext_table_->enqueueMemcpy
                                 : (clEnqueueMemcpyINTEL_fn)queryCLExtFunc(
                                       queue->device_, EnqueueMemcpyName);
   CL_SAFE_CALL(func(queue->queue_, true, dst, src, size, 0, nullptr, nullptr));
