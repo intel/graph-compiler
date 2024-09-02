@@ -337,6 +337,7 @@ module {
         "seed": 0,
         "verbose": 1,
         "entry": "entry",
+        "ir_printing": false,
         "cast": "cast_signed",
         "dimension": null,
         "dimensions": null,
@@ -346,21 +347,21 @@ module {
         "warm_up": 100,
         "repeat": 100
     },
-    "compile_cost(ms)": 33.73148664832115,
-    "execute_cost(ms)": 0.1422157883644104
+    "compile_cost(ms)": 37.72595152258873,
+    "execute_cost(ms)": 0.00022314488887786865
 }
 ```
 
 * mlir example
 ```
 python3 -m benchgc --mode P --verbose 1  --driver mlir --case=./test.mlir  --bench_kind wrapper --warm_up 50 --repeat 200 
-module {
-  func.func @entry(%arg0: tensor<5x6xf32>) -> tensor<5x6xf32> attributes {llvm.emit_c_interface} {
+\module {
+  func.func @entry(%arg0: tensor<512x128xf32>) -> tensor<512x128xf32> attributes {llvm.emit_c_interface} {
     %cst = arith.constant 0.000000e+00 : f32
-    %0 = tensor.empty() : tensor<5x6xf32>
-    %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<5x6xf32>) -> tensor<5x6xf32>
-    %2 = linalg.abs ins(%arg0 : tensor<5x6xf32>) outs(%1 : tensor<5x6xf32>) -> tensor<5x6xf32>
-    return %2 : tensor<5x6xf32>
+    %0 = tensor.empty() : tensor<512x128xf32>
+    %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<512x128xf32>) -> tensor<512x128xf32>
+    %2 = linalg.abs ins(%arg0 : tensor<512x128xf32>) outs(%1 : tensor<512x128xf32>) -> tensor<512x128xf32>
+    return %2 : tensor<512x128xf32>
   }
 }
 
@@ -381,8 +382,8 @@ module {
         "warm_up": 50,
         "repeat": 200
     },
-    "compile_cost(ms)": 38.10911998152733,
-    "execute_cost(ms)": 0.077024335
+    "compile_cost(ms)": 70.6995539367199,
+    "execute_cost(ms)": 0.029325044999999984
 }
 ```
 * mlp example
@@ -421,8 +422,8 @@ module {
         "act_type": "noop",
         "dtype": "f32"
     },
-    "compile_cost(ms)": 69.51220706105232,
-    "execute_cost(ms)": 0.43220914900302887
+    "compile_cost(ms)": 109.86808314919472,
+    "execute_cost(ms)": 0.02944003790616989
 }
 
 ```
