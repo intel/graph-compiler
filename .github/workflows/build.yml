@@ -49,7 +49,6 @@ jobs:
       - name: Build and install benchgc
         working-directory: build
         run: |
-          pip install py-cpuinfo
           ninja benchgc
           pip uninstall -y benchgc || true
           pip install test/benchgc/dist/benchgc-*.whl
