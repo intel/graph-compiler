@@ -33,16 +33,28 @@ createGlobalKernelHandleName(RewriterBase &rewriter,
   std::stringstream ss;
   ss << "g_dispatched_microkernel_brgemm";
 
+  bool isInit = false;
+  bool isStrideMode = false;
   auto flags = op.getFlagsAttr();
   for (auto flag : flags) {
     auto brgemmFlag = dyn_cast_or_null<microkernel::BrgemmFlagsAttr>(flag);
     if (!brgemmFlag)
       return failure();
     if (brgemmFlag.getValue() == BrgemmFlags::LIST)
+      // TODO(haixin): Currently not supported. Support list brgemm in the
+      // future
       return failure();
-    if (brgemmFlag.getValue() == BrgemmFlags::BETA_0)
-      ss << "_init";
+    else if (brgemmFlag.getValue() == BrgemmFlags::STRIDE)
+      isStrideMode = true;
+    else if (brgemmFlag.getValue() == BrgemmFlags::BETA_0)
+      isInit = true;
   }
+  if (isStrideMode)
+    ss << "_stride";
+  else
+    ss << "_list";
+  if (isInit)
+    ss << "_init";
 
   // M, N, K, LDA, LDB, LDC, stride_a, stride_b
   // they are in the same order with BrgemmDispatchOp inputs
