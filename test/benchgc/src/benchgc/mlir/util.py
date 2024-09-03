@@ -163,9 +163,9 @@ def attch_dlti(module: ir.Module):
     l1_data_cache_size = info.get("l1_data_cache_size")
     l2_cache_size = info.get("l2_cache_size")
     l3_cache_size = info.get("l3_cache_size")
-    if "GC_NUM_THREADS" not in os.environ:
-        print("GC_NUM_THREADS is not found, using 1 as default")
-    num_threads = os.environ.get("GC_NUM_THREADS", 1)
+    if "OMP_NUM_THREADS" not in os.environ:
+        print("OMP_NUM_THREADS is not found, using 1 as default")
+    num_threads = os.environ.get("OMP_NUM_THREADS", 1)
     flags = info.get("flags")
     max_vector_width = 64
     for flag in flags:
