@@ -28,6 +28,8 @@ namespace gc {
 
 namespace {
 
+constexpr uint64_t STACK_ALLOC_THRESHOLD = 128;
+
 bool hasParallelParent(Operation *op) {
   // Check if the parent contains a forall / parallel loop
   for (Operation *parentOp = op->getParentOp(); parentOp != nullptr;
@@ -90,18 +92,28 @@ struct ConvertMemRefToCPURuntime
     auto *ctx = &getContext();
     llvm::SmallSet<Operation *, 16> noTransformOps;
 
-    // Create deallocOp accoresponding to the alloca's localtion
+    // Create deallocOp corresponding to the alloca's location
     getOperation()->walk([&](func::FuncOp funcOp) {
+      // Vector to store alloca operations
+      SmallVector<memref::AllocaOp, 16> allocaOps;
+      // Collect all alloca operations
       funcOp.walk([&](memref::AllocaOp allocaOp) {
         uint64_t allocSize =
             getMemRefSizeInBytes(allocaOp.getResult().getType());
-        if (allocSize < 128) {
+        if (allocSize < STACK_ALLOC_THRESHOLD) {
           noTransformOps.insert(allocaOp);
           return;
         }
+        allocaOps.push_back(allocaOp);
+      });
+
+      // Create dealloc operations in reverse order of alloca operations
+      for (auto allocaOp = allocaOps.rbegin(); allocaOp != allocaOps.rend();
+           ++allocaOp) {
         Operation *scopeOp =
-            allocaOp->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
-        OpBuilder builder(allocaOp);
+            (*allocaOp)
+                ->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+        OpBuilder builder(*allocaOp);
         Region &scopeRegion = scopeOp->getRegion(0);
         // Set the insertion point to the end of the region before the
         // terminator
@@ -112,21 +124,13 @@ struct ConvertMemRefToCPURuntime
           builder.setInsertionPoint(&lastBlock.back());
         }
 
-        // Move the insertion point back if the operation before is a deallocOp
-        Operation *currentOp = builder.getInsertionPoint()->getPrevNode();
-        while (currentOp && isa<cpuruntime::DeallocOp>(currentOp)) {
-          // Move the insertion point before the found deallocOp
-          builder.setInsertionPoint(currentOp);
-          currentOp = currentOp->getPrevNode();
-        }
-
         // Create the dealloc operation
         auto deallocOp = builder.create<cpuruntime::DeallocOp>(
-            allocaOp.getLoc(), allocaOp.getResult());
-        if (hasParallelParent(allocaOp)) {
+            (*allocaOp).getLoc(), (*allocaOp).getResult());
+        if (hasParallelParent(*allocaOp)) {
           deallocOp.setThreadLocal(true);
         }
-      });
+      }
     });
 
     // add lowering target
