@@ -26,6 +26,9 @@ gc_add_mlir_library(GcPasses
 
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  StaticMemoryPlanning.cpp
+  MergeAlloc.cpp
+  MergeAllocTickBased.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
   CPUPhysicalRegisterPass.cpp
