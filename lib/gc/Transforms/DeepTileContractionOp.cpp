@@ -272,7 +272,7 @@ static void getMatmulParallelDims(linalg::LinalgOp linalgOp,
 static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
                                            Operation *op, Operation *userOp,
                                            SmallVector<int64_t> size,
-                                           int shrinDimNum = 0) {
+                                           int shrinkDimNum = 0) {
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(op);
   Operation *currentOp = op;
@@ -288,11 +288,11 @@ static void setStaticSizeForExtractSliceOp(RewriterBase &rewriter,
     rewriter.replaceOp(op, currentOp);
   }
 
-  if (shrinDimNum > 0) {
+  if (shrinkDimNum > 0) {
     assert(currentOp->getNumResults() == 1 &&
            "The number of init op result should be 1");
     auto targetTensor = mlir::RankedTensorType::get(
-        SmallVector<int64_t>(size.begin() + shrinDimNum, size.end()),
+        SmallVector<int64_t>(size.begin() + shrinkDimNum, size.end()),
         cast<ShapedType>(currentOp->getResult(0).getType()).getElementType());
     rewriter.setInsertionPointAfter(currentOp);
     Value viewResult =
