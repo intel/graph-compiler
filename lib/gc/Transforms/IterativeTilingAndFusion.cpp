@@ -257,8 +257,8 @@ tilingSizesIfMatchedFilter(RewriterBase &rewriter,
       if (defOrUse.isDef()) {
         SmallVector<tensor::ExtractSliceOp> backwardSlice;
         FailureOr<OpResult> realProducer =
-            scfX::getRealProducerOfExtractSliceOp(otherCandidate,
-                                                  backwardSlice);
+            scfX::getRealProducerFromExtractSliceOp(otherCandidate,
+                                                    backwardSlice);
         if (succeeded(realProducer) &&
             realProducer->getDefiningOp() == defOrUse.ownerOp)
           return failure();
@@ -476,7 +476,7 @@ tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
   // stage, sorted from inner to outer.
   SmallVector<tensor::ExtractSliceOp> backwardSlice;
   FailureOr<OpResult> realProducer =
-      scfX::getRealProducerOfExtractSliceOp(*closestSliceOp, backwardSlice);
+      scfX::getRealProducerFromExtractSliceOp(*closestSliceOp, backwardSlice);
   if (failed(realProducer))
     return std::nullopt;
 
