@@ -12,10 +12,12 @@ func.func @alloca() {
 
 func.func @thread_alloca() {
   // CHECK-LABEL: func.func @thread_alloca()
-  // CHECK: %[[m0:.*]] = cpuruntime.alloc thread_local() : memref<1024xf32>
+  // CHECK-NEXT: scf.forall {{.*}} {
+  // CHECK-NEXT:   %[[m0:.*]] = cpuruntime.alloc thread_local() : memref<1024xf32>
+  // CHECK-NEXT:   cpuruntime.dealloc thread_local %[[m0]] : memref<1024xf32>
+  // CHECK-NEXT: }
   scf.forall (%i) in (32) {
     %0 = memref.alloca() : memref<1024xf32>
-    // CHECK: cpuruntime.dealloc thread_local %[[m0]] : memref<1024xf32>
   }
   return
 }
@@ -61,5 +63,27 @@ func.func @alloca_sequence() {
   // CHECK: cpuruntime.dealloc %[[m2]] : memref<128xf32>
   // CHECK: cpuruntime.dealloc %[[m1]] : memref<128xf32>
   // CHECK: cpuruntime.dealloc %[[m0]] : memref<128xf32>
+  return
+}
+
+func.func @nested_alloca() {
+  // CHECK-LABEL: func @nested_alloca()
+  // CHECK: %[[m0:.*]] = cpuruntime.alloc() : memref<512xf32>
+  // CHECK-NEXT: scf.forall {{.*}} {
+  // CHECK-NEXT:   %[[m1:.*]] = cpuruntime.alloc thread_local() : memref<32xf32>
+  // CHECK-NEXT:   cpuruntime.dealloc thread_local %[[m1]] : memref<32xf32>
+  // CHECK-NEXT: }
+  // CHECK-NEXT: scf.forall {{.*}} {
+  // CHECK-NEXT:   %[[m2:.*]] = cpuruntime.alloc thread_local() : memref<64xf32>
+  // CHECK-NEXT:   cpuruntime.dealloc thread_local %[[m2]] : memref<64xf32>
+  // CHECK-NEXT: }
+  // CHECK:   cpuruntime.dealloc %[[m0]] : memref<512xf32>
+  %0 = memref.alloca() : memref<512xf32>
+  scf.forall (%i) in (32) {
+    %1 = memref.alloca() : memref<32xf32>
+  }
+  scf.forall (%i) in (32) {
+    %1 = memref.alloca() : memref<64xf32>
+  }
   return
 }
