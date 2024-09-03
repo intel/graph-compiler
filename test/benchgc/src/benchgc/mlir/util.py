@@ -160,6 +160,8 @@ def attch_dlti(module: ir.Module):
     if "dlti.target_system_spec" in module.operation.attributes:
         return
     info = cpuinfo.get_cpu_info()
+    from gc_mlir.dialects import cpuruntime
+    cpuruntime.get_l1_data_cache_size()
     print(info)
     l1_data_cache_size = info.get("l1_data_cache_size")
     l2_cache_size = info.get("l2_cache_size")
