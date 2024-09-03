@@ -119,7 +119,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
   pm.addNestedPass<func::FuncOp>(
       bufferization::createPromoteBuffersToStackPass());
-  pm.addPass(createMergeAllocPass());
+  pm.addNestedPass<func::FuncOp>(createMergeAllocPass());
   bufferization::BufferDeallocationPipelineOptions deallocOption;
   bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
