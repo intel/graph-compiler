@@ -160,6 +160,7 @@ def attch_dlti(module: ir.Module):
     if "dlti.target_system_spec" in module.operation.attributes:
         return
     info = cpuinfo.get_cpu_info()
+    print(info)
     l1_data_cache_size = info.get("l1_data_cache_size")
     l2_cache_size = info.get("l2_cache_size")
     l3_cache_size = info.get("l3_cache_size")
@@ -187,6 +188,7 @@ def attch_dlti(module: ir.Module):
             #dlti.dl_entry<"max_vector_width", {max_vector_width} : i64>>
         >}} {{}}
     """
+    print(dlti_template)
     with module.context:
         template_module = ir.Module.parse(dlti_template)
         module.operation.attributes["dlti.target_system_spec"] = (
