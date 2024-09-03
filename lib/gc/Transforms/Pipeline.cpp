@@ -70,12 +70,13 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
   // copied from tpp project
   pm.addNestedPass<func::FuncOp>(createDecomposeAggregatedOps());
-  // fold useless tensor operation pass
-  pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   // TODO(yifei): remove lower pack here
   pm.addPass(createLowerPackUnpack());
+  populateCleanUpPasses(pm);
+  // fold useless tensor operation pass
+  pm.addPass(createFoldTensorOperation());
   populateCleanUpPasses(pm);
 }
 
@@ -105,6 +106,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
   // The flow follows https://mlir.llvm.org/docs/Bufferization/#overview
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
+  pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;
   options.setFunctionBoundaryTypeConversion(
