@@ -49,11 +49,11 @@ inline SmallVector<unsigned> extractDimTypeIdx(ArrayRef<DimType> tyList,
 
 inline void getDimTypeFromIterators(linalg::LinalgOp linalgOp,
                                     SmallVectorImpl<DimType> &dimTypes) {
-  SmallVector<utils::IteratorType> iteratorTypes =
+  SmallVector<mlir::utils::IteratorType> iteratorTypes =
       linalgOp.getIteratorTypesArray();
 
   for (const auto &&[idx, iterType] : llvm::enumerate(iteratorTypes)) {
-    if (iterType == utils::IteratorType::parallel) {
+    if (iterType == mlir::utils::IteratorType::parallel) {
       SmallVector<std::pair<Value, unsigned>> operandDimPairs;
       linalgOp.mapIterationSpaceDimToAllOperandDims(idx, operandDimPairs);
       if (operandDimPairs.size() == 3) {
@@ -69,7 +69,7 @@ inline void getDimTypeFromIterators(linalg::LinalgOp linalgOp,
       } else {
         dimTypes.push_back(DimType::N);
       }
-    } else if (iterType == utils::IteratorType::reduction) {
+    } else if (iterType == mlir::utils::IteratorType::reduction) {
       dimTypes.push_back(DimType::K);
     }
   }
