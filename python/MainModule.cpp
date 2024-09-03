@@ -21,39 +21,48 @@
 #include "gc-c/Passes.h"
 #include "mlir/Bindings/Python/PybindAdaptors.h"
 
-
-#include <stdio.h>
 #include <stdint.h>
- 
-void get_l1_data_cache_size() {
-    uint32_t eax, ebx, ecx, edx;
- 
-    // Query the cache information using CPUID with EAX=4 and ECX=1 (L1 data cache)
-    eax = 4; // Cache information
-    ecx = 0; // Cache level (0 for L1 data cache)
- 
-    __asm__ __volatile__(
-        "cpuid"
-        : "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx)
-        : "a" (eax), "c" (ecx)
-    );
- 
-    // Extract cache size information
-    uint32_t cache_type = eax & 0x1F;
-    if (cache_type != 1) { // 1 indicates data cache
-        printf("No L1 data cache\n");
-        return;
+#include <stdio.h>
+
+#include <iostream>
+
+// 使用GCC内联汇编的CPUID函数
+void cpuid(int info[4], int InfoType, int ECXValue) {
+  __asm__ __volatile__("cpuid"
+                       : "=a"(info[0]), "=b"(info[1]), "=c"(info[2]),
+                         "=d"(info[3])
+                       : "a"(InfoType), "c"(ECXValue));
+}
+
+void get_cpu_info() {
+  int info[4];
+  cpuid(info, 0, 0); // 获取最大的CPUID功能号
+  int nIds = info[0];
+
+  for (int i = 0; i <= nIds; ++i) {
+    cpuid(info, 4, i); // 查询缓存参数
+    int cacheType = info[0] & 0x1F;
+    if (cacheType == 0) {
+      break; // 没有更多的缓存级别
     }
- 
-    uint32_t cache_level = (eax >> 5) & 0x7;
-    uint32_t cache_sets = ecx + 1;
-    uint32_t cache_coherency_line_size = (ebx & 0xFFF) + 1;
-    uint32_t cache_partitions = ((ebx >> 12) & 0x3FF) + 1;
-    uint32_t cache_ways_of_associativity = ((ebx >> 22) & 0x3FF) + 1;
- 
-    uint32_t cache_size = cache_ways_of_associativity * cache_partitions * cache_coherency_line_size * cache_sets;
- 
-    printf("L%d Data Cache Size: %u KB\n", cache_level, cache_size / 1024);
+    int cacheLevel = (info[0] >> 5) & 0x7;
+    int cacheLinesPerTag = ((info[1] >> 0) & 0xFFF) + 1;
+    int cacheAssociativity = ((info[1] >> 12) & 0x3FF) + 1;
+    int cachePartitions = ((info[1] >> 22) & 0x3FF) + 1;
+    int cacheSets = info[2] + 1;
+    int cacheSize =
+        cacheLinesPerTag * cacheAssociativity * cachePartitions * cacheSets;
+
+    std::cout << "L" << cacheLevel << " ";
+    if (cacheType == 1) {
+      std::cout << "Data Cache: ";
+    } else if (cacheType == 2) {
+      std::cout << "Instruction Cache: ";
+    } else if (cacheType == 3) {
+      std::cout << "Unified Cache: ";
+    }
+    std::cout << cacheSize << " bytes" << std::endl;
+  }
 }
 
 PYBIND11_MODULE(_gc_mlir, m) {
@@ -93,6 +102,5 @@ PYBIND11_MODULE(_gc_mlir, m) {
       },
       py::arg("context") = py::none(), py::arg("load") = true);
 
-
-  cpuruntimeM.def("get_l1_data_cache_size", &get_l1_data_cache_size, "---");
+  cpuruntimeM.def("get_cpu_info", &get_cpu_info, "---");
 }
