@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --split-input-file --fold-tensor-operation --lower-to-tile-vector --CPU-physical-register-pass --mlir-print-ir-after-all | FileCheck %s
+// RUN: gc-opt %s --split-input-file --fold-tensor-operation --lower-to-tile-vector --CPU-physical-register-pass | FileCheck %s
 
 
 // CHECK-DAG: #[[map0:.*]] = affine_map<()[s0, s1] -> (s0 * 64 + s1)>

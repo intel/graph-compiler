@@ -410,8 +410,7 @@ public:
     return opPermuationMap;
   }
 
-  llvm::SmallVector<MultiReductionCanonicalizer, 8> &
-  getMultiRdCanonicalizers() {
+  SmallVector<MultiReductionCanonicalizer, 8> &getMultiRdCanonicalizers() {
     return multiRdCanonicalizers;
   }
 
@@ -457,6 +456,19 @@ public:
   Operation *getNextTargetOperationInCurrentGroup(Operation *curOp,
                                                   const size_t grpIdx);
 };
+
+struct GenerateLoopHelper {
+  DenseMap<Value, int> currentLoopStateIdxMap;
+  ValueRange loopIterArgs;
+  SmallVector<Value, 4> nextAnchorResults;
+  DenseMap<Value, int> nextAnchorResultsIdxMap;
+  DenseMap<Value, Value> nextAnchorResultOrignalResultMap;
+  SmallVector<Value, 5> inductionVars;
+  DenseMap<Value, Value> originalOperandLoopArgsMap;
+  DenseMap<Value, Value> loopArgsOriginalOperandMap;
+  GenerateLoopHelper() = default;
+};
+
 /// generate for loop for each operation.
 class ForLoopGenerator : virtual public CanonicalizerCommonUsedData {
 private:
@@ -467,6 +479,7 @@ public:
   ForLoopGenerator(func::FuncOp &func) : func(func) {}
 
   virtual ~ForLoopGenerator() {}
+
   void setGeneratorFunc(func::FuncOp &func) { this->func = func; }
   void clearCurrentOperationGroup(size_t grpIdx);
   void generateGroupOpVectorizedIR(const int idx);
@@ -516,8 +529,7 @@ public:
 
   void moveOperationsToCurrentForBody(
       const size_t groupIdx, const OpBuilder &b, ArrayRef<Value> inductionVars,
-      const llvm::DenseMap<Value, int> &operandIdxMap,
-      const ValueRange &loopState,
+      const llvm::DenseMap<Value, int> &operandIdxMap, ValueRange loopState,
       DenseMap<Value, Value> &originalOperandLoopArgsMap,
       std::queue<Operation *> &queue,
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
@@ -613,15 +625,8 @@ public:
 
   scf::ForOp parallelAxisGenerateForLoop(
       OpBuilder &opBuilder, const int groupIdx, const size_t parallelIdx,
-      llvm::DenseMap<Value, int> &currentLoopStateIdxMap,
-      const ValueRange &initArgs,
-      llvm::SmallVector<Value, 4> &nextAnchorResults,
-      llvm::DenseMap<Value, int> &nextAnchorResultsIdxMap,
-      llvm::SmallVector<Value, 5> &inductionVars,
-      DenseMap<Value, Value> &originalOperandLoopArgsMap,
-      DenseMap<Value, Value> &loopArgsOriginalOperandMap,
-      DenseMap<Value, Value> &forResultOrignalResultMap,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap,
+      GenerateLoopHelper &loopHelperParam);
 
   vector::TransferReadOp cloneReductionTransferRead(
       Value &source, OpBuilder &b, IRMapping &readMap,
