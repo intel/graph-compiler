@@ -32,6 +32,7 @@ namespace {
       linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp,               \
       tensor::CollapseShapeOp, tensor::ExpandShapeOp, tensor::ExtractSliceOp,  \
       tensor::InsertSliceOp
+// , microkernel::BrgemmOp
 
 /// TODO: remove it in the future
 bool disableSpecialOp = false;
@@ -1808,19 +1809,18 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
       });
 }
 
-ValueRange ForLoopGenerator::prepareForLoopArgs(
+void ForLoopGenerator::prepareForLoopArgs(
     const size_t grpIdx, DenseMap<Value, int> &currentLoopStateIdxMap,
     DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    DenseMap<Value, Value> &loopArgsOriginalOperandMap) {
+    DenseMap<Value, Value> &loopArgsOriginalOperandMap,
+    SmallVector<Value> &loopArgs) {
   SetVector<Value> &grpArgs = getGroupOpInitArgs()[grpIdx];
-  SmallVector<Value> forLoopArgs(grpArgs.begin(), grpArgs.end());
-  ValueRange initArgs(forLoopArgs);
-  for (auto [idx, val] : llvm::enumerate(initArgs)) {
+  loopArgs.assign(grpArgs.begin(), grpArgs.end());
+  for (auto [idx, val] : llvm::enumerate(grpArgs)) {
     currentLoopStateIdxMap[val] = idx;
     originalOperandLoopArgsMap[val] = val;
     loopArgsOriginalOperandMap[val] = val;
   }
-  return initArgs;
 }
 
 void ForLoopGenerator::rearrageMultiReductionIR(
@@ -1920,9 +1920,9 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
   DenseMap<Value, Value> originalOperandLoopArgsMap, loopArgsOriginalOperandMap,
       forResultOrignalResultMap;
 
-  ValueRange initArgs = prepareForLoopArgs(grpIdx, currentLoopStateIdxMap,
-                                           originalOperandLoopArgsMap,
-                                           loopArgsOriginalOperandMap);
+  SmallVector<Value> initArgs;
+  prepareForLoopArgs(grpIdx, currentLoopStateIdxMap, originalOperandLoopArgsMap,
+                     loopArgsOriginalOperandMap, initArgs);
 
   SmallVector<Value, 5> inductionVars;
   OpBuilder opBuilder(rdCanonicalizer.getCandidateOps()[0]);
@@ -2294,8 +2294,9 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   DenseMap<Value, int> operandIdxMap;
   DenseMap<Value, Value> originalOperandMap, operandOriginalMap, resultIdxMap,
       forResultOrignalResultMap;
-  SmallVector<Value> iterArgs = prepareForLoopArgs(
-      grpIdx, operandIdxMap, originalOperandMap, operandOriginalMap);
+  SmallVector<Value> iterArgs;
+  prepareForLoopArgs(grpIdx, operandIdxMap, originalOperandMap,
+                     operandOriginalMap, iterArgs);
   SmallVector<Value> inductionVars;
 
   // TODO: need to process transpose on all one dim
@@ -2888,28 +2889,6 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
   return forOp;
 }
 
-bool isSameVectorType(Operation *op1, Operation *op2) {
-  auto type1 = getOperationVectorType(op1);
-  auto type2 = getOperationVectorType(op2);
-  if (failed(type1) || failed(type2)) {
-    return false;
-  }
-  auto sp1 = type1.value();
-  auto sp2 = type2.value();
-  if (sp1.getRank() != sp2.getRank()) {
-    return false;
-  }
-  bool isSame = true;
-  // from front to back
-  for (long i = 0; i < sp1.getRank(); i++) {
-    if (sp1.getDimSize(i) != sp2.getDimSize(i)) {
-      isSame = false;
-      break;
-    }
-  }
-  return isSame;
-}
-
 /// default op1 is previous operation
 bool VectorFusionStrategy::isCompatibleVectorType(Operation *op1,
                                                   Operation *op2) {
@@ -3075,8 +3054,7 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
       .Default([&](Operation *op) {
         // default is last axis
         dataAxis.emplace_back(
-            mlir::dyn_cast<ShapedType>(op->getResultTypes().front()).getRank() -
-            1);
+            cast<ShapedType>(op->getResultTypes()[0]).getRank() - 1);
       });
 }
 
@@ -3160,17 +3138,12 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
           })
           .Case<vector::MultiDimReductionOp>(
               [&](vector::MultiDimReductionOp multiReductionOp) {
-                // has two cases: op1 is special operation, op2 is normal
-                // operation op1 and op2 is both speicial operation
                 SmallVector<int64_t> dims2, reductionDims, parallelDims;
                 getOperationDataAxis(op1, reductionDims);
                 getOperationDataAxis(op2, dims2);
                 DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
                 auto op2VectorType = getOperationVectorType(op2);
                 if (!isSpecialOp(op2)) {
-                  if (isSameVectorType(op1, op2)) {
-                    return false;
-                  }
                   // all reduction axis should be op2's data axis
                   bool reduceDependent = false;
                   for (auto x : reductionDims) {
@@ -3187,11 +3160,10 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
                   checkSet.insert(reductionDims.begin(), reductionDims.end());
                   auto rdRank =
                       multiReductionOp.getSourceVectorType().getRank();
-                  for (auto i = 0; i < rdRank; i++) {
-                    if (!checkSet.contains(i)) {
+                  for (auto i = 0; i < rdRank; i++)
+                    if (not checkSet.contains(i))
                       parallelDims.emplace_back(i);
-                    }
-                  }
+
                   checkSet.clear();
                   checkSet.insert(parallelDims.begin(), parallelDims.end());
                   auto rank = op2VectorType->getRank();
@@ -3244,9 +3216,12 @@ Operation *getNotReadWriteOperaiton(std::queue<Operation *> &tmpQ) {
 }
 
 bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
+  if (isa<vector::TransferReadOp>(op)) {
+    noNeedToJudgeOps.push(op);
+    return false;
+  }
   // 1. check previous operation
   if (!opGroups.back().empty()) {
-
     // We only care about the calculation operation.
     std::queue<Operation *> tmpQ(opGroups.back());
     Operation *prevOp = nullptr;
@@ -3298,9 +3273,17 @@ void VectorFusionStrategy::addOperationToGroup(Operation *op) {
   if (isNeedNewGroup(op)) {
     opGroups.emplace_back(std::queue<Operation *>());
   }
-  updateGroupBitgestVectorType(vectorType);
-  opGroups.back().push(op);
-  opGroupIndexMap[op] = opGroups.size() - 1;
+  if (not isa<vector::TransferReadOp>(op)) {
+    updateGroupBitgestVectorType(vectorType);
+    while (not noNeedToJudgeOps.empty()) {
+      auto cur = noNeedToJudgeOps.front();
+      noNeedToJudgeOps.pop();
+      opGroupIndexMap[cur] = opGroups.size() - 1;
+      opGroups.back().push(cur);
+    }
+    opGroups.back().push(op);
+    opGroupIndexMap[op] = opGroups.size() - 1;
+  }
   opAnchorPos[op] = getOperationMaxVectorType(op)->getRank() - 1;
 }
 

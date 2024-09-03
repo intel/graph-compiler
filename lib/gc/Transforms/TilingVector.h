@@ -49,6 +49,7 @@
 #include <tuple>
 #include <type_traits>
 #include <variant>
+// #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 namespace mlir {
 namespace gc {
 namespace {
@@ -109,14 +110,17 @@ public:
 class VectorFusionStrategy : public TypeHelper {
 private:
   func::FuncOp func;
-  llvm::SmallVector<std::queue<Operation *>, 8> opGroups;
-  llvm::SmallVector<uint32_t, 8> groupMaxSteps;
+  SmallVector<std::queue<Operation *>, 8> opGroups;
+  SmallVector<uint32_t, 8> groupMaxSteps;
   /// vector type which has bigest rank in current operation group
   llvm::SmallDenseMap<size_t, VectorType> groupBigestRankVectorType;
   /// query current operation in which group, return group index
-  llvm::DenseMap<Operation *, size_t> opGroupIndexMap;
+  DenseMap<Operation *, size_t> opGroupIndexMap;
   /// can fused into prev operation which axis position
-  llvm::DenseMap<Operation *, size_t> opAnchorPos;
+  DenseMap<Operation *, size_t> opAnchorPos;
+  /// record some operations which not need to No need to judge whether can be
+  /// fused
+  std::queue<Operation *> noNeedToJudgeOps;
 
 public:
   VectorFusionStrategy() = default;
@@ -468,11 +472,11 @@ public:
   void generateGroupOpVectorizedIR(const int idx);
 
   /// prepare for loop iteration args
-  ValueRange
-  prepareForLoopArgs(const size_t grpIdx,
-                     DenseMap<Value, int> &currentLoopStateIdxMap,
-                     DenseMap<Value, Value> &originalOperandLoopArgsMap,
-                     DenseMap<Value, Value> &loopArgsOriginalOperandMap);
+  void prepareForLoopArgs(const size_t grpIdx,
+                          DenseMap<Value, int> &currentLoopStateIdxMap,
+                          DenseMap<Value, Value> &originalOperandLoopArgsMap,
+                          DenseMap<Value, Value> &loopArgsOriginalOperandMap,
+                          SmallVector<Value> &loopArgs);
 
   /// replace original operation result with corresponding for loop result
   void replaceOpUsersWithForLoopResult(
