@@ -119,6 +119,7 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
   pm.addNestedPass<func::FuncOp>(
       bufferization::createPromoteBuffersToStackPass());
+  pm.addPass(createMergeAllocPass());
   bufferization::BufferDeallocationPipelineOptions deallocOption;
   bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
@@ -135,8 +136,8 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
   // pm.addPass(createRemoveDeadValuesPass());
   // pm.addPass(createInlinerPass());
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"MicroKernel passes result"};
-  pm.addPass(createPrintIRPass(option));
+  // PrintIRPassOptions option{"MicroKernel passes result"};
+  // pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
