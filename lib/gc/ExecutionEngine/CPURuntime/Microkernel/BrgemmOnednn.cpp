@@ -142,7 +142,6 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
   size_t B_offset_in_bytes;
   size_t C_offset_in_bytes;
   {
-    read_lock_guard_t g(g_brgemm_lock);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
 
