@@ -25,6 +25,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
+#include <climits>
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
@@ -122,9 +123,10 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createPromoteBuffersToStackPass());
-  bufferization::BufferDeallocationPipelineOptions deallocOption;
+  pm.addNestedPass<func::FuncOp>(bufferization::createPromoteBuffersToStackPass(
+      /*maxAllocSizeInBytes*/ UINT_MAX,
+      /*maxRankOfAllocatedMemRef*/ 8));
+  mlir::bufferization::BufferDeallocationPipelineOptions deallocOption;
   bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
