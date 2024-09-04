@@ -17,19 +17,9 @@
 import ctypes
 from typing import Any, List
 
-import gc_mlir.ir
 import torch
-from gc_mlir.dialects import func
-
-# only python 3.11 support
-# from typing import Self
-
-
-def get_entry(module: gc_mlir.ir.Module, entry: str = '"entry"') -> func.FuncOp:
-    for op in module.operation.opview.regions[0].blocks[0].operations:
-        if str(op.name) == entry:
-            return op
-    raise Exception(f"entry function {entry} is not found at the top level")
+from gc_mlir import ir
+from gc_mlir.dialects import arith, func, memref
 
 
 # calling python binding consumes a lot of time e.g. get_name()
@@ -72,40 +62,87 @@ def dtype_to_ctype(dtype: torch.dtype):
         raise ValueError(f"Unsupported torch dtype: {dtype}")
 
 
-def str_to_mlir_dtype(ctx: gc_mlir.ir.Context, dtype: str) -> gc_mlir.ir.Type:
+def str_to_mlir_dtype(ctx: ir.Context, dtype: str) -> ir.Type:
     if dtype == "f32":
-        return gc_mlir.ir.F32Type.get(ctx)
+        return ir.F32Type.get(ctx)
     elif dtype == "f64":
-        return gc_mlir.ir.F64Type.get(ctx)
+        return ir.F64Type.get(ctx)
     elif dtype == "f16":
-        return gc_mlir.ir.F16Type.get(ctx)
+        return ir.F16Type.get(ctx)
     elif dtype == "bf16":
-        return gc_mlir.ir.BF16Type.get(ctx)
+        return ir.BF16Type.get(ctx)
     elif dtype == "u8":
-        return gc_mlir.ir.IntegerType.get_unsigned(8, ctx)
+        return ir.IntegerType.get_unsigned(8, ctx)
     elif dtype == "s8":
-        return gc_mlir.ir.IntegerType.get_signed(8, ctx)
+        return ir.IntegerType.get_signed(8, ctx)
     elif dtype == "boolean":
-        return gc_mlir.ir.IntegerType.get_unsigned(1, ctx)
+        return ir.IntegerType.get_unsigned(1, ctx)
     elif dtype == "f8_e4m3":
-        return gc_mlir.ir.Float8E4M3FNType.get(ctx)
+        return ir.Float8E4M3FNType.get(ctx)
     elif dtype == "f8_e5m2":
-        return gc_mlir.ir.Float8E5M2Type.get(ctx)
+        return ir.Float8E5M2Type.get(ctx)
     elif dtype == "s32":
-        return gc_mlir.ir.IntegerType.get_signed(32, ctx)
+        return ir.IntegerType.get_signed(32, ctx)
     else:
         raise Exception(f"data type not support: {dtype}")
 
 
-def str_to_mlir_typed_attr(
-    ctx: gc_mlir.ir.Context, dtype: str, value: Any
-) -> gc_mlir.ir.Attribute:
+def str_to_mlir_typed_attr(ctx: ir.Context, dtype: str, value: Any) -> ir.Attribute:
     mlir_dtype = str_to_mlir_dtype(ctx, dtype)
     if dtype in ["f32", "f64", "bf16", "f16", "f8_e4m3", "f8_e5m2"]:
-        return gc_mlir.ir.FloatAttr.get(mlir_dtype, value)
+        return ir.FloatAttr.get(mlir_dtype, value)
     elif dtype in ["u8", "s8", "s32"]:
-        return gc_mlir.ir.IntegerAttr.get(mlir_dtype, value)
+        return ir.IntegerAttr.get(mlir_dtype, value)
     elif dtype == "boolean":
-        return gc_mlir.ir.BoolAttr.get(value)
+        return ir.BoolAttr.get(value)
     else:
         raise Exception(f"data type not support: {dtype}")
+
+
+def emit_nano_time() -> func.FuncOp:
+    """Emit a nanoTime function that returns the current time in nanoseconds."""
+    nanoTime = func.FuncOp(
+        "nanoTime", ([], [ir.IntegerType.get_signless(64)]), visibility="private"
+    )
+    nanoTime.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
+    return nanoTime
+
+
+def emit_benchmark_wrapped_main_func(
+    kernel_func: func.FuncOp, timer_func: func.FuncOp
+) -> func.FuncOp:
+    """Emit a wrapped main function that calls the kernel function and records the time taken."""
+    memref_of_i64_type = ir.MemRefType.get([1], ir.IntegerType.get_signless(64))
+    wrapped_func_name = "wrapped_main"
+    assert wrapped_func_name != str(
+        kernel_func.name
+    ), "wrapped function name should be different from kernel function name"
+    wrapped_func = func.FuncOp(
+        wrapped_func_name,
+        ([memref_of_i64_type] + kernel_func.arguments.types, kernel_func.type.results),
+        visibility="public",
+    )
+    wrapped_func.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
+    with ir.InsertionPoint(wrapped_func.add_entry_block()):
+        timer_buffer = wrapped_func.arguments[0]
+        start = func.CallOp(timer_func, [])
+        call_op = func.CallOp(
+            kernel_func,
+            list(wrapped_func.arguments[1:]),
+        )
+        end = func.CallOp(timer_func, [])
+        time_taken = arith.SubIOp(end, start)
+        zero = arith.ConstantOp.create_index(0)
+        memref.StoreOp(time_taken, timer_buffer, [zero])
+        func.ReturnOp(call_op.results)
+    return wrapped_func
+
+
+def get_kernel_func_from_module(
+    module: ir.Module, func_name: str = "entry"
+) -> func.FuncOp:
+    """Get the func op by the name from a module"""
+    for f in module.operation.regions[0].blocks[0].operations:
+        if type(f) is func.FuncOp and str(f.name).strip('"') == func_name:
+            return f
+    raise ValueError("can not find the entry function")

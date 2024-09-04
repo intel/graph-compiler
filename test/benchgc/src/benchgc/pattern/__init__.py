@@ -14,20 +14,13 @@
 # limitations under the License.
 ################################################################################
 
-from typing import Dict, Tuple
+from .base import Pattern
+from .mlp import MLP
 
-import benchgc.util
-import torch
-from benchgc.mlir.util import MLIRCache
-from gc_mlir import ir
+__all__ = ["Pattern", "MLP", "get_pattern_clz"]
 
 
-def ref_empty(
-    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
-) -> Tuple[torch.Tensor, ...]:
-    return (
-        torch.zeros(
-            size=op.results[0].type.shape,
-            dtype=benchgc.util.get_dtype(str(op.results[0].type.element_type)),
-        ),
-    )
+def get_pattern_clz(name: str):
+    """Function getting pattern class by name."""
+    clz = {"mlp": MLP}[name]
+    return clz
