@@ -64,14 +64,19 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: lower linalg to arith/math on virtual vector pass
   pm.addNestedPass<func::FuncOp>(
       mlir::microkernel::createConvertLinalgToMicrokernel());
+
+  // REMOVE this pass after the above passes are added. Currently we add this
+  // pass to make the pipeline work properly
+  pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
   // copied from tpp project
   pm.addNestedPass<func::FuncOp>(createDecomposeAggregatedOps());
-  // fold useless tensor operation pass
-  pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   // TODO(yifei): remove lower pack here
   // pm.addPass(createLowerPackUnpack());
+  populateCleanUpPasses(pm);
+  // fold useless tensor operation pass
+  pm.addPass(createFoldTensorOperation());
   populateCleanUpPasses(pm);
 }
 

@@ -39,11 +39,9 @@ struct FoldTensorOperationPass
     tensor::populateReassociativeReshapeFoldingPatterns(pattern);
     tensor::populateMergeConsecutiveInsertExtractSlicePatterns(pattern);
     tensor::populateFoldTensorSubsetOpPatterns(pattern);
+    tensor::populateFoldTensorEmptyPatterns(pattern);
 
     GreedyRewriteConfig config;
-    // Use to remove useless tensor operation like extract or
-    // insert slice.
-    config.strictMode = GreedyRewriteStrictness::ExistingOps;
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(pattern),
                                        config);
   }
