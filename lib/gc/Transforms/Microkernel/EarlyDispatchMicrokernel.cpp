@@ -58,6 +58,7 @@ createGlobalKernelHandleName(RewriterBase &rewriter,
 
   // M, N, K, LDA, LDB, LDC, stride_a, stride_b
   // they are in the same order with BrgemmDispatchOp inputs
+  // TODO(haixin): Add order enforcement machanism for BrgemmDispatchOp
   ArrayRef<int64_t> inputs = op.getInputsAttr().asArrayRef();
   for (auto input : inputs) {
     ss << "_" << input;
