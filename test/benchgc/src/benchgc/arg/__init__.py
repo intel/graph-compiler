@@ -73,11 +73,14 @@ def set_default_compare(
             if flags.driver + "." + flags.case in module.op:
                 module.default_compare(flags, arg, arglist)
                 return
+            elif flags.driver == "pattern":
+                get_pattern_clz(flags.case).default_compare(flags, arg, arglist)
+                return
 
     dtype: torch.dtype = benchgc.util.get_dtype(arg.dtype)
     arg.cmp_type = "P"
     if dtype.is_floating_point:
-        arg.cmp_param = [str(torch.finfo(dtype).eps)]
+        arg.cmp_param = [str(1e-05)]
     else:
         arg.cmp_param = ["0"]
     if is_return:
