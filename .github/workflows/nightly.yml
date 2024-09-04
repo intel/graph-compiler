@@ -1,0 +1,99 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+  push:
+
+jobs:
+  nightly:
+    runs-on: [self-hosted]
+    env:
+      GH_TOKEN: ${{ github.token }}    
+    strategy:
+      # do not cancel other jobs if one of the job fails
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+
+    steps:
+
+    - name: Setup Compiler
+      run: |
+        if  [ "${{ matrix.compiler }}" == "gcc" ]; then
+          echo CMAKE_COMPILER_FLAG=-DCMAKE_C_COMPILER=$(which gcc) -DCMAKE_CXX_COMPILER=$(which g++) >>$GITHUB_ENV
+        elif [ "${{ matrix.compiler }}" == "clang" ]; then
+          echo CMAKE_COMPILER_FLAG=-DCMAKE_C_COMPILER=$(which clang) -DCMAKE_CXX_COMPILER=$(which clang++) -DDNNL_USE_CLANG_SANITIZER=Undefined >>$GITHUB_ENV
+        fi
+
+    - name: Checkout Graph Compiler
+      uses: actions/checkout@v4
+      with:
+        # nightly test only works on main branch
+        repository: 'intel/graph-compiler'
+        ref: 'main'
+        path: 'graph-compiler'
+    
+    - name: Read LLVM Hash
+      run: echo LLVM_HASH=$(cat graph-compiler/cmake/llvm-version.txt) >>$GITHUB_ENV
+
+    # nightly test always rebuild the llvm   
+    - name: Checkout LLVM
+      uses: actions/checkout@v4
+      with:
+        repository: 'llvm/llvm-project'
+        path: 'llvm-project'
+        ref: ${{ env.LLVM_HASH }}
+    
+    - name: Install MLIR Python Binding Requirements
+      run: python3 -m pip install -r llvm-project/mlir/python/requirements.txt
+    
+    - name: Build LLVM
+      working-directory: ./llvm-project
+      run: |
+        mkdir llvm-install
+        cmake -G Ninja llvm -B build $CMAKE_COMPILER_FLAG -DCMAKE_INSTALL_PREFIX=llvm-install -DPython3_EXECUTABLE=`which python3` -DMLIR_ENABLE_BINDINGS_PYTHON=ON -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_ENABLE_PROJECTS="mlir" -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_INSTALL_UTILS=true -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLLVM_INSTALL_GTEST=ON
+        cmake --build build --target install
+    
+    - name: Build Graph Compiler
+      working-directory: ./graph-compiler
+      run: |
+        cmake -G Ninja -B build $CMAKE_COMPILER_FLAG -DCMAKE_BUILD_TYPE=Release -DMLIR_DIR=../llvm-project/llvm-install/lib/cmake/mlir -DLLVM_EXTERNAL_LIT=$(which lit)
+        cmake --build build
+    
+    - name: Check Clang Tidy
+      if: matrix.compiler == 'clang'
+      id: clang_tidy
+      continue-on-error: true
+      working-directory: ./graph-compiler/build
+      run: |
+        python3 ../../llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -warnings-as-errors=* -p ./ -config-file ../../llvm-project/mlir/.clang-tidy -clang-tidy-binary $(which clang-tidy-15) $(jq -r '.[].file' ./compile_commands.json | grep -v llvm-install|grep -v dnnl-src)
+
+    - name: Run Graph Compiler Check
+      id: gc_check
+      continue-on-error: true
+      working-directory: ./graph-compiler
+      run: cmake --build build --target gc-check
+    
+    - name: Build/Install BenchGC
+      working-directory: ./graph-compiler
+      run: |
+        cmake --build build --target benchgc
+        pip uninstall -y benchgc || true
+        pip install build/test/benchgc/dist/benchgc-*.whl
+    
+    - name: Nightly Correctness Test
+      id: correctness_test
+      continue-on-error: true
+      working-directory: ./graph-compiler
+      env:
+        LD_PRELOAD: /lib/x86_64-linux-gnu/libomp5.so
+      run: scripts/correctness.sh
+
+    - name: Fail The Job 
+      if: >
+        steps.clang_tidy.outcome == 'failure' || 
+        steps.gc_check.outcome == 'failure' || 
+        steps.correctness_test.outcome == 'failure'
+      run: exit 1
