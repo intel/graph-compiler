@@ -324,7 +324,7 @@ static bool checkFusibleFillOp(DenseMap<Value, Value> &replaceMap,
   bool fuseFill = false;
   Value operandC = op.getDpsInitsMutable()[0].get();
   auto defOp = operandC.getDefiningOp();
-  if (auto fillOp = dyn_cast<linalg::FillOp>(defOp)) {
+  if (auto fillOp = dyn_cast_or_null<linalg::FillOp>(defOp)) {
     auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
         fillOp.getInputs()[0].getDefiningOp());
     if (isZeroArithConstant(inputCst)) {
