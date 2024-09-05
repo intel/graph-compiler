@@ -60,7 +60,7 @@ getCompensatedStrides(ArrayRef<int64_t> shape, Value val, int64_t batchDim,
   auto strides = utils::getStrides(val);
   if (failed(strides))
     return failure();
-  for (int idx = 0; idx < strides->size(); idx++) {
+  for (size_t idx = 0; idx < strides->size(); idx++) {
     if ((*strides)[idx] == ShapedType::kDynamic) {
       if (idx != batchDim || idx != leadingDim)
         return failure();
