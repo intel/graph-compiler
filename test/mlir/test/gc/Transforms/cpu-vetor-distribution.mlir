@@ -596,3 +596,24 @@ func.func @reduce_fuse_test12(%input: tensor<16x32x64xf32>,
   %1 = linalg.mul ins(%reduce, %reduce : tensor<16x32xf32>, tensor<16x32xf32>) outs(%init: tensor<16x32xf32>) -> tensor<16x32xf32>
   func.return %1 : tensor<16x32xf32>
 }
+
+// func.func @pad_single_test13(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x58x58xf32> {
+//   %cst = arith.constant 0.000000e+00 : f32
+//   %padded = tensor.pad %arg0 low[0, 0, 1, 1] high[0, 0, 1, 1] {
+//     ^bb0(%arg3: index, %arg4: index, %arg5: index, %arg6: index):
+//     tensor.yield %cst : f32
+//   } : tensor<1x64x56x56xf32> to tensor<1x64x58x58xf32>
+//   return %padded : tensor<1x64x58x58xf32>
+// }
+
+
+// func.func @pad_valid_pack_propagation(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x2x58x58x32xf32> {
+//   %cst = arith.constant 0.000000e+00 : f32
+//   %padded = tensor.pad %arg0 low[0, 0, 1, 1] high[0, 0, 1, 1] {
+//     ^bb0(%arg3: index, %arg4: index, %arg5: index, %arg6: index):
+//     tensor.yield %cst : f32
+//   } : tensor<1x64x56x56xf32> to tensor<1x64x58x58xf32>
+//   %0 = tensor.empty() : tensor<1x2x58x58x32xf32>
+//   %1 = tensor.pack %padded inner_dims_pos = [1] inner_tiles = [32] into %0 : tensor<1x64x58x58xf32> -> tensor<1x2x58x58x32xf32>
+//   return %1 : tensor<1x2x58x58x32xf32>
+// }
