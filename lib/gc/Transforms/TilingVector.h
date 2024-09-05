@@ -522,11 +522,7 @@ public:
   void generateGroupOpVectorizedIR(const int idx);
 
   /// prepare for loop iteration args
-  void prepareForLoopArgs(const size_t grpIdx,
-                          DenseMap<Value, int> &currentLoopStateIdxMap,
-                          DenseMap<Value, Value> &originalOperandLoopArgsMap,
-                          DenseMap<Value, Value> &loopArgsOriginalOperandMap,
-                          SmallVector<Value> &loopArgs);
+  void prepareForLoopArgs(const size_t grpIdx, GenerateLoopHelper &loopHelper);
 
   /// replace original operation result with corresponding for loop result
   void replaceOpUsersWithForLoopResult(
@@ -551,18 +547,10 @@ public:
   generateVectorizedForLoop(const size_t groupId, IRRewriter &rewriter,
                             const VectorType vectorType);
 
-  scf::ForOp constructNestedForOp(
-      const size_t forDimIdx, const size_t groupIdx, OpBuilder &b,
-      const Location &loc, const ValueRange &iterArgs,
-      const llvm::ArrayRef<int64_t> &dims,
-      llvm::SmallVector<Value, 5> &inductionVars,
-      llvm::DenseMap<Value, int> &operandIdxMap,
-      DenseMap<Value, Value> &originalOperandMap,
-      DenseMap<Value, Value> &operandOriginalMap,
-      llvm::SmallVector<Value, 4> &nextAnchorResults,
-      DenseMap<Value, int> &nextAnchorResultsIdxMap,
-      DenseMap<Value, Value> &forResultOrignalResultMap,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+  scf::ForOp constructNestedForOp(const size_t forDimIdx, const size_t groupIdx,
+                                  OpBuilder &b, const Location &loc,
+                                  ArrayRef<int64_t> dims,
+                                  GenerateLoopHelper &loopGenerator);
 
   void moveOperationsToCurrentForBody(
       const size_t groupIdx, const OpBuilder &b, ArrayRef<Value> inductionVars,

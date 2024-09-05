@@ -1228,13 +1228,12 @@ void ForLoopGenerator::generateLoopResults(
   nextAnchorResults.clear();
   nextAnchorResultsIdxMap.clear();
   // reduction operation due to special process results size will be zero
-  if (results.size() > 0) {
+  if (results.size() > 0)
     for (Value x : loopState) {
       nextAnchorResults.emplace_back(results[nextOperandIdxMap[x]]);
       nextAnchorResultsIdxMap[results[nextOperandIdxMap[x]]] =
           nextAnchorResults.size() - 1;
     }
-  }
 
   forResultOrignalResultMap = std::move(currentResultMap);
 }
@@ -1739,17 +1738,14 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
       });
 }
 
-void ForLoopGenerator::prepareForLoopArgs(
-    const size_t grpIdx, DenseMap<Value, int> &currentLoopStateIdxMap,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    DenseMap<Value, Value> &loopArgsOriginalOperandMap,
-    SmallVector<Value> &loopArgs) {
+void ForLoopGenerator::prepareForLoopArgs(const size_t grpIdx,
+                                          GenerateLoopHelper &loopHelper) {
   SetVector<Value> &grpArgs = getGroupOpInitArgs()[grpIdx];
-  loopArgs.assign(grpArgs.begin(), grpArgs.end());
+  loopHelper.loopIterArgs = grpArgs.getArrayRef();
   for (auto [idx, val] : llvm::enumerate(grpArgs)) {
-    currentLoopStateIdxMap[val] = idx;
-    originalOperandLoopArgsMap[val] = val;
-    loopArgsOriginalOperandMap[val] = val;
+    loopHelper.currentLoopStateIdxMap[val] = idx;
+    loopHelper.originalOperandLoopArgsMap[val] = val;
+    loopHelper.loopArgsOriginalOperandMap[val] = val;
   }
 }
 
@@ -1839,18 +1835,8 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
   rearrageMultiReductionIR(grpIdx, indiceLoopMap);
   // get current loop init args
   DenseMap<Value, int> currentLoopStateIdxMap, nextAnchorResultsIdxMap;
-  // map original operation operand with loop args
-  DenseMap<Value, Value> originalOperandLoopArgsMap, loopArgsOriginalOperandMap,
-      forResultOrignalResultMap;
-
-  SmallVector<Value> initArgs;
-  prepareForLoopArgs(grpIdx, currentLoopStateIdxMap, originalOperandLoopArgsMap,
-                     loopArgsOriginalOperandMap, initArgs);
   GenerateLoopHelper loopHelper;
-  loopHelper.loopIterArgs = initArgs;
-  loopHelper.originalOperandLoopArgsMap = originalOperandLoopArgsMap;
-  loopHelper.loopArgsOriginalOperandMap = loopArgsOriginalOperandMap;
-  loopHelper.currentLoopStateIdxMap = currentLoopStateIdxMap;
+  prepareForLoopArgs(grpIdx, loopHelper);
 
   MultiReductionCanonicalizer &rdCanonicalizer =
       getMultiRdCanonicalizers()[grpIdx];
@@ -2224,8 +2210,12 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   DenseMap<Value, Value> originalOperandMap, operandOriginalMap, resultIdxMap,
       forResultOrignalResultMap;
   SmallVector<Value> iterArgs;
-  prepareForLoopArgs(grpIdx, operandIdxMap, originalOperandMap,
-                     operandOriginalMap, iterArgs);
+  GenerateLoopHelper loopHelper;
+  prepareForLoopArgs(grpIdx, loopHelper);
+  operandIdxMap = loopHelper.currentLoopStateIdxMap;
+  originalOperandMap = loopHelper.originalOperandLoopArgsMap;
+  operandOriginalMap = loopHelper.loopArgsOriginalOperandMap;
+  iterArgs = loopHelper.loopIterArgs;
   SmallVector<Value> inductionVars;
 
   // TODO: need to process transpose on all one dim
@@ -2733,15 +2723,8 @@ void ForLoopGenerator::setOperationCorrectOperand(
 
 scf::ForOp ForLoopGenerator::constructNestedForOp(
     const size_t forDimIdx, const size_t groupIdx, OpBuilder &b,
-    const Location &loc, const ValueRange &iterArgs,
-    const ArrayRef<int64_t> &dims, SmallVector<Value, 5> &inductionVars,
-    DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandMap,
-    DenseMap<Value, Value> &operandOriginalMap,
-    SmallVector<Value, 4> &nextAnchorResults,
-    DenseMap<Value, int> &nextAnchorResultsIdxMap,
-    DenseMap<Value, Value> &forResultOrignalResultMap,
-    DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap) {
+    const Location &loc, ArrayRef<int64_t> dims,
+    GenerateLoopHelper &loopHelper) {
   const int loop_step = getFusionStrategy().getGroupMaxSteps()[groupIdx];
   // loop initialization variable
   auto zero = makeIndexArithConstantOp(b, loc, 0);
@@ -2751,9 +2734,9 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
 
   // Create a loop and move vectorized operation into loops.
   auto forOp = b.create<scf::ForOp>(
-      loc, zero, numIter, forSteps, iterArgs,
+      loc, zero, numIter, forSteps, loopHelper.loopIterArgs,
       [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
-        inductionVars.emplace_back(iv);
+        loopHelper.inductionVars.emplace_back(iv);
 
         // inner most body of the loop
         if (forDimIdx == dims.size() - 1) {
@@ -2768,49 +2751,60 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
 
           // 3. move opeartions to current for block
           moveOperationsToCurrentForBody(
-              groupIdx, b, inductionVars, operandIdxMap, loopState,
-              originalOperandMap, movingOperation, indiceLoopMap);
+              groupIdx, b, loopHelper.inductionVars,
+              loopHelper.currentLoopStateIdxMap, loopState,
+              loopHelper.originalOperandLoopArgsMap, movingOperation,
+              loopHelper.indiceLoopMap);
 
           getResultInCurrentOps(forDimIdx, groupIdx, movingOperation,
-                                nextAnchorResults, nextAnchorResultsIdxMap,
-                                forResultOrignalResultMap);
-          maybeYieldValue(b, loc, nextAnchorResults);
+                                loopHelper.nextAnchorResults,
+                                loopHelper.nextAnchorResultsIdxMap,
+                                loopHelper.nextAnchorResultOrignalResultMap);
+          maybeYieldValue(b, loc, loopHelper.nextAnchorResults);
         } else {
           // outter loop
 
           // 1. move pre-Op to current body
           DenseMap<Value, int> nextAnchorArgsIdxMap;
           SmallVector<Value, 4> nextAnchorArgs;
-          DenseMap<Value, Value> currentOriginalOperandMap = originalOperandMap;
-          DenseMap<Value, Value> currentOperandOriginalMap = operandOriginalMap;
+          DenseMap<Value, Value> currentOriginalOperandMap =
+              loopHelper.originalOperandLoopArgsMap;
+          DenseMap<Value, Value> currentOperandOriginalMap =
+              loopHelper.loopArgsOriginalOperandMap;
+          DenseMap<Value, int> currentArgsIdxMap =
+              loopHelper.currentLoopStateIdxMap;
 
           std::queue<Operation *> movedQueue;
           std::queue<Operation *> &opQueue =
               getFusionStrategy().getOpGroups()[groupIdx];
 
           movePreOpToCurrentAnchor(
-              forDimIdx, groupIdx, b, inductionVars, loopState, operandIdxMap,
-              nextAnchorArgsIdxMap, nextAnchorArgs, opQueue, movedQueue,
-              originalOperandMap, operandOriginalMap, indiceLoopMap);
+              forDimIdx, groupIdx, b, loopHelper.inductionVars, loopState,
+              loopHelper.currentLoopStateIdxMap, nextAnchorArgsIdxMap,
+              nextAnchorArgs, opQueue, movedQueue,
+              loopHelper.originalOperandLoopArgsMap,
+              loopHelper.loopArgsOriginalOperandMap, loopHelper.indiceLoopMap);
 
-          auto nxtFor = constructNestedForOp(
-              forDimIdx + 1, groupIdx, b, loc, nextAnchorArgs, dims,
-              inductionVars, nextAnchorArgsIdxMap, originalOperandMap,
-              operandOriginalMap, nextAnchorResults, nextAnchorResultsIdxMap,
-              forResultOrignalResultMap, indiceLoopMap);
+          loopHelper.loopIterArgs = nextAnchorArgs;
+          loopHelper.currentLoopStateIdxMap = nextAnchorArgsIdxMap;
+          auto nxtFor = constructNestedForOp(forDimIdx + 1, groupIdx, b, loc,
+                                             dims, loopHelper);
 
           movePostOpToCurrentAnchor(
               b, forDimIdx, groupIdx, nxtFor->getResults(), b.getBlock(),
-              opQueue, movedQueue, inductionVars, operandIdxMap, loopState,
-              currentOriginalOperandMap, currentOperandOriginalMap,
-              nextAnchorResults, forResultOrignalResultMap, indiceLoopMap);
+              opQueue, movedQueue, loopHelper.inductionVars, currentArgsIdxMap,
+              loopState, currentOriginalOperandMap, currentOperandOriginalMap,
+              loopHelper.nextAnchorResults,
+              loopHelper.nextAnchorResultOrignalResultMap,
+              loopHelper.indiceLoopMap);
 
-          generateLoopResults(b, loc, forDimIdx, groupIdx, nextAnchorResults,
-                              nextAnchorResultsIdxMap, nxtFor->getResults(),
-                              movedQueue, forResultOrignalResultMap, loopState,
-                              currentOperandOriginalMap, nextAnchorArgsIdxMap);
+          generateLoopResults(
+              b, loc, forDimIdx, groupIdx, loopHelper.nextAnchorResults,
+              loopHelper.nextAnchorResultsIdxMap, nxtFor->getResults(),
+              movedQueue, loopHelper.nextAnchorResultOrignalResultMap,
+              loopState, currentOperandOriginalMap, nextAnchorArgsIdxMap);
 
-          maybeYieldValue(b, loc, nextAnchorResults);
+          maybeYieldValue(b, loc, loopHelper.nextAnchorResults);
         }
       });
   return forOp;
@@ -3873,29 +3867,17 @@ void ForLoopGenerator::rectifyGroupOperands(size_t currentGroupId,
 
 mlir::FailureOr<scf::ForOp> ForLoopGenerator::generateVectorizedForLoop(
     const size_t groupId, IRRewriter &rewriter, VectorType vectorType) {
-  auto &resultSet = getGroupOpResults();
-  assert(!resultSet.empty() && "Expected non-empty value");
   // prepare for loop iterargs
-  SmallVector<Value> operands;
-  SmallVector<Value, 4> nextLoopResults;
-  DenseMap<Value, int> operandIdxMap, resultIdxMap;
-  DenseMap<Value, Value> originalOperandMap, operandOriginalMap,
-      forResultOrignalResultMap;
+  GenerateLoopHelper loopHelper;
+  prepareForLoopArgs(groupId, loopHelper);
 
-  prepareForLoopArgs(groupId, operandIdxMap, originalOperandMap,
-                     operandOriginalMap, operands);
-
-  ValueRange forIterArgs(operands);
   ArrayRef<int64_t> shapes = vectorType.getShape();
-  SmallVector<Value, 5> inductionVars;
-  DenseMap<Operation *, DenseMap<size_t, size_t>> indiceLoopMap;
   // generate for loop
   auto forOp = constructNestedForOp(
-      0, groupId, rewriter, rewriter.getUnknownLoc(), forIterArgs, shapes,
-      inductionVars, operandIdxMap, originalOperandMap, operandOriginalMap,
-      nextLoopResults, resultIdxMap, forResultOrignalResultMap, indiceLoopMap);
-  replaceOpUsersWithForLoopResult(forOp, groupId, nextLoopResults, resultIdxMap,
-                                  forResultOrignalResultMap);
+      0, groupId, rewriter, rewriter.getUnknownLoc(), shapes, loopHelper);
+  replaceOpUsersWithForLoopResult(forOp, groupId, loopHelper.nextAnchorResults,
+                                  loopHelper.nextAnchorResultsIdxMap,
+                                  loopHelper.nextAnchorResultOrignalResultMap);
 
   return forOp;
 }
