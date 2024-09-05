@@ -64,9 +64,17 @@ func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<12
     // CHECK: tensor.collapse_shape {{.*}} tensor<1x1x32x32xbf16> into tensor<32x32xbf16>
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: else
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: scf.if
     // CHECK: linalg.copy
     // CHECK: else
@@ -100,9 +108,17 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
     // CHECK: linalg.transpose {{.*}} permutation = [1, 0, 2]
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: else
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
@@ -141,9 +157,17 @@ func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: ten
     // CHECK: linalg.transpose
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: else
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: scf.forall.in_parallel
     %2 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) outs(%1 : tensor<4096x4096xbf16>)  -> tensor<4096x4096xbf16>
     return %2 : tensor<4096x4096xbf16>
@@ -181,9 +205,17 @@ func.func @matmul_4Dx4D_bf16_generic(%arg0: tensor<128x128x32x32xbf16>, %arg1: t
     // CHECK: tensor.collapse_shape {{.*}} tensor<1x1x32x32xbf16> into tensor<32x32xbf16>
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: else
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: scf.if
     // CHECK: linalg.copy
     // CHECK: else
@@ -229,9 +261,17 @@ func.func @matmul_2Dx4D_bf16_generic(%arg0: tensor<4096x4096xbf16>, %arg1: tenso
     // CHECK: linalg.transpose {{.*}} permutation = [1, 0, 2]
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: else
-    // CHECK: linalgx.batch_reduce_matmul_vnni
+    // CHECK: linalg.generic
+    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
+    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
