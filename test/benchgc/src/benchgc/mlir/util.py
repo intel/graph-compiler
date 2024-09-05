@@ -21,7 +21,10 @@ from typing import Any, List
 import torch
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
+<<<<<<< HEAD
 from gc_mlir.tools import cpuinfo
+=======
+>>>>>>> main
 
 
 # calling python binding consumes a lot of time e.g. get_name()
@@ -144,12 +147,6 @@ def get_kernel_func_from_module(
     module: ir.Module, func_name: str = "entry"
 ) -> func.FuncOp:
     """Get the func op by the name from a module"""
-    assert (
-        len(module.operation.regions) == 1
-    ), "Expected kernel module to have only one region"
-    assert (
-        len(module.operation.regions[0].blocks) == 1
-    ), "Expected kernel module to have only one block"
     for f in module.operation.regions[0].blocks[0].operations:
         if type(f) is func.FuncOp and str(f.name).strip('"') == func_name:
             return f

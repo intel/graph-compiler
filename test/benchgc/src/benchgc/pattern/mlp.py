@@ -16,6 +16,7 @@
 ################################################################################
 
 import argparse
+from re import U
 from typing import List
 
 from benchgc.arg.arg import Arg
@@ -156,33 +157,19 @@ class MLP(Pattern):
         arg: Arg,
         arglist: List[Arg],
     ):
-        layers = len(flags.hidden_size_list.strip().split("x"))
-        if arg.index == 0:
-            # src
-            arg.fill_type = "D"
-            arg.fill_param = [
-                "matmul",
-                "src",
-                arglist[0].dtype,
-                arglist[0].dtype,
-                arglist[0].dtype,
-                1,
-            ]
-        elif arg.index <= layers:
-            # wei
-            arg.fill_type = "D"
-            arg.fill_param = [
-                "matmul",
-                "wei",
-                arglist[0].dtype,
-                arglist[0].dtype,
-                arglist[0].dtype,
-                1,
-            ]
+        arg.fill_type = "U"
+        arg.fill_param = ["0", "1"]
+
+    def default_compare(
+        flags: argparse.Namespace,
+        arg: Arg,
+        arglist: List[Arg],
+    ):
+        arg.cmp_type = "P"
+        if arg.dtype == "f32":
+            arg.cmp_param = [str(1e-5)]
+        elif arg.dtype == "bf16":
+            arg.cmp_param = [str(5e-2)]
         else:
-            # bias
-            arg.fill_type = "N"
-            if arg.dtype in ["f32", "bf16", "f16"]:
-                arg.fill_param = ["-8", "8"]
-            else:
-                arg.fill_param = ["0", "8"]
+            raise Exception("Unsupported dtype for mlp pattern")
+        arg.cmp_param.append("100.0")
