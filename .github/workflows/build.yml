@@ -24,7 +24,8 @@ jobs:
 
       - name: Set LLVM hash
         run: |
-          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV       
+          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
+       
       - name: Fetch requirements for python binding
         uses: actions/checkout@v4
         with:

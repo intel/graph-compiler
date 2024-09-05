@@ -21,10 +21,7 @@ from typing import Any, List
 import torch
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
-<<<<<<< HEAD
 from gc_mlir.tools import cpuinfo
-=======
->>>>>>> main
 
 
 # calling python binding consumes a lot of time e.g. get_name()
