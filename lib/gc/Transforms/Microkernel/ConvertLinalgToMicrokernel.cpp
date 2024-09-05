@@ -158,6 +158,23 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   else
     return failure();
 
+  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
+  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
+  Type operandBElemType = getElementTypeOrSelf(operandB->get());
+  if (operandBElemType.isF32()) {
+    if (kAffinePos.size() == 2) {
+      LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions for input "
+                                 "B, should be non-VNNI\n");
+      return failure();
+    }
+  } else {
+    if (kAffinePos.size() == 1) {
+      LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions for input "
+                                 "B, should be VNNI\n");
+      return failure();
+    }
+  }
+
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] Candidate dims: "
                           << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] m pos in affine: " << mAffinePos
@@ -169,9 +186,6 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
                << "[inferBrgemmDims] k pos in affine: " << kp << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] batch pos in affine: "
                           << batchAffinePos << "\n");
-
-  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
-  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
 
   BrgemmDims brgemmDims;
 

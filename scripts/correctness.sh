@@ -102,5 +102,8 @@ python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/reduce.mlir || F
 # mlir
 # python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/llama2.mlir || FAIL=1
 
+#mlp
+python3 -m benchgc --verbose 1  --driver pattern --case mlp --batch_size=32 --hidden_size_list=32x16x64 --has_bias=1x1 --act_type=noop --dtype=f32 
+
 set +e
 exit $FAIL

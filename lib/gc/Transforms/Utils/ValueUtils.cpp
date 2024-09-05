@@ -125,7 +125,7 @@ std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand) {
   auto memrefType = dyn_cast<MemRefType>(operand.getType());
   assert(memrefType && "Expect a memref value");
 
-  Location loc = operand.getDefiningOp()->getLoc();
+  Location loc = operand.getLoc();
   OpBuilder::InsertionGuard guard(builder);
   // Insert right after operand producer for better opt chances.
   builder.setInsertionPointAfterValue(operand);

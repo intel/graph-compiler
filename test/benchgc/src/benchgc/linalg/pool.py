@@ -17,19 +17,19 @@
 import argparse
 from typing import Dict, List, Tuple
 
-import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.module import init_module
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 from gc_mlir.dialects import linalg
 
 
 def ref_pooling_nchw_max(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool2d(
             var[cache.opr[0]],
@@ -40,10 +40,9 @@ def ref_pooling_nchw_max(
     )
 
 
-def mlir_pooling_nchw_max(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nchw_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -59,10 +58,10 @@ def mlir_pooling_nchw_max(
 
 
 def ref_pooling_nchw_sum(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     # pytorch does not support pooling on sum
     # avg_pool2d or lp_pool2d with p = 1 does not support dilation
@@ -83,10 +82,9 @@ def ref_pooling_nchw_sum(
     )
 
 
-def mlir_pooling_nchw_sum(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nchw_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -102,10 +100,10 @@ def mlir_pooling_nchw_sum(
 
 
 def ref_pooling_ncw_max(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool1d(
             var[cache.opr[0]],
@@ -116,10 +114,9 @@ def ref_pooling_ncw_max(
     )
 
 
-def mlir_pooling_ncw_max(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_ncw_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -135,10 +132,10 @@ def mlir_pooling_ncw_max(
 
 
 def ref_pooling_ncw_sum(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     # pytorch does not support pooling on sum
     # avg_pool1d or lp_pool1d with p = 1 does not support dilation
@@ -159,10 +156,9 @@ def ref_pooling_ncw_sum(
     )
 
 
-def mlir_pooling_ncw_sum(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_ncw_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -178,10 +174,10 @@ def mlir_pooling_ncw_sum(
 
 
 def ref_pooling_ndhwc_max(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool3d(
             var[cache.opr[0]].permute([0, -1, 1, 2, 3]),
@@ -194,10 +190,9 @@ def ref_pooling_ndhwc_max(
     )
 
 
-def mlir_pooling_ndhwc_max(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_ndhwc_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -213,10 +208,10 @@ def mlir_pooling_ndhwc_max(
 
 
 def ref_pooling_ndhwc_sum(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     # pytorch does not support pooling on sum
     # avg_pool3d or lp_pool3d with p = 1 does not support dilation
@@ -239,10 +234,9 @@ def ref_pooling_ndhwc_sum(
     )
 
 
-def mlir_pooling_ndhwc_sum(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_ndhwc_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -258,10 +252,10 @@ def mlir_pooling_ndhwc_sum(
 
 
 def ref_pooling_nhwc_max(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool2d(
             var[cache.opr[0]].permute([0, -1, 1, 2]),
@@ -274,10 +268,9 @@ def ref_pooling_nhwc_max(
     )
 
 
-def mlir_pooling_nhwc_max(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nhwc_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -293,10 +286,10 @@ def mlir_pooling_nhwc_max(
 
 
 def ref_pooling_nhwc_sum(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     # pytorch does not support pooling on sum
     # avg_pool2d or lp_pool2d with p = 1 does not support dilation
@@ -319,10 +312,9 @@ def ref_pooling_nhwc_sum(
     )
 
 
-def mlir_pooling_nhwc_sum(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nhwc_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -338,10 +330,10 @@ def mlir_pooling_nhwc_sum(
 
 
 def ref_pooling_nhwc_min(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool2d(
             var[cache.opr[0]].permute([0, -1, 1, 2]).neg(),
@@ -355,10 +347,9 @@ def ref_pooling_nhwc_min(
     )
 
 
-def mlir_pooling_nhwc_min(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nhwc_min(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -374,10 +365,10 @@ def mlir_pooling_nhwc_min(
 
 
 def ref_pooling_nwc_max(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool1d(
             var[cache.opr[0]].permute([0, -1, 1]),
@@ -390,10 +381,9 @@ def ref_pooling_nwc_max(
     )
 
 
-def mlir_pooling_nwc_max(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nwc_max(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -409,10 +399,10 @@ def mlir_pooling_nwc_max(
 
 
 def ref_pooling_nwc_min(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
     return (
         torch.max_pool1d(
             var[cache.opr[0]].permute([0, -1, 1]).neg(),
@@ -426,10 +416,9 @@ def ref_pooling_nwc_min(
     )
 
 
-def mlir_pooling_nwc_min(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nwc_min(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -445,10 +434,10 @@ def mlir_pooling_nwc_min(
 
 
 def ref_pooling_nwc_sum(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
-    strides: gc_mlir.ir.DenseIntElementsAttr = op.attributes["strides"]
-    dilations: gc_mlir.ir.DenseIntElementsAttr = op.attributes["dilations"]
+    strides: ir.DenseIntElementsAttr = op.attributes["strides"]
+    dilations: ir.DenseIntElementsAttr = op.attributes["dilations"]
 
     # pytorch does not support pooling on sum
     # avg_pool3d or lp_pool3d with p = 1 does not support dilation
@@ -471,10 +460,9 @@ def ref_pooling_nwc_sum(
     )
 
 
-def mlir_pooling_nwc_sum(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_pooling_nwc_sum(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [

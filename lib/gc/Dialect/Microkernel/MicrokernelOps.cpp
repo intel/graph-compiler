@@ -213,6 +213,42 @@ static LogicalResult verifyBrgemmFlags(ArrayAttr flags, Operation *op,
   return success();
 }
 
+static bool isTypeSupported(Type outType, Type operandAType,
+                            Type operandBType) {
+  if (!outType.isF32() && !outType.isSignedInteger(32))
+    return false;
+
+  if (outType.isF32()) {
+    if (!(operandAType.isF32() && operandBType.isF32()) &&
+        !(operandAType.isBF16() && operandBType.isBF16()))
+      return false;
+  }
+  if (outType.isSignedInteger(32)) {
+    if (!(operandAType.isSignedInteger(8) ||
+          operandAType.isUnsignedInteger(8)) &&
+        (operandBType.isSignedInteger(8) || operandBType.isUnsignedInteger(8)))
+      return false;
+  }
+  return true;
+}
+
+// TODO(haixin): could use compiler-wide VNNI utils?
+static bool isInVnniLayout(ShapedType type) {
+  if (!type.getElementType().isBF16() &&
+      !type.getElementType().isSignedInteger(8) &&
+      !type.getElementType().isUnsignedInteger(8))
+    return false;
+
+  auto blockingFactor = 0;
+  if (type.getElementType().isBF16())
+    blockingFactor = 2;
+  else if (type.getElementType().isSignedInteger(8) ||
+           type.getElementType().isUnsignedInteger(8))
+    blockingFactor = 4;
+
+  return type.getShape().back() == blockingFactor;
+}
+
 /////////////////////////////////////////////////////
 // Start of BrgemmOp
 
@@ -308,9 +344,8 @@ static inline ArrayRef<int64_t> getShapedValueShape(Value val) {
   assert((llvm::isa<TensorType>(val.getType()) ||
           llvm::isa<MemRefType>(val.getType())) &&
          "Expecting shaped value");
-  if (auto tensorTy = dyn_cast_or_null<TensorType>(val.getType())) {
+  if (auto tensorTy = dyn_cast_or_null<TensorType>(val.getType()))
     return tensorTy.getShape();
-  }
   auto memrefTy = dyn_cast_or_null<MemRefType>(val.getType());
   return memrefTy.getShape();
 }
@@ -331,15 +366,27 @@ LogicalResult BrgemmOp::verify() {
     return op.emitOpError()
            << "expect inputs and its related info to be size 2\n";
 
+  auto elemTypeA = getElementTypeOrSelf(ins[0]);
+  auto elemTypeB = getElementTypeOrSelf(ins[1]);
+  auto elemTypeC = getElementTypeOrSelf(out);
+  if (!isTypeSupported(elemTypeC, elemTypeA, elemTypeB))
+    return op.emitOpError() << "unsupported input matrix types\n";
+
   ArrayRef<int64_t> dimA = getShapedValueShape(ins[0]);
   ArrayRef<int64_t> dimB = getShapedValueShape(ins[1]);
   ArrayRef<int64_t> dimC = getShapedValueShape(out);
   if (dimA.size() != 3)
     return op.emitOpError() << "expect input A to be 3D\n";
-  if (dimB.size() != 3 && dimB.size() != 4)
-    return op.emitOpError() << "expect input B to be 3D or 4D\n";
-  if (dimB.size() == 4 && (dimB[3] != 2 && dimB[3] != 4))
-    return op.emitOpError() << "expect input B vnni step to be 2 or 4\n";
+  if (!elemTypeB.isF32()) {
+    if (dimB.size() != 4 ||
+        !isInVnniLayout(dyn_cast<ShapedType>(ins[1].getType())))
+      return op.emitOpError()
+             << "expect a 4d VNNI input B for non-F32 operand: " << ins[1];
+  } else {
+    if (dimB.size() != 3)
+      return op.emitOpError()
+             << "expect a 3d input B for F32 operand: " << ins[1];
+  }
   if (dimC.size() != 2)
     return op.emitOpError() << "expect input C to be 2D\n";
   for (auto dim : batchDims)
@@ -557,42 +604,6 @@ LogicalResult BrgemmDispatchOp::verify() {
 
 /////////////////////////////////////////////////////
 // Start of BrgemmExecuteOp
-
-// TODO(haixin): could use compiler-wide VNNI utils?
-static bool isInVnniLayout(MemRefType memref) {
-  if (!memref.getElementType().isBF16() &&
-      !memref.getElementType().isSignedInteger(8) &&
-      !memref.getElementType().isUnsignedInteger(8))
-    return false;
-
-  auto blockingFactor = 0;
-  if (memref.getElementType().isBF16())
-    blockingFactor = 2;
-  else if (memref.getElementType().isSignedInteger(8) ||
-           memref.getElementType().isUnsignedInteger(8))
-    blockingFactor = 4;
-
-  return memref.getShape().back() == blockingFactor;
-}
-
-static bool isTypeSupported(Type outType, Type operandAType,
-                            Type operandBType) {
-  if (!outType.isF32() && !outType.isSignedInteger(32))
-    return false;
-
-  if (outType.isF32()) {
-    if (!(operandAType.isF32() && operandBType.isF32()) &&
-        !(operandAType.isBF16() && operandBType.isBF16()))
-      return false;
-  }
-  if (outType.isSignedInteger(32)) {
-    if (!(operandAType.isSignedInteger(8) ||
-          operandAType.isUnsignedInteger(8)) &&
-        (operandBType.isSignedInteger(8) || operandBType.isUnsignedInteger(8)))
-      return false;
-  }
-  return true;
-}
 
 LogicalResult BrgemmExecuteOp::verify() {
   BrgemmExecuteOp &brgemmOp = *this;
