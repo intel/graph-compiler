@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
 # ===-----------------------------------------------------------------------===#
+from gc_mlir.config import GC_ENABLE_DNNL_API
 
 
 def context_init_hook(context):
@@ -13,11 +14,9 @@ def context_init_hook(context):
 
     register_cpuruntime_dialect(context)
     
-    try:
+    if GC_ENABLE_DNNL_API:
         from ._gc_mlir.onednn_graph import (
             register_dialect as register_onednn_graph_dialect,
         )
 
         register_onednn_graph_dialect(context)
-    except ModuleNotFoundError:
-        print("onednn_graph dialect not found")
