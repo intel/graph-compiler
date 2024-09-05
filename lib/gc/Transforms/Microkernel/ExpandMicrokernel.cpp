@@ -53,21 +53,21 @@ struct BrgemmInfo {
 
 // This method try to retrieve static strides from MemRef, and allow dynamic
 // strides if corresponding dims == `1` and they are batch/leading dims. Would
-// place `0` in corresponding stride position.
+// place `INT_MAX` in corresponding stride position.
 static FailureOr<SmallVector<int64_t>>
 getCompensatedStrides(ArrayRef<int64_t> shape, Value val, int64_t batchDim,
                       int64_t leadingDim) {
   auto strides = utils::getStrides(val);
   if (failed(strides))
     return failure();
-  for (int idx = 0; idx < strides.size(); idx++) {
+  for (int idx = 0; idx < strides->size(); idx++) {
     if ((*strides)[idx] == ShapedType::kDynamic) {
       if (idx != batchDim || idx != leadingDim)
         return failure();
       // We can ignore the stride if dim == 1 (no need to step)
       if (shape[idx] != 1)
         return failure();
-      (*strides)[idx] = 0;
+      (*strides)[idx] = LONG_MAX;
     }
   }
   return strides;
@@ -106,20 +106,22 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
 
   auto checkAndGetStride =
       [&](int64_t batchDim, int64_t leadingDim,
-          Value operand) -> FailureOr<pair<int64_t, int64_t>> {
+          Value operand) -> FailureOr<std::pair<int64_t, int64_t>> {
     auto operandShape = checkTypeAndGetShape(operand);
     if (failed(operandShape))
       return failure();
-    auto stridesOnOperand = utils::getCompensatedStrides(*operandShape, operand,
-                                                         batchDim, leadingDim);
+    auto stridesOnOperand =
+        getCompensatedStrides(*operandShape, operand, batchDim, leadingDim);
     if (failed(stridesOnOperand))
       return failure();
     auto leadingDimStride = (*stridesOnOperand)[leadingDim];
     if (operandShape->size() == 4)
       // Input B VNNI format exists, special treatment to align with non-VNNI
       // format
-      return leadingDimStride / (*operandShape)[3];
-    return {(*stridesOnOperand)[batchDim], leadingDimStride};
+      return std::pair<int64_t, int64_t>{(*stridesOnOperand)[batchDim],
+                                         leadingDimStride / (*operandShape)[3]};
+    return std::pair<int64_t, int64_t>{(*stridesOnOperand)[batchDim],
+                                       leadingDimStride};
   };
 
   // A(m, k)
@@ -152,7 +154,7 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
   if (failed(strideC))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Ld stride on C: "
-                          << stride->second << "\n");
+                          << strideC->second << "\n");
 
   bool isInit = false;
   auto flags = brgemmOp.getFlagsAttr();

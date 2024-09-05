@@ -114,7 +114,7 @@ FailureOr<SmallVector<int64_t>> getStaticStrides(Value value) {
   auto strides = getStrides(value);
   if (failed(strides))
     return failure();
-  if (llvm::any_of(strides, [](int64_t stride) {
+  if (llvm::any_of(*strides, [](int64_t stride) {
         return stride == ShapedType::kDynamic;
       }))
     return failure();
