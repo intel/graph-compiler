@@ -10,15 +10,19 @@ get_property(mlir_dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(mlir_conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
 gc_add_mlir_library(GcPasses
+  MemRefToCPURuntime.cpp
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
-  DeepTileContractionNamedOp.cpp
+  DecomposeAggregatedOps.cpp
+  DeepTileContractionOp.cpp
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  FoldTensorOperation.cpp
+  LowerToTileVector.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
@@ -34,3 +38,5 @@ gc_add_mlir_library(GcPasses
 if(GC_ENABLE_IMEX)
   add_subdirectory(GPU)
 endif()
+
+add_subdirectory(Microkernel)

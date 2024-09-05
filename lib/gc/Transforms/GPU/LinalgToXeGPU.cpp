@@ -83,6 +83,12 @@ struct TilesArray {
   SmallVector<SmallVector<Value>> tileMatrix;
 };
 
+static xegpu::TensorDescType getTensorDescType(llvm::ArrayRef<int64_t> shape,
+                                               mlir::Type elementType) {
+  return xegpu::TensorDescType::get(shape, elementType, /*array_length*/ 1,
+                                    /*boundary_check*/ true);
+}
+
 // Return DPAS tile sizes if the gemm-like operation fits DPAS hardware.
 static bool isDPASCompatible(linalg::LinalgOp linalgOp, int kTile,
                              ArrayRef<int64_t> dpasTile) {
@@ -519,7 +525,7 @@ createGemmCoopPrefetchTile(PatternRewriter &rewriter, linalg::LinalgOp linalgOp,
   auto srcType = cast<ShapedType>(src.getType());
 
   auto prefetchType =
-      xegpu::TensorDescType::get({numRows, numCols}, srcType.getElementType());
+      getTensorDescType({numRows, numCols}, srcType.getElementType());
 
   Value threadId = getGpuLinearThreadId(rewriter, loc);
 
@@ -636,7 +642,7 @@ static SmallVector<Value> createDescriptorTiles(PatternRewriter &rewriter,
   assert(arrayLength == 1 && "Array descriptors are not supported");
 
   auto type = cast<ShapedType>(src.getType());
-  auto descType = xegpu::TensorDescType::get(descTile, type.getElementType());
+  auto descType = getTensorDescType(descTile, type.getElementType());
 
   // Create the root descriptor.
   //
@@ -893,8 +899,8 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   int dimK = typeA.getShape().back();
 
   // Create C sub-tiles.
-  auto dpasTypeC = xegpu::TensorDescType::get({dpasTileM, dpasTileN},
-                                              typeC.getElementType());
+  auto dpasTypeC =
+      getTensorDescType({dpasTileM, dpasTileN}, typeC.getElementType());
   SmallVector<Value> tilesC = createDescriptorTiles(
       rewriter, loc, matC, typeC.getShape(), {0, 0}, dpasTypeC.getShape());
 

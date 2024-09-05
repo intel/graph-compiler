@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - cmake/llvm-version.txt
+      - cmake/llvm-version-imex.txt
       - .github/workflows/build-llvm.yml
 
 permissions: read-all
@@ -13,21 +14,41 @@ jobs:
   build:
     name: Build
     runs-on: [self-hosted]
+    strategy:
+      matrix:
+        build-type: [CPU, IMEX]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Set LLVM hash
         run: |
-          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
+          if [ "${{ matrix.build-type }}" = "IMEX" ]; then
+            echo LLVM_HASH=$(cat cmake/llvm-version-imex.txt) >>$GITHUB_ENV
+            echo IMEX_HASH=$(cat cmake/imex-version.txt) >>$GITHUB_ENV
+          else
+            echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Menooker/mlir-extensions
+          ref: ${{ env.IMEX_HASH }}
+          path: mlir-extensions
+        if: ${{ matrix.build-type == 'IMEX' }}
 
       - uses: actions/checkout@v4
         with:
           repository: llvm/llvm-project
           ref: ${{ env.LLVM_HASH }}
+          path: llvm-project
 
       - name: Build
         run: |
+          cd llvm-project
+          if [ "${{ matrix.build-type }}" = "IMEX" ]; then
+            git apply ../mlir-extensions/build_tools/patches/*
+          fi
           python3 -m pip install -r mlir/python/requirements.txt
           mkdir llvm-install
           cmake -G Ninja llvm -B build -DCMAKE_INSTALL_PREFIX=llvm-install -DMLIR_ENABLE_BINDINGS_PYTHON=ON -DPython3_EXECUTABLE=$(which python3) \
@@ -36,9 +57,18 @@ jobs:
           cd llvm-install
           tar -zcf ../llvm.tgz .
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload LLVM for CPU
+        if: matrix.build-type == 'CPU'
+        uses: actions/upload-artifact@v4
         with:
           name: llvm-${{ env.LLVM_HASH }}
-          path: llvm.tgz
+          path: ./llvm-project/llvm.tgz
+
+      - name: Upload LLVM for IMEX
+        if: matrix.build-type == 'IMEX'
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-${{ env.LLVM_HASH }}-imex-patched
+          path: ./llvm-project/llvm.tgz
 
 
