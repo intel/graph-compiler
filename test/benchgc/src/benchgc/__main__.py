@@ -124,6 +124,20 @@ def add_common_options(parser: argparse.ArgumentParser):
         help="if we need print the ir during the pass-pipeline",
     )
 
+    parser.add_argument(
+        "--cpu_cache_sizes",
+        required=False,
+        help="set the cpu cache sizes, format: L1:L2:L3",
+        type=str,
+    )
+
+    parser.add_argument(
+        "--max_vector_width",
+        required=False,
+        help="set the cpu max_vector_width",
+        type=int,
+    )
+
     if parser.parse_known_args()[0].driver == "linalg":
         parser.add_argument(
             "--cast",
@@ -264,7 +278,7 @@ def get_module_and_args(flags):
     for arg in args:
         arg.print_verbose(flags.verbose)
 
-    benchgc.mlir.util.attch_dlti(module)
+    benchgc.mlir.util.attch_dlti(flags, module)
 
     if flags.verbose >= benchgc.util.MODULE_VERBOSE:
         print(module)

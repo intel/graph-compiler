@@ -18,10 +18,10 @@ import ctypes
 import os
 from typing import Any, List
 
-import cpuinfo
 import torch
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
+from gc_mlir.tools import cpuinfo
 
 
 # calling python binding consumes a lot of time e.g. get_name()
@@ -156,28 +156,32 @@ def get_kernel_func_from_module(
     raise ValueError("can not find the entry function")
 
 
-def attch_dlti(module: ir.Module):
+def attch_dlti(flags, module: ir.Module):
+    # the moudle already had dlti attr
     if "dlti.target_system_spec" in module.operation.attributes:
         return
-    info = cpuinfo.get_cpu_info()
-    from gc_mlir.dialects import cpuruntime
-    cpuruntime.get_cpu_info()
-    print(info)
-    l1_data_cache_size = info.get("l1_data_cache_size")
-    l2_cache_size = info.get("l2_cache_size")
-    l3_cache_size = info.get("l3_cache_size")
+    if flags.cpu_cache_sizes:
+        caches_sizes = [int(x) for x in flags.cpu_cache_sizes.strip().split(":")]
+    else:
+        caches_sizes = cpuinfo.get_cache_sizes()
+        if not caches_sizes or len(caches_sizes) != 3:
+            print(
+                "Failed to get CPU cache sizes, please added them manually br --cpu_cache_sizes"
+            )
+            return
+    if flags.max_vector_width:
+        max_vector_width = flags.max_vector_width
+    else:
+        max_vector_width = cpuinfo.get_max_vector_width()
+        if not max_vector_width:
+            print(
+                "Failed to get CPU max vector width, please added them manually br --max_vector_width"
+            )
+            return
+    l1_data_cache_size, l2_cache_size, l3_cache_size = caches_sizes
     if "OMP_NUM_THREADS" not in os.environ:
         print("OMP_NUM_THREADS is not found, using 1 as default")
     num_threads = os.environ.get("OMP_NUM_THREADS", 1)
-    flags = info.get("flags")
-    max_vector_width = 64
-    for flag in flags:
-        if "avx512f" == flag:
-            max_vector_width = max(512, max_vector_width)
-        elif "avx2" == flag or "avx" == flag:
-            max_vector_width = max(256, max_vector_width)
-        elif "sse" in flag:
-            max_vector_width = max(128, max_vector_width)
 
     dlti_template = f"""
     module attributes {{

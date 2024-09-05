@@ -24,14 +24,7 @@ jobs:
 
       - name: Set LLVM hash
         run: |
-          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
-
-
-      - name: cpu-info
-        run: |
-          lscpu
-          cat /sys/devices/system/cpu/cpu0/cache/index0/size
-          
+          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV       
       - name: Fetch requirements for python binding
         uses: actions/checkout@v4
         with:
