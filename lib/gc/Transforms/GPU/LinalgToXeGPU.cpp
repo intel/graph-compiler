@@ -1419,11 +1419,15 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
     // Operands are sub-tiles at the same location.
     auto bcastType = VectorType::get({subTileRows, subTileCols},
                                      outputType.getElementType());
-    auto res = rewriter.create<vector::BroadcastOp>(loc, bcastType, scalar);
+    auto flatType = VectorType::get({subTileRows * subTileCols},
+                                    outputType.getElementType());
+    Value vec = rewriter.create<vector::BroadcastOp>(loc, flatType, scalar);
+    Value res = rewriter.create<vector::ShapeCastOp>(loc, bcastType, vec);
+
     if (!res)
       return failure();
 
-    results.push_back(res.getResult());
+    results.push_back(res);
   }
 
   // Store results.
