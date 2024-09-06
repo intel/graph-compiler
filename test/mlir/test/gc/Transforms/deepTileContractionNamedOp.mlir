@@ -36,6 +36,9 @@ func.func @matmul_2Dx2D_f32(%arg0: tensor<4096x4096xf32>, %arg1: tensor<4096x409
 
 // -----
 
+// CHECK: #[[mapA:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+// CHECK: #[[mapB:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+// CHECK: #[[mapC:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>
 /// CHECK-LABEL: @matmul_4Dx4D_bf16
 func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<128x128x16x32x2xbf16>) -> tensor<128x128x32x32xbf16> {
     %cst_0 = arith.constant 0.000000e+00 : bf16
@@ -64,17 +67,9 @@ func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<12
     // CHECK: tensor.collapse_shape {{.*}} tensor<1x1x32x32xbf16> into tensor<32x32xbf16>
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: else
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: scf.if
     // CHECK: linalg.copy
     // CHECK: else
@@ -84,6 +79,9 @@ func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<12
 
 // -----
 
+// CHECK: #[[mapA:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+// CHECK: #[[mapB:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+// CHECK: #[[mapC:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>
 /// CHECK-LABEL: @matmul_2Dx4D_bf16
 func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x128x16x32x2xbf16>) -> tensor<4096x4096xbf16> {
     %cst_0 = arith.constant 0.000000e+00 : bf16
@@ -108,17 +106,9 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
     // CHECK: linalg.transpose {{.*}} permutation = [1, 0, 2]
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: else
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
@@ -139,6 +129,9 @@ module attributes {
       #dlti.dl_entry<"num_threads", 56 : i32>,
       #dlti.dl_entry<"max_vector_width", 512 : i32>>
   >} {
+    // CHECK: #[[mapA:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+    // CHECK: #[[mapB:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+    // CHECK: #[[mapC:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>
     /// CHECK-LABEL: @matmul_2Dx4D_bf16_with_dlti
 func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x128x16x32x2xbf16>) -> tensor<4096x4096xbf16> {
     %cst_0 = arith.constant 0.000000e+00 : bf16
@@ -157,17 +150,9 @@ func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: ten
     // CHECK: linalg.transpose
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: else
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: scf.forall.in_parallel
     %2 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) outs(%1 : tensor<4096x4096xbf16>)  -> tensor<4096x4096xbf16>
     return %2 : tensor<4096x4096xbf16>
@@ -177,6 +162,9 @@ func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: ten
 
 // -----
 
+// CHECK: #[[mapA:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+// CHECK: #[[mapB:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+// CHECK: #[[mapC:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>
 /// CHECK-LABEL: @matmul_4Dx4D_bf16_generic
 func.func @matmul_4Dx4D_bf16_generic(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<128x128x16x32x2xbf16>) -> tensor<128x128x32x32xbf16> {
     %cst_0 = arith.constant 0.000000e+00 : bf16
@@ -205,17 +193,9 @@ func.func @matmul_4Dx4D_bf16_generic(%arg0: tensor<128x128x32x32xbf16>, %arg1: t
     // CHECK: tensor.collapse_shape {{.*}} tensor<1x1x32x32xbf16> into tensor<32x32xbf16>
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: else
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: scf.if
     // CHECK: linalg.copy
     // CHECK: else
@@ -237,6 +217,9 @@ func.func @matmul_4Dx4D_bf16_generic(%arg0: tensor<128x128x32x32xbf16>, %arg1: t
 
 // -----
 
+// CHECK: #[[mapA:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
+// CHECK: #[[mapB:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
+// CHECK: #[[mapC:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>
 /// CHECK-LABEL: @matmul_2Dx4D_bf16_generic
 func.func @matmul_2Dx4D_bf16_generic(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x128x16x32x2xbf16>) -> tensor<4096x4096xbf16> {
     %cst_0 = arith.constant 0.000000e+00 : bf16
@@ -261,17 +244,9 @@ func.func @matmul_2Dx4D_bf16_generic(%arg0: tensor<4096x4096xbf16>, %arg1: tenso
     // CHECK: linalg.transpose {{.*}} permutation = [1, 0, 2]
     // CHECK: scf.if
     // CHECK: linalg.fill
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: else
-    // CHECK: linalg.generic
-    // CHECK-NEXT: indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>
-    // CHECK-NEXT: affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>]
-    // CHECK-NEXT: iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"] 
+    // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
     // CHECK: scf.forall.in_parallel
