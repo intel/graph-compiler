@@ -3,6 +3,7 @@ add_subdirectory(Utils)
 gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRIR
   MLIRSupport
+  MLIRMicrokernelTransforms
   MLIRBufferizationToMemRef
   MLIRBufferizationPipelines)
 

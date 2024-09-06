@@ -1,4 +1,4 @@
-gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
+gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR MLIRMicrokernel)
 
 include(onednn)
 
@@ -6,6 +6,9 @@ gc_add_mlir_dialect_library(MLIRMicrokernelTransforms
 	ConvertLinalgToMicrokernel.cpp
         ExpandMicrokernel.cpp
         ConvertMicrokernelToDnnlFunc.cpp
+        EarlyDispatchMicrokernel.cpp
+        MicrokernelInvariantCodeMotion.cpp
+        MergeBranchMicrokernelContext.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/
