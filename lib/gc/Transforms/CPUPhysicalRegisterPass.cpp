@@ -148,8 +148,74 @@ bool isNotSupportOperation(Operation *op) {
              vector::MaskedStoreOp, vector::CreateMaskOp>(op);
 }
 
+/// Get vector type of the operation \param op
+/// \param isPrevOp whether the operation is a previous operation, if it is not
+/// prev-op, may need to use result vectortype
+/// default will return the opeation result type
+mlir::FailureOr<VectorType> getOperationVectorType(Operation *op,
+                                                   bool isPrevOp = true) {
+  if (!op) {
+    return failure();
+  }
+  auto isDynamicType = [](VectorType &type) { return !type.hasStaticShape(); };
+  auto ret =
+      TypeSwitch<Operation *, mlir::FailureOr<VectorType>>(op)
+          .Case<vector::TransferWriteOp>(
+              [&](vector::TransferWriteOp transferWriteOp)
+                  -> mlir::FailureOr<VectorType> {
+                auto retType =
+                    dyn_cast<VectorType>(transferWriteOp.getOperandTypes()[0]);
+                if (retType) {
+                  return retType;
+                }
+                LDBG("TransferWrite Operation has wrong vector to write.");
+                return failure();
+              })
+          .Case<vector::TransferReadOp>(
+              [&](vector::TransferReadOp transferReadOp)
+                  -> mlir::FailureOr<VectorType> {
+                return transferReadOp.getVectorType();
+              })
+          .Case<vector::MultiDimReductionOp>(
+              [&](vector::MultiDimReductionOp multiReductionOp) {
+                if (isPrevOp) {
+                  return cast<VectorType>(
+                      multiReductionOp->getResultTypes()[0]);
+                }
+                // TODO: may need to add accumulate value vectortype
+                return cast<VectorType>(multiReductionOp.getSourceVectorType());
+              })
+          .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
+            if (isPrevOp) {
+              if (op->getResultTypes().empty()) {
+                return failure();
+              }
+              if (auto shapedType =
+                      dyn_cast<VectorType>(op->getResultTypes()[0])) {
+                return shapedType;
+              }
+              return failure();
+            }
+            if (op->getOperandTypes().empty()) {
+              return failure();
+            }
+            if (auto shapedType =
+                    dyn_cast<VectorType>(op->getOperandTypes()[0])) {
+              return shapedType;
+            }
+            return failure();
+          });
+  if (!failed(ret) and isDynamicType(ret.value())) {
+    return failure();
+  }
+  return ret;
+}
+
 /// whether operation is operate on dynamic shape
 bool hasDynamicShape(Operation *op) {
+  if (failed(getOperationVectorType(op))) {
+    return false;
+  }
   auto isDynamicShapedType = [](Value x) {
     if (auto type = dyn_cast<ShapedType>(x.getType())) {
       if (ShapedType::isDynamicShape(type.getShape())) {
@@ -261,69 +327,6 @@ FailureOr<Value> createArithSplatConstantOp(IRRewriter &rewriter,
     getConstantDenseAttr<DenseIntElementsAttr>(attr, newOperandType, valueType);
   }
   return rewriter.create<arith::ConstantOp>(loc, attr)->getResults()[0];
-}
-
-/// Get vector type of the operation \param op
-/// \param isPrevOp whether the operation is a previous operation, if it is not
-/// prev-op, may need to use result vectortype
-/// default will return the opeation result type
-mlir::FailureOr<VectorType> getOperationVectorType(Operation *op,
-                                                   bool isPrevOp = true) {
-  if (!op) {
-    return failure();
-  }
-  auto isDynamicType = [](VectorType &type) { return !type.hasStaticShape(); };
-  auto ret =
-      TypeSwitch<Operation *, mlir::FailureOr<VectorType>>(op)
-          .Case<vector::TransferWriteOp>(
-              [&](vector::TransferWriteOp transferWriteOp)
-                  -> mlir::FailureOr<VectorType> {
-                auto retType =
-                    dyn_cast<VectorType>(transferWriteOp.getOperandTypes()[0]);
-                if (retType) {
-                  return retType;
-                }
-                LDBG("TransferWrite Operation has wrong vector to write.");
-                return failure();
-              })
-          .Case<vector::TransferReadOp>(
-              [&](vector::TransferReadOp transferReadOp)
-                  -> mlir::FailureOr<VectorType> {
-                return transferReadOp.getVectorType();
-              })
-          .Case<vector::MultiDimReductionOp>(
-              [&](vector::MultiDimReductionOp multiReductionOp) {
-                if (isPrevOp) {
-                  return cast<VectorType>(
-                      multiReductionOp->getResultTypes()[0]);
-                }
-                // TODO: may need to add accumulate value vectortype
-                return cast<VectorType>(multiReductionOp.getSourceVectorType());
-              })
-          .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
-            if (isPrevOp) {
-              if (op->getResultTypes().empty()) {
-                return failure();
-              }
-              if (auto shapedType =
-                      dyn_cast<VectorType>(op->getResultTypes()[0])) {
-                return shapedType;
-              }
-              return failure();
-            }
-            if (op->getOperandTypes().empty()) {
-              return failure();
-            }
-            if (auto shapedType =
-                    dyn_cast<VectorType>(op->getOperandTypes()[0])) {
-              return shapedType;
-            }
-            return failure();
-          });
-  if (!failed(ret) and isDynamicType(ret.value())) {
-    return failure();
-  }
-  return ret;
 }
 
 /// get operation vector type

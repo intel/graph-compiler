@@ -28,6 +28,8 @@ namespace gc {
 
 namespace {
 
+constexpr uint64_t STACK_ALLOC_THRESHOLD = 128;
+
 bool hasParallelParent(Operation *op) {
   // Check if the parent contains a forall / parallel loop
   for (Operation *parentOp = op->getParentOp(); parentOp != nullptr;
@@ -38,9 +40,38 @@ bool hasParallelParent(Operation *op) {
   }
   return false;
 }
-struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
-  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(memref::AllocOp op,
+
+uint64_t getMemRefSizeInBytes(MemRefType memrefType) {
+  if (ShapedType::isDynamicShape(memrefType.getShape()))
+    return UINT64_MAX;
+  ShapedType shapeType = cast<ShapedType>(memrefType);
+  int elementSize = shapeType.getElementTypeBitWidth() / 8;
+  AffineMap layout = memrefType.getLayout().getAffineMap();
+  ArrayRef<int64_t> shape = memrefType.getShape();
+  if (!layout.isIdentity()) {
+    int64_t offset;
+    SmallVector<int64_t, 4> strides;
+    if (failed(getStridesAndOffset(memrefType, strides, offset))) {
+      return UINT64_MAX;
+    }
+
+    int totalSize = elementSize;
+    for (size_t i = 0; i < shape.size(); ++i) {
+      totalSize *= (i == shape.size() - 1) ? strides[i] : shape[i];
+    }
+    return totalSize;
+  } else {
+    int totalSize = elementSize;
+    for (int64_t dim : shape) {
+      totalSize *= dim;
+    }
+    return totalSize;
+  }
+}
+
+struct AlignedAllocLowering : public OpRewritePattern<memref::AllocaOp> {
+  using OpRewritePattern<memref::AllocaOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(memref::AllocaOp op,
                                 PatternRewriter &rewriter) const final {
     auto loc = op->getLoc();
     MemRefType type = op.getMemref().getType();
@@ -54,66 +85,66 @@ struct AlignedAllocLowering : public OpRewritePattern<memref::AllocOp> {
     return success();
   }
 };
-
-struct AlignedDeallocLowering : public OpRewritePattern<memref::DeallocOp> {
-  using OpRewritePattern<memref::DeallocOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(memref::DeallocOp op,
-                                PatternRewriter &rewriter) const final {
-    auto loc = op->getLoc();
-    Value memref = op.getMemref();
-    cpuruntime::DeallocOp newDeallocOp =
-        rewriter.create<cpuruntime::DeallocOp>(loc, memref);
-    if (hasParallelParent(op))
-      newDeallocOp.setThreadLocal(true);
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 struct ConvertMemRefToCPURuntime
     : public impl::ConvertMemRefToCPURuntimeBase<ConvertMemRefToCPURuntime> {
 
   void runOnOperation() final {
     auto *ctx = &getContext();
-    // Create a local set to store operations that should not be transformed.
     llvm::SmallSet<Operation *, 16> noTransformOps;
 
-    // Walk through the module to find func::FuncOp instances.
+    // Create deallocOp corresponding to the alloca's location
     getOperation()->walk([&](func::FuncOp funcOp) {
-      BufferViewFlowAnalysis analysis(funcOp);
-      // Now walk through the operations within the func::FuncOp.
-      funcOp.walk([&](Operation *op) {
-        if (op->hasTrait<OpTrait::ReturnLike>()) {
-          for (Value operand : op->getOperands()) {
-            if (isa<MemRefType>(operand.getType())) {
-              auto aliases = analysis.resolveReverse(operand);
-              // Check if any of the returned memref is allocated within scope.
-              for (auto &&alias : aliases) {
-                if (Operation *allocOp =
-                        alias.getDefiningOp<memref::AllocOp>()) {
-                  noTransformOps.insert(allocOp);
-                }
-              }
-            }
-          }
+      // Vector to store alloca operations
+      SmallVector<memref::AllocaOp, 16> allocaOps;
+      // Collect all alloca operations
+      funcOp.walk([&](memref::AllocaOp allocaOp) {
+        uint64_t allocSize =
+            getMemRefSizeInBytes(allocaOp.getResult().getType());
+        if (allocSize < STACK_ALLOC_THRESHOLD) {
+          noTransformOps.insert(allocaOp);
+          return;
         }
+        allocaOps.push_back(allocaOp);
       });
+
+      // Create dealloc operations in reverse order of alloca operations
+      for (auto allocaOp = allocaOps.rbegin(); allocaOp != allocaOps.rend();
+           ++allocaOp) {
+        Operation *scopeOp =
+            (*allocaOp)
+                ->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+        OpBuilder builder(*allocaOp);
+        Region &scopeRegion = scopeOp->getRegion(0);
+        // Set the insertion point to the end of the region before the
+        // terminator
+        Block &lastBlock = scopeRegion.back();
+        builder.setInsertionPointToEnd(&lastBlock);
+        if (!lastBlock.empty() &&
+            lastBlock.back().hasTrait<OpTrait::IsTerminator>()) {
+          builder.setInsertionPoint(&lastBlock.back());
+        }
+
+        // Create the dealloc operation
+        auto deallocOp = builder.create<cpuruntime::DeallocOp>(
+            (*allocaOp).getLoc(), (*allocaOp).getResult());
+        if (hasParallelParent(*allocaOp)) {
+          deallocOp.setThreadLocal(true);
+        }
+      }
     });
 
     // add lowering target
     ConversionTarget target(getContext());
     // Make all operations legal by default.
     target.markUnknownOpDynamicallyLegal([](Operation *op) { return true; });
-    target.addDynamicallyLegalOp<memref::AllocOp, memref::DeallocOp>(
-        [&](Operation *op) {
-          // Return true if the operation is in the noTransformOps set, making
-          // it dynamically legal.
-          return noTransformOps.find(op) != noTransformOps.end();
-        });
+    target.addDynamicallyLegalOp<memref::AllocaOp>([&](Operation *op) {
+      // Return true if the operation is in the noTransformOps set, making
+      // it dynamically legal.
+      return noTransformOps.find(op) != noTransformOps.end();
+    });
     // set pattern
     RewritePatternSet patterns(ctx);
     patterns.add<AlignedAllocLowering>(ctx);
-    patterns.add<AlignedDeallocLowering>(ctx);
     // perform conversion
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
