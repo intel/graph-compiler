@@ -32,7 +32,7 @@ module {
 
 // COM: expected output:
 // COM: module {
-// COM:   llvm.mlir.global external constant @__num_orig_num_args(3 : i32) {addr_space = 0 : i32} : i32
+// COM:   llvm.mlir.global external constant @__num_orig_args(3 : i32) {addr_space = 0 : i32} : i32
 // COM:   llvm.mlir.global external constant @__compute_args(dense<[3, 2, 3, 4]> : tensor<4xi32>) {addr_space = 0 : i32} : !llvm.array<4 x i32>
 // COM:   llvm.mlir.global external constant @__fold_args(dense<[4, 0, 1, 3, 4]> : tensor<5xi32>) {addr_space = 0 : i32} : !llvm.array<5 x i32>
 // COM:   llvm.mlir.global external constant @__fold_buffer_ids(dense<[2, 0, 1]> : tensor<3xi64>) {addr_space = 0 : i32} : !llvm.array<3 x i64>
