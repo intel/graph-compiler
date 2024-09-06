@@ -19,7 +19,7 @@ module {
                     outs(%6 : tensor<32x4096xf16>) -> tensor<32x4096xf16>
 
     %8 = tensor.empty() : tensor<32x4096xf16>
-    %9 = linalg.fill ins(%cst : f16) outs(%0 : tensor<32x4096xf16>) -> tensor<32x4096xf16>
+    %9 = linalg.fill ins(%cst : f16) outs(%8 : tensor<32x4096xf16>) -> tensor<32x4096xf16>
     %10 = linalg.matmul ins(%7, %arg3 : tensor<32x4096xf16>, tensor<4096x4096xf16>)
                         outs(%9 : tensor<32x4096xf16>) -> (tensor<32x4096xf16>)
     %11 = tensor.empty() : tensor<32x4096xf16>
