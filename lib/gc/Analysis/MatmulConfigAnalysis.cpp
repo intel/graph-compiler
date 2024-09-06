@@ -120,14 +120,11 @@ double workloadBalancedCost(linalg::LinalgOp &linalgOp,
   uint32_t MTaskNum = llvm::divideCeil(M, config.MBlock);
   uint32_t NTaskNum = llvm::divideCeil(N, config.NBlock);
   uint32_t KTaskNum = llvm::divideCeil(K, config.KBlock);
-  double cost = (MTaskNum % config.MThreads) * 1.0 / MTaskNum +
-                (NTaskNum % config.NThreads) * 1.0 / NTaskNum +
-                (KTaskNum % config.KThreads) * 1.0 / KTaskNum;
-  if (MTaskNum < config.MThreads || NTaskNum < config.NThreads ||
-      KTaskNum < config.KThreads) {
-    double threadNotFulllyUtilizedPenalty = 10.0;
-    cost *= threadNotFulllyUtilizedPenalty;
-  }
+  uint32_t actualThreads =
+      llvm::divideCeil(MTaskNum, llvm::divideCeil(MTaskNum, config.MThreads)) *
+      llvm::divideCeil(NTaskNum, llvm::divideCeil(NTaskNum, config.NThreads)) *
+      llvm::divideCeil(KTaskNum, llvm::divideCeil(KTaskNum, config.KThreads));
+  double cost = sysDesc.getNumThreads() * 1.0 / actualThreads;
   return cost;
 }
 
@@ -169,36 +166,6 @@ double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
   if (memoryConsumption * dtypeSize > L2Cache * fullLoadRatio)
     computationIntensity /= outOfCachePenalty;
   return 1 / computationIntensity;
-}
-
-// Bufferization may insert more memref.copy/brgemm cannot verify sucessfully
-// and fall back to linalg lower if the buffer is dynamic
-// Bufferization may insert more memref.copy/brgemm cannot verify sucessfully
-// and fall back to linalg lower if the buffer is dynamic
-double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
-                                ArrayRef<uint32_t> shape,
-                                const MatmulConfig &config,
-                                CPUTargetDescriptionAnalysis &sysDesc) {
-  assert(validateConfig(config) && "config is invalid");
-  assert(shape.size() >= 3 && "shape.size() should >= 3");
-  uint32_t M = shape[0], N = shape[1];
-  double cost = 0;
-  uint32_t MNumBlockPerThread =
-      llvm::divideCeil(M / config.innerMostMBlock, config.MThreads);
-  uint32_t MNumInnerBlockPerBlock =
-      llvm::divideCeil(config.MBlock, config.innerMostMBlock);
-  uint32_t MCost = MNumBlockPerThread % MNumInnerBlockPerBlock != 0 ||
-                   (M / config.innerMostNBlock % config.MThreads != 0 &&
-                    config.MBlock != config.innerMostMBlock);
-  uint32_t NNumBlockPerThread =
-      llvm::divideCeil(N / config.innerMostNBlock, config.NThreads);
-  uint32_t NNumInnerBlockPerBlock =
-      llvm::divideCeil(config.NBlock, config.innerMostNBlock);
-  uint32_t NCost = NNumBlockPerThread % NNumInnerBlockPerBlock != 0 ||
-                   (N / config.innerMostNBlock % config.NThreads != 0 &&
-                    config.NBlock != config.innerMostNBlock);
-  cost = MCost + NCost;
-  return cost;
 }
 
 double paddingCost(linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
@@ -494,8 +461,6 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         // TODO: Could add a weight or priority for cost model
         SmallVector<std::tuple<CostModelFn, std::string, double>>
             costModelList = {
-                // threshold 0 mean using static shape if possible
-                {dynamicBufferizationCost, "dynamicBufferizationCost", 0},
                 {workloadBalancedCost, "workloadBalancedCost", 1},
                 {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
                 {computationIntensityOnL2Cache, "computationIntensityOnL2Cache",
