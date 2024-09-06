@@ -38,29 +38,11 @@ module {
   }
 
   func.func @main() {
-    %cst0 = arith.constant 0.01 : f16
-    %cst1 = arith.constant 0.02 : f16
-
-    %0 = tensor.generate {
-      ^bb0(%i : index, %j : index):
-        tensor.yield %cst0 : f16
-    } : tensor<32x4096xf16>
-    %1 = tensor.generate {
-      ^bb0(%i : index, %j : index):
-        tensor.yield %cst0 : f16
-    } : tensor<4096x4096xf16>
-    %2 = tensor.generate {
-      ^bb0(%i : index, %j : index):
-        tensor.yield %cst1 : f16
-    } : tensor<32x4096xf16>
-    %3 = tensor.generate {
-      ^bb0(%i : index, %j : index):
-        tensor.yield %cst0 : f16
-    } : tensor<4096x4096xf16>
-    %4 = tensor.generate {
-      ^bb0(%i : index, %j : index):
-        tensor.yield %cst1 : f16
-    } : tensor<32x4096xf16>
+    %0 = arith.constant dense<0.01> : tensor<32x4096xf16>
+    %1 = arith.constant dense<0.01> : tensor<4096x4096xf16>
+    %2 = arith.constant dense<0.02> : tensor<32x4096xf16>
+    %3 = arith.constant dense<0.01> : tensor<4096x4096xf16>
+    %4 = arith.constant dense<0.02> : tensor<32x4096xf16>
 
     func.call @linalg_mlp(%0, %1, %2, %3, %4) : (tensor<32x4096xf16>, tensor<4096x4096xf16>, tensor<32x4096xf16>, 
                                                  tensor<4096x4096xf16>, tensor<32x4096xf16>) -> ()

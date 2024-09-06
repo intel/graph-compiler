@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: Menooker/mlir-extensions
+          repository: LongshengDu/mlir-extensions
           ref: ${{ env.IMEX_HASH }}
           path: mlir-extensions
         if: ${{ matrix.build-type == 'IMEX' }}

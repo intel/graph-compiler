@@ -1417,12 +1417,12 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
   SmallVector<Value> results;
   for (size_t i = 0; i < outputTiles.size(); i++) {
     // Operands are sub-tiles at the same location.
-    auto bcastType = VectorType::get({subTileRows, subTileCols},
-                                     outputType.getElementType());
     auto flatType = VectorType::get({subTileRows * subTileCols},
                                     outputType.getElementType());
+    auto tileType = VectorType::get({subTileRows, subTileCols},
+                                    outputType.getElementType());
     Value vec = rewriter.create<vector::BroadcastOp>(loc, flatType, scalar);
-    Value res = rewriter.create<vector::ShapeCastOp>(loc, bcastType, vec);
+    Value res = rewriter.create<vector::ShapeCastOp>(loc, tileType, vec);
 
     if (!res)
       return failure();
