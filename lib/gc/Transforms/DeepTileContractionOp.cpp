@@ -833,8 +833,17 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
           loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
           resultOprand);
     } else {
+
       auto inputRange = ValueRange{dataOprand, weightOprand};
       auto resRange = ValueRange{resultOprand};
+      for (auto operand : inputRange)
+      {
+          llvm::errs() << operand << "\n";
+      }
+      for (auto operand : resRange)
+      {
+          llvm::errs() << operand << "\n";
+      }
       auto res = linalgx::makeGenericPackedMatmulOp(
           rewriter, loc, linalgx::PackingType::VNNI_BRMM3D, inputRange,
           resRange);

@@ -458,6 +458,7 @@ makeGenericPackedMatmulOp(OpBuilder &builder, Location loc, PackingType opType,
     return emitError("input/output size must be 2/1!");
   }
   // Get shapes of inputs and output
+  llvm::errs() << inputs.front().getType() << "\n";
   auto shapeA = cast<ShapedType>(inputs.front().getType());
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
