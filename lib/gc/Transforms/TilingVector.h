@@ -79,6 +79,14 @@ struct HardWareInfo {
 //===----------------------------------------------------------------------===//
 /// Using to avoid too many parameters in function
 struct GenerateLoopHelper {
+  /// anchor id
+  size_t anchorIdx = 0;
+  /// group id
+  size_t groupIdx = 0;
+  /// for loop results
+  ValueRange forResults;
+  /// for loop block
+  Block *forBlock;
   /// loop iteration args index map
   DenseMap<Value, int> currentLoopStateIdxMap;
   /// loop iteration args
@@ -89,17 +97,134 @@ struct GenerateLoopHelper {
   DenseMap<Value, int> nextAnchorResultsIdxMap;
   /// next loop anchor yield results original result map
   DenseMap<Value, Value> nextAnchorResultOrignalResultMap;
+  /// original result with next anchor result map
+  DenseMap<Value, Value> orignalResultNextAnchorResultMap;
   /// loop induction variables
   SmallVector<Value, 5> inductionVars;
   /// original operand with loop args map
   DenseMap<Value, Value> originalOperandLoopArgsMap;
   /// loop args with original operand map
   DenseMap<Value, Value> loopArgsOriginalOperandMap;
-  /// record operation's correct loop indice, due to some operation like reduce
-  /// may need to reorder loop indice
+  /// candidate operation queue
+  std::queue<Operation *> *candidateOps;
+  /// moved operation queue
+  std::queue<Operation *> *movedOps;
+  /// record operation's correct loop indice, due to some operation like
+  /// reduce may need to reorder loop indice
   DenseMap<Operation *, DenseMap<size_t, size_t>> indiceLoopMap;
   GenerateLoopHelper() = default;
+  GenerateLoopHelper(const size_t groupIdx) noexcept {
+    this->groupIdx = groupIdx;
+  }
+  GenerateLoopHelper(const size_t groupIdx, const size_t anchorIdx) noexcept {
+    this->groupIdx = groupIdx;
+    this->anchorIdx = anchorIdx;
+  }
+  /// clear next anchor results related data
+  void clearNextAnchorResults();
+  /// set next anchor results related data
+  void setNextAnchorResults(SmallVector<Value> &currentAnchorResults,
+                            DenseMap<Value, Value> &currentResultMap,
+                            DenseMap<Value, int> &currentResultIdxMap);
+  /// set next anchor iteration args
+  void setNextAnchorArgs(DenseMap<Value, int> &nextAnchorArgsIdxMap,
+                         SmallVector<Value, 4> &nextAnchorArgs);
+  /// set id of for loop anchor
+  void setAnchorId(const size_t anchorId) noexcept;
+  /// Before perform processing previous operation, we need to update some data
+  void updateDataBeforePreOpMove(ArrayRef<Value> loopstate,
+                                 std::queue<Operation *> &candidateQueue,
+                                 std::queue<Operation *> &movedQueue);
+  /// After previous operation movement, we need to update some data
+  void updateDataAfterPreOpMove(DenseMap<Value, int> &nextAnchorArgsIdxMap,
+                                SmallVector<Value, 4> &nextAnchorArgs);
+  /// Before perform processing previous operation, we need to update some data
+  void updateDataBeforePostOpMove(
+      ArrayRef<Value> iterArgs, DenseMap<Value, int> &currentLoopStateIdxMap,
+      DenseMap<Value, Value> &currentoriginalArgsMap,
+      DenseMap<Value, Value> &currentArgsOriginalMap, ValueRange forResults,
+      Block *forBlock, std::queue<Operation *> &movedQueue, size_t anchorId);
+  /// After previous operation movement, we need to update some data
+  void updateDataAfterPostOpMove(size_t anchorId,
+                                 DenseMap<Value, int> &nextAnchorArgsIdxMap,
+                                 SmallVector<Value, 4> &nextAnchorArgs);
+
+  void updateCurrentArgsStatus(DenseMap<Value, int> &currentArgsIdxMap,
+                               SmallVector<Value, 4> &currentArgs,
+                               DenseMap<Value, Value> &originalArgsMap,
+                               DenseMap<Value, Value> &argsOriginalMap);
 };
+
+void GenerateLoopHelper::setNextAnchorArgs(
+    DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  currentLoopStateIdxMap = nextAnchorArgsIdxMap;
+  loopIterArgs = nextAnchorArgs;
+}
+
+void GenerateLoopHelper::clearNextAnchorResults() {
+  nextAnchorResults.clear();
+  nextAnchorResultsIdxMap.clear();
+  nextAnchorResultOrignalResultMap.clear();
+}
+
+void GenerateLoopHelper::setAnchorId(size_t anchorId) noexcept {
+  anchorIdx = anchorId;
+}
+
+void GenerateLoopHelper::updateDataBeforePreOpMove(
+    ArrayRef<Value> loopState, std::queue<Operation *> &candidateQueue,
+    std::queue<Operation *> &movedQueue) {
+  loopIterArgs = loopState;
+  candidateOps = &candidateQueue;
+  movedOps = &movedQueue;
+}
+
+void GenerateLoopHelper::updateDataAfterPreOpMove(
+    DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  setNextAnchorArgs(nextAnchorArgsIdxMap, nextAnchorArgs);
+}
+
+void GenerateLoopHelper::updateDataBeforePostOpMove(
+    ArrayRef<Value> iterArgs, DenseMap<Value, int> &currentLoopStateIdxMap,
+    DenseMap<Value, Value> &currentoriginalArgsMap,
+    DenseMap<Value, Value> &currentArgsOriginalMap, ValueRange forResults,
+    Block *forBlock, std::queue<Operation *> &movedQueue, size_t anchorId) {
+  this->originalOperandLoopArgsMap = currentoriginalArgsMap;
+  this->loopArgsOriginalOperandMap = currentArgsOriginalMap;
+  this->forResults = forResults;
+  this->forBlock = forBlock;
+  this->anchorIdx = anchorId;
+  this->currentLoopStateIdxMap = currentLoopStateIdxMap;
+  this->loopIterArgs = iterArgs;
+  this->movedOps = &movedQueue;
+}
+
+void GenerateLoopHelper::updateDataAfterPostOpMove(
+    size_t anchorId, DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  setAnchorId(anchorId);
+  setNextAnchorArgs(nextAnchorArgsIdxMap, nextAnchorArgs);
+}
+
+void GenerateLoopHelper::setNextAnchorResults(
+    SmallVector<Value> &currentAnchorResults,
+    DenseMap<Value, Value> &currentResultMap,
+    DenseMap<Value, int> &currentResultIdxMap) {
+  nextAnchorResults = std::move(currentAnchorResults);
+  nextAnchorResultOrignalResultMap = std::move(currentResultMap);
+  nextAnchorResultsIdxMap = std::move(currentResultIdxMap);
+}
+
+void GenerateLoopHelper::updateCurrentArgsStatus(
+    DenseMap<Value, int> &currentArgsIdxMap, SmallVector<Value, 4> &currentArgs,
+    DenseMap<Value, Value> &originalArgsMap,
+    DenseMap<Value, Value> &argsOriginalMap) {
+  setNextAnchorArgs(currentArgsIdxMap, currentArgs);
+  originalOperandLoopArgsMap = originalArgsMap;
+  loopArgsOriginalOperandMap = argsOriginalMap;
+}
 
 /// Vector type conversion helper class
 class TypeHelper {
@@ -547,9 +672,8 @@ public:
   generateVectorizedForLoop(const size_t groupId, IRRewriter &rewriter,
                             const VectorType vectorType);
 
-  scf::ForOp constructNestedForOp(const size_t forDimIdx, const size_t groupIdx,
-                                  OpBuilder &b, const Location &loc,
-                                  ArrayRef<int64_t> dims,
+  scf::ForOp constructNestedForOp(const size_t groupIdx, OpBuilder &b,
+                                  const Location &loc, ArrayRef<int64_t> dims,
                                   GenerateLoopHelper &loopGenerator);
 
   void moveOperationsToCurrentForBody(
@@ -599,30 +723,13 @@ public:
                            DenseMap<Value, int> &nextOperandIdxMap);
 
   /// todo: need to add a struct to remove so many parameters
-  void movePostOpToCurrentAnchor(
-      OpBuilder &b, const int anchorIdx, const int groupIdx,
-      const ValueRange &forResults, const Block *forBlock,
-      std::queue<Operation *> &candidateOps,
-      std::queue<Operation *> &movedOperation, ArrayRef<Value> inductionVars,
-      const llvm::DenseMap<Value, int> &operandIdxMap,
-      const ValueRange &loopState,
-      DenseMap<Value, Value> &originalOperandLoopArgsMap,
-      DenseMap<Value, Value> &loopArgsOriginalOperandMap,
-      const llvm::SmallVector<Value, 4> &nextAnchorResults,
-      DenseMap<Value, Value> &forResultOrignalResultMap,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+  void movePostOpToCurrentAnchor(OpBuilder &b,
+                                 GenerateLoopHelper &loopHelperParam);
 
-  void movePreOpToCurrentAnchor(
-      const size_t anchorIdx, const size_t groupIdx, OpBuilder &b,
-      ArrayRef<Value> inductionVars, const ValueRange &loopState,
-      llvm::DenseMap<Value, int> &currentLoopStateIdxMap,
-      llvm::DenseMap<Value, int> &nextLoopStateIdxMap,
-      llvm::SmallVector<Value, 4> &nextAnchorArgs,
-      std::queue<Operation *> &candidateQueue,
-      std::queue<Operation *> &movedQueue,
-      DenseMap<Value, Value> &originalOperandLoopArgsMap,
-      DenseMap<Value, Value> &LoopArgsoriginalOperandMap,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+  void movePreOpToCurrentAnchor(OpBuilder &b,
+                                DenseMap<Value, int> &nextLoopStateIdxMap,
+                                SmallVector<Value, 4> &nextAnchorArgs,
+                                GenerateLoopHelper &loopHelperParam);
 
   void replaceOperationsWithForLoopResult(
       IRRewriter &rewrite, const ValueRange &forResults, const Block *forBlock,
@@ -636,21 +743,13 @@ public:
   void rearrageMultiReductionIR(
       const size_t grpIdx,
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
-  scf::ForOp reductionAxisGenerateForLoop(
-      OpBuilder &opBuilder, const int groupIdx, const size_t reductionIdx,
-      const int anchorIdx, llvm::DenseMap<Value, int> &currentLoopStateIdxMap,
-      const ValueRange &initArgs,
-      DenseMap<Value, Value> &originalOperandLoopArgsMap,
-      DenseMap<Value, Value> &loopArgsOriginalOperandMap,
-      llvm::SmallVector<Value, 4> &nextAnchorResults,
-      llvm::DenseMap<Value, int> &nextAnchorResultsIdxMap,
-      llvm::SmallVector<Value, 5> &inductionVars,
-      DenseMap<Value, Value> &forResultOrignalResultMap,
-      DenseMap<Value, Value> &originalResultForResultMap,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+
+  scf::ForOp reductionAxisGenerateForLoop(OpBuilder &opBuilder,
+                                          const size_t reductionIdx,
+                                          GenerateLoopHelper &loopHelperParam);
 
   scf::ForOp parallelAxisGenerateForLoop(
-      OpBuilder &opBuilder, const int groupIdx, const size_t parallelIdx,
+      OpBuilder &opBuilder,
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap,
       GenerateLoopHelper &loopHelperParam);
 
