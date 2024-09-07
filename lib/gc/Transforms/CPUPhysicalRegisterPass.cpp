@@ -959,11 +959,8 @@ Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
 }
 
 void ForLoopGenerator::moveOperationsToCurrentForBody(
-    const size_t groupIdx, const OpBuilder &b, ArrayRef<Value> inductionVars,
-    const DenseMap<Value, int> &operandIdxMap, ValueRange loopState,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    std::queue<Operation *> &opQueue,
-    DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap) {
+    const OpBuilder &b, std::queue<Operation *> &opQueue,
+    GenerateLoopHelper &loopHelperParam) {
   auto &opPermuationMap = getOpPermuationMap();
   auto tmpQ(opQueue);
   while (!tmpQ.empty()) {
@@ -971,9 +968,11 @@ void ForLoopGenerator::moveOperationsToCurrentForBody(
     tmpQ.pop();
     x->moveBefore(b.getBlock(), b.getBlock()->end());
     // check operation type to set correct operand
-    setOperationCorrectOperand(x, loopState, operandIdxMap,
-                               originalOperandLoopArgsMap, inductionVars,
-                               opPermuationMap, indiceLoopMap);
+    setOperationCorrectOperand(x, loopHelperParam.loopIterArgs,
+                               loopHelperParam.currentLoopStateIdxMap,
+                               loopHelperParam.originalOperandLoopArgsMap,
+                               loopHelperParam.inductionVars, opPermuationMap,
+                               loopHelperParam.indiceLoopMap);
   }
 }
 
@@ -1024,20 +1023,16 @@ void updateCurrentArgsStatus(ValueRange loopState, const size_t loopStateIdx,
 }
 
 void ForLoopGenerator::getInitArgsToNextAnchor(
-    const size_t anchorIdx, const size_t groupId,
-    const std::queue<Operation *> &nextOperations, const ValueRange &loopState,
-    DenseMap<Value, int> &currentLoopStateIdxMap,
     DenseMap<Value, int> &nextAnchorArgsIdxMap,
     SmallVector<Value, 4> &nextAnchorArgs,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    DenseMap<Value, Value> &loopArgsOriginalOperandMap) {
+    GenerateLoopHelper &loopHelperParam) {
   DenseMap<Operation *, size_t> &opAnchorPos =
       getFusionStrategy().getOpAnchorPos();
-  SetVector<Value> &opInitArgs = getGroupOpInitArgs()[groupId];
+  SetVector<Value> &opInitArgs = getGroupOpInitArgs()[loopHelperParam.groupIdx];
 
   DenseSet<Value> visited;
   // find the next anchor arguments
-  std::queue<Operation *> tmpQ(nextOperations);
+  std::queue<Operation *> tmpQ(*loopHelperParam.candidateOps);
   DenseMap<Value, Value> nextOriginalOperandMap, nextOperandOriginalMap;
 
   while (!tmpQ.empty()) {
@@ -1046,19 +1041,21 @@ void ForLoopGenerator::getInitArgsToNextAnchor(
     auto curOperands = cur->getOperands();
     for (auto x : curOperands) {
       if (!visited.contains(x) and opInitArgs.contains(x) and
-          opAnchorPos[cur] > anchorIdx) {
-        assert(originalOperandLoopArgsMap.contains(x));
-        int loopStateIdx =
-            currentLoopStateIdxMap[originalOperandLoopArgsMap[x]];
-        updateCurrentArgsStatus(loopState, loopStateIdx, nextAnchorArgs, x,
-                                nextAnchorArgsIdxMap, nextOriginalOperandMap,
-                                nextOperandOriginalMap);
+          opAnchorPos[cur] > loopHelperParam.anchorIdx) {
+        assert(loopHelperParam.originalOperandLoopArgsMap.contains(x));
+        int loopStateIdx = loopHelperParam.currentLoopStateIdxMap
+                               [loopHelperParam.originalOperandLoopArgsMap[x]];
+        updateCurrentArgsStatus(loopHelperParam.loopIterArgs, loopStateIdx,
+                                nextAnchorArgs, x, nextAnchorArgsIdxMap,
+                                nextOriginalOperandMap, nextOperandOriginalMap);
         visited.insert(x);
       }
     }
   }
-  originalOperandLoopArgsMap = std::move(nextOriginalOperandMap);
-  loopArgsOriginalOperandMap = std::move(nextOperandOriginalMap);
+  loopHelperParam.originalOperandLoopArgsMap =
+      std::move(nextOriginalOperandMap);
+  loopHelperParam.loopArgsOriginalOperandMap =
+      std::move(nextOperandOriginalMap);
 }
 
 void ForLoopGenerator::getOperationInCurrentAnchor(
@@ -1076,10 +1073,8 @@ void ForLoopGenerator::getOperationInCurrentAnchor(
 }
 
 void ForLoopGenerator::replaceOperationsWithForLoopResult(
-    IRRewriter &rewrite, const ValueRange &forResults, const Block *forBlock,
-    const llvm::SmallVector<Value, 4> &nextAnchorResults,
-    const std::queue<Operation *> &movingOperations,
-    DenseMap<Value, Value> &forResultOrignalResultMap) {
+    IRRewriter &rewrite, const std::queue<Operation *> &movingOperations,
+    GenerateLoopHelper &loopHelperParam) {
   auto tmpQ(movingOperations);
   DenseSet<Value> operationOperands;
   while (!tmpQ.empty()) {
@@ -1092,19 +1087,17 @@ void ForLoopGenerator::replaceOperationsWithForLoopResult(
     return operationOperands.contains(use.get());
   };
   for (auto [nxtForResult, nextLoopResult] :
-       zip(forResults, nextAnchorResults)) {
-    Value originalResult = forResultOrignalResultMap[nextLoopResult];
+       zip(loopHelperParam.forResults, loopHelperParam.nextAnchorResults)) {
+    Value originalResult =
+        loopHelperParam.nextAnchorResultOrignalResultMap[nextLoopResult];
 
     rewrite.replaceOpUsesWithIf(originalResult.getDefiningOp(), nxtForResult,
                                 replaceIfFn);
   }
 }
 
-/// \param [out] nextAnchorArgsIdxMap
-/// \param [out] nextAnchorArgs
-/// \param [out] movingQueue
-/// \param [in, out] originalOperandLoopArgsMap
-/// \param [in, out] LoopArgsoriginalOperandMap
+/// \param [in,out] nextLoopStateIdxMap
+/// \param [in,out] nextAnchorArgs
 void ForLoopGenerator::movePreOpToCurrentAnchor(
     OpBuilder &b, DenseMap<Value, int> &nextLoopStateIdxMap,
     SmallVector<Value, 4> &nextAnchorArgs,
@@ -1119,19 +1112,10 @@ void ForLoopGenerator::movePreOpToCurrentAnchor(
   rewriteOperationAsVectorize(b, loopHelperParam.groupIdx, &movingOperation);
 
   // 3. move opeartions to current for block
-  moveOperationsToCurrentForBody(
-      loopHelperParam.groupIdx, b, loopHelperParam.inductionVars,
-      loopHelperParam.currentLoopStateIdxMap, loopHelperParam.loopIterArgs,
-      loopHelperParam.originalOperandLoopArgsMap, movingOperation,
-      loopHelperParam.indiceLoopMap);
+  moveOperationsToCurrentForBody(b, movingOperation, loopHelperParam);
 
   // 4. get next anchor args
-  getInitArgsToNextAnchor(
-      loopHelperParam.anchorIdx, loopHelperParam.groupIdx,
-      *loopHelperParam.candidateOps, loopHelperParam.loopIterArgs,
-      loopHelperParam.currentLoopStateIdxMap, nextLoopStateIdxMap,
-      nextAnchorArgs, loopHelperParam.originalOperandLoopArgsMap,
-      loopHelperParam.loopArgsOriginalOperandMap);
+  getInitArgsToNextAnchor(nextLoopStateIdxMap, nextAnchorArgs, loopHelperParam);
 
   // 5. move operations to moved queue
   while (!movingOperation.empty()) {
@@ -1143,26 +1127,22 @@ void ForLoopGenerator::movePreOpToCurrentAnchor(
 void ForLoopGenerator::movePostOpToCurrentAnchor(
     OpBuilder &b, GenerateLoopHelper &loopHelperParam) {
 
-  // 1. move post-op to current loop body
   std::queue<Operation *> movingOperations;
+  // 1. get post-op to current loop bod
   getOperationInCurrentAnchor(loopHelperParam.anchorIdx,
                               *loopHelperParam.candidateOps, movingOperations);
+  // 2. rewrite operation as vectorize IR
   rewriteOperationAsVectorize(b, loopHelperParam.groupIdx, &movingOperations);
 
-  moveOperationsToCurrentForBody(
-      loopHelperParam.anchorIdx, b, loopHelperParam.inductionVars,
-      loopHelperParam.currentLoopStateIdxMap, loopHelperParam.loopIterArgs,
-      loopHelperParam.originalOperandLoopArgsMap, movingOperations,
-      loopHelperParam.indiceLoopMap);
+  // 3. move opeartions to current for block
+  moveOperationsToCurrentForBody(b, movingOperations, loopHelperParam);
 
-  // 2. replace correct for loop result to post-op
+  // 4. replace correct for loop result to post-op
   IRRewriter rewriter(b);
-  replaceOperationsWithForLoopResult(
-      rewriter, loopHelperParam.forResults, loopHelperParam.forBlock,
-      loopHelperParam.nextAnchorResults, movingOperations,
-      loopHelperParam.nextAnchorResultOrignalResultMap);
+  replaceOperationsWithForLoopResult(rewriter, movingOperations,
+                                     loopHelperParam);
 
-  // 3. move operations to moved queue
+  // 5. move operations to moved queue
   while (!movingOperations.empty()) {
     loopHelperParam.movedOps->push(movingOperations.front());
     movingOperations.pop();
@@ -1170,47 +1150,46 @@ void ForLoopGenerator::movePostOpToCurrentAnchor(
 }
 
 void ForLoopGenerator::generateLoopResults(
-    OpBuilder &b, const Location &loc, const size_t anchorIdx,
-    const size_t groupIdx, SmallVector<Value, 4> &nextAnchorResults,
-    DenseMap<Value, int> &nextAnchorResultsIdxMap, const ValueRange &forResults,
-    const std::queue<Operation *> &movedOperation,
-    DenseMap<Value, Value> &forResultOrignalResultMap, ValueRange loopState,
-    DenseMap<Value, Value> &currentOperandOriginMap,
+    OpBuilder &b, const Location &loc, GenerateLoopHelper &loopHelperParam,
     DenseMap<Value, int> &nextOperandIdxMap) {
   SmallVector<Value, 4> results;
   DenseMap<Value, Value> currentResultMap;
-  llvm::outs() << " move current operation to current for block\n";
-  printQueue(movedOperation);
-  getResultInCurrentOps(anchorIdx, groupIdx, movedOperation, results,
-                        nextAnchorResultsIdxMap, currentResultMap);
+  getResultInCurrentOps(loopHelperParam.anchorIdx, loopHelperParam.groupIdx,
+                        *loopHelperParam.movedOps, results,
+                        loopHelperParam.nextAnchorResultsIdxMap,
+                        currentResultMap);
 
   llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>> &groupResults =
-      getGroupOpResults()[groupIdx];
+      getGroupOpResults()[loopHelperParam.groupIdx];
   // check for yield results whether need to return to next anchor
-  for (auto [idx, forResult] : llvm::enumerate(nextAnchorResults)) {
-    Value originalResult = forResultOrignalResultMap[forResult];
+  for (auto [idx, forResult] :
+       llvm::enumerate(loopHelperParam.nextAnchorResults)) {
+    Value originalResult =
+        loopHelperParam.nextAnchorResultOrignalResultMap[forResult];
 
     if (groupResults.contains(originalResult)) {
       std::pair<ReturnTypeKind, size_t> resultType =
           groupResults[originalResult];
-      if (needReturnResult(resultType, anchorIdx)) {
-        results.emplace_back(forResults[idx]);
-        currentResultMap[forResults[idx]] = originalResult;
+      if (needReturnResult(resultType, loopHelperParam.anchorIdx)) {
+        results.emplace_back(loopHelperParam.forResults[idx]);
+        currentResultMap[loopHelperParam.forResults[idx]] = originalResult;
       }
     }
   }
 
-  nextAnchorResults.clear();
-  nextAnchorResultsIdxMap.clear();
+  loopHelperParam.nextAnchorResults.clear();
+  loopHelperParam.nextAnchorResultsIdxMap.clear();
   // reduction operation due to special process results size will be zero
   if (results.size() > 0)
-    for (Value x : loopState) {
-      nextAnchorResults.emplace_back(results[nextOperandIdxMap[x]]);
-      nextAnchorResultsIdxMap[results[nextOperandIdxMap[x]]] =
-          nextAnchorResults.size() - 1;
+    for (Value x : loopHelperParam.loopIterArgs) {
+      loopHelperParam.nextAnchorResults.emplace_back(
+          results[nextOperandIdxMap[x]]);
+      loopHelperParam.nextAnchorResultsIdxMap[results[nextOperandIdxMap[x]]] =
+          loopHelperParam.nextAnchorResults.size() - 1;
     }
 
-  forResultOrignalResultMap = std::move(currentResultMap);
+  loopHelperParam.nextAnchorResultOrignalResultMap =
+      std::move(currentResultMap);
 }
 
 scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
@@ -1298,13 +1277,7 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
           movePostOpToCurrentAnchor(b, loopHelperParam);
 
           // 4. generate loop results
-          generateLoopResults(b, loc, currentAnchorId, loopHelperParam.groupIdx,
-                              loopHelperParam.nextAnchorResults,
-                              loopHelperParam.nextAnchorResultsIdxMap,
-                              nxtFor->getResults(), *loopHelperParam.movedOps,
-                              loopHelperParam.nextAnchorResultOrignalResultMap,
-                              loopState, currentArgsOriginalMap,
-                              nextAnchorArgsIdxMap);
+          generateLoopResults(b, loc, loopHelperParam, nextAnchorArgsIdxMap);
 
           // reduction must return accumulate
           if (loopHelperParam.orignalResultNextAnchorResultMap.contains(
@@ -1353,11 +1326,7 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
           rewriteOperationAsVectorize(b, loopHelperParam.groupIdx,
                                       &movingOperation);
 
-          moveOperationsToCurrentForBody(
-              loopHelperParam.groupIdx, b, loopHelperParam.inductionVars,
-              loopHelperParam.currentLoopStateIdxMap, loopState,
-              loopHelperParam.originalOperandLoopArgsMap, movingOperation,
-              loopHelperParam.indiceLoopMap);
+          moveOperationsToCurrentForBody(b, movingOperation, loopHelperParam);
           loopHelperParam.movedOps = &movingOperation;
           loopHelperParam.candidateOps = &opQueue;
 
@@ -1510,32 +1479,27 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
           }
 
           scf::ForOp nxtFor;
-          DenseMap<Value, Value> originalResultForResultMap;
           // 2. generate next for loop
-          if (rdCanonicalizer.hasLastDimReduction() or
-              loopHelperParam.anchorIdx < parallelAxis.size() - 1) {
-            loopHelperParam.anchorIdx += 1;
+          bool useParallelLoop =
+              rdCanonicalizer.hasLastDimReduction() or
+              loopHelperParam.anchorIdx < parallelAxis.size() - 1;
+          loopHelperParam.anchorIdx += 1;
+          if (useParallelLoop) {
             nxtFor =
                 parallelAxisGenerateForLoop(b, indiceLoopMap, loopHelperParam);
-          } else if (parallelAxis.size() - 1 == loopHelperParam.anchorIdx) {
-            loopHelperParam.anchorIdx += 1;
+          } else {
             nxtFor = reductionAxisGenerateForLoop(b, 0, loopHelperParam);
           }
           loopHelperParam.anchorIdx -= 1;
 
+          // 3. move postOp to current body
           loopHelperParam.updateDataBeforePostOpMove(
               tmpArgs, currentLoopStateIdxMap, currentOriginalOperandMap,
               currentOperandOriginalMap, nxtFor->getResults(),
               nxtFor->getBlock(), movedQueue, loopHelperParam.anchorIdx);
-          // 3. move postOp to current body
           movePostOpToCurrentAnchor(b, loopHelperParam);
           // 4. generate loop results
-          generateLoopResults(
-              b, loc, loopHelperParam.anchorIdx, loopHelperParam.groupIdx,
-              loopHelperParam.nextAnchorResults,
-              loopHelperParam.nextAnchorResultsIdxMap, nxtFor->getResults(),
-              movedQueue, loopHelperParam.nextAnchorResultOrignalResultMap,
-              loopState, currentOperandOriginalMap, nextAnchorArgsIdxMap);
+          generateLoopResults(b, loc, loopHelperParam, nextAnchorArgsIdxMap);
           maybeYieldValue(b, loc, loopHelperParam.nextAnchorResults);
 
         } else if (loopHelperParam.anchorIdx == parallelAxis.size()) {
@@ -2636,11 +2600,11 @@ void ForLoopGenerator::setOperationCorrectOperand(
             "Permuatation map must contains dim expr.");
 
       size_t dim;
-      if (auto d = dyn_cast<AffineDimExpr>(x))
+      if (auto d = dyn_cast<AffineDimExpr>(x)) {
         dim = d.getPosition();
-
-      if (auto d = dyn_cast<AffineConstantExpr>(x))
+      } else if (auto d = dyn_cast<AffineConstantExpr>(x)) {
         dim = d.getValue();
+      }
 
       ShapedType tensorType =
           cast<ShapedType>(op->getOperandTypes()[offset - 1]);
@@ -2698,11 +2662,7 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
           rewriteOperationAsVectorize(b, groupIdx, &movingOperation);
 
           // 3. move opeartions to current for block
-          moveOperationsToCurrentForBody(
-              groupIdx, b, loopHelper.inductionVars,
-              loopHelper.currentLoopStateIdxMap, loopState,
-              loopHelper.originalOperandLoopArgsMap, movingOperation,
-              loopHelper.indiceLoopMap);
+          moveOperationsToCurrentForBody(b, movingOperation, loopHelper);
 
           getResultInCurrentOps(loopHelper.anchorIdx, groupIdx, movingOperation,
                                 loopHelper.nextAnchorResults,
@@ -2747,12 +2707,7 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
               movedQueue, loopHelper.anchorIdx);
           movePostOpToCurrentAnchor(b, loopHelper);
 
-          generateLoopResults(
-              b, loc, loopHelper.anchorIdx, groupIdx,
-              loopHelper.nextAnchorResults, loopHelper.nextAnchorResultsIdxMap,
-              nxtFor->getResults(), movedQueue,
-              loopHelper.nextAnchorResultOrignalResultMap, loopState,
-              currentOperandOriginalMap, nextAnchorArgsIdxMap);
+          generateLoopResults(b, loc, loopHelper, nextAnchorArgsIdxMap);
 
           maybeYieldValue(b, loc, loopHelper.nextAnchorResults);
         }
@@ -2878,9 +2833,8 @@ void getSrcBroadcastDim(const ShapedType &input, const ShapedType &output,
       bcAxis.emplace_back(i);
     }
   }
-  if (bcAxis.empty()) {
+  if (bcAxis.empty())
     bcAxis.emplace_back(-1);
-  }
 }
 
 void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
@@ -2889,6 +2843,7 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
           [&](vector::MultiDimReductionOp multiReductionOp) {
             auto rdDimsRange = multiReductionOp.getReductionDims();
             dataAxis.assign(rdDimsRange.begin(), rdDimsRange.end());
+            return;
           })
       .Case<vector::ShapeCastOp>([&](vector::ShapeCastOp shapeCastOp) {
         auto srcType = shapeCastOp.getSourceVectorType();
@@ -2900,6 +2855,7 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
         } else {
           shapeCastSourceAxis(dstShape, srcShape, dataAxis);
         }
+        return;
       })
       .Case<vector::BroadcastOp>([&](vector::BroadcastOp broadcastOp) {
         auto srcType = broadcastOp.getSourceType();
@@ -2911,6 +2867,7 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
           auto outputType = mlir::cast<ShapedType>(dstType);
           getSrcBroadcastDim(inputType, outputType, dataAxis);
         }
+        return;
       })
       .Case<vector::TransposeOp>([&](vector::TransposeOp transposeOp) {
         auto perm = transposeOp.getPermutation();
@@ -2921,11 +2878,13 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
           }
           start++;
         }
+        return;
       })
       .Default([&](Operation *op) {
         // default is last axis
         dataAxis.emplace_back(
             cast<ShapedType>(op->getResultTypes()[0]).getRank() - 1);
+        return;
       });
 }
 

@@ -25,30 +25,13 @@
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/Float16bits.h"
-#include "mlir/IR/AffineExpr.h"
-#include "mlir/IR/AffineMap.h"
-#include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Visitors.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
-#include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
-#include <deque>
 #include <queue>
-#include <stack>
-#include <tuple>
-#include <type_traits>
-#include <variant>
 // #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 namespace mlir {
 namespace gc {
@@ -60,23 +43,16 @@ namespace {
 
 /// build a constant operation of index type
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
-/// set correct operand for the operation
-void setOperationCorrectOperand(
-    Operation *op, ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    ArrayRef<Value> inductionVars,
-    DenseMap<Operation *, AffineMap> &opPermuationMap);
+
 /// get operation read or write tensor
 mlir::FailureOr<Value> getOperationOperateTensor(Operation *op);
 
+/// record hardware information
 struct HardWareInfo {
   bool favx512f = true;
   bool favx2 = true;
 };
 
-//===----------------------------------------------------------------------===//
-// helper function
-//===----------------------------------------------------------------------===//
 /// Using to avoid too many parameters in function
 struct GenerateLoopHelper {
   /// anchor id
@@ -225,6 +201,13 @@ void GenerateLoopHelper::updateCurrentArgsStatus(
   originalOperandLoopArgsMap = originalArgsMap;
   loopArgsOriginalOperandMap = argsOriginalMap;
 }
+
+/// set correct operand for the operation
+void setOperationCorrectOperand(
+    Operation *op, ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
+    DenseMap<Value, Value> &originalOperandLoopArgsMap,
+    ArrayRef<Value> inductionVars,
+    DenseMap<Operation *, AffineMap> &opPermuationMap);
 
 /// Vector type conversion helper class
 class TypeHelper {
@@ -521,11 +504,10 @@ public:
 
   CanonicalizerCommonUsedData(
       VectorFusionStrategy &fusionStrategy,
-      llvm::SmallVector<
-          llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
+      SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
           &groupOpResults,
-      llvm::SmallVector<llvm::SetVector<Value>, 8> &groupOpInitArgs,
-      llvm::DenseMap<Operation *, AffineMap> &opPermuationMap)
+      SmallVector<llvm::SetVector<Value>, 8> &groupOpInitArgs,
+      DenseMap<Operation *, AffineMap> &opPermuationMap)
       : fusionStrategy(fusionStrategy), groupOpResults(groupOpResults),
         groupOpInitArgs(groupOpInitArgs), opPermuationMap(opPermuationMap) {}
   virtual ~CanonicalizerCommonUsedData() noexcept {};
@@ -585,17 +567,17 @@ public:
     return multiRdCanonicalizers;
   }
 
-  llvm::SmallVector<BroadcastCanonicalizer, 8> &
+  SmallVector<BroadcastCanonicalizer, 8> &
   getBroadcastCanonicalizers() noexcept {
     return broadcastCanonicalizers;
   }
 
-  llvm::SmallVector<TransposeCanonicalizer, 8> &
+  SmallVector<TransposeCanonicalizer, 8> &
   getTransposeCanonicalizers() noexcept {
     return transposeCanonicalizers;
   }
 
-  llvm::SmallVector<ShapeCastCanonicalizer, 8> &
+  SmallVector<ShapeCastCanonicalizer, 8> &
   getShapeCastCanonicalizers() noexcept {
     return shapeCastCanonicalizers;
   }
@@ -676,12 +658,9 @@ public:
                                   const Location &loc, ArrayRef<int64_t> dims,
                                   GenerateLoopHelper &loopGenerator);
 
-  void moveOperationsToCurrentForBody(
-      const size_t groupIdx, const OpBuilder &b, ArrayRef<Value> inductionVars,
-      const llvm::DenseMap<Value, int> &operandIdxMap, ValueRange loopState,
-      DenseMap<Value, Value> &originalOperandLoopArgsMap,
-      std::queue<Operation *> &queue,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+  void moveOperationsToCurrentForBody(const OpBuilder &b,
+                                      std::queue<Operation *> &queue,
+                                      GenerateLoopHelper &loopHelperParam);
 
   void setOperationCorrectOperand(
       Operation *op, ValueRange iterArgs,
@@ -696,30 +675,17 @@ public:
                              SmallVector<Value, 4> &results,
                              DenseMap<Value, int> &nextAnchorResultsIdxMap,
                              DenseMap<Value, Value> &forResultOrignalResultMap);
-
-  /// todo: need to add a struct to remove so many parameters
-  void
-  getInitArgsToNextAnchor(const size_t anchorIdx, const size_t groupId,
-                          const std::queue<Operation *> &nextOperations,
-                          const ValueRange &loopState,
-                          llvm::DenseMap<Value, int> &currentLoopStateIdxMap,
-                          llvm::DenseMap<Value, int> &nextAnchorArgsIdxMap,
-                          llvm::SmallVector<Value, 4> &nextAnchorArgs,
-                          DenseMap<Value, Value> &originalOperandLoopArgsMap,
-                          DenseMap<Value, Value> &loopArgsOriginalOperandMap);
+  /// get next anchor's iteration loop args
+  void getInitArgsToNextAnchor(llvm::DenseMap<Value, int> &nextAnchorArgsIdxMap,
+                               llvm::SmallVector<Value, 4> &nextAnchorArgs,
+                               GenerateLoopHelper &loopHelperParam);
 
   void getOperationInCurrentAnchor(const size_t anchorIdx,
                                    std::queue<Operation *> &fromQueue,
                                    std::queue<Operation *> &toQueue);
+  /// get current loop operation result
   void generateLoopResults(OpBuilder &b, const Location &loc,
-                           const size_t anchorIdx, const size_t groupIdx,
-                           llvm::SmallVector<Value, 4> &nextAnchorResults,
-                           llvm::DenseMap<Value, int> &nextAnchorResultsIdxMap,
-                           const ValueRange &forResults,
-                           const std::queue<Operation *> &movedOperaiton,
-                           DenseMap<Value, Value> &forResultOrignalResultMap,
-                           ValueRange loopState,
-                           DenseMap<Value, Value> &currentOperandOriginMap,
+                           GenerateLoopHelper &loopHelperParam,
                            DenseMap<Value, int> &nextOperandIdxMap);
 
   /// todo: need to add a struct to remove so many parameters
@@ -732,10 +698,8 @@ public:
                                 GenerateLoopHelper &loopHelperParam);
 
   void replaceOperationsWithForLoopResult(
-      IRRewriter &rewrite, const ValueRange &forResults, const Block *forBlock,
-      const llvm::SmallVector<Value, 4> &nextAnchorResults,
-      const std::queue<Operation *> &movingOperations,
-      DenseMap<Value, Value> &forResultOrignalResultMap);
+      IRRewriter &rewrite, const std::queue<Operation *> &movingOperations,
+      GenerateLoopHelper &loopHelperParam);
   // multireduction forloop  methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
   /// Rearrange the current opIR to facilitate the generation of the correct
