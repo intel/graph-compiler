@@ -31,8 +31,7 @@ namespace {
       linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
       linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp,               \
       tensor::CollapseShapeOp, tensor::ExpandShapeOp, tensor::ExtractSliceOp,  \
-      tensor::InsertSliceOp
-// , microkernel::BrgemmOp
+      tensor::InsertSliceOp, microkernel::BrgemmOp
 
 /// TODO: remove it in the future
 bool disableSpecialOp = false;
@@ -2368,10 +2367,7 @@ bool TransposeCanonicalizer::transposeOnLastDim() {
     return false;
 
   VectorType vtType = getCandidateOps()[0].getResultVectorType();
-  if (vtType.getShape()[rank - 1] % getVectorStep() != 0)
-    return false;
-
-  return true;
+  return vtType.getShape()[rank - 1] % getVectorStep() != 0;
 }
 
 bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
