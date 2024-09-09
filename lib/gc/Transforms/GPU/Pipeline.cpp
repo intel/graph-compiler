@@ -1,3 +1,11 @@
+//===- Pipeline.cpp - Graph Compiler GPU pipeline ---------------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
@@ -21,8 +29,8 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/SPIRV/Transforms/Passes.h"
 
-#include <imex/Transforms/Passes.h>
 #include <imex/Conversion/Passes.h>
+#include <imex/Transforms/Passes.h>
 
 #include <string>
 
@@ -46,7 +54,8 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
   pm.addPass(bufferization::createOneShotBufferizePass(options));
 
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
-  pm.addNestedPass<func::FuncOp>(bufferization::createFinalizingBufferizePass());
+  pm.addNestedPass<func::FuncOp>(
+      bufferization::createFinalizingBufferizePass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(createCSEPass());
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
@@ -61,8 +70,8 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
   pm.addPass(createBufferizationToMemRefPass());
 
   pm.addNestedPass<func::FuncOp>(createForallToParallelLoopPass());
-  pm.addNestedPass<func::FuncOp>(
-    createLinalgToXeGPU({/*kTile=*/16, /*stages=*/1, /*dpasTiles=*/{8, 16, 16}}));
+  pm.addNestedPass<func::FuncOp>(createLinalgToXeGPU(
+      {/*kTile=*/16, /*stages=*/1, /*dpasTiles=*/{8, 16, 16}}));
 
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
   pm.addPass(xegpu::createXeGPUFoldAliasOps());
@@ -76,7 +85,8 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(imex::createSetSPIRVCapabilitiesPass());
-  pm.addNestedPass<gpu::GPUModuleOp>(imex::createSetSPIRVAbiAttributePass("opencl"));
+  pm.addNestedPass<gpu::GPUModuleOp>(
+      imex::createSetSPIRVAbiAttributePass("opencl"));
   pm.addPass(createLowerAffinePass());
   pm.addPass(imex::createVectorLinearizePass());
   pm.addNestedPass<gpu::GPUModuleOp>(imex::createConvertXeGPUToVCPass());
@@ -104,7 +114,6 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
   pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
-
 }
 
 void registerGPUPipeline() {
