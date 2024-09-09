@@ -34,7 +34,20 @@ func.func @vnni_linalg_to_microkernel(%arg0: tensor<4x8x32x32xf32>) -> tensor<4x
     %alloc_10 = tensor.extract_slice %argp[%arg7, %arg8, 0, 0] [1, 1, 32, 32] [1, 1, 1, 1] : tensor<4x8x32x32xf32> to tensor<32x32xf32>
     %subview = tensor.extract_slice %alloc_1[%arg7, 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<4x16x32x32xbf16> to tensor<16x32x32xbf16>
     %subview_11 = tensor.extract_slice %alloc_4[%arg8, 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : tensor<8x16x16x32x2xbf16> to tensor<16x16x32x2xbf16>
-    %res = linalgx.batch_reduce_matmul_vnni ins(%subview, %subview_11 : tensor<16x32x32xbf16>, tensor<16x16x32x2xbf16>) outs(%alloc_10 : tensor<32x32xf32>) -> tensor<32x32xf32>
+    %res = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>, 
+                           affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>, 
+                           affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>], 
+          iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]} 
+          ins(%subview, %subview_11 : tensor<16x32x32xbf16>, tensor<16x16x32x2xbf16>) 
+          outs(%alloc_10 : tensor<32x32xf32>) {
+    ^bb0(%in: bf16, %in_0: bf16, %out: f32):
+      %1 = arith.extf %in : bf16 to f32
+      %2 = arith.extf %in_0 : bf16 to f32
+      %3 = arith.mulf %1, %2 : f32
+      %4 = arith.addf %out, %3 : f32
+      linalg.yield %4 : f32
+    } -> tensor<32x32xf32>
     scf.forall.in_parallel {
         tensor.parallel_insert_slice %res into %argp[%arg7, %arg8, 0, 0] [1, 1, 32, 32] [1, 1, 1, 1] : tensor<32x32xf32> into tensor<4x8x32x32xf32>
     } 
@@ -91,7 +104,20 @@ func.func @vnni_linalg_to_microkernel_fusing_fill(%arg0: tensor<4x8x32x32xf32>) 
     %subview = tensor.extract_slice %alloc_1[%arg7, 0, 0, 0] [1, 16, 32, 32] [1, 1, 1, 1] : tensor<4x16x32x32xbf16> to tensor<16x32x32xbf16>
     %subview_11 = tensor.extract_slice %alloc_4[%arg8, 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : tensor<8x16x16x32x2xbf16> to tensor<16x16x32x2xbf16>
     %11 = linalg.fill ins(%cst : f32) outs(%alloc_10 : tensor<32x32xf32>) -> tensor<32x32xf32>
-    %res = linalgx.batch_reduce_matmul_vnni ins(%subview, %subview_11 : tensor<16x32x32xbf16>, tensor<16x16x32x2xbf16>) outs(%11 : tensor<32x32xf32>) -> tensor<32x32xf32>
+    %res = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>,
+                           affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>,
+                           affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>],
+          iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
+          ins(%subview, %subview_11 : tensor<16x32x32xbf16>, tensor<16x16x32x2xbf16>)
+          outs(%11 : tensor<32x32xf32>) {
+    ^bb0(%in: bf16, %in_0: bf16, %out: f32):
+      %1 = arith.extf %in : bf16 to f32
+      %2 = arith.extf %in_0 : bf16 to f32
+      %3 = arith.mulf %1, %2 : f32
+      %4 = arith.addf %out, %3 : f32
+      linalg.yield %4 : f32
+    } -> tensor<32x32xf32>
     scf.forall.in_parallel {
         tensor.parallel_insert_slice %res into %argp[%arg7, %arg8, 0, 0] [1, 1, 32, 32] [1, 1, 1, 1] : tensor<32x32xf32> into tensor<4x8x32x32xf32>
     } 
@@ -154,7 +180,20 @@ func.func @vnni_linalg_to_microkernel_fusing_transpose(%arg0: tensor<4x8x32x32xf
     %subview_11 = tensor.extract_slice %alloc_4[%arg8, 0, 0, 0, 0] [1, 16, 16, 32, 2] [1, 1, 1, 1, 1] : tensor<8x16x16x32x2xbf16> to tensor<16x16x32x2xbf16>
     %11 = linalg.fill ins(%cst : f32) outs(%alloc_10 : tensor<32x32xf32>) -> tensor<32x32xf32>
     %transposed = linalg.transpose ins(%subview_11 : tensor<16x16x32x2xbf16>) outs(%trans_base : tensor<16x16x32x2xbf16>) permutation = [1, 0, 2, 3]
-    %res = linalgx.batch_reduce_matmul_vnni ins(%subview, %transposed : tensor<16x32x32xbf16>, tensor<16x16x32x2xbf16>) outs(%11 : tensor<32x32xf32>) -> tensor<32x32xf32>
+    %res = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>,
+                           affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>,
+                           affine_map<(d0, d1, d2, d3, d4) -> (d1, d2)>],
+          iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
+          ins(%subview, %transposed : tensor<16x32x32xbf16>, tensor<16x16x32x2xbf16>)
+          outs(%11 : tensor<32x32xf32>) {
+    ^bb0(%in: bf16, %in_0: bf16, %out: f32):
+      %1 = arith.extf %in : bf16 to f32
+      %2 = arith.extf %in_0 : bf16 to f32
+      %3 = arith.mulf %1, %2 : f32
+      %4 = arith.addf %out, %3 : f32
+      linalg.yield %4 : f32
+    } -> tensor<32x32xf32>
     scf.forall.in_parallel {
         tensor.parallel_insert_slice %res into %argp[%arg7, %arg8, 0, 0] [1, 1, 32, 32] [1, 1, 1, 1] : tensor<32x32xf32> into tensor<4x8x32x32xf32>
     } 

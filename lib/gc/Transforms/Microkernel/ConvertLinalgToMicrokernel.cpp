@@ -21,7 +21,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Utils/StructuredOpMatcher.h"
 #include "gc/Transforms/Utils/ValueUtils.h"
@@ -53,7 +53,8 @@ customInferContractionDims(linalg::LinalgOp linalgOp) {
   auto dims = linalg::inferContractionDims(linalgOp);
   if (failed(dims))
     return failure();
-  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp)) {
+  if (linalgx::isGenericPackedMatmulOp(linalgOp,
+                                       linalgx::PackingType::VNNI_BRMM3D)) {
     // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
     // linalg utils because they form complex affine in operand A; Manually add
     // them here
@@ -338,7 +339,7 @@ static bool checkFusibleFillOp(DenseMap<Value, Value> &replaceMap,
   bool fuseFill = false;
   Value operandC = op.getDpsInitsMutable()[0].get();
   auto defOp = operandC.getDefiningOp();
-  if (auto fillOp = dyn_cast<linalg::FillOp>(defOp)) {
+  if (auto fillOp = dyn_cast_or_null<linalg::FillOp>(defOp)) {
     auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
         fillOp.getInputs()[0].getDefiningOp());
     if (isZeroArithConstant(inputCst)) {
@@ -356,6 +357,10 @@ public:
   using OpRewritePattern<ContractionOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
+    if (!isa<linalg::BatchReduceMatmulOp>(op) &&
+        !linalgx::isGenericPackedMatmulOp(op,
+                                          linalgx::PackingType::VNNI_BRMM3D))
+      return failure();
     if (!op.hasPureTensorSemantics())
       return failure();
 
@@ -384,8 +389,7 @@ public:
     patterns
         .add<ConvertContractionOpToBrgemmRewriter<linalg::BatchReduceMatmulOp>>(
             &getContext());
-    patterns.add<
-        ConvertContractionOpToBrgemmRewriter<linalgx::BatchReduceMatmulVnniOp>>(
+    patterns.add<ConvertContractionOpToBrgemmRewriter<linalg::GenericOp>>(
         &getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
     if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
