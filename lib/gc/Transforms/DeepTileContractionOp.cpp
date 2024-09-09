@@ -833,21 +833,16 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
           loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
           resultOprand);
     } else {
-      // TODO: replace liangx brgemm with the generic in the comment when
-      // microkernel is ready
-      matmul = rewriter.create<linalgx::BatchReduceMatmulVnniOp>(
-          loc, resultOprand.getType(), ValueRange{dataOprand, weightOprand},
-          resultOprand);
+      auto inputRange = SmallVector<Value>{dataOprand, weightOprand};
+      auto resRange = SmallVector<Value>{resultOprand};
 
-      // auto inputRange = ValueRange{dataOprand, weightOprand};
-      // auto resRange = ValueRange{resultOprand};
-      // auto res = linalgx::makeGenericPackedMatmulOp(
-      //     rewriter, loc, linalgx::PackingType::VNNI_BRMM3D, inputRange,
-      //     resRange);
-      // if (succeeded(res))
-      //   matmul = *res;
-      // else
-      //   return failure();
+      auto res = linalgx::makeGenericPackedMatmulOp(
+          rewriter, loc, linalgx::PackingType::VNNI_BRMM3D, inputRange,
+          resRange);
+      if (succeeded(res))
+        matmul = *res;
+      else
+        return failure();
     }
 
     Value result = matmul.getOperation()->getResult(0);
