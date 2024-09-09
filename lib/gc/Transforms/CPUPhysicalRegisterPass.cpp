@@ -2367,7 +2367,7 @@ bool TransposeCanonicalizer::transposeOnLastDim() {
     return false;
 
   VectorType vtType = getCandidateOps()[0].getResultVectorType();
-  return vtType.getShape()[rank - 1] % getVectorStep() != 0;
+  return vtType.getShape()[rank - 1] % getVectorStep() == 0;
 }
 
 bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
@@ -2763,9 +2763,9 @@ bool VectorFusionStrategy::isCompatibleVectorType(Operation *op1,
   // some operation has two different operands type like multireduction, we need
   // to check whether compitable with accumulate vector
   VectorType suppleType;
-  if (failed(type1) || failed(type2)) {
+  if (failed(type1) || failed(type2))
     return false;
-  }
+
   auto sp1 = type1.value();
   auto sp2 = type2.value();
 
