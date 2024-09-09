@@ -18,7 +18,7 @@ SmallVector<LoopLikeOpInterface> getOuterNestLoopsWhile(
     LoopLikeOpInterface loop,
     const std::function<LogicalResult(LoopLikeOpInterface)> &pred);
 
-FailureOr<OpResult> getRealProducerOfExtractSliceOp(
+FailureOr<OpResult> getRealProducerFromExtractSliceOp(
     Operation *candidateSliceOp,
     SmallVector<tensor::ExtractSliceOp> &backwardSlice, unsigned curDepth = 0,
     unsigned maxDepth = 5);

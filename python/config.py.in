@@ -5,7 +5,7 @@ llvm_obj_root = "@LLVM_BINARY_DIR@"
 llvm_lib_dir = "@LLVM_LIBRARY_DIR@"
 shlib_ext = "@LTDL_SHLIB_EXT@"
 gc_lib_dir = "@LLVM_LIBRARY_OUTPUT_INTDIR@"
-
+GC_ENABLE_DNNL_API ="@GC_ENABLE_DNNL_API@" in ["ON", "1"]
 
 if sys.platform.startswith("win32"):
     mlir_runner_utils_dir = os.path.normpath(os.path.join(llvm_obj_root, "bin"))

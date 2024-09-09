@@ -27,6 +27,7 @@ import benchgc.arg.softmax as softmax
 import benchgc.util
 import torch
 from benchgc.arg.arg import Arg
+from benchgc.pattern import get_pattern_clz
 
 onednn_module = {
     "binary": binary,
@@ -53,6 +54,9 @@ def set_default_fill(
         if flags.driver + "." + flags.case in module.op:
             module.default_fill(flags, arg, arglist)
             return
+        elif flags.driver == "pattern":
+            get_pattern_clz(flags.case).default_fill(flags, arg, arglist)
+            return
     # use N(0, 1) as default
     arg.fill_type = "N"
     arg.fill_param = ["0", "1"]
@@ -69,11 +73,14 @@ def set_default_compare(
             if flags.driver + "." + flags.case in module.op:
                 module.default_compare(flags, arg, arglist)
                 return
+            elif flags.driver == "pattern":
+                get_pattern_clz(flags.case).default_compare(flags, arg, arglist)
+                return
 
     dtype: torch.dtype = benchgc.util.get_dtype(arg.dtype)
     arg.cmp_type = "P"
     if dtype.is_floating_point:
-        arg.cmp_param = [str(torch.finfo(dtype).eps)]
+        arg.cmp_param = [str(1e-05)]
     else:
         arg.cmp_param = ["0"]
     if is_return:

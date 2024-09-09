@@ -18,20 +18,20 @@ from typing import Dict, Tuple
 
 import benchgc.util
 import gc_mlir._mlir_libs._mlir.ir
-import gc_mlir.ir
 import torch
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 
 
 def ref_constant(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     value = op.attributes["value"]
-    if isinstance(value, gc_mlir._mlir_libs._mlir.ir.FloatAttr):
+    if isinstance(value, ir.FloatAttr):
         return (
             torch.full(size=tuple(), fill_value=value.__float__(), dtype=torch.float),
         )
-    elif isinstance(value, gc_mlir._mlir_libs._mlir.ir.DenseFPElementsAttr):
+    elif isinstance(value, ir.DenseFPElementsAttr):
         if value.is_splat:
             return (
                 torch.full(
@@ -47,12 +47,12 @@ def ref_constant(
 
 
 def ref_mulf(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (var[cache.opr[0]] * var[cache.opr[1]],)
 
 
 def ref_addf(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (var[cache.opr[0]] + var[cache.opr[1]],)

@@ -3,6 +3,7 @@ add_subdirectory(Utils)
 gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRIR
   MLIRSupport
+  MLIRMicrokernelTransforms
   MLIRBufferizationToMemRef
   MLIRBufferizationPipelines)
 
@@ -21,6 +22,9 @@ gc_add_mlir_library(GcPasses
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  StaticMemoryPlanning.cpp
+  MergeAlloc.cpp
+  MergeAllocTickBased.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
 
