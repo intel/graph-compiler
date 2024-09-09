@@ -961,7 +961,9 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
            linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
                                             linalgx::PackingType::VNNI_MM4D) ||
            linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                            linalgx::PackingType::MM4D);
+                                            linalgx::PackingType::MM4D) ||
+           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                            linalgx::PackingType::MM2D4D);
   }
 
   LogicalResult matchAndRewrite(linalg::LinalgOp linalgOp,
