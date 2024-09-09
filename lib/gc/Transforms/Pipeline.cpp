@@ -25,12 +25,14 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/Passes.h"
+#include <climits>
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 
 namespace mlir::gc {
@@ -58,6 +60,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
   // todo: fine-grain fusion pass
+  pm.addNestedPass<func::FuncOp>(
+      mlir::microkernel::createConvertLinalgToMicrokernel());
   // todo: lower linalg to arith/math on virtual vector pass
 
   // REMOVE this pass after the above passes are added. Currently we add this
@@ -114,9 +118,10 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
   opt.hoistStaticAllocs = true;
   pm.addPass(bufferization::createBufferResultsToOutParamsPass(opt));
   pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createPromoteBuffersToStackPass());
-  bufferization::BufferDeallocationPipelineOptions deallocOption;
+  pm.addNestedPass<func::FuncOp>(bufferization::createPromoteBuffersToStackPass(
+      /*maxAllocSizeInBytes*/ UINT_MAX,
+      /*maxRankOfAllocatedMemRef*/ 8));
+  mlir::bufferization::BufferDeallocationPipelineOptions deallocOption;
   bufferization::buildBufferDeallocationPipeline(pm, deallocOption);
   pm.addPass(createBufferizationToMemRefPass());
   populateCleanUpPasses(pm);
@@ -124,13 +129,12 @@ void populateBufferizationPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + memref + func/microkernel
 void populateMicroKernelPasses(mlir::OpPassManager &pm) {
-  // todo: ConvertLinalgToMicrokernel pass
-  // todo: CleanupInvalidMicrokernel pass
-  // todo: InvariantMicrokernelMotion pass
-  // todo: ConvertMicrokernelToDnnlFunc to lower brgemm to dnnl call
-  // todo: ConvertMicrokernelToXsmm, to lower brgemm to libxsmm call
-  // todo: LowerMicrokernel pass
-  // todo: DispatchMicrokernel
+  pm.addNestedPass<func::FuncOp>(mlir::microkernel::createExpandMicrokernel());
+  pm.addPass(mlir::microkernel::createEarlyDispatchMicrokernel());
+  pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
+  pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
+  pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
+  populateCleanUpPasses(pm);
 }
 
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
@@ -155,7 +159,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
-  pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+  pm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertVectorToLLVMPass());

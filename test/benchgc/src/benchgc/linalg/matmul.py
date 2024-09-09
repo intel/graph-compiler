@@ -17,23 +17,24 @@
 import argparse
 from typing import Dict, List, Tuple
 
-import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.module import init_module
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 from gc_mlir.dialects import linalg
 from gc_mlir.dialects.linalg.opdsl.lang.comprehension import TypeFnType
 
 
 def ref_batch_matmul(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.matmul(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_batch_matmul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_batch_matmul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -43,15 +44,16 @@ def mlir_batch_matmul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.
 
 
 def ref_batch_matmul_transpose_a(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.bmm(var[cache.opr[0]].transpose(-1, -2), var[cache.opr[1]]),)
 
 
 def mlir_batch_matmul_transpose_a(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -61,15 +63,16 @@ def mlir_batch_matmul_transpose_a(
 
 
 def ref_batch_matmul_transpose_b(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.bmm(var[cache.opr[0]], var[cache.opr[1]].transpose(-1, -2)),)
 
 
 def mlir_batch_matmul_transpose_b(
     flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -79,7 +82,7 @@ def mlir_batch_matmul_transpose_b(
 
 
 def ref_batch_matvec(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     # pytorch does not support bmv
     return (
@@ -87,8 +90,9 @@ def ref_batch_matvec(
     )
 
 
-def mlir_batch_matvec(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_batch_matvec(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -98,7 +102,7 @@ def mlir_batch_matvec(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.
 
 
 def ref_batch_mmt4d(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     # [B, m, k, m0, k0] -> [B, m, m0, k, k0]
     _src = var[cache.opr[0]].permute([0, 1, 3, 2, 4]).contiguous()
@@ -124,8 +128,9 @@ def ref_batch_mmt4d(
     return (dst.transpose(2, 3).contiguous(),)
 
 
-def mlir_batch_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_batch_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -135,7 +140,7 @@ def mlir_batch_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.M
 
 
 def ref_batch_reduce_matmul(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.addbmm(
@@ -148,10 +153,9 @@ def ref_batch_reduce_matmul(
     )
 
 
-def mlir_batch_reduce_matmul(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_batch_reduce_matmul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -161,15 +165,16 @@ def mlir_batch_reduce_matmul(
 
 
 def ref_batch_vecmat(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.matmul(var[cache.opr[0]].unsqueeze(-2), var[cache.opr[1]]).squeeze(-2),
     )
 
 
-def mlir_batch_vecmat(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_batch_vecmat(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -179,13 +184,14 @@ def mlir_batch_vecmat(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.
 
 
 def ref_dot(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.dot(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_dot(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_dot(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -195,13 +201,14 @@ def mlir_dot(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_matmul(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.mm(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_matmul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_matmul(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -213,15 +220,14 @@ def mlir_matmul(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module
 
 
 def ref_matmul_transpose_a(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.mm(var[cache.opr[0]].transpose(-1, -2), var[cache.opr[1]]),)
 
 
-def mlir_matmul_transpose_a(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_matmul_transpose_a(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -233,15 +239,14 @@ def mlir_matmul_transpose_a(
 
 
 def ref_matmul_transpose_b(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.mm(var[cache.opr[0]], var[cache.opr[1]].transpose(-1, -2)),)
 
 
-def mlir_matmul_transpose_b(
-    flags: argparse.Namespace, args: List[Arg]
-) -> gc_mlir.ir.Module:
+def mlir_matmul_transpose_b(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -253,13 +258,14 @@ def mlir_matmul_transpose_b(
 
 
 def ref_matvec(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (torch.mv(var[cache.opr[0]], var[cache.opr[1]]),)
 
 
-def mlir_matvec(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_matvec(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -269,7 +275,7 @@ def mlir_matvec(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module
 
 
 def ref_mmt4d(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     # [m, k, m0, k0] -> [m, m0, k, k0]
     _src = var[cache.opr[0]].permute([0, 2, 1, 3]).contiguous()
@@ -289,8 +295,9 @@ def ref_mmt4d(
     return (dst.transpose(1, 2).contiguous(),)
 
 
-def mlir_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [
@@ -300,15 +307,16 @@ def mlir_mmt4d(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
 
 
 def ref_vecmat(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.matmul(var[cache.opr[0]].unsqueeze(-2), var[cache.opr[1]]).squeeze(-2),
     )
 
 
-def mlir_vecmat(flags: argparse.Namespace, args: List[Arg]) -> gc_mlir.ir.Module:
+def mlir_vecmat(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
     return init_module(
+        flags.entry,
         (args[0], args[1]),
         (args[2],),
         lambda ctx, arg0, arg1: [

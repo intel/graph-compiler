@@ -46,6 +46,8 @@ getClosestExtractSliceOfOperand(OpOperand &operand) {
     if (auto loop =
             dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp()))
       return getClosestExtractSliceOfOperand(*loop.getTiedLoopInit(iterArg));
+    // If operand is not using loop init.
+    return failure();
   }
 
   Operation *defineOp = operand.get().getDefiningOp();
@@ -255,8 +257,8 @@ tilingSizesIfMatchedFilter(RewriterBase &rewriter,
       if (defOrUse.isDef()) {
         SmallVector<tensor::ExtractSliceOp> backwardSlice;
         FailureOr<OpResult> realProducer =
-            scfX::getRealProducerOfExtractSliceOp(otherCandidate,
-                                                  backwardSlice);
+            scfX::getRealProducerFromExtractSliceOp(otherCandidate,
+                                                    backwardSlice);
         if (succeeded(realProducer) &&
             realProducer->getDefiningOp() == defOrUse.ownerOp)
           return failure();
@@ -474,7 +476,7 @@ tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
   // stage, sorted from inner to outer.
   SmallVector<tensor::ExtractSliceOp> backwardSlice;
   FailureOr<OpResult> realProducer =
-      scfX::getRealProducerOfExtractSliceOp(*closestSliceOp, backwardSlice);
+      scfX::getRealProducerFromExtractSliceOp(*closestSliceOp, backwardSlice);
   if (failed(realProducer))
     return std::nullopt;
 
@@ -527,7 +529,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       return false;
     unsigned index = std::distance(uses.begin(), iter);
     SmallVector<unsigned> indices =
-        llvm::to_vector(llvm::seq<unsigned>(0, numberUses));
+        llvm::to_vector(llvm::seq<unsigned>(numberUses));
     indices.push_back(indices[index]);
     indices.erase(indices.begin() + index);
     operand->get().shuffleUseList(indices);
@@ -634,12 +636,9 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
     return failure();
 
   // 3. check whether has either extract or insert slice op
-  auto walkResult = forOp->walk(
-      [](tensor::ExtractSliceOp) { return WalkResult::interrupt(); });
-  if (!walkResult.wasInterrupted())
-    return failure();
-  walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
-    return isa<tensor::InsertSliceOp, tensor::ParallelInsertSliceOp>(op)
+  auto walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
+    return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp,
+               tensor::ParallelInsertSliceOp>(op)
                ? WalkResult::interrupt()
                : WalkResult::advance();
   });

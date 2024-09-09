@@ -16,33 +16,33 @@
 
 from typing import Callable, List, Tuple
 
-import gc_mlir.dialects.tensor
-import gc_mlir.ir
 from benchgc.mlir.arg import MLIRArg
+from gc_mlir import ir
 from gc_mlir.dialects import func
 
 
 def init_module(
+    entry_name: str,
     inputs: Tuple[MLIRArg, ...],
     outputs: Tuple[MLIRArg, ...],
     op_func: Callable[
-        [gc_mlir.ir.Context, Tuple[gc_mlir.ir.BlockArgument, ...]],
-        List[gc_mlir.ir.OpResult],
+        [ir.Context, Tuple[ir.BlockArgument, ...]],
+        List[ir.OpResult],
     ],
-) -> gc_mlir.ir.Module:
-    with gc_mlir.ir.Context() as ctx, gc_mlir.ir.Location.unknown():
-        module = gc_mlir.ir.Module.create()
-        with gc_mlir.ir.InsertionPoint(module.body):
+) -> ir.Module:
+    with ir.Context() as ctx, ir.Location.unknown():
+        module = ir.Module.create()
+        with ir.InsertionPoint(module.body):
             f = func.FuncOp(
-                name="entry",
-                type=gc_mlir.ir.FunctionType.get(
+                name=entry_name,
+                type=ir.FunctionType.get(
                     inputs=[x.get_mlir_type(ctx) for x in inputs],
                     results=[x.get_mlir_type(ctx) for x in outputs],
                 ),
             )
-            f.attributes["llvm.emit_c_interface"] = gc_mlir.ir.UnitAttr.get()
+            f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
 
-            with gc_mlir.ir.InsertionPoint(f.add_entry_block()):
+            with ir.InsertionPoint(f.add_entry_block()):
                 block_args = f.entry_block.arguments
                 func.ReturnOp(op_func(ctx, *block_args))
         return module
