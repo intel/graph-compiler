@@ -14,6 +14,7 @@
 # limitations under the License.
 ################################################################################
 
+import argparse
 import ctypes
 import os
 from typing import Any, List
@@ -150,7 +151,7 @@ def get_kernel_func_from_module(
     raise ValueError("can not find the entry function")
 
 
-def attch_dlti(flags, module: ir.Module):
+def attach_dlti(flags: argparse.Namespace, module: ir.Module):
     # the moudle already had dlti attr
     if "dlti.target_system_spec" in module.operation.attributes:
         return

@@ -39,7 +39,10 @@ std::vector<int> getCacheSizes() {
     if (cacheType == 0) {
       break;
     }
-
+    if (cacheType == 2) {
+      // skip instruction cache
+      continue;
+    }
     int cacheLevel = (info[0] >> 5) & 0x7;
     int cacheLinesPerTag = ((info[1] >> 0) & 0xFFF) + 1;
     int cacheAssociativity = ((info[1] >> 12) & 0x3FF) + 1;

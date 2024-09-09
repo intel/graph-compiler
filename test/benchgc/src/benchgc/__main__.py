@@ -278,7 +278,7 @@ def get_module_and_args(flags):
     for arg in args:
         arg.print_verbose(flags.verbose)
 
-    benchgc.mlir.util.attch_dlti(flags, module)
+    benchgc.mlir.util.attach_dlti(flags, module)
 
     if flags.verbose >= benchgc.util.MODULE_VERBOSE:
         print(module)
