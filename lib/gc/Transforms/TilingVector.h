@@ -325,7 +325,6 @@ public:
       : SpecialOperationCanonicalizer<vector::MultiDimReductionOp>(
             candidateRdOps, SpecialOperationKind::OP_MultiDimReduction, steps) {
     isStandaloneOp = candidateRdOps.size() == 1;
-    prepareSpecialOperationInfo();
   };
   virtual ~MultiReductionCanonicalizer() noexcept {};
   int64_t getTypeRank();
@@ -611,7 +610,7 @@ public:
 
   scf::ForOp constructNestedForOp(const size_t groupIdx, OpBuilder &b,
                                   const Location &loc, ArrayRef<int64_t> dims,
-                                  GenerateLoopHelper &loopGenerator);
+                                  GenerateLoopHelper &loopHelper);
 
   void moveOperationsToCurrentForBody(const OpBuilder &b,
                                       std::queue<Operation *> &queue,
@@ -683,7 +682,7 @@ public:
       MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel);
 
   /// generate for loop for transpose operation
-  scf::ForOp generateTransposeForLoop(const size_t groupId);
+  scf::ForOp generateTransposeForLoop(const size_t grpIdx);
   scf::ForOp generateTransposeForLoopWithLastDim(
       OpBuilder &opBuilder, const int tpSteps, const Location &loc,
       Operation *successorWriteOp, GenerateLoopHelper &loopHelperParam);

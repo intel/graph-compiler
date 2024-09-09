@@ -444,7 +444,7 @@ mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op) {
   return ret;
 }
 
-VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loop_step) {
+VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loopStep) {
   // Check that the operation type can be broken
   // down into a loop.
   mlir::FailureOr<VectorType> baseType = getOperationVectorType(op);
@@ -454,10 +454,10 @@ VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loop_step) {
     return VectorType();
   }
   auto vectorizedType = baseType.value();
-  if (loop_step == 0)
-    loop_step = getDataTypeValidSteps(vectorizedType);
+  if (loopStep == 0)
+    loopStep = getDataTypeValidSteps(vectorizedType);
 
-  return VectorType::get({loop_step}, vectorizedType.getElementType());
+  return VectorType::get({loopStep}, vectorizedType.getElementType());
 }
 
 /// whether the operation result need to be returned
@@ -2252,11 +2252,10 @@ void MultiReductionCanonicalizer::initReductionAxis() {
 void MultiReductionCanonicalizer::initParallelAxis() {
   llvm::SmallDenseSet<int64_t, 4> reductionAxisSet(reductionAxis.begin(),
                                                    reductionAxis.end());
-  for (int64_t i = 0; i < typeRank; ++i) {
-    if (!reductionAxisSet.contains(i)) {
+  for (int64_t i = 0; i < typeRank; ++i)
+    if (!reductionAxisSet.contains(i))
       parallelAxis.push_back(i);
-    }
-  }
+
   llvm::sort(parallelAxis);
 }
 
@@ -2369,7 +2368,6 @@ bool TransposeCanonicalizer::transposeOnLastDim() {
     return false;
 
   VectorType vtType = getCandidateOps()[0].getResultVectorType();
-
   if (vtType.getShape()[rank - 1] % getVectorStep() != 0)
     return false;
 
@@ -2639,7 +2637,7 @@ void ForLoopGenerator::setOperationCorrectOperand(
         llvm::llvm_unreachable_internal(
             "Permuatation map must contains dim expr.");
 
-      size_t dim = 0;
+      int64_t dim = 0;
       if (auto d = dyn_cast<AffineDimExpr>(x)) {
         dim = d.getPosition();
       } else if (auto d = dyn_cast<AffineConstantExpr>(x)) {
