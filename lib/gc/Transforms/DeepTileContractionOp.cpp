@@ -345,6 +345,8 @@ struct OuterLoopGenerationResult {
   /// matter except the last op. The replacements are expected to be the results
   /// of the last op.
   SmallVector<Operation *> tiledOps;
+  /// The `scf.forall` operations that iterate over the tiles.
+  SmallVector<Operation *> forallOps;
   /// The `scf.for` operations that iterate over the tiles.
   SmallVector<LoopLikeOpInterface> loops;
   SmallVector<LoopLikeOpInterface> reductionLoops;
@@ -373,6 +375,7 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
   linalg::LinalgOp currentOp = linalgOp;
 
   bool hasFullResult = !option.isPartialResult;
+  int cnt = 0;
   for (auto &&[i, loopType] : llvm::enumerate(loopType)) {
     ArrayRef<size_t> currentDim = loopDim[i];
     ArrayRef<size_t> currentTileSize = nestedTileSizes[i];
@@ -470,6 +473,7 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
           }
         }
       } else {
+        cnt += 1;
         scf::SCFTilingOptions tileOption;
         tileOption.setTileSizes(tileSizes);
         tileOption.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
@@ -479,6 +483,9 @@ generateOuterLoop(RewriterBase &b, linalg::LinalgOp linalgOp,
           return failure();
         b.replaceOp(currentOp, tilingResult->replacements);
         currentOp = dyn_cast<linalg::LinalgOp>(tilingResult->tiledOps.back());
+
+        if (isa<scf::ForallOp>(currentOp->getParentOp()))
+          result.forallOps.emplace_back(currentOp->getParentOp());
       }
     }
   }
@@ -588,6 +595,18 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     size_t NOuterBlockSize = NDimPos.size() > 1
                                  ? (cfg.NBlock - 1) / cfg.innerMostNBlock + 1
                                  : cfg.NBlock;
+    llvm::outs() << "KThreads: " << cfg.KThreads << ", "
+                 << "MThreads: " << cfg.MThreads << ", "
+                 << "NThreads: " << cfg.NThreads << "\n";
+    // Outermost Numa loop
+    llvm::outs() << "numNuma: " << cfg.numNuma << "\n";
+    if (cfg.numNuma > 1) {
+      option.nestedTileSizes.emplace_back(
+          SmallVector<size_t>{uint32_t(MFirstDim / cfg.numNuma)});
+      option.loopType.emplace_back(
+          OuterLoopGenerationOption::LoopType::ForallOp);
+      option.loopDim.emplace_back(SmallVector<size_t>{MDimPos[0]});
+    }
 
     // Outer loop tile size
     for (auto &&[tile, dim] :
@@ -693,7 +712,8 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
   innerBodyGeneration(RewriterBase &rewriter, linalg::LinalgOp currentOp,
                       ArrayRef<ArrayRef<int64_t>> allShape,
                       ArrayRef<SmallVector<DimType>> operandDimTypes,
-                      innerBodyGenerationOption &option) const {
+                      innerBodyGenerationOption &option, Value &numaIter,
+                      int32_t expectedNumaIter) const {
     Location loc = currentOp->getLoc();
     MatmulConfig &cfg = option.cfg;
     assert(allShape.size() == 3 &&
@@ -773,6 +793,7 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
     // Get the data/wei/dst data type
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(currentOp);
+
     mlir::Type dataType =
         dyn_cast<mlir::ShapedType>(currentOp.getDpsInputs()[0].getType())
             .getElementType();
@@ -824,7 +845,16 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
                                  CInnermostDims.end()),
             resultType),
         currentOp.getDpsInits()[0]);
-
+    auto expectedNumaIterValue =
+        rewriter.create<arith::ConstantIndexOp>(loc, expectedNumaIter);
+    // create ifOp for numa split
+    if (!numaIter)
+      numaIter = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    auto conditionOp = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, numaIter, expectedNumaIterValue);
+    scf::IfOp ifOp = rewriter.create<scf::IfOp>(
+        loc, TypeRange{resultOprand.getType()}, conditionOp.getResult(), true);
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
     // Create the brgemm op and replace the origin linalg op
     linalg::LinalgOp matmul;
     if (dyn_cast<mlir::ShapedType>(weightOprand.getType()).getShape().size() ==
@@ -849,12 +879,17 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       // else
       //   return failure();
     }
+    rewriter.create<scf::YieldOp>(loc, matmul.getOperation()->getResult(0));
 
-    Value result = matmul.getOperation()->getResult(0);
+    rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+    rewriter.create<scf::YieldOp>(loc, resultOprand);
+
+    Value result = ifOp.getOperation()->getResult(0);
 
     // Insert the result back to the original tensor
     for (Operation *user : currentOp->getResult(0).getUsers())
       setStaticSizeForInsertSliceOp(rewriter, user, result, CInnermostDims);
+    // rewriter.replaceOp(currentOp, ifOp->getResult(0));
 
     if (option.needLowPrecisionCast) {
       // fuse the low precision cast to the innermost body
@@ -896,9 +931,9 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       for (Operation *user : currentOp->getResult(1).getUsers())
         setStaticSizeForInsertSliceOp(rewriter, user, ifOp->getResult(0),
                                       CInnermostDims);
-      rewriter.replaceOp(currentOp, {matmul->getResult(0), ifOp->getResult(0)});
+      rewriter.replaceOp(currentOp, {result, ifOp->getResult(0)});
     } else {
-      rewriter.replaceOp(currentOp, matmul->getResult(0));
+      rewriter.replaceOp(currentOp, result);
     }
     currentOp = matmul;
 
@@ -1009,14 +1044,36 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
         rewriter, linalgOp, cfg, fillOp && isa<linalg::FillOp>(fillOp));
     if (failed(outerLoopResult))
       return failure();
+
+    // Optional. add numa split
+    Value numaIter;
+    int32_t expectedNumaIter = cfg.numaId;
+    if (cfg.numNuma > 1 && !(outerLoopResult->forallOps.empty())) {
+      scf::ForallOp forallOp =
+          dyn_cast<scf::ForallOp>(outerLoopResult->forallOps.front());
+
+      std::optional<mlir::Value> optionalLoopInductionVar =
+          forallOp.getSingleInductionVar();
+      if (optionalLoopInductionVar)
+        numaIter = *optionalLoopInductionVar;
+      if (auto optionalLoopStep = forallOp.getSingleStep()) {
+        if (auto stepAttr = dyn_cast<Attribute>(*optionalLoopStep)) {
+          int64_t stepValue = dyn_cast<IntegerAttr>(stepAttr).getInt();
+          expectedNumaIter *= stepValue;
+        }
+      }
+    }
+
     linalgOp = dyn_cast<linalg::LinalgOp>(outerLoopResult->tiledOps.back());
 
-    // Step 3 generate inner loop body, convert the linalg.generic to brgemm
+    // Step 3 generate inner loop body, convert the linalg.generic to
+    // brgemm
     innerBodyGenerationOption option = innerBodyGenerationOption{
         fillOp, needLowPrecisionCast, outerLoopResult->reductionLoops, cfg};
 
     if (failed(innerBodyGeneration(rewriter, linalgOp, originShapes,
-                                   *operandDimTypes, option)))
+                                   *operandDimTypes, option, numaIter,
+                                   expectedNumaIter)))
       return failure();
 
     return success();

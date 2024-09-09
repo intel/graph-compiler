@@ -31,6 +31,8 @@ struct MatmulConfig {
   // The innermost block size for M, N, K which will be directly converted to
   // brgemm.
   uint32_t innerMostMBlock, innerMostNBlock, innerMostKBlock;
+
+  uint32_t numNuma, numaId;
 };
 
 enum DimType { Batch, M, N, K };
@@ -148,7 +150,7 @@ public:
   }
 
 private:
-  MatmulConfig config = MatmulConfig{1, 1, 1, 1, 1, 1, 1, 1, 1};
+  MatmulConfig config = MatmulConfig{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0};
   Operation *root;
   bool hasConfig = false;
   bool allowIndivisibleInnerBlock = true;

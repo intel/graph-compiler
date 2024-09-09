@@ -53,7 +53,11 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
+  PrintIRPassOptions option1{"before deeptile passes result"};
+  pm.addPass(createPrintIRPass(option1));
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
+  PrintIRPassOptions option{"createDeepTileContractionOp passes result"};
+  pm.addPass(createPrintIRPass(option));
 
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
@@ -142,7 +146,7 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
   pm.addPass(createForallToParallelLoopPass());
   pm.addPass(createParallelLoopFusionPass());
   pm.addPass(createLoopInvariantCodeMotionPass());
-  pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
+  // pm.addNestedPass<func::FuncOp>(createConvertMemRefToCPURuntime());
   pm.addPass(createConvertSCFToOpenMPPass());
   populateCleanUpPasses(pm);
 }

@@ -24,7 +24,8 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
      << ", NBlock: " << config.NBlock << ", KBlock: " << config.KBlock
      << ", innerMostMBlock: " << config.innerMostMBlock
      << ", innerMostNBlock: " << config.innerMostNBlock
-     << ", innerMostKBlock: " << config.innerMostKBlock;
+     << ", innerMostKBlock: " << config.innerMostKBlock
+     << ", numNuma: " << config.numNuma << ", numaID: " << config.numaId;
   return ss;
 }
 
@@ -272,6 +273,12 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
                           << allowIndivisibleInnerblock << "\n");
   assert(shape.size() >= 3 && "shape.size() should >= 3");
   std::vector<MatmulConfig> configs;
+  // Check if the operation has an attribute named 'splited'
+  auto splitedAttr = root->getAttrOfType<IntegerAttr>("splited");
+  if (splitedAttr) {
+    sysDesc.limitOnSingleNode(splitedAttr.getInt());
+    llvm::outs() << "splited mm, and should be allocated on numa node 0.\n";
+  }
   uint32_t threads = sysDesc.getNumThreads();
   std::vector<uint32_t> MThreadsCandidates =
       getCandidate((uint32_t)threads, 1U);
@@ -519,8 +526,17 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
     }
     hasConfig = true;
   }
-
   assert(validateConfig(config) && "config is invalid");
+  char *numaNum = getenv("NUMA_NUM");
+  if (numaNum)
+    config.numNuma = std::stoi(numaNum);
+  else
+    config.numNuma = 1;
+  auto splitedAttr = root->getAttrOfType<IntegerAttr>("splited");
+  if (splitedAttr) {
+    config.numaId = splitedAttr.getInt();
+    llvm::errs() << "set numa ID:" << config.numaId << "\n ";
+  }
   return config;
 }
 } // namespace gc

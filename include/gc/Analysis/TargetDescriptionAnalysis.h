@@ -75,9 +75,16 @@ public:
   static constexpr StringLiteral kL3CacheSize = "L3_cache_size_in_bytes";
   static constexpr StringLiteral kMaxVectorWidth = "max_vector_width";
   static constexpr StringLiteral kNumThreads = "num_threads";
+  static constexpr StringLiteral kNumNode = "num_node";
 
   // get runtime OMP_NUM_THREADS
   unsigned getNumThreads();
+
+  // get NUMA Node Num
+  unsigned getNumNodes();
+
+  // set the expected threads
+  void limitOnSingleNode(uint32_t numa_node);
 
   // get cache size by cacheLevel
   unsigned getCacheSize(uint8_t cacheLevel);
@@ -87,6 +94,10 @@ public:
 
   CPUTargetDescriptionAnalysis(Operation *op)
       : TargetDescriptionAnalysisBase(op, DeviceType::CPU) {}
+
+private:
+  bool threads_limited = false;
+  unsigned defaultNumThreads = 1;
 };
 
 } // namespace gc

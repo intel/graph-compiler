@@ -59,13 +59,30 @@ TargetDescriptionAnalysisBase::getPropertyValue(StringRef key) {
 }
 
 unsigned CPUTargetDescriptionAnalysis::getNumThreads() {
-  static const unsigned defaultNumThreads = 1;
+  // static const unsigned defaultNumThreads = 1;
   std::optional<Attribute> numThreads = getPropertyValue(kNumThreads);
 
-  if (numThreads)
+  if (!threads_limited && numThreads)
     return getIntFromAttribute(*numThreads);
   emitNotFoundWarning(getLocation(), kNumThreads, defaultNumThreads);
   return defaultNumThreads;
+}
+
+void CPUTargetDescriptionAnalysis::limitOnSingleNode(uint32_t numa_node) {
+  char *numaNum = getenv("NUMA_NUM");
+  char *numThreads = getenv("OMP_NUM_THREADS");
+  if (numaNum && numThreads) {
+    uint32_t num_numa = std::stoi(numaNum);
+    defaultNumThreads = std::stoi(numThreads) / num_numa;
+    threads_limited = true;
+  }
+}
+
+uint32_t CPUTargetDescriptionAnalysis::getNumNodes() {
+  char *numaNum = getenv("NUMA_NUM");
+  if (threads_limited && numaNum) {
+    return std::stoi(numaNum);
+  }
 }
 
 unsigned CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) {
