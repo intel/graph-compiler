@@ -232,8 +232,8 @@ func.func @fuse_mlp_test4(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32x
 // CHECK: scf.forall
 // CHECK-COUNT-6: scf.for
 // CHECK-COUNT-4: scf.for
-// CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x1x16x32xbf16>, vector<1xbf16>
-// CHECK: %[[WRITE0:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<1xbf16>, tensor<32x16x1x32xbf16>
+// CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x1x16x32xbf16>, vector<32xbf16>
+// CHECK: %[[WRITE0:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<32xbf16>, tensor<32x16x1x32xbf16>
 // CHECK: %[[FILL0:.*]] =  linalg.fill
 // CHECK-COUNT-3: scf.for
 // CHECK: %[[APPLY0:.*]] = affine.apply
@@ -362,9 +362,9 @@ func.func @elem_pack_transpose_inner_dims_test5(%arg0: tensor<128x256xi32>, %des
 // CHECK: scf.for %[[arg2:.*]] = %[[C0]] to %[[C4]] step %[[C1]] iter_args(%[[arg3:.*]] = %[[EMPTY2]]) -> (tensor<16x4x32x16xi32>)
 // CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C32]] step %[[C1]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<16x4x32x16xi32>)
 // CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg7:.*]] = %[[arg5]]) -> (tensor<16x4x32x16xi32>)
-// CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg9:.*]] = %[[arg7]]) -> (tensor<16x4x32x16xi32>)
-// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<4x32x16x16xi32>, vector<1xi32>
-// CHECK: %[[WRITE2:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<1xi32>, tensor<16x4x32x16xi32>
+// CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C16]] step %[[C16]] iter_args(%[[arg9:.*]] = %[[arg7]]) -> (tensor<16x4x32x16xi32>)
+// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<4x32x16x16xi32>, vector<16xi32>
+// CHECK: %[[WRITE2:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<16xi32>, tensor<16x4x32x16xi32>
 #map6 = affine_map<(d0, d1) -> (d0, d1)>
 func.func @elem_pack_transpose_outer_dims_test6(%arg0: tensor<128x256xi32>, %dest: tensor<16x4x32x16xi32>) -> tensor<16x4x32x16xi32>{
   %init = tensor.empty() : tensor<128x256xi32>
@@ -459,9 +459,9 @@ func.func @elem_pack_transpose_inner_and_outer_dims_test7(%arg0: tensor<128x256x
 // CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C56]] step %[[C1]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<1x2x56x57x32xf32>)
 // CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C57]] step %[[C1]] iter_args(%[[arg7:.*]] = %[[arg5]]) -> (tensor<1x2x56x57x32xf32>)
 // CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C2]] step %[[C1]] iter_args(%[[arg9:.*]] = %[[arg7]]) -> (tensor<1x2x56x57x32xf32>)
-// CHECK: scf.for %[[arg10:.*]] = %[[C0]] to %[[C32]] step %[[C1]] iter_args(%[[arg11:.*]] = %[[arg9]]) -> (tensor<1x2x56x57x32xf32>)
-// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<1x56x57x2x32xf32>, vector<1xf32>
-// CHECK: %[[WRITE2:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<1xf32>, tensor<1x2x56x57x32xf32>
+// CHECK: scf.for %[[arg10:.*]] = %[[C0]] to %[[C32]] step %[[C16]] iter_args(%[[arg11:.*]] = %[[arg9]]) -> (tensor<1x2x56x57x32xf32>)
+// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<1x56x57x2x32xf32>, vector<16xf32>
+// CHECK: %[[WRITE2:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<16xf32>, tensor<1x2x56x57x32xf32>
 #map8 = affine_map<(d0, d1, d2, d3) -> (d3)>
 #map9 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 func.func @elem_pack_transpose_inner_and_outer_dims2_test8(%arg0: tensor<64xf32>, %dest: tensor<1x2x56x57x32xf32>) -> tensor<1x2x56x57x32xf32> {
@@ -570,11 +570,11 @@ func.func @reduce_fusePostOp_test11(%input: tensor<16x32x64xf32>,
 // CHECK: %[[C1:.*]] = arith.constant 1 : index
 // CHECK: %[[C16:.*]] = arith.constant 16 : index
 // CHECK: scf.for %[[arg2:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg3:.*]] = %arg1) -> (tensor<16x32xf32>)
-// CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C32]] step %[[C1]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<16x32xf32>)
+// CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C32]] step %[[C16]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<16x32xf32>)
 // CHECK: %[[READ0:.*]] = vector.transfer_read %[[arg5]][%[[arg2]], %[[arg4]]], %[[CST_0]] {in_bounds = [true]} : tensor<16x32xf32>, vector<16xf32> 
 // CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg7:.*]] = %[[READ0]]) -> (vector<16xf32>)
 // CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg9:.*]] = %[[CST]]) -> (vector<16xf32>)
-// CHECK: %[[READ1:.*]] = vector.transfer_read %arg0[%[[arg2]], %[[arg4]], %[[arg6]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
+// CHECK: %[[READ1:.*]] = vector.transfer_read %arg0[%[[arg2]], %[[arg4]], %[[arg8]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
 // CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ1]] : vector<16xf32>
 // CHECK: %[[ADD1:.*]] = arith.addf %[[ADD0]], %[[arg9]] : vector<16xf32>
 // CHECK: %[[REDUCTION:.*]] = vector.reduction <add>, {{.*}} : vector<16xf32> into f32
@@ -597,23 +597,23 @@ func.func @reduce_fuse_test12(%input: tensor<16x32x64xf32>,
   func.return %1 : tensor<16x32xf32>
 }
 
-// func.func @pad_single_test13(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x64x58x58xf32> {
-//   %cst = arith.constant 0.000000e+00 : f32
-//   %padded = tensor.pad %arg0 low[0, 0, 1, 1] high[0, 0, 1, 1] {
-//     ^bb0(%arg3: index, %arg4: index, %arg5: index, %arg6: index):
-//     tensor.yield %cst : f32
-//   } : tensor<1x64x56x56xf32> to tensor<1x64x58x58xf32>
-//   return %padded : tensor<1x64x58x58xf32>
-// }
-
-
-// func.func @pad_valid_pack_propagation(%arg0: tensor<1x64x56x56xf32>) -> tensor<1x2x58x58x32xf32> {
-//   %cst = arith.constant 0.000000e+00 : f32
-//   %padded = tensor.pad %arg0 low[0, 0, 1, 1] high[0, 0, 1, 1] {
-//     ^bb0(%arg3: index, %arg4: index, %arg5: index, %arg6: index):
-//     tensor.yield %cst : f32
-//   } : tensor<1x64x56x56xf32> to tensor<1x64x58x58xf32>
-//   %0 = tensor.empty() : tensor<1x2x58x58x32xf32>
-//   %1 = tensor.pack %padded inner_dims_pos = [1] inner_tiles = [32] into %0 : tensor<1x64x58x58xf32> -> tensor<1x2x58x58x32xf32>
-//   return %1 : tensor<1x2x58x58x32xf32>
-// }
+// CHECK-LABEL: func @add_small_tensor_test13
+// CHECK: %[[C2:.*]] = arith.constant 2 : index
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[CST:.*]] = arith.constant dense<0.000000e+00> : vector<1xf32>
+// CHECK: %[[CST_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[TENSOR0:.*]] = tensor.empty() : tensor<2xf32>
+// CHECK: scf.for
+// CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<2xf32>, vector<1xf32>
+// CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<2xf32>, vector<1xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<1xf32>
+// CHECK: %[[ADD1:.*]] = arith.maximumf %[[ADD0]], %[[CST]] : vector<1xf32>
+// CHECK: %[[WRITE:.*]] = vector.transfer_write {{.*}}, {{.*}} : vector<1xf32>, tensor<2xf32>
+func.func @add_small_tensor_test13(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -> tensor<2xf32> {
+  %0 = tensor.empty() : tensor<2xf32>
+  %cst = arith.constant dense<0.000000e+00> : tensor<2xf32>
+  %1 = linalg.add ins(%arg0, %arg1 : tensor<2xf32>, tensor<2xf32>) outs(%0: tensor<2xf32>) -> tensor<2xf32>
+  %2 = linalg.max ins(%1, %cst : tensor<2xf32>, tensor<2xf32>) outs(%0: tensor<2xf32>) -> tensor<2xf32>
+  return %2 : tensor<2xf32>
+}

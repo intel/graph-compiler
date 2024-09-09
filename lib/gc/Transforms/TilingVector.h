@@ -327,9 +327,10 @@ public:
 ///     and we directly convert the operations into physical register sizes.
 enum CanonicalizerKind { OperationsGroup, Operations };
 
-template <class T> class SpecialOperationCanonicalizer {
+template <class T> class SpecialOperationCanonicalizer : virtual TypeHelper {
 private:
-  llvm::SmallVector<T, 4> candidateRdOps;
+  SmallVector<T, 4> candidateRdOps;
+  size_t vectorStep = 1;
 
 public:
   enum class SpecialOperationKind {
@@ -344,13 +345,18 @@ private:
 
 public:
   SpecialOperationCanonicalizer() = default;
-  SpecialOperationCanonicalizer(const llvm::SmallVector<T, 4> &candidateRdOps,
+  SpecialOperationCanonicalizer(const SmallVector<T, 4> &candidateRdOps,
                                 SpecialOperationKind kind)
       : candidateRdOps(candidateRdOps), kind(kind) {}
+  SpecialOperationCanonicalizer(const SmallVector<T, 4> &candidateRdOps,
+                                SpecialOperationKind kind, size_t step)
+      : candidateRdOps(candidateRdOps), vectorStep(step), kind(kind) {}
   llvm::SmallVector<T, 4> &getCandidateOps();
   virtual ~SpecialOperationCanonicalizer() {}
   virtual void prepareSpecialOperationInfo() = 0;
-  SpecialOperationKind getKind() { return kind; }
+  SpecialOperationKind getKind() noexcept { return kind; }
+  void setVectorStep(size_t step) noexcept { vectorStep = step; }
+  size_t getVectorStep() noexcept { return vectorStep; }
 };
 
 enum class MultiReduceOpAxisKind { Reduction, Parallel };
@@ -370,9 +376,10 @@ private:
 
 public:
   MultiReductionCanonicalizer(
-      const llvm::SmallVector<vector::MultiDimReductionOp, 4> &candidateRdOps)
+      const SmallVector<vector::MultiDimReductionOp, 4> &candidateRdOps,
+      size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::MultiDimReductionOp>(
-            candidateRdOps, SpecialOperationKind::OP_MultiDimReduction) {
+            candidateRdOps, SpecialOperationKind::OP_MultiDimReduction, steps) {
     isStandaloneOp = candidateRdOps.size() == 1;
     prepareSpecialOperationInfo();
   };
@@ -420,9 +427,10 @@ class BroadcastCanonicalizer
 private:
 public:
   BroadcastCanonicalizer(
-      const llvm::SmallVector<vector::BroadcastOp, 4> &candidateBcOps)
+      const llvm::SmallVector<vector::BroadcastOp, 4> &candidateBcOps,
+      size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::BroadcastOp>(
-            candidateBcOps, SpecialOperationKind::OP_Broadcast) {};
+            candidateBcOps, SpecialOperationKind::OP_Broadcast, steps) {};
   virtual ~BroadcastCanonicalizer() noexcept {}
   void prepareSpecialOperationInfo() override {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -437,9 +445,10 @@ private:
 
 public:
   TransposeCanonicalizer(
-      const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps)
+      const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps,
+      size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::TransposeOp>(
-            candidateTpOps, SpecialOperationKind::OP_Transpose) {};
+            candidateTpOps, SpecialOperationKind::OP_Transpose, steps) {};
   virtual ~TransposeCanonicalizer() noexcept {}
   void prepareSpecialOperationInfo() override;
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -453,6 +462,7 @@ public:
   size_t getSecondTpIdx() noexcept { return secondTpIdx; }
   bool isTwoDTranspose();
   bool isTransposeOnAllOneDim();
+  bool transposeOnLastDim();
 };
 
 class ShapeCastCanonicalizer
@@ -460,9 +470,10 @@ class ShapeCastCanonicalizer
 private:
 public:
   ShapeCastCanonicalizer(
-      const SmallVector<vector::ShapeCastOp, 4> &candidateScOps)
+      const SmallVector<vector::ShapeCastOp, 4> &candidateScOps,
+      size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::ShapeCastOp>(
-            candidateScOps, SpecialOperationKind::OP_ShapeCast) {};
+            candidateScOps, SpecialOperationKind::OP_ShapeCast, steps) {};
   virtual ~ShapeCastCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -487,15 +498,15 @@ private:
   /// analysis the operation's operands and results
   SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
       groupOpResults;
-  llvm::SmallVector<llvm::SetVector<Value>, 8> groupOpInitArgs;
+  SmallVector<SetVector<Value>, 8> groupOpInitArgs;
 
   // store read and write operations permutation maps in order to convenient
   // to replace loop induction var
-  llvm::DenseMap<Operation *, AffineMap> opPermuationMap;
-  llvm::SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizers;
-  llvm::SmallVector<BroadcastCanonicalizer, 8> broadcastCanonicalizers;
-  llvm::SmallVector<TransposeCanonicalizer, 8> transposeCanonicalizers;
-  llvm::SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
+  DenseMap<Operation *, AffineMap> opPermuationMap;
+  SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizers;
+  SmallVector<BroadcastCanonicalizer, 8> broadcastCanonicalizers;
+  SmallVector<TransposeCanonicalizer, 8> transposeCanonicalizers;
+  SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
 
 public:
   CanonicalizerCommonUsedData() = default;
@@ -506,7 +517,7 @@ public:
       VectorFusionStrategy &fusionStrategy,
       SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
           &groupOpResults,
-      SmallVector<llvm::SetVector<Value>, 8> &groupOpInitArgs,
+      SmallVector<SetVector<Value>, 8> &groupOpInitArgs,
       DenseMap<Operation *, AffineMap> &opPermuationMap)
       : fusionStrategy(fusionStrategy), groupOpResults(groupOpResults),
         groupOpInitArgs(groupOpInitArgs), opPermuationMap(opPermuationMap) {}
@@ -537,8 +548,8 @@ public:
     groupOpResults = std::move(results);
   }
 
-  void setGroupOpIterArgs(
-      const llvm::SmallVector<llvm::SetVector<Value>, 8> &initArgs) {
+  void
+  setGroupOpIterArgs(const SmallVector<llvm::SetVector<Value>, 8> &initArgs) {
     groupOpInitArgs = std::move(initArgs);
   }
 
@@ -712,29 +723,31 @@ public:
                                           const size_t reductionIdx,
                                           GenerateLoopHelper &loopHelperParam);
 
-  scf::ForOp parallelAxisGenerateForLoop(
-      OpBuilder &opBuilder,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap,
-      GenerateLoopHelper &loopHelperParam);
+  scf::ForOp parallelAxisGenerateForLoop(OpBuilder &opBuilder,
+                                         GenerateLoopHelper &loopHelperParam);
+
+  void ensureAccInParallelLoop(GenerateLoopHelper &loopHelperParam,
+                               ArrayRef<int64_t> parallelAxis,
+                               Value multiReductionAcc,
+                               DenseMap<Value, int> &nextAnchorArgsIdxMap,
+                               SmallVector<Value, 4> &nextAnchorArgs);
 
   vector::TransferReadOp cloneReductionTransferRead(
       Value &source, OpBuilder &b, IRMapping &readMap,
       const llvm::SmallVector<int64_t, 4> &parallelAxis,
-      llvm::SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
+      SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
       MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel);
 
   /// generate for loop for transpose operation
   scf::ForOp generateTransposeForLoop(const size_t groupId);
   scf::ForOp generateTransposeForLoopWithLastDim(
-      OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
-      const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
-      ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
-      DenseMap<Value, Value> &originalOperandMap, Operation *successorWriteOp);
+      OpBuilder &opBuilder, const int tpSteps, const Location &loc,
+      Operation *successorWriteOp, GenerateLoopHelper &loopHelperParam);
 
-  scf::ForOp generateTransposeScalarDataMovement(
-      OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
-      const Location &loc, SmallVector<Value> &inductionVars,
-      const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap);
+  scf::ForOp
+  generateTransposeScalarDataMovement(OpBuilder &opBuilder, const Location &loc,
+                                      DenseMap<size_t, size_t> &tpAxisMap,
+                                      GenerateLoopHelper &loopHelperParam);
 
   // shapecast
   scf::ForOp generateShapeCastForLoop(const size_t grpIdx);
@@ -835,7 +848,7 @@ public:
   //
   void canonicalizeSpecialOperation();
   void clearSpecialOperationCanonicalizers();
-  void dummyInitSpecialOperation();
+  void dummyInitSpecialOperation(size_t steps);
   void initSpeicalOperationCanonicalizers();
 
   void run();

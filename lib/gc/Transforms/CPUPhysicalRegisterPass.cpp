@@ -152,9 +152,9 @@ bool isNotSupportOperation(Operation *op) {
 /// default will return the opeation result type
 mlir::FailureOr<VectorType> getOperationVectorType(Operation *op,
                                                    bool isPrevOp = true) {
-  if (!op) {
+  if (not op)
     return failure();
-  }
+
   auto isDynamicType = [](VectorType &type) { return !type.hasStaticShape(); };
   auto ret =
       TypeSwitch<Operation *, mlir::FailureOr<VectorType>>(op)
@@ -268,9 +268,11 @@ bool isLastDim(const AffineExpr &expr, const size_t rank) {
 }
 
 int TypeHelper::generateValidSteps(int steps, VectorType type) {
-  return type.getShape().back() >= steps
-             ? steps
-             : getNearestVectorStep(type.getShape().back());
+  if (type.getShape().back() >= steps)
+    return steps;
+  int evenStep = getNearestVectorStep(type.getShape().back());
+  auto typebits = type.getElementTypeBitWidth();
+  return evenStep * typebits >= 128 ? evenStep : 1;
 }
 
 // Get the maximum number of current data types that a register can hold
@@ -1192,6 +1194,17 @@ void ForLoopGenerator::generateLoopResults(
       std::move(currentResultMap);
 }
 
+void updateLoopArgsData(Value val, Value originalVal,
+                        SmallVector<Value, 4> &argsArray,
+                        DenseMap<Value, int> &anchorArgsIdxMap,
+                        DenseMap<Value, Value> &originalOperandLoopArgsMap,
+                        DenseMap<Value, Value> &loopArgsOriginalOperandMap) {
+  argsArray.emplace_back(val);
+  anchorArgsIdxMap[val] = argsArray.size() - 1;
+  loopArgsOriginalOperandMap[val] = originalVal;
+  originalOperandLoopArgsMap[originalVal] = val;
+}
+
 scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
     OpBuilder &opBuilder, const size_t reductionIdx,
     GenerateLoopHelper &loopHelperParam) {
@@ -1227,6 +1240,7 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
         loopHelperParam.inductionVars.emplace_back(iv);
         size_t currentAnchorId = loopHelperParam.anchorIdx;
         SmallVector<Value> tmpArgs(loopState);
+        Value originalRetVal = multireductionOp->getResults()[0];
 
         if (reductionIdx < reductionAxis.size() - 1) {
 
@@ -1281,23 +1295,21 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
 
           // reduction must return accumulate
           if (loopHelperParam.orignalResultNextAnchorResultMap.contains(
-                  multireductionOp->getResults()[0])) {
+                  originalRetVal)) {
             Value lastForResult =
-                loopHelperParam.orignalResultNextAnchorResultMap
-                    [multireductionOp->getResults()[0]];
+                loopHelperParam
+                    .orignalResultNextAnchorResultMap[originalRetVal];
             size_t retIdx = nextAnchorArgsIdxMap
                 [loopHelperParam
                      .nextAnchorResultOrignalResultMap[lastForResult]];
             Value forRes = nxtFor->getResults()[retIdx];
             // accumulate for loop iter args must be last, so we just put the
             // reduction result as the last result
-            loopHelperParam.nextAnchorResults.emplace_back(forRes);
-            loopHelperParam.nextAnchorResultsIdxMap[forRes] =
-                loopHelperParam.nextAnchorResults.size() - 1;
-            loopHelperParam.nextAnchorResultOrignalResultMap[forRes] =
-                multireductionOp->getResults()[0];
-            loopHelperParam.orignalResultNextAnchorResultMap
-                [multireductionOp->getResults()[0]] = forRes;
+            updateLoopArgsData(
+                forRes, originalRetVal, loopHelperParam.nextAnchorResults,
+                loopHelperParam.nextAnchorResultsIdxMap,
+                loopHelperParam.orignalResultNextAnchorResultMap,
+                loopHelperParam.nextAnchorResultOrignalResultMap);
           }
 
           maybeYieldValue(b, loc, loopHelperParam.nextAnchorResults);
@@ -1348,12 +1360,11 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
           movePostOpToCurrentAnchor(b, loopHelperParam);
 
           loopHelperParam.nextAnchorResults.clear();
-          loopHelperParam.nextAnchorResults.emplace_back(reductionResult);
-          loopHelperParam.nextAnchorResultsIdxMap[reductionResult] = 0;
-          loopHelperParam.nextAnchorResultOrignalResultMap[reductionResult] =
-              multireductionOp->getResults()[0];
-          loopHelperParam.orignalResultNextAnchorResultMap
-              [multireductionOp->getResults()[0]] = reductionResult;
+          updateLoopArgsData(reductionResult, originalRetVal,
+                             loopHelperParam.nextAnchorResults,
+                             loopHelperParam.nextAnchorResultsIdxMap,
+                             loopHelperParam.orignalResultNextAnchorResultMap,
+                             loopHelperParam.nextAnchorResultOrignalResultMap);
           getResultInCurrentOps(
               loopHelperParam.anchorIdx, loopHelperParam.groupIdx,
               movingOperation, loopHelperParam.nextAnchorResults,
@@ -1366,12 +1377,56 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
   return forOp;
 }
 
+void ForLoopGenerator::ensureAccInParallelLoop(
+    GenerateLoopHelper &loopHelperParam, ArrayRef<int64_t> parallelAxis,
+    Value multiReductionAcc, DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  if (loopHelperParam.anchorIdx == parallelAxis.size() - 1) {
+    // Ensure accumalate expression appear in this parallel anchor
+    // position. If it not appear in current anchor, we must move it in
+    // here.
+    //   1. delete it in operation queue
+    //   2. move it in current movedqueue
+    DenseSet<Value> argsSet(nextAnchorArgs.begin(), nextAnchorArgs.end());
+    std::queue<Operation *> checkAccQueue(*loopHelperParam.movedOps);
+    Value accInitVal;
+    while (!checkAccQueue.empty()) {
+      Operation *cur = checkAccQueue.front();
+      checkAccQueue.pop();
+      bool ok = false;
+      for (auto x : cur->getResults()) {
+        if (x == multiReductionAcc) {
+          accInitVal = x;
+          ok = true;
+          break;
+        }
+      }
+      if (ok)
+        break;
+    }
+    if (accInitVal) {
+      // we put initVal at last for loop args
+      if (!argsSet.contains(accInitVal)) {
+        nextAnchorArgs.emplace_back(accInitVal);
+        nextAnchorArgsIdxMap[accInitVal] = nextAnchorArgs.size() - 1;
+        loopHelperParam.loopArgsOriginalOperandMap[accInitVal] =
+            multiReductionAcc;
+        loopHelperParam.originalOperandLoopArgsMap[multiReductionAcc] =
+            accInitVal;
+      }
+      loopHelperParam.loopIterArgs = nextAnchorArgs;
+      loopHelperParam.nextAnchorResultsIdxMap = nextAnchorArgsIdxMap;
+    } else {
+      llvm::llvm_unreachable_internal("Wrong accumualte source value. Because "
+                                      "acc value must appear in here.");
+    }
+  }
+}
+
 /// Generate for loop for parallel axis of `vector.multi_reduction`.
 /// This function also call reduction axis for loop
 scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
-    OpBuilder &opBuilder,
-    DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap,
-    GenerateLoopHelper &loopHelperParam) {
+    OpBuilder &opBuilder, GenerateLoopHelper &loopHelperParam) {
   MultiReductionCanonicalizer &rdCanonicalizer =
       getMultiRdCanonicalizers()[loopHelperParam.groupIdx];
   vector::MultiDimReductionOp &multiReductionOp =
@@ -1384,10 +1439,8 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
   Value zero = makeIndexArithConstantOp(opBuilder, loc, 0);
   size_t grpMaxStep =
       getFusionStrategy().getGroupMaxSteps()[loopHelperParam.groupIdx];
-  size_t actualStep = (loopHelperParam.anchorIdx == parallelAxis.size() - 1 and
-                       !rdCanonicalizer.getHasLastDimReduction())
-                          ? grpMaxStep
-                          : 1;
+  size_t actualStep =
+      (loopHelperParam.anchorIdx == parallelAxis.size() - 1 ? grpMaxStep : 1);
   Value forSteps = makeIndexArithConstantOp(opBuilder, loc, actualStep);
 
   // last dim reduction need to a generate dim=16 loop for fused with pre-op
@@ -1434,50 +1487,9 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
                                    loopHelperParam);
           loopHelperParam.updateDataAfterPreOpMove(nextAnchorArgsIdxMap,
                                                    nextAnchorArgs);
-
-          if (loopHelperParam.anchorIdx == parallelAxis.size() - 1) {
-            // Ensure accumalate expression appear in this parallel anchor
-            // position. If it not appear in current anchor, we must move it in
-            // here.
-            //   1. delete it in operation queue
-            //   2. move it in current movedqueue
-            DenseSet<Value> argsSet(nextAnchorArgs.begin(),
-                                    nextAnchorArgs.end());
-            std::queue<Operation *> checkAccQueue(movedQueue);
-            Value accInitVal;
-            while (!checkAccQueue.empty()) {
-              Operation *cur = checkAccQueue.front();
-              checkAccQueue.pop();
-              bool ok = false;
-              for (auto x : cur->getResults()) {
-                if (x == multiReductionAcc) {
-                  accInitVal = x;
-                  ok = true;
-                  break;
-                }
-              }
-              if (ok)
-                break;
-            }
-            if (accInitVal) {
-              // we put initVal at last for loop args
-              if (!argsSet.contains(accInitVal)) {
-                nextAnchorArgs.emplace_back(accInitVal);
-                nextAnchorArgsIdxMap[accInitVal] = nextAnchorArgs.size() - 1;
-                loopHelperParam.loopArgsOriginalOperandMap[accInitVal] =
-                    multiReductionAcc;
-                loopHelperParam.originalOperandLoopArgsMap[multiReductionAcc] =
-                    accInitVal;
-              }
-              loopHelperParam.loopIterArgs = nextAnchorArgs;
-              loopHelperParam.nextAnchorResultsIdxMap = nextAnchorArgsIdxMap;
-            } else {
-              llvm::llvm_unreachable_internal(
-                  "Wrong accumualte source value. Because "
-                  "acc value must appear in here.");
-            }
-          }
-
+          ensureAccInParallelLoop(loopHelperParam, parallelAxis,
+                                  multiReductionAcc, nextAnchorArgsIdxMap,
+                                  nextAnchorArgs);
           scf::ForOp nxtFor;
           // 2. generate next for loop
           bool useParallelLoop =
@@ -1485,8 +1497,7 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
               loopHelperParam.anchorIdx < parallelAxis.size() - 1;
           loopHelperParam.anchorIdx += 1;
           if (useParallelLoop) {
-            nxtFor =
-                parallelAxisGenerateForLoop(b, indiceLoopMap, loopHelperParam);
+            nxtFor = parallelAxisGenerateForLoop(b, loopHelperParam);
           } else {
             nxtFor = reductionAxisGenerateForLoop(b, 0, loopHelperParam);
           }
@@ -1522,27 +1533,24 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
           DenseMap<Value, int> localAnchorArgsIdxMap;
           DenseMap<Value, Value> localOriginalOperandLoopArgsMap,
               localLoopArgsOriginalOperandMap;
-
           SmallVector<Value, 4> argsArray;
-          argsArray.emplace_back(accVal);
-          localAnchorArgsIdxMap[accVal] = 0;
+          updateLoopArgsData(
+              accVal, multiReductionAcc, argsArray, localAnchorArgsIdxMap,
+              localOriginalOperandLoopArgsMap, localLoopArgsOriginalOperandMap);
+
           size_t accLoopStateIdx =
               loopHelperParam.currentLoopStateIdxMap
                   [loopHelperParam
                        .originalOperandLoopArgsMap[multiReductionAcc]];
-          localLoopArgsOriginalOperandMap[accVal] = multiReductionAcc;
-          localOriginalOperandLoopArgsMap[multiReductionAcc] = accVal;
-
           for (auto [idx, x] : llvm::enumerate(loopState)) {
             if (idx == accLoopStateIdx)
               continue;
-
-            argsArray.emplace_back(x);
-            localAnchorArgsIdxMap[x] = argsArray.size() - 1;
-            Value originalValue = loopHelperParam.loopArgsOriginalOperandMap
-                                      [loopHelperParam.loopIterArgs[idx]];
-            localOriginalOperandLoopArgsMap[originalValue] = x;
-            localLoopArgsOriginalOperandMap[x] = originalValue;
+            updateLoopArgsData(x,
+                               loopHelperParam.loopArgsOriginalOperandMap
+                                   [loopHelperParam.loopIterArgs[idx]],
+                               argsArray, localAnchorArgsIdxMap,
+                               localOriginalOperandLoopArgsMap,
+                               localLoopArgsOriginalOperandMap);
           }
           loopHelperParam.updateCurrentArgsStatus(
               localAnchorArgsIdxMap, argsArray, localOriginalOperandLoopArgsMap,
@@ -1594,32 +1602,32 @@ scf::ForOp ForLoopGenerator::parallelAxisGenerateForLoop(
 }
 
 scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
-    OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
-    const int tpSteps, const Location &loc, SmallVector<Value> &inductionVars,
-    ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandMap, Operation *successorWriteOp) {
-  auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
+    OpBuilder &opBuilder, const int tpSteps, const Location &loc,
+    Operation *successorWriteOp, GenerateLoopHelper &loopHelperParam) {
+  auto &tpCanonicalizer =
+      getTransposeCanonicalizers()[loopHelperParam.groupIdx];
   vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
   VectorType vtType = tpOp.getVector().getType();
   size_t rank = vtType.getRank();
 
   auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
-  bool isTransposeDim = forDimIdx == tpCanonicalizer.getFirstTpIdx() or
-                        forDimIdx == tpCanonicalizer.getSecondTpIdx();
+  bool isTransposeDim =
+      loopHelperParam.anchorIdx == tpCanonicalizer.getFirstTpIdx() or
+      loopHelperParam.anchorIdx == tpCanonicalizer.getSecondTpIdx();
   auto forSteps =
       makeIndexArithConstantOp(opBuilder, loc, isTransposeDim ? tpSteps : 1);
-  auto numIter =
-      makeIndexArithConstantOp(opBuilder, loc, vtType.getShape()[forDimIdx]);
+  auto numIter = makeIndexArithConstantOp(
+      opBuilder, loc, vtType.getShape()[loopHelperParam.anchorIdx]);
   VectorType kernelType =
       VectorType::get({tpSteps, tpSteps}, vtType.getElementType());
   // generate transpose for loop
   return opBuilder.create<scf::ForOp>(
-      loc, zero, numIter, forSteps, iterArgs,
+      loc, zero, numIter, forSteps, loopHelperParam.loopIterArgs,
       [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
-        inductionVars.emplace_back(iv);
+        loopHelperParam.inductionVars.emplace_back(iv);
 
         // inner most body of the loop
-        if (forDimIdx == rank - 1) {
+        if (loopHelperParam.anchorIdx == rank - 1) {
           // transfer read from source tensor
           Value source = tpOp->getOperand(0);
           auto readSourceOp =
@@ -1636,27 +1644,29 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoopWithLastDim(
               loc,
               /*vectorType=*/kernelType,
               /*source=*/readSourceOp.getSource(),
-              /*indices=*/inductionVars,
+              /*indices=*/loopHelperParam.inductionVars,
               /*padding=*/padValue,
               /*inBounds=*/inBoundsVal);
           SmallVector<int64_t> perm{1, 0};
           auto transposeOp = b.create<vector::TransposeOp>(
               loc, transferReadOp->getResults()[0], perm);
-          SmallVector<Value> writeVars(inductionVars.begin(),
-                                       inductionVars.end());
+          SmallVector<Value> writeVars(loopHelperParam.inductionVars.begin(),
+                                       loopHelperParam.inductionVars.end());
           writeVars[tpCanonicalizer.getSecondTpIdx()] =
-              inductionVars[tpCanonicalizer.getFirstTpIdx()];
+              loopHelperParam.inductionVars[tpCanonicalizer.getFirstTpIdx()];
           writeVars[tpCanonicalizer.getFirstTpIdx()] =
-              inductionVars[tpCanonicalizer.getSecondTpIdx()];
+              loopHelperParam.inductionVars[tpCanonicalizer.getSecondTpIdx()];
           auto writeOp = b.create<vector::TransferWriteOp>(
               loc, transposeOp->getResults()[0], loopState[0], writeVars,
               inBoundsVal);
           maybeYieldValue(b, loc, writeOp->getResults());
         } else {
           // outter loop
+          loopHelperParam.anchorIdx += 1;
+          loopHelperParam.loopIterArgs = loopState;
           auto nxtFor = generateTransposeForLoopWithLastDim(
-              b, grpIdx, forDimIdx + 1, tpSteps, loc, inductionVars, loopState,
-              operandIdxMap, originalOperandMap, successorWriteOp);
+              b, tpSteps, loc, successorWriteOp, loopHelperParam);
+          loopHelperParam.anchorIdx -= 1;
           maybeYieldValue(b, loc, nxtFor->getResults());
         }
       });
@@ -1702,15 +1712,16 @@ void ForLoopGenerator::rearrageMultiReductionIR(
   for (size_t i = 0; i < parallelAxis.size(); i++) {
     varLoopIdxMap[parallelAxis[i]] = i;
   }
-  for (size_t i = parallelAxis.size(); i < groupVector.getRank(); i++) {
-    varLoopIdxMap[reductionAxis[i - parallelAxis.size()]] = i;
+  size_t offset = rdCanonicalizer.hasLastDimReduction() ? 1 : 0;
+  for (size_t i = parallelAxis.size() + offset;
+       i < groupVector.getRank() + offset; i++) {
+    varLoopIdxMap[reductionAxis[i - parallelAxis.size() - offset]] = i;
   }
   while (!tmpSourceQ.empty()) {
     auto *curOp = tmpSourceQ.front();
     tmpSourceQ.pop();
-    if (isa<vector::TransferReadOp>(curOp)) {
+    if (isa<vector::TransferReadOp>(curOp))
       getCurrentGroupIndiceLoopMap(indiceLoopMap, grpIdx, curOp, varLoopIdxMap);
-    }
   }
 
   // move accumulate related operation to operation first
@@ -1766,9 +1777,9 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
       getMultiRdCanonicalizers()[grpIdx];
 
   OpBuilder opBuilder(rdCanonicalizer.getCandidateOps()[0]);
+  loopHelper.indiceLoopMap = indiceLoopMap;
 
-  scf::ForOp forOp =
-      parallelAxisGenerateForLoop(opBuilder, indiceLoopMap, loopHelper);
+  scf::ForOp forOp = parallelAxisGenerateForLoop(opBuilder, loopHelper);
   replaceOpUsersWithForLoopResult(forOp, grpIdx, loopHelper.nextAnchorResults,
                                   loopHelper.nextAnchorResultsIdxMap,
                                   loopHelper.nextAnchorResultOrignalResultMap);
@@ -1783,27 +1794,33 @@ ForLoopGenerator::generateMultiReductionForLoop(const size_t grpIdx) {
 
 // generate simple data movement for loop
 scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
-    OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
-    const Location &loc, SmallVector<Value> &inductionVars,
-    const ValueRange &iterArgs, DenseMap<size_t, size_t> &tpAxisMap) {
-  auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
+    OpBuilder &opBuilder, const Location &loc,
+    DenseMap<size_t, size_t> &tpAxisMap, GenerateLoopHelper &loopHelperParam) {
+  auto &tpCanonicalizer =
+      getTransposeCanonicalizers()[loopHelperParam.groupIdx];
   vector::TransposeOp &tpOp = tpCanonicalizer.getCandidateOps()[0];
   VectorType vtType = tpOp.getSourceVectorType();
   size_t rank = vtType.getRank();
 
   auto zero = makeIndexArithConstantOp(opBuilder, loc, 0);
-  auto forSteps = makeIndexArithConstantOp(opBuilder, loc, 1);
-  auto numIter =
-      makeIndexArithConstantOp(opBuilder, loc, vtType.getShape()[forDimIdx]);
-  VectorType kernelType = VectorType::get({1}, vtType.getElementType());
+  size_t vecStep = tpCanonicalizer.transposeOnLastDim()
+                       ? tpCanonicalizer.getVectorStep()
+                       : 1;
+  auto forSteps = makeIndexArithConstantOp(
+      opBuilder, loc, loopHelperParam.anchorIdx == rank - 1 ? (vecStep) : 1);
+  auto numIter = makeIndexArithConstantOp(
+      opBuilder, loc, vtType.getShape()[loopHelperParam.anchorIdx]);
+
+  SmallVector<int64_t> vecShapes(1, vecStep);
+  VectorType kernelType = VectorType::get(vecShapes, vtType.getElementType());
   // generate transpose for loop
   return opBuilder.create<scf::ForOp>(
-      loc, zero, numIter, forSteps, iterArgs,
+      loc, zero, numIter, forSteps, loopHelperParam.loopIterArgs,
       [&](OpBuilder &b, Location loc, Value iv, ValueRange loopState) {
-        inductionVars.emplace_back(iv);
+        loopHelperParam.inductionVars.emplace_back(iv);
 
         // inner most body of the loop
-        if (forDimIdx == rank - 1) {
+        if (loopHelperParam.anchorIdx == rank - 1) {
           // transfer read from source tensor
           Value source = tpOp->getOperand(0);
           auto readSourceOp =
@@ -1812,6 +1829,7 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
           for (Operation *x : tpOp->getUsers()) {
             if (isa<vector::TransferWriteOp>(x)) {
               successorWriteOp = cast<vector::TransferWriteOp>(x);
+              break;
             }
           }
           auto padValue = b.create<arith::ConstantOp>(
@@ -1820,14 +1838,15 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
           SmallVector<Value> writeVars;
           size_t itrIdx = 0;
           while (itrIdx < rank) {
-            writeVars.emplace_back(inductionVars[tpAxisMap[itrIdx]]);
+            writeVars.emplace_back(
+                loopHelperParam.inductionVars[tpAxisMap[itrIdx]]);
             itrIdx++;
           }
           auto transferReadOp = b.create<vector::TransferReadOp>(
               loc,
               /*vectorType=*/kernelType,
               /*source=*/readSourceOp.getSource(),
-              /*indices=*/inductionVars,
+              /*indices=*/loopHelperParam.inductionVars,
               /*padding=*/padValue,
               /*inBounds=*/inBoundsVal);
 
@@ -1839,9 +1858,11 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
           maybeYieldValue(b, loc, writeOp->getResults());
         } else {
           // outter loop
-          auto nxtFor = generateTransposeScalarDataMovement(
-              b, grpIdx, forDimIdx + 1, loc, inductionVars, loopState,
-              tpAxisMap);
+          loopHelperParam.anchorIdx += 1;
+          loopHelperParam.loopIterArgs = loopState;
+          auto nxtFor = generateTransposeScalarDataMovement(b, loc, tpAxisMap,
+                                                            loopHelperParam);
+          loopHelperParam.anchorIdx -= 1;
           maybeYieldValue(b, loc, nxtFor->getResults());
         }
       });
@@ -2129,57 +2150,9 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
   DenseMap<Value, Value> originalOperandMap, operandOriginalMap, resultIdxMap,
       forResultOrignalResultMap;
   SmallVector<Value> iterArgs;
-  GenerateLoopHelper loopHelper(grpIdx);
+  GenerateLoopHelper loopHelper(grpIdx, 0);
   prepareForLoopArgs(grpIdx, loopHelper);
-  operandIdxMap = loopHelper.currentLoopStateIdxMap;
-  originalOperandMap = loopHelper.originalOperandLoopArgsMap;
-  operandOriginalMap = loopHelper.loopArgsOriginalOperandMap;
-  iterArgs = loopHelper.loopIterArgs;
-  SmallVector<Value> inductionVars;
 
-  // TODO: need to process transpose on all one dim
-  // don't need to do the transpose
-  // if (tpCanonicalizer.isTransposeOnAllOneDim()) {
-  //   removeOpInCurrentGroups(grpIdx, tpOp,
-  //   tpOp->getOperand(0).getDefiningOp());
-
-  //   // generate nested for loop
-  //   SmallVector<Value, 4> nextLoopResults;
-  //   DenseMap<Value, int> resultIdxMap;
-  //   SmallVector<Value, 5> inductionVars;
-  //   DenseMap<Value, Value> forResultOrignalResultMap;
-  //   Operation *firstOp = getFusionStrategy().getOpGroups()[grpIdx].front();
-  //   OpBuilder b(firstOp);
-  //   VectorType groupVector =
-  //       getFusionStrategy().getGroupBiggestRankVectorType()[grpIdx];
-  //   ArrayRef<int64_t> shapes = groupVector.getShape();
-
-  //   DenseMap<Operation *, DenseMap<size_t, size_t>> indiceLoopMap;
-
-  //   scf::ForOp forOp = constructNestedForOp(
-  //       0, grpIdx, b, firstOp->getLoc(), iterArgs, shapes, inductionVars,
-  //       operandIdxMap, originalOperandMap, operandOriginalMap,
-  //       nextLoopResults, resultIdxMap, forResultOrignalResultMap,
-  //       indiceLoopMap);
-
-  //   forOp->dump();
-  //   DenseSet<Operation *> forOpChildOps;
-  //   forOp->walk([&](Operation *op) { forOpChildOps.insert(op); });
-  //   auto replaceIfFn = [&](OpOperand &use) {
-  //     return not forOpChildOps.contains(use.getOwner());
-  //   };
-  //   for (auto x : nextLoopResults) {
-  //     auto originalResult = forResultOrignalResultMap[x];
-  //     rewriter.replaceOpUsesWithIf(originalResult.getDefiningOp(),
-  //                                  forOp->getResults()[resultIdxMap[x]],
-  //                                  replaceIfFn);
-  //     rectifyGroupOperands(grpIdx, originalResult,
-  //                          forOp->getResults()[resultIdxMap[x]]);
-  //   }
-  //   // clear current group operation
-  //   clearCurrentOperationGroup(grpIdx);
-  //   return forOp;
-  // }
   OpBuilder b(tpOp);
   int tpStep = TransposeCanonicalizer::TRANSPOSE_KERNEL::KERNEL_16X16;
   // only contains last dim can use fast transpose algorithm
@@ -2187,8 +2160,7 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
        tpCanonicalizer.getSecondTpIdx() == (rank - 1)) and
       isTwoDTranspose) {
     scf::ForOp forOp = generateTransposeForLoopWithLastDim(
-        b, grpIdx, 0, tpStep, tpOp.getLoc(), inductionVars, iterArgs,
-        operandIdxMap, originalOperandMap, successorWriteOp);
+        b, tpStep, tpOp.getLoc(), successorWriteOp, loopHelper);
 
     rewriter.replaceOp(successorWriteOp, forOp);
     // clear current group operation
@@ -2202,8 +2174,8 @@ scf::ForOp ForLoopGenerator::generateTransposeForLoop(const size_t grpIdx) {
     itrIdx++;
   }
   // scalar data movement
-  scf::ForOp forOp = generateTransposeScalarDataMovement(
-      b, grpIdx, 0, tpOp.getLoc(), inductionVars, iterArgs, tpAxisMap);
+  scf::ForOp forOp = generateTransposeScalarDataMovement(b, tpOp.getLoc(),
+                                                         tpAxisMap, loopHelper);
 
   rewriter.replaceOp(successorWriteOp, forOp);
   clearCurrentOperationGroup(grpIdx);
@@ -2336,6 +2308,20 @@ bool TransposeCanonicalizer::isTwoDTranspose() {
   return diffCount == 2;
 }
 
+bool TransposeCanonicalizer::transposeOnLastDim() {
+  ArrayRef<int64_t> permutation = getCandidateOps()[0].getPermutation();
+  size_t rank = permutation.size();
+  if (permutation[rank - 1] != rank - 1)
+    return false;
+
+  VectorType vtType = getCandidateOps()[0].getResultVectorType();
+
+  if (vtType.getShape()[rank - 1] % getVectorStep() != 0)
+    return false;
+
+  return true;
+}
+
 bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
   vector::ShapeCastOp &shapeCastOp = getCandidateOps()[0];
   VectorType sourceType = shapeCastOp.getSourceVectorType();
@@ -2379,8 +2365,9 @@ bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
   return set.contains(largeRankType.getRank() - 1);
 }
 
-template <class T> void addDummyInit(SmallVector<T, 8> &canonicalizer) {
-  canonicalizer.emplace_back(T({}));
+template <class T>
+void addDummyInit(SmallVector<T, 8> &canonicalizer, size_t steps = 1) {
+  canonicalizer.emplace_back(T({}, steps));
 };
 
 void CanonicalizerVectorOperation::clearSpecialOperationCanonicalizers() {
@@ -2390,19 +2377,19 @@ void CanonicalizerVectorOperation::clearSpecialOperationCanonicalizers() {
   getShapeCastCanonicalizers().clear();
 }
 
-void CanonicalizerVectorOperation::dummyInitSpecialOperation() {
-  addDummyInit<MultiReductionCanonicalizer>(getMultiRdCanonicalizers());
-  addDummyInit<BroadcastCanonicalizer>(getBroadcastCanonicalizers());
-  addDummyInit<TransposeCanonicalizer>(getTransposeCanonicalizers());
-  addDummyInit<ShapeCastCanonicalizer>(getShapeCastCanonicalizers());
+void CanonicalizerVectorOperation::dummyInitSpecialOperation(size_t steps) {
+  addDummyInit<MultiReductionCanonicalizer>(getMultiRdCanonicalizers(), steps);
+  addDummyInit<BroadcastCanonicalizer>(getBroadcastCanonicalizers(), steps);
+  addDummyInit<TransposeCanonicalizer>(getTransposeCanonicalizers(), steps);
+  addDummyInit<ShapeCastCanonicalizer>(getShapeCastCanonicalizers(), steps);
 }
 
 void CanonicalizerVectorOperation::initSpeicalOperationCanonicalizers() {
   clearSpecialOperationCanonicalizers();
   SmallVector<std::queue<Operation *>, 8> &opGroups =
       getFusionStrategy().getOpGroups();
-  for (auto &grp : opGroups) {
-    dummyInitSpecialOperation();
+  for (auto [idx, grp] : llvm::enumerate(opGroups)) {
+    dummyInitSpecialOperation(getFusionStrategy().getGroupMaxSteps()[idx]);
     if (grp.empty())
       continue;
 
@@ -2530,7 +2517,6 @@ void CanonicalizerVectorOperation::run() {
     for (size_t idx = 0; idx < fusionStrategy.getOpGroups().size(); ++idx) {
       generateGroupOpVectorizedIR(idx);
     }
-    func->dump();
     // 3. Some IR cleanup work
     DominanceInfo domInfo;
     eliminateCommonSubExpressions(rewriter, domInfo, func);
@@ -3456,7 +3442,7 @@ void VectorOperationAnalyzer::analysisGroupMaxSteps() {
     auto calculateOpSteps = [&](Type type) {
       auto opType = dyn_cast<VectorType>(type);
       if (opType)
-        steps = std::min(steps, (uint32_t)getDataTypeMAXSIMDLength(opType));
+        steps = std::min(steps, (uint32_t)getDataTypeValidSteps(opType));
     };
     while (!tmpQueue.empty()) {
       auto op = tmpQueue.front();
