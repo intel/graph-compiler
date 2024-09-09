@@ -62,7 +62,7 @@ getCompensatedStrides(ArrayRef<int64_t> shape, Value val, int64_t batchDim,
     return failure();
   for (size_t idx = 0; idx < strides->size(); idx++) {
     if ((*strides)[idx] == ShapedType::kDynamic) {
-      if (idx != batchDim || idx != leadingDim)
+      if (idx != (size_t)batchDim || idx != (size_t)leadingDim)
         return failure();
       // We can ignore the stride if dim == 1 (no need to step)
       if (shape[idx] != 1)
