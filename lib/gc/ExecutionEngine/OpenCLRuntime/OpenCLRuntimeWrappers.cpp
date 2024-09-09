@@ -21,7 +21,7 @@
 #ifdef _WIN32
 #define OCL_RUNTIME_EXPORT __declspec(dllexport)
 #else
-#define OCL_RUNTIME_EXPORT
+#define OCL_RUNTIME_EXPORT __attribute__((visibility("default")))
 #endif // _WIN32
 
 namespace {
@@ -73,7 +73,7 @@ struct CLExtTable {
   clSharedMemAllocINTEL_fn allocShared;
   clMemBlockingFreeINTEL_fn blockingFree;
   clSetKernelArgMemPointerINTEL_fn setKernelArgMemPtr;
-  clEnqueueMemcpyINTEL_fn enqueneMemcpy;
+  clEnqueueMemcpyINTEL_fn enqueueMemcpy;
   CLExtTable() = default;
   CLExtTable(cl_platform_id plat) {
     allocDev =
@@ -84,7 +84,7 @@ struct CLExtTable {
         (clMemBlockingFreeINTEL_fn)queryCLExtFunc(plat, MemBlockingFreeName);
     setKernelArgMemPtr = (clSetKernelArgMemPointerINTEL_fn)queryCLExtFunc(
         plat, SetKernelArgMemPointerName);
-    enqueneMemcpy =
+    enqueueMemcpy =
         (clEnqueueMemcpyINTEL_fn)queryCLExtFunc(plat, EnqueueMemcpyName);
   }
 };
@@ -129,19 +129,28 @@ template <typename T> size_t countUntil(T *ptr, T &&elem) {
 } // namespace
 
 static cl_device_id getDevice(cl_device_type *devtype) {
-  cl_uint numPlatforms;
-  CL_SAFE_CALL(clGetPlatformIDs(0, nullptr, &numPlatforms)) // get num platforms
+  cl_uint uintValue;
+  CL_SAFE_CALL(clGetPlatformIDs(0, nullptr, &uintValue)) // get num platforms
 
-  std::vector<cl_platform_id> platforms(numPlatforms);
-  CL_SAFE_CALL(clGetPlatformIDs(numPlatforms, platforms.data(),
+  std::vector<cl_platform_id> platforms(uintValue);
+  CL_SAFE_CALL(clGetPlatformIDs(uintValue, platforms.data(),
                                 nullptr)); // get available platforms
 
-  for (cl_uint i = 0; i < numPlatforms; ++i) {
+  for (auto &platform : platforms) {
+    size_t valueSize;
+    CL_SAFE_CALL(
+        clGetPlatformInfo(platform, CL_PLATFORM_NAME, 0, nullptr, &valueSize));
+    std::string name(valueSize, 0);
+    CL_SAFE_CALL(clGetPlatformInfo(platform, CL_PLATFORM_NAME, valueSize,
+                                   &name[0], nullptr));
+    if (name.find("Intel") == std::string::npos) { // Ignore non-Intel platforms
+      continue;
+    }
+
     // Get GPU device IDs for each platform
-    cl_uint numDevices;
     cl_int status =
-        clGetDeviceIDs(platforms[i], *devtype, 0, /*devices.data()=*/nullptr,
-                       &numDevices); // get num devices with 'devtype'
+        clGetDeviceIDs(platform, *devtype, 0, /*devices.data()=*/nullptr,
+                       &uintValue); // get num devices with 'devtype'
     if (status != CL_SUCCESS) {
       if (status == CL_DEVICE_NOT_FOUND) {
         continue; // No GPU devices found on this platform
@@ -151,9 +160,16 @@ static cl_device_id getDevice(cl_device_type *devtype) {
       abort();
     }
 
-    std::vector<cl_device_id> devices(numDevices);
-    clGetDeviceIDs(platforms[i], *devtype, numDevices, devices.data(), nullptr);
-    return devices[0];
+    std::vector<cl_device_id> devices(uintValue);
+    clGetDeviceIDs(platform, *devtype, uintValue, devices.data(), nullptr);
+
+    for (auto &device : devices) {
+      CL_SAFE_CALL(clGetDeviceInfo(device, CL_DEVICE_VENDOR_ID, sizeof(cl_uint),
+                                   &uintValue, nullptr));
+      if (uintValue == 0x8086) { // Make sure this is an Intel device
+        return device;
+      }
+    }
   }
 
   fprintf(stderr, "No suitable devices found.");
@@ -372,6 +388,14 @@ extern "C" OCL_RUNTIME_EXPORT void gpuMemFree(GPUCLQUEUE *queue, void *ptr) {
   if (queue && ptr) {
     deallocDeviceMemory(queue, ptr);
   }
+}
+
+extern "C" OCL_RUNTIME_EXPORT void gpuMemCopy(GPUCLQUEUE *queue, void *dst,
+                                              void *src, uint64_t size) {
+  auto func = queue->ext_table_ ? queue->ext_table_->enqueueMemcpy
+                                : (clEnqueueMemcpyINTEL_fn)queryCLExtFunc(
+                                      queue->device_, EnqueueMemcpyName);
+  CL_SAFE_CALL(func(queue->queue_, true, dst, src, size, 0, nullptr, nullptr));
 }
 
 extern "C" OCL_RUNTIME_EXPORT cl_program

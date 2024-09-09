@@ -30,7 +30,7 @@ using namespace special_ticks;
 /// and default memory space.
 static bool isMemRefTypeOk(MemRefType type) { return type.hasStaticShape(); }
 
-static int64_t getSizeInBytes(MemRefType &memType) {
+static inline int64_t getSizeInBytes(MemRefType &memType) {
   // treat bool (i1) as 1 byte. It may not be true for all targets, but we at
   // least have a large enough size for i1
   int64_t size = memType.getElementTypeBitWidth() / 8;
