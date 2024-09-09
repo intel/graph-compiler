@@ -1,10 +1,10 @@
 // RUN: gc-opt %s -microkernel-invariant-code-motion -split-input-file | FileCheck %s
 
 module {
-  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
-  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
-  llvm.func @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
+  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
+  llvm.func @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %c32_i64 = arith.constant 32 : i64
     %c1024_i64 = arith.constant 1024 : i64
     %cst = arith.constant 1.000000e+00 : f32
@@ -21,7 +21,7 @@ module {
     %c0 = arith.constant 0 : index
     %cst = arith.constant 0.000000e+00 : f32
     %c16_i64 = arith.constant 16 : i64
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %1 = llvm.load %0 : !llvm.ptr -> i64
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xbf16>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<8x16x16x32x2xbf16>
@@ -60,10 +60,10 @@ module {
 // -----
 
 module {
-  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
-  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
-  llvm.func @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
+  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
+  llvm.func @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %c32_i64 = arith.constant 32 : i64
     %c1024_i64 = arith.constant 1024 : i64
     %cst = arith.constant 1.000000e+00 : f32
@@ -84,7 +84,7 @@ module {
     %c1 = arith.constant 1 : index
     %c0 = arith.constant 0 : index
     %c2_i64 = arith.constant 2 : i64
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %1 = llvm.load %0 : !llvm.ptr -> i64
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xbf16>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<8x16x16x32x2xbf16>
@@ -146,10 +146,10 @@ module {
 // -----
 
 module {
-  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
-  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
-  llvm.func @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
+  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
+  llvm.func @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %c32_i64 = arith.constant 32 : i64
     %c1024_i64 = arith.constant 1024 : i64
     %cst = arith.constant 1.000000e+00 : f32
@@ -170,7 +170,7 @@ module {
     %c1 = arith.constant 1 : index
     %c0 = arith.constant 0 : index
     %c2_i64 = arith.constant 2 : i64
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %1 = llvm.load %0 : !llvm.ptr -> i64
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xbf16>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<8x16x16x32x2xbf16>
@@ -239,10 +239,10 @@ module {
 // -----
 
 module {
-  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
-  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
-  llvm.func @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+  llvm.mlir.global_ctors {ctors = [@g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor], priorities = [2147483647 : i32]}
+  llvm.mlir.global internal @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2() {addr_space = 0 : i32} : i64
+  llvm.func @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2_ctor() -> i64 {
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %c32_i64 = arith.constant 32 : i64
     %c1024_i64 = arith.constant 1024 : i64
     %cst = arith.constant 1.000000e+00 : f32
@@ -262,7 +262,7 @@ module {
     %c4 = arith.constant 4 : index
     %c1 = arith.constant 1 : index
     %c0 = arith.constant 0 : index
-    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
+    %0 = llvm.mlir.addressof @g_dispatched_microkernel_brgemm_stride_32_32_32_32_32_32_1024_1024_2_2 : !llvm.ptr
     %1 = llvm.load %0 : !llvm.ptr -> i64
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x16x32x32xbf16>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<8x16x16x32x2xbf16>

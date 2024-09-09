@@ -23,8 +23,6 @@ namespace mlir::microkernel {
 
 #define DEBUG_TYPE "merge-branch-microkernel-context"
 
-// enum BrgemmCallType { INAPPLICABLE = -1, DISPATCH, TILECFG, TILERELEASE };
-
 class BrgemmDispatchAnalysis {
 private:
   // A map for tile_config -> tile_dispatch
@@ -87,12 +85,11 @@ Operation *BrgemmDispatchAnalysis::traceKernelDispatch(Operation *op) {
     if (callee != StringAttr::get(op->getContext(), DNNL_BRGEMM_DISPATCH_NAME))
       return nullptr;
     return tryCallOp;
-  } else if (auto tryLoadOp = dyn_cast_or_null<LLVM::LoadOp>(kernelProducer)) {
-    auto tryAddrOfOp = dyn_cast_or_null<LLVM::AddressOfOp>(
-        tryLoadOp.getOperand().getDefiningOp());
-    if (!tryAddrOfOp)
-      return nullptr;
-    return traceDispatchInGlobalCtor(module, tryAddrOfOp.getGlobalName());
+  }
+  if (auto tryLoadOp = dyn_cast_or_null<LLVM::LoadOp>(kernelProducer)) {
+    if (auto tryAddrOfOp = dyn_cast_or_null<LLVM::AddressOfOp>(
+            tryLoadOp.getOperand().getDefiningOp()))
+      return traceDispatchInGlobalCtor(module, tryAddrOfOp.getGlobalName());
   }
   return nullptr;
 }
@@ -144,6 +141,7 @@ extractTileOpsFromRegion(Region &region) {
   return ret;
 }
 
+static size_t DNNL_BRGEMM_DISPATCH_BETA_PARAM_INDEX = 8;
 static bool dispatchHasSameContext(Operation *lhs, Operation *rhs) {
   auto lhsDispatch = dyn_cast_or_null<func::CallOp>(lhs);
   auto rhsDispatch = dyn_cast_or_null<func::CallOp>(rhs);
@@ -160,7 +158,7 @@ static bool dispatchHasSameContext(Operation *lhs, Operation *rhs) {
   assert(lhsOperands.size() == rhsOperands.size() &&
          "Inconsistent operand size");
   for (size_t idx = 0; idx < lhsOperands.size(); idx++) {
-    if (idx == 8) {
+    if (idx == DNNL_BRGEMM_DISPATCH_BETA_PARAM_INDEX) {
       // skip `beta` operand in index no.8
       // since per dnnl design, it does not affect BRGEMM blocking & palettes
       continue;
@@ -260,7 +258,7 @@ public:
     for (size_t idx = 0; idx < caseRegions.size(); idx++) {
       auto caseTileDispatch =
           analysis.getKernelDispatch(caseTilesOps[idx].first);
-      if (!defaultTileDispatch)
+      if (!caseTileDispatch)
         return rewriter.notifyMatchFailure(op, "Cannot find kernel dispatch");
       if (!dispatchHasSameContext(defaultTileDispatch, caseTileDispatch))
         return rewriter.notifyMatchFailure(

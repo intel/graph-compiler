@@ -62,6 +62,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // Fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
   // todo: fine-grain fusion pass
+  pm.addNestedPass<func::FuncOp>(
+      mlir::microkernel::createConvertLinalgToMicrokernel());
   // todo: lower linalg to arith/math on virtual vector pass
   pm.addNestedPass<func::FuncOp>(
       mlir::microkernel::createConvertLinalgToMicrokernel());
@@ -139,11 +141,7 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
   pm.addPass(mlir::microkernel::createConvertMicrokernelToDnnlFunc());
   pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
   pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
-  // pm.addPass(createRemoveDeadValuesPass());
-  // pm.addPass(createInlinerPass());
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"MicroKernel passes result"};
-  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {
@@ -169,7 +167,7 @@ void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(cpuruntime::createCPURuntimeToLLVM());
   pm.addPass(createConvertOpenMPToLLVMPass());
-  pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+  pm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());
   pm.addNestedPass<func::FuncOp>(createArithToLLVMConversionPass());
   pm.addPass(createConvertVectorToLLVMPass());
