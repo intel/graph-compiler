@@ -37,12 +37,11 @@ func.func @add_tensor_test1(%arg0: tensor<4x8x16xf32>, %arg1: tensor<4x8x16xf32>
 // CHECK:           %[[C0:.*]] = arith.constant 0 : index
 // CHECK:           %[[READ0:.*]] = vector.transfer_read %{{.*}} {in_bounds = [true, true, true]} : tensor<4x16x16xf32>, vector<4x16x16xf32>
 // CHECK:           %[[SHAPECAST0:.*]] = vector.shape_cast %[[READ0]] : vector<4x16x16xf32> to vector<4x4x4x4x4xf32>
-// CHECK:           %[[TRANSPOSE0:.*]] = vector.transpose %[[SHAPECAST0]], [1, 0, 3, 2, 4] : vector<4x4x4x4x4xf32> to vector<4x4x4x4x4xf32>
 // CHECK:           %[[READ1:.*]] = vector.transfer_read %{{.*}} {in_bounds = [true, true, true]} : tensor<4x16x16xf32>, vector<4x16x16xf32>
 // CHECK:           %[[SHAPECAST1:.*]] = vector.shape_cast %[[READ1]] : vector<4x16x16xf32> to vector<4x4x4x4x4xf32>
-// CHECK:           %[[TRANSPOSE1:.*]] = vector.transpose %[[SHAPECAST1]], [1, 0, 3, 2, 4] : vector<4x4x4x4x4xf32> to vector<4x4x4x4x4xf32>
 // CHECK:           %[[EMPTY:.*]] = tensor.empty() : tensor<4x4x4x4x4xf32>
-// CHECK:           %[[ADD0:.*]] = arith.addf %[[TRANSPOSE0]], %[[TRANSPOSE1]] : vector<4x4x4x4x4xf32>
+// CHECK:           %[[ADD0:.*]] = arith.addf %[[SHAPECAST0]], %[[SHAPECAST1]] : vector<4x4x4x4x4xf32>
+// CHECK:           %[[TRANSPOSE1:.*]] = vector.transpose %[[ADD0]], [1, 0, 3, 2, 4] : vector<4x4x4x4x4xf32> to vector<4x4x4x4x4xf32>
 // CHECK:           %[[WRITE0:.*]] = vector.transfer_write %{{.*}} {in_bounds = [true, true, true, true, true]} : vector<4x4x4x4x4xf32>, tensor<4x4x4x4x4xf32>
 func.func @add_tensor_pack_test2(%arg0: tensor<4x16x16xf32>, %arg1: tensor<4x16x16xf32>) -> tensor<4x4x4x4x4xf32> {
   %0 = tensor.empty() : tensor<4x4x4x4x4xf32>
