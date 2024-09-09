@@ -53,7 +53,7 @@ struct HardWareInfo {
   bool favx2 = true;
 };
 
-/// Using to avoid too many parameters in function
+/// To avoid too many parameters in function when generate for loop
 struct GenerateLoopHelper {
   /// anchor id
   size_t anchorIdx = 0;
@@ -125,82 +125,12 @@ struct GenerateLoopHelper {
                                  DenseMap<Value, int> &nextAnchorArgsIdxMap,
                                  SmallVector<Value, 4> &nextAnchorArgs);
 
+  /// update loop iteration args data
   void updateCurrentArgsStatus(DenseMap<Value, int> &currentArgsIdxMap,
                                SmallVector<Value, 4> &currentArgs,
                                DenseMap<Value, Value> &originalArgsMap,
                                DenseMap<Value, Value> &argsOriginalMap);
 };
-
-void GenerateLoopHelper::setNextAnchorArgs(
-    DenseMap<Value, int> &nextAnchorArgsIdxMap,
-    SmallVector<Value, 4> &nextAnchorArgs) {
-  currentLoopStateIdxMap = nextAnchorArgsIdxMap;
-  loopIterArgs = nextAnchorArgs;
-}
-
-void GenerateLoopHelper::clearNextAnchorResults() {
-  nextAnchorResults.clear();
-  nextAnchorResultsIdxMap.clear();
-  nextAnchorResultOrignalResultMap.clear();
-}
-
-void GenerateLoopHelper::setAnchorId(size_t anchorId) noexcept {
-  anchorIdx = anchorId;
-}
-
-void GenerateLoopHelper::updateDataBeforePreOpMove(
-    ArrayRef<Value> loopState, std::queue<Operation *> &candidateQueue,
-    std::queue<Operation *> &movedQueue) {
-  loopIterArgs = loopState;
-  candidateOps = &candidateQueue;
-  movedOps = &movedQueue;
-}
-
-void GenerateLoopHelper::updateDataAfterPreOpMove(
-    DenseMap<Value, int> &nextAnchorArgsIdxMap,
-    SmallVector<Value, 4> &nextAnchorArgs) {
-  setNextAnchorArgs(nextAnchorArgsIdxMap, nextAnchorArgs);
-}
-
-void GenerateLoopHelper::updateDataBeforePostOpMove(
-    ArrayRef<Value> iterArgs, DenseMap<Value, int> &currentLoopStateIdxMap,
-    DenseMap<Value, Value> &currentoriginalArgsMap,
-    DenseMap<Value, Value> &currentArgsOriginalMap, ValueRange forResults,
-    Block *forBlock, std::queue<Operation *> &movedQueue, size_t anchorId) {
-  this->originalOperandLoopArgsMap = currentoriginalArgsMap;
-  this->loopArgsOriginalOperandMap = currentArgsOriginalMap;
-  this->forResults = forResults;
-  this->forBlock = forBlock;
-  this->anchorIdx = anchorId;
-  this->currentLoopStateIdxMap = currentLoopStateIdxMap;
-  this->loopIterArgs = iterArgs;
-  this->movedOps = &movedQueue;
-}
-
-void GenerateLoopHelper::updateDataAfterPostOpMove(
-    size_t anchorId, DenseMap<Value, int> &nextAnchorArgsIdxMap,
-    SmallVector<Value, 4> &nextAnchorArgs) {
-  setAnchorId(anchorId);
-  setNextAnchorArgs(nextAnchorArgsIdxMap, nextAnchorArgs);
-}
-
-void GenerateLoopHelper::setNextAnchorResults(
-    SmallVector<Value> &currentAnchorResults,
-    DenseMap<Value, Value> &currentResultMap,
-    DenseMap<Value, int> &currentResultIdxMap) {
-  nextAnchorResults = std::move(currentAnchorResults);
-  nextAnchorResultOrignalResultMap = std::move(currentResultMap);
-  nextAnchorResultsIdxMap = std::move(currentResultIdxMap);
-}
-
-void GenerateLoopHelper::updateCurrentArgsStatus(
-    DenseMap<Value, int> &currentArgsIdxMap, SmallVector<Value, 4> &currentArgs,
-    DenseMap<Value, Value> &originalArgsMap,
-    DenseMap<Value, Value> &argsOriginalMap) {
-  setNextAnchorArgs(currentArgsIdxMap, currentArgs);
-  originalOperandLoopArgsMap = originalArgsMap;
-  loopArgsOriginalOperandMap = argsOriginalMap;
-}
 
 /// set correct operand for the operation
 void setOperationCorrectOperand(
@@ -208,6 +138,10 @@ void setOperationCorrectOperand(
     DenseMap<Value, Value> &originalOperandLoopArgsMap,
     ArrayRef<Value> inductionVars,
     DenseMap<Operation *, AffineMap> &opPermuationMap);
+
+//===----------------------------------------------------------------------===//
+// vectorize operation class
+//===----------------------------------------------------------------------===//
 
 /// Vector type conversion helper class
 class TypeHelper {
@@ -294,10 +228,11 @@ public:
   llvm::SmallVector<uint32_t, 8> &getGroupMaxSteps() noexcept {
     return groupMaxSteps;
   }
+  /// Get the map contains anchor position of each operation
   llvm::DenseMap<Operation *, size_t> &getOpAnchorPos() noexcept {
     return opAnchorPos;
   }
-
+  /// Get current function IR
   func::FuncOp &getFunc() { return func; }
   /// Do fusion strategy
   void classifyOperations();
@@ -305,7 +240,8 @@ public:
   /// Whether two operations have compatible vector shapes
   bool isCompatibleVectorType(Operation *op1, Operation *op2);
 
-  void updateGroupBitgestVectorType(VectorType vectorType);
+  /// update bigest vector type for last operation group
+  void updateGroupBigestVectorType(VectorType vectorType);
 
   /// Check whether the operation can fuse with previous operation
   bool isNeedNewGroup(Operation *op);
@@ -360,18 +296,26 @@ public:
 };
 
 enum class MultiReduceOpAxisKind { Reduction, Parallel };
+/// Help to vectorize reduction operation
 class MultiReductionCanonicalizer
     : public SpecialOperationCanonicalizer<vector::MultiDimReductionOp> {
 private:
+  /// reduction parallel axis and reduction axis
   SmallVector<int64_t, 4> reductionAxis, parallelAxis;
+  /// operations before reduction operation and operations after reduction
+  /// operation
   std::queue<Operation *> prevOps, postOps, accRelatedOps, sourceRelatedOps;
   bool haslastDimReduction = false;
   bool isStandaloneOp = false;
   /// empty reduction means that all the reduction axis is 1
   bool isEmptyReduction = true;
+  /// vector type rank
   int64_t typeRank = -1;
+  /// record original operation result
   SetVector<Value> originalOpResults;
+  /// vector type of source operation and accumulate operation
   VectorType sourceType, accType;
+  /// for loop yield result index map
   llvm::SmallDenseMap<Value, int> resultIdxMap;
 
 public:
@@ -450,7 +394,7 @@ public:
       : SpecialOperationCanonicalizer<vector::TransposeOp>(
             candidateTpOps, SpecialOperationKind::OP_Transpose, steps) {};
   virtual ~TransposeCanonicalizer() noexcept {}
-  void prepareSpecialOperationInfo() override;
+  void prepareSpecialOperationInfo() override {};
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_Transpose;
   }
@@ -682,7 +626,7 @@ public:
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
 
   void getResultInCurrentOps(const size_t anchorIdx, const size_t groupId,
-                             const std::queue<Operation *> ops,
+                             const std::queue<Operation *> &ops,
                              SmallVector<Value, 4> &results,
                              DenseMap<Value, int> &nextAnchorResultsIdxMap,
                              DenseMap<Value, Value> &forResultOrignalResultMap);
@@ -843,8 +787,8 @@ public:
   func::FuncOp &getFunc() noexcept { return func; };
   IRRewriter &getIRWewriter() noexcept { return rewriter; }
   template <class T, class U>
-  void processSpecialOperation(T &canonicalizers,
-                               std::function<void(const size_t)> generateFunc);
+  void processSpecialOperation(
+      T &canonicalizers, const std::function<void(const size_t)> &generateFunc);
   //
   void canonicalizeSpecialOperation();
   void clearSpecialOperationCanonicalizers();

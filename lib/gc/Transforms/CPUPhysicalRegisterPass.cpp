@@ -86,11 +86,8 @@ template <typename T, typename = typename std::enable_if<
                               std::is_same_v<T, vector::TransferReadOp>,
                           T>>
 static bool isOperationsHasDefUseRelation(Operation *op1, Operation *op2) {
-  for (Value opd : op2->getOperands())
-    if (opd.getDefiningOp() == op1)
-      return true;
-
-  return false;
+  return llvm::any_of(op2->getOperands(),
+                      [&op1](Value opd) { return opd.getDefiningOp() == op1; });
 }
 /// Get the index position of the first element that is true
 static size_t getFirstTrueIndex(ArrayRef<bool> ararys) {
@@ -221,14 +218,18 @@ bool hasDynamicShape(Operation *op) {
     return false;
   };
   // Check operands data type.
-  for (auto x : op->getOperands())
-    if (isDynamicShapedType(x))
-      return true;
+  if (llvm::any_of(op->getOperands(), [&isDynamicShapedType](Value x) {
+        return isDynamicShapedType(x);
+      })) {
+    return true;
+  }
 
   // Check results data type.
-  for (auto x : op->getResults())
-    if (isDynamicShapedType(x))
-      return true;
+  if (llvm::any_of(op->getResults(), [&isDynamicShapedType](OpResult x) {
+        return isDynamicShapedType(x);
+      })) {
+    return true;
+  }
 
   return false;
 }
@@ -265,6 +266,77 @@ int getNearestVectorStep(const int step) {
 bool isLastDim(const AffineExpr &expr, const size_t rank) {
   return isa<AffineDimExpr>(expr) &&
          dyn_cast<AffineDimExpr>(expr).getPosition() == rank - 1;
+}
+
+void GenerateLoopHelper::setNextAnchorArgs(
+    DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  currentLoopStateIdxMap = nextAnchorArgsIdxMap;
+  loopIterArgs = nextAnchorArgs;
+}
+
+void GenerateLoopHelper::clearNextAnchorResults() {
+  nextAnchorResults.clear();
+  nextAnchorResultsIdxMap.clear();
+  nextAnchorResultOrignalResultMap.clear();
+}
+
+void GenerateLoopHelper::setAnchorId(size_t anchorId) noexcept {
+  anchorIdx = anchorId;
+}
+
+void GenerateLoopHelper::updateDataBeforePreOpMove(
+    ArrayRef<Value> loopState, std::queue<Operation *> &candidateQueue,
+    std::queue<Operation *> &movedQueue) {
+  loopIterArgs = loopState;
+  candidateOps = &candidateQueue;
+  movedOps = &movedQueue;
+}
+
+void GenerateLoopHelper::updateDataAfterPreOpMove(
+    DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  setNextAnchorArgs(nextAnchorArgsIdxMap, nextAnchorArgs);
+}
+
+void GenerateLoopHelper::updateDataBeforePostOpMove(
+    ArrayRef<Value> iterArgs, DenseMap<Value, int> &currentLoopStateIdxMap,
+    DenseMap<Value, Value> &currentoriginalArgsMap,
+    DenseMap<Value, Value> &currentArgsOriginalMap, ValueRange forResults,
+    Block *forBlock, std::queue<Operation *> &movedQueue, size_t anchorId) {
+  this->originalOperandLoopArgsMap = currentoriginalArgsMap;
+  this->loopArgsOriginalOperandMap = currentArgsOriginalMap;
+  this->forResults = forResults;
+  this->forBlock = forBlock;
+  this->anchorIdx = anchorId;
+  this->currentLoopStateIdxMap = currentLoopStateIdxMap;
+  this->loopIterArgs = iterArgs;
+  this->movedOps = &movedQueue;
+}
+
+void GenerateLoopHelper::updateDataAfterPostOpMove(
+    size_t anchorId, DenseMap<Value, int> &nextAnchorArgsIdxMap,
+    SmallVector<Value, 4> &nextAnchorArgs) {
+  setAnchorId(anchorId);
+  setNextAnchorArgs(nextAnchorArgsIdxMap, nextAnchorArgs);
+}
+
+void GenerateLoopHelper::setNextAnchorResults(
+    SmallVector<Value> &currentAnchorResults,
+    DenseMap<Value, Value> &currentResultMap,
+    DenseMap<Value, int> &currentResultIdxMap) {
+  nextAnchorResults = std::move(currentAnchorResults);
+  nextAnchorResultOrignalResultMap = std::move(currentResultMap);
+  nextAnchorResultsIdxMap = std::move(currentResultIdxMap);
+}
+
+void GenerateLoopHelper::updateCurrentArgsStatus(
+    DenseMap<Value, int> &currentArgsIdxMap, SmallVector<Value, 4> &currentArgs,
+    DenseMap<Value, Value> &originalArgsMap,
+    DenseMap<Value, Value> &argsOriginalMap) {
+  setNextAnchorArgs(currentArgsIdxMap, currentArgs);
+  originalOperandLoopArgsMap = originalArgsMap;
+  loopArgsOriginalOperandMap = argsOriginalMap;
 }
 
 int TypeHelper::generateValidSteps(int steps, VectorType type) {
@@ -393,8 +465,8 @@ VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loop_step) {
 /// \param retType resuilt return type
 bool needReturnResult(std::pair<ReturnTypeKind, size_t> &retType,
                       size_t anchorIdx) {
-  return !(retType.first == ReturnTypeKind::RT_InGroup and
-           retType.second >= anchorIdx);
+  return retType.first != ReturnTypeKind::RT_InGroup or
+         retType.second < anchorIdx;
 }
 
 union Float32Bits {
@@ -878,22 +950,6 @@ void getReductionInitAttr(vector::MultiDimReductionOp &multiReductionOp,
         getInitValForReduce<int64_t>(multiReductionOp.getKind(), vecType));
 }
 
-void classifySourceRelatedOps(std::queue<Operation *> &accRelatedOps,
-                              std::queue<Operation *> &sourceRelatedOps,
-                              Operation *srcOp,
-                              std::queue<Operation *> &prevOps) {
-  DenseSet<Operation *> srcOps;
-  getOpSourceOps(srcOp, srcOps);
-  while (!prevOps.empty()) {
-    auto op = prevOps.front();
-    prevOps.pop();
-    if (isSrcRelated(srcOps, op) or op == srcOp)
-      sourceRelatedOps.push(op);
-    else
-      accRelatedOps.push(op);
-  }
-}
-
 /// get multi_reduction operation accumulate value source related operations
 /// \param srcOp accumulate value source operation
 void classifyAccRelatedOps(std::queue<Operation *> &accRelatedOps,
@@ -980,7 +1036,7 @@ void ForLoopGenerator::moveOperationsToCurrentForBody(
 
 void ForLoopGenerator::getResultInCurrentOps(
     const size_t anchorIdx, const size_t groupId,
-    const std::queue<Operation *> ops, SmallVector<Value, 4> &results,
+    const std::queue<Operation *> &ops, SmallVector<Value, 4> &results,
     DenseMap<Value, int> &nextAnchorResultsIdxMap,
     DenseMap<Value, Value> &forResultOrignalResultMap) {
   auto tmpQ(ops);
@@ -1182,7 +1238,7 @@ void ForLoopGenerator::generateLoopResults(
   loopHelperParam.nextAnchorResults.clear();
   loopHelperParam.nextAnchorResultsIdxMap.clear();
   // reduction operation due to special process results size will be zero
-  if (results.size() > 0)
+  if (not results.empty())
     for (Value x : loopHelperParam.loopIterArgs) {
       loopHelperParam.nextAnchorResults.emplace_back(
           results[nextOperandIdxMap[x]]);
@@ -2031,7 +2087,7 @@ void ForLoopGenerator::rectifyReadOperationIndice(
   // currently only broadcast (fuse as transfer_read) will move into more inner
   // loop
   if (readTensorType.getRank() - 1 >=
-      getFusionStrategy().getOpAnchorPos()[*originalReadOp])
+      (int64_t)getFusionStrategy().getOpAnchorPos()[*originalReadOp])
     return;
 
   int64_t itrIdx = loopType.getRank() - 1;
@@ -2062,7 +2118,7 @@ scf::ForOp ForLoopGenerator::generateShapeCastForLoop(const size_t grpIdx) {
   SmallVector<vector::TransferWriteOp> successorWriteOps;
   for (Operation *x : scOp->getUsers())
     if (isa<vector::TransferWriteOp>(x) and opIndexMap.contains(x) and
-        opIndexMap[x] == opIndexMap[x])
+        opIndexMap[x] == opIndexMap[scOp])
       successorWriteOps.emplace_back(cast<vector::TransferWriteOp>(x));
 
   for (auto successorWriteOp : successorWriteOps)
@@ -2108,7 +2164,7 @@ void ForLoopGenerator::getCurrentGroupIndiceLoopMap(
     DenseMap<size_t, size_t> forIdxMap;
     VectorType groupVector =
         getFusionStrategy().getGroupBiggestRankVectorType()[groupId];
-    for (size_t i = 0; i < groupVector.getRank(); i++) {
+    for (size_t i = 0; (int64_t)i < groupVector.getRank(); i++) {
       forIdxMap[i] = i;
     }
     indiceLoopMap[op] = forIdxMap;
@@ -2245,8 +2301,6 @@ void MultiReductionCanonicalizer::prepareSpecialOperationInfo() {
   }
 };
 
-void TransposeCanonicalizer::prepareSpecialOperationInfo() {}
-
 bool TransposeCanonicalizer::isTransposeOnAllOneDim() {
   vector::TransposeOp tpOp = getCandidateOps()[0];
   ArrayRef<int64_t> permutation = tpOp.getPermutation();
@@ -2311,7 +2365,7 @@ bool TransposeCanonicalizer::isTwoDTranspose() {
 bool TransposeCanonicalizer::transposeOnLastDim() {
   ArrayRef<int64_t> permutation = getCandidateOps()[0].getPermutation();
   size_t rank = permutation.size();
-  if (permutation[rank - 1] != rank - 1)
+  if (permutation[rank - 1] != (int64_t)rank - 1)
     return false;
 
   VectorType vtType = getCandidateOps()[0].getResultVectorType();
@@ -2334,12 +2388,12 @@ bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
   // Map the index of the larger rank shape to the index of the smaller rank
   // shape.
   DenseMap<size_t, SmallVector<size_t>> shapeIdxMap;
-  for (size_t i = 0; i < smallRankType.getRank(); i++)
-    shapeIdxMap[i] = std::move(SmallVector<size_t>());
+  for (size_t i = 0; (int64_t)i < smallRankType.getRank(); i++)
+    shapeIdxMap[i] = SmallVector<size_t>();
 
-  size_t itrIdx = 0;
+  int64_t itrIdx = 0;
   while (itrIdx < smallRankType.getRank()) {
-    size_t endShape = getFirstTrueIndex(visitedAxis), dimSize = 1;
+    int64_t endShape = getFirstTrueIndex(visitedAxis), dimSize = 1;
     assert(endShape < largeRankType.getRank() and endShape >= 0 &&
            "Invalid endShape");
     // skip non corresponding axis
@@ -2423,7 +2477,7 @@ void CanonicalizerVectorOperation::initSpeicalOperationCanonicalizers() {
 
 template <class T, class U>
 void CanonicalizerVectorOperation::processSpecialOperation(
-    T &canonicalizers, std::function<void(const size_t)> generateFunc) {
+    T &canonicalizers, const std::function<void(const size_t)> &generateFunc) {
   for (auto [groupId, canonicalizer] : llvm::enumerate(canonicalizers)) {
     SmallVector<U, 4> &ops = canonicalizer.getCandidateOps();
     if (!ops.empty())
@@ -2585,7 +2639,7 @@ void ForLoopGenerator::setOperationCorrectOperand(
         llvm::llvm_unreachable_internal(
             "Permuatation map must contains dim expr.");
 
-      size_t dim;
+      size_t dim = 0;
       if (auto d = dyn_cast<AffineDimExpr>(x)) {
         dim = d.getPosition();
       } else if (auto d = dyn_cast<AffineConstantExpr>(x)) {
@@ -2594,7 +2648,7 @@ void ForLoopGenerator::setOperationCorrectOperand(
 
       ShapedType tensorType =
           cast<ShapedType>(op->getOperandTypes()[offset - 1]);
-      size_t varIdx = dim;
+      int64_t varIdx = dim;
       if (tensorType.getRank() > (int64_t)inductionVars.size()) {
         int64_t tensorOffset = tensorType.getRank() - inductionVars.size();
         if (dim < tensorOffset)
@@ -2877,11 +2931,8 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
 static inline bool hasSameAxis(ArrayRef<int64_t> dims1,
                                ArrayRef<int64_t> dims2) {
   DenseSet<int64_t> checkSet(dims2.begin(), dims2.end());
-  for (auto x : dims1)
-    if (checkSet.contains(x))
-      return true;
-
-  return false;
+  return llvm::any_of(dims1,
+                      [&checkSet](int64_t x) { return checkSet.contains(x); });
 }
 
 /// whether two operation has data dependency
@@ -3031,16 +3082,16 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
   return false;
 }
 
-void VectorFusionStrategy::updateGroupBitgestVectorType(VectorType vectorType) {
+void VectorFusionStrategy::updateGroupBigestVectorType(VectorType vectorType) {
   int64_t rank = vectorType.getRank();
   llvm::SmallDenseMap<size_t, VectorType> &groupVectorType =
       getGroupBiggestRankVectorType();
 
   if (groupVectorType.contains(opGroups.size() - 1)) {
     VectorType bigestType = groupVectorType[opGroups.size() - 1];
-    if (bigestType.getRank() < rank) {
+    if (bigestType.getRank() < rank)
       groupVectorType[opGroups.size() - 1] = vectorType;
-    }
+
     return;
   }
 
@@ -3054,7 +3105,7 @@ void VectorFusionStrategy::addOperationToGroup(Operation *op) {
     opGroups.emplace_back(std::queue<Operation *>());
 
   if (not isa<vector::TransferReadOp>(op)) {
-    updateGroupBitgestVectorType(vectorType);
+    updateGroupBigestVectorType(vectorType);
     while (not noNeedToJudgeOps.empty()) {
       auto cur = noNeedToJudgeOps.front();
       noNeedToJudgeOps.pop();
