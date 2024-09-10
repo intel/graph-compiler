@@ -18,7 +18,7 @@
 import ctypes
 import random
 import timeit
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import numpy as np
 from benchgc.mlir.util import (
@@ -34,10 +34,10 @@ def py_timeit_bench(
     ir_module: ir.Module,
     entry_name: str,
     pipeline: str,
-    mlir_args: list,
-    ir_printing=False,
-    repeat_time=100,
-    warm_up=20,
+    mlir_args: List[Any],
+    ir_printing: bool = False,
+    repeat_time: int = 100,
+    warm_up: int = 20,
 ) -> Tuple[float, float]:
     """benchmark mlir with python timeit."""
     compiler = GraphCompiler(pipeline)
@@ -64,10 +64,10 @@ def mlir_wrapper_bench(
     ir_module: ir.Module,
     entry_name: str,
     pipeline: str,
-    mlir_args: list,
-    ir_printing=False,
-    repeat_time=100,
-    warm_up=20,
+    mlir_args: List[Any],
+    ir_printing: bool = False,
+    repeat_time: int = 100,
+    warm_up: int = 20,
 ) -> Tuple[float, float]:
     """benchmark mlir with a wrapper func."""
     kernel_func = get_kernel_func_from_module(ir_module, entry_name)
