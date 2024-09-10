@@ -129,7 +129,7 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
     // CHECK: linalg.reduce {{.*}} dimensions = [0, 1, 2] 
     // CHECK: linalg.copy
     %2 = linalg.generic {
-          MThreads = 16 : i32, NThreads = 2 : i32,  KThreads = 1 : i32, MBlock = 256 : i32, NBlock = 256 : i32, KBlock = 256 : i32,innermostMBlock = 32 : i32, innermostNBlock = 32 : i32,  innermostKBlock = 32 : i32,
+          MThreads = 32 : i32, NThreads = 2 : i32,  KThreads = 2 : i32, MBlock = 256 : i32, NBlock = 256 : i32, KBlock = 256 : i32,innermostMBlock = 32 : i32, innermostNBlock = 32 : i32,  innermostKBlock = 32 : i32,
           indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d3 * 32 + d4 * 2 + d5)>, 
                            affine_map<(d0, d1, d2, d3, d4, d5) -> (d1, d3, d4, d2, d5)>, 
                            affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1 * 32 + d2)>], 
