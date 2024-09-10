@@ -1259,12 +1259,9 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
                                                    nextAnchorArgs);
 
           // replace reduction init args
-          if (loopHelperParam.originalOperandLoopArgsMap.contains(
-                  multireductionOp.getAcc())) {
-            size_t accValIdx =
-                loopHelperParam.currentLoopStateIdxMap
-                    [loopHelperParam.originalOperandLoopArgsMap[multireductionOp
-                                                                    .getAcc()]];
+          if (currentoriginalArgsMap.contains(multireductionOp.getAcc())) {
+            size_t accValIdx = currentArgsIdxMap
+                [currentoriginalArgsMap[multireductionOp.getAcc()]];
             updateCurrentArgsStatus(
                 loopState, accValIdx, nextAnchorArgs, multireductionOp.getAcc(),
                 nextAnchorArgsIdxMap, originalArgsMap, argsOriginalMap);
