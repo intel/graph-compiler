@@ -733,19 +733,6 @@ scf::YieldOp maybeYieldValue(OpBuilder &b, Location loc,
     return b.create<scf::YieldOp>(loc);
 }
 
-Type getScalarType(Operation *op) {
-  // Check that the operation type can be broken
-  // down into a loop.
-  auto baseType = getOperationVectorType(op);
-  if (failed(baseType)) {
-    LDBG("Failed to get vector type for operation: " << *op << "\n");
-    assert(false && "Failed to get vector type for operation");
-    return VectorType();
-  }
-  auto vectorizedType = baseType.value();
-  return VectorType::get({1}, vectorizedType.getElementType());
-}
-
 Operation *createTensorEmptyBefore(Operation *op) {
 
   auto rtType = cast<ShapedType>(op->getResultTypes()[0]);
@@ -963,19 +950,6 @@ void classifyAccRelatedOps(std::queue<Operation *> &accRelatedOps,
       accRelatedOps.push(op);
     else
       sourceRelatedOps.push(op);
-  }
-}
-
-void updateReduceReadWriteOperationOperand(
-    const SmallVector<Value, 5> &inductionVars,
-    const SmallVector<int64_t, 4> &parallelAxis, Operation *op,
-    MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel) {
-  int indiceOffset = isa<vector::TransferReadOp>(op) ? 1 : 2;
-  for (auto [idx, inductionVar] : llvm::enumerate(inductionVars)) {
-    if (rdKind == MultiReduceOpAxisKind::Parallel && idx >= parallelAxis.size())
-      break;
-
-    op->setOperand(idx + indiceOffset, inductionVar);
   }
 }
 
@@ -1359,7 +1333,7 @@ scf::ForOp ForLoopGenerator::reductionAxisGenerateForLoop(
 
           rewriteOperationAsVectorize(b, loopHelperParam.groupIdx,
                                       &movingOperation);
-
+          loopHelperParam.loopIterArgs = loopState;
           moveOperationsToCurrentForBody(b, movingOperation, loopHelperParam);
           loopHelperParam.movedOps = &movingOperation;
           loopHelperParam.candidateOps = &opQueue;
@@ -2104,15 +2078,13 @@ scf::ForOp ForLoopGenerator::generateShapeCastForLoop(const size_t grpIdx) {
   if (canVectorizedLoadStore) {
     forOp = generateShapeCastReadWriteLoop(
         b, grpIdx, 0, groupStep, scOp.getLoc(), inductionVars, iterArgs);
-    for (auto [idx, successorWriteOp] : enumerate(successorWriteOps))
-      rewriter.replaceOp(successorWriteOp, forOp->getResults()[idx]);
   } else {
     // scalar data movement
     forOp = generateShapeCastReadWriteLoop(b, grpIdx, 0, 1, scOp.getLoc(),
                                            inductionVars, iterArgs);
-    for (auto [idx, successorWriteOp] : enumerate(successorWriteOps))
-      rewriter.replaceOp(successorWriteOp, forOp->getResults()[idx]);
   }
+  for (auto [idx, successorWriteOp] : enumerate(successorWriteOps))
+    rewriter.replaceOp(successorWriteOp, forOp->getResults()[idx]);
 
   rewriter.eraseOp(scOp);
   clearCurrentOperationGroup(grpIdx);
@@ -2658,6 +2630,7 @@ scf::ForOp ForLoopGenerator::constructNestedForOp(
         if (loopHelper.anchorIdx == dims.size() - 1) {
           std::queue<Operation *> &opQueue =
               getFusionStrategy().getOpGroups()[groupIdx];
+          loopHelper.loopIterArgs = loopState;
           // 1. get operations in current anchor position
           std::queue<Operation *> movingOperation;
           getOperationInCurrentAnchor(loopHelper.anchorIdx, opQueue,
