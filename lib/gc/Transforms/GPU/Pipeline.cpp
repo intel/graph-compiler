@@ -39,10 +39,7 @@
 namespace mlir::gc {
 
 void populateGPUPipeline(mlir::OpPassManager &pm) {
-  IterativeTilingAndFusionOptions tilingOpts;
-  std::string tilingSizes = "matmul:{16,16}";
-  tilingOpts.defaultTileSize = tilingSizes;
-  pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion(tilingOpts));
+  pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
