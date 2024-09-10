@@ -14,12 +14,15 @@
 # limitations under the License.
 ################################################################################
 
+import argparse
 import ctypes
+import os
 from typing import Any, List
 
 import torch
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, memref
+from gc_mlir.tools import cpuinfo
 
 
 # calling python binding consumes a lot of time e.g. get_name()
@@ -152,3 +155,49 @@ def get_kernel_func_from_module(
         if type(f) is func.FuncOp and str(f.name).strip('"') == func_name:
             return f
     raise ValueError("can not find the entry function")
+
+
+def attach_dlti(flags: argparse.Namespace, module: ir.Module):
+    # the moudle already had dlti attr
+    if "dlti.target_system_spec" in module.operation.attributes:
+        return
+    if flags.cpu_cache_sizes:
+        caches_sizes = [int(x) for x in flags.cpu_cache_sizes.strip().split(":")]
+    else:
+        caches_sizes = cpuinfo.get_cache_sizes()
+        if not caches_sizes or len(caches_sizes) != 3:
+            print(
+                "Failed to get CPU cache sizes, please added them manually br --cpu_cache_sizes"
+            )
+            return
+    if flags.max_vector_width:
+        max_vector_width = flags.max_vector_width
+    else:
+        max_vector_width = cpuinfo.get_max_vector_width()
+        if not max_vector_width:
+            print(
+                "Failed to get CPU max vector width, please added them manually br --max_vector_width"
+            )
+            return
+    l1_data_cache_size, l2_cache_size, l3_cache_size = caches_sizes
+    if "OMP_NUM_THREADS" not in os.environ:
+        print("OMP_NUM_THREADS is not found, using 1 as default")
+    num_threads = os.environ.get("OMP_NUM_THREADS", 1)
+
+    dlti_template = f"""
+    module attributes {{
+        dlti.target_system_spec = #dlti.target_system_spec<
+        "CPU": #dlti.target_device_spec<
+            #dlti.dl_entry<"L1_cache_size_in_bytes", {l1_data_cache_size} : ui32>,
+            #dlti.dl_entry<"L2_cache_size_in_bytes", {l2_cache_size} : ui64>,
+            #dlti.dl_entry<"L3_cache_size_in_bytes", {l3_cache_size} : ui64>,
+            #dlti.dl_entry<"num_threads", {num_threads} : i32>,
+            #dlti.dl_entry<"max_vector_width", {max_vector_width} : i64>>
+        >}} {{}}
+    """
+    print(dlti_template)
+    with module.context:
+        template_module = ir.Module.parse(dlti_template)
+        module.operation.attributes["dlti.target_system_spec"] = (
+            template_module.operation.attributes["dlti.target_system_spec"]
+        )
