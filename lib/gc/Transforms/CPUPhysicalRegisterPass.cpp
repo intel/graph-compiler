@@ -979,35 +979,6 @@ void updateReduceReadWriteOperationOperand(
   }
 }
 
-vector::TransferReadOp ForLoopGenerator::cloneReductionTransferRead(
-    Value &source, OpBuilder &b, IRMapping &readMap,
-    const SmallVector<int64_t, 4> &parallelAxis,
-    SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
-    MultiReduceOpAxisKind rdKind) {
-  IRRewriter rewriter(b);
-  auto readOp = dyn_cast<vector::TransferReadOp>(source.getDefiningOp());
-  assert(readOp && " Not transfer_read operation. Current multireduction "
-                   "operation may have wrong analysis IR.");
-
-  Operation *clonedOp = b.clone(*readOp, readMap);
-  auto newReadOp = cast<vector::TransferReadOp>(clonedOp);
-  updateReduceReadWriteOperationOperand(inductionVars, parallelAxis, newReadOp,
-                                        rdKind);
-
-  // modify the type of the new read operation
-  auto newOperandType =
-      (lastDimReduction && rdKind == MultiReduceOpAxisKind::Reduction)
-          ? getVectorzedType(newReadOp)
-          : getScalarType(newReadOp);
-  newReadOp->getResult(0).setType(newOperandType);
-  setOpVectorizationPermutationMap(
-      newReadOp, b, cast<ShapedType>(newReadOp.getSource().getType()),
-      newReadOp.getPermutationMap());
-
-  rewriter.replaceOp(readOp, newReadOp);
-  return newReadOp;
-}
-
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
                                int64_t x) {
   return opBuilder.create<arith::ConstantOp>(
@@ -1025,11 +996,7 @@ void ForLoopGenerator::moveOperationsToCurrentForBody(
     tmpQ.pop();
     x->moveBefore(b.getBlock(), b.getBlock()->end());
     // check operation type to set correct operand
-    setOperationCorrectOperand(x, loopHelperParam.loopIterArgs,
-                               loopHelperParam.currentLoopStateIdxMap,
-                               loopHelperParam.originalOperandLoopArgsMap,
-                               loopHelperParam.inductionVars, opPermuationMap,
-                               loopHelperParam.indiceLoopMap);
+    setOperationCorrectOperand(x, opPermuationMap, loopHelperParam);
   }
 }
 
@@ -1923,11 +1890,10 @@ scf::ForOp ForLoopGenerator::generateTransposeScalarDataMovement(
       });
 }
 
-/// generate simple data movement for loop
 scf::ForOp ForLoopGenerator::generateShapeCastReadWriteLoop(
     OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
     const size_t steps, const Location &loc, SmallVector<Value> &inductionVars,
-    const ValueRange &iterArgs) {
+    ValueRange iterArgs) {
   auto &scCanonicalizer = getShapeCastCanonicalizers()[grpIdx];
   vector::ShapeCastOp &scOp = scCanonicalizer.getCandidateOps()[0];
   VectorType sourceType = scOp.getSourceVectorType();
@@ -2562,9 +2528,9 @@ void CanonicalizerVectorOperation::run() {
     canonicalizeSpecialOperation();
 
     // 2.Generate vectorized IR for each operation group
-    for (size_t idx = 0; idx < fusionStrategy.getOpGroups().size(); ++idx) {
+    for (size_t idx = 0; idx < fusionStrategy.getOpGroups().size(); ++idx)
       generateGroupOpVectorizedIR(idx);
-    }
+
     // 3. Some IR cleanup work
     DominanceInfo domInfo;
     eliminateCommonSubExpressions(rewriter, domInfo, func);
@@ -2604,21 +2570,20 @@ void CanonicalizerVectorOperation::run() {
 
 ///
 void ForLoopGenerator::setOperationCorrectOperand(
-    Operation *op, ValueRange iterArgs,
-    const DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    ArrayRef<Value> inductionVars,
-    const DenseMap<Operation *, AffineMap> &opPermuationMap,
-    DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceloopMap) {
+    Operation *op, const DenseMap<Operation *, AffineMap> &opPermuationMap,
+    GenerateLoopHelper &loopHelperParam) {
   for (auto [idx, opd] : llvm::enumerate(op->getOperands())) {
-    if (not originalOperandLoopArgsMap.contains(opd))
+    if (not loopHelperParam.originalOperandLoopArgsMap.contains(opd))
       continue;
 
-    Value loopArg = originalOperandLoopArgsMap[opd];
-    if (not operandIdxMap.contains(loopArg))
+    Value loopArg = loopHelperParam.originalOperandLoopArgsMap[opd];
+    if (not loopHelperParam.currentLoopStateIdxMap.contains(loopArg))
       continue;
 
-    op->setOperand(idx, iterArgs[operandIdxMap.at(loopArg)]);
+    op->setOperand(
+        idx,
+        loopHelperParam
+            .loopIterArgs[loopHelperParam.currentLoopStateIdxMap.at(loopArg)]);
   }
   int offset = isa<vector::TransferWriteOp>(op) ? 2 : 1;
   if (dyn_cast<vector::TransferWriteOp>(op) ||
@@ -2643,17 +2608,22 @@ void ForLoopGenerator::setOperationCorrectOperand(
       ShapedType tensorType =
           cast<ShapedType>(op->getOperandTypes()[offset - 1]);
       int64_t varIdx = dim;
-      if (tensorType.getRank() > (int64_t)inductionVars.size()) {
-        int64_t tensorOffset = tensorType.getRank() - inductionVars.size();
+      if (tensorType.getRank() >
+          (int64_t)loopHelperParam.inductionVars.size()) {
+        int64_t tensorOffset =
+            tensorType.getRank() - loopHelperParam.inductionVars.size();
         if (dim < tensorOffset)
           continue;
 
         varIdx = dim - tensorOffset;
       }
-      if (indiceloopMap.contains(op))
-        op->setOperand(dim + offset, inductionVars[indiceloopMap[op][varIdx]]);
+      if (loopHelperParam.indiceLoopMap.contains(op))
+        op->setOperand(
+            dim + offset,
+            loopHelperParam
+                .inductionVars[loopHelperParam.indiceLoopMap[op][varIdx]]);
       else
-        op->setOperand(dim + offset, inductionVars[varIdx]);
+        op->setOperand(dim + offset, loopHelperParam.inductionVars[varIdx]);
     }
     if (auto readOp = dyn_cast<vector::TransferReadOp>(op)) {
       size_t grpIdx = getFusionStrategy().getOpGroupIndexMap()[op];
@@ -2661,7 +2631,8 @@ void ForLoopGenerator::setOperationCorrectOperand(
           getFusionStrategy().getGroupBiggestRankVectorType()[grpIdx];
       SmallVector<Value> readIndices(readOp.getIndices().begin(),
                                      readOp.getIndices().end());
-      rectifyReadOperationIndice(&readOp, loopType, inductionVars, readIndices);
+      rectifyReadOperationIndice(&readOp, loopType,
+                                 loopHelperParam.inductionVars, readIndices);
       readOp.getIndicesMutable().assign(readIndices);
     }
   }
@@ -3040,7 +3011,7 @@ Operation *getNotReadWriteOperaiton(std::queue<Operation *> &tmpQ) {
 
 bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
   if (isa<vector::TransferReadOp>(op)) {
-    noNeedToJudgeOps.push(op);
+    notNeedToJudgeOps.push(op);
     return false;
   }
   // 1. check previous operation
@@ -3051,13 +3022,12 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
     prevOp = getNotReadWriteOperaiton(tmpQ);
     if (!prevOp) {
 
-      if (opGroups.back().back()->getParentOp() != op->getParentOp()) {
+      if (opGroups.back().back()->getParentOp() != op->getParentOp() or
+          isSpecialOp(op)) {
         // if previous operation is not in the same block, we need to create a
         // group
         return true;
       }
-      if (isSpecialOp(op))
-        return true;
 
       return false;
     }
@@ -3100,9 +3070,9 @@ void VectorFusionStrategy::addOperationToGroup(Operation *op) {
 
   if (not isa<vector::TransferReadOp>(op)) {
     updateGroupBigestVectorType(vectorType);
-    while (not noNeedToJudgeOps.empty()) {
-      auto cur = noNeedToJudgeOps.front();
-      noNeedToJudgeOps.pop();
+    while (not notNeedToJudgeOps.empty()) {
+      auto cur = notNeedToJudgeOps.front();
+      notNeedToJudgeOps.pop();
       opGroupIndexMap[cur] = opGroups.size() - 1;
       opGroups.back().push(cur);
     }
@@ -3194,7 +3164,6 @@ void setOperationOperandResult(Operation *op, const VectorType &newOperandType,
       x.setType(newOperandType);
 };
 
-/// Reimplementation of writing a tensor from a constant of denseElementattr.
 void ForLoopGenerator::createNewConstantOp(
     Operation *srcOp, vector::TransferWriteOp *transferWriteOp,
     size_t groupSteps) {
@@ -3360,7 +3329,6 @@ void CanonicalizerCommonUsedData::removeOpInCurrentGroups(
     getFusionStrategy().getOpAnchorPos()[x] =
         getOperationMaxVectorType(x)->getRank() - 1;
 
-  // update operation in grpIdx group related information
   updateOpGroupInfo(grpIdx);
 }
 
@@ -3935,7 +3903,7 @@ void moveSomeInterferenceOperation(
   // Pre-order traversal of each op
   // Record each operation position. Inorder to we can kown current operation
   // should move after which operation.
-  llvm::DenseMap<Operation *, size_t> operationPosition;
+  DenseMap<Operation *, size_t> operationPosition;
   SmallVector<Operation *, 8> candidateOps;
   size_t opCounter = 0;
 

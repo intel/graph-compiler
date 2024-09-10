@@ -189,7 +189,7 @@ private:
   DenseMap<Operation *, size_t> opAnchorPos;
   /// record some operations which not need to No need to judge whether can be
   /// fused
-  std::queue<Operation *> noNeedToJudgeOps;
+  std::queue<Operation *> notNeedToJudgeOps;
 
 public:
   VectorFusionStrategy() = default;
@@ -263,9 +263,12 @@ public:
 ///     and we directly convert the operations into physical register sizes.
 enum CanonicalizerKind { OperationsGroup, Operations };
 
+/// base class of special operation
 template <class T> class SpecialOperationCanonicalizer : virtual TypeHelper {
 private:
+  /// store current special operation
   SmallVector<T, 4> candidateRdOps;
+  /// vectorize step
   size_t vectorStep = 1;
 
 public:
@@ -290,8 +293,11 @@ public:
   llvm::SmallVector<T, 4> &getCandidateOps();
   virtual ~SpecialOperationCanonicalizer() {}
   virtual void prepareSpecialOperationInfo() = 0;
+  /// get kind of speical operation
   SpecialOperationKind getKind() noexcept { return kind; }
+  /// set current operation group vectorize step
   void setVectorStep(size_t step) noexcept { vectorStep = step; }
+  /// get current operation group vectorize step
   size_t getVectorStep() noexcept { return vectorStep; }
 };
 
@@ -327,36 +333,56 @@ public:
     isStandaloneOp = candidateRdOps.size() == 1;
   };
   virtual ~MultiReductionCanonicalizer() noexcept {};
+  /// get reduction vector type, we use source operation type as reduction
+  /// vector type
   int64_t getTypeRank();
+  /// get reduction operation reduction and parallel axis
   void getReductionAxisAndParallelAxis();
+  /// whether last dim is reduction axis
   bool hasLastDimReduction();
+  /// whether only reduction operation in current operation group
   bool getIsStandAloneOp() noexcept { return isStandaloneOp; }
+  /// get whether last dim is reduction axis
   bool getHasLastDimReduction() noexcept { return haslastDimReduction; }
-  bool getIsEmptyReduction() noexcept { return isEmptyReduction; }
+  /// initialize to get reduction axis
   void initReductionAxis();
+  /// initialize to get parallel axis
   void initParallelAxis();
+  /// get reduction axis
   SmallVector<int64_t, 4> &getReductionAxis() noexcept {
     return reductionAxis;
   };
+  /// get parallel axis
   SmallVector<int64_t, 4> &getParallelAxis() noexcept { return parallelAxis; };
+  /// get prev operation in current operation group
   std::queue<Operation *> &getPrevOps() noexcept { return prevOps; }
+  /// get post operation in current operation group
   std::queue<Operation *> &getPostOps() noexcept { return postOps; }
+  /// get accumulate operation in reduction operation
   std::queue<Operation *> &getAccRelatedOps() noexcept { return accRelatedOps; }
+  /// get source operation in reduction operation
   std::queue<Operation *> &getSourceRelatedOps() noexcept {
     return sourceRelatedOps;
   }
+  /// get reduction operation original result
   SetVector<Value> &getOriginalOpResults() noexcept {
     return originalOpResults;
   }
+  /// get source operation vector type
   VectorType getSourceType() noexcept { return sourceType; };
+  /// get accumulate operation vector type
   VectorType getAccType() noexcept { return accType; };
+  /// get result index map
   llvm::SmallDenseMap<Value, int> &getResultIdxMap() noexcept {
     return resultIdxMap;
   }
+  /// set result index map
   void setResultIdxMap(const llvm::SmallDenseMap<Value, int> &map) {
     resultIdxMap = map;
   }
 
+  /// initalize parallel, reduction axis, reduction operation type and whether
+  /// last dim is reduction axis
   void prepareSpecialOperationInfo() override;
 
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -384,6 +410,7 @@ public:
 class TransposeCanonicalizer
     : public SpecialOperationCanonicalizer<vector::TransposeOp> {
 private:
+  /// first and second transpose axis
   size_t firstTpIdx = 0, secondTpIdx = 0;
 
 public:
@@ -400,11 +427,15 @@ public:
   enum TRANSPOSE_KERNEL {
     KERNEL_16X16 = 16,
   };
-
+  /// get first transpose axis
   size_t getFirstTpIdx() noexcept { return firstTpIdx; }
+  /// get second transpose axis
   size_t getSecondTpIdx() noexcept { return secondTpIdx; }
+  /// whether transpose on two dimensions
   bool isTwoDTranspose();
+  /// whether transpose on all dimension size is one
   bool isTransposeOnAllOneDim();
+  /// whether transpose on last dimension
   bool transposeOnLastDim();
 };
 
@@ -422,6 +453,7 @@ public:
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_ShapeCast;
   }
+  /// whether store and load on last dimension
   bool isReadWriteOnLastDim();
 };
 
@@ -441,6 +473,7 @@ private:
   /// analysis the operation's operands and results
   SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
       groupOpResults;
+  /// store loop iteration args for each of operation group
   SmallVector<SetVector<Value>, 8> groupOpInitArgs;
 
   // store read and write operations permutation maps in order to convenient
@@ -491,12 +524,12 @@ public:
     groupOpResults = std::move(results);
   }
 
-  void
-  setGroupOpIterArgs(const SmallVector<llvm::SetVector<Value>, 8> &initArgs) {
+  void setGroupOpIterArgs(
+      const SmallVector<llvm::SetVector<Value>, 8> &initArgs) noexcept {
     groupOpInitArgs = std::move(initArgs);
   }
 
-  void setPermutationMap(const DenseMap<Operation *, AffineMap> &map) {
+  void setPermutationMap(const DenseMap<Operation *, AffineMap> &map) noexcept {
     opPermuationMap = std::move(map);
   }
 
@@ -536,9 +569,10 @@ public:
     return shapeCastCanonicalizers;
   }
 
-  // other methods
+  /// whether \param grpIdx operation group has special operation
   bool isGroupHasSpecialOperation(const size_t grpIdx);
 
+  /// make emtpy tensor and write the operation result to the tensor
   void generateEmptyTensorAndWrite(
       Operation *sourceOp,
       llvm::DenseMap<Operation *, std::pair<Value, Value>>
@@ -546,18 +580,23 @@ public:
       size_t anchorPos, ReturnTypeKind retKind,
       DenseMap<Operation *, size_t> &visitedOperation);
 
+  /// update \param opGid operation group
   void updateOpOperandResultInGroups(size_t opGid, Operation *op,
                                      const Value &init = Value(),
                                      const Value &result = Value());
+  /// replace \param op in \param grpIdx operation group with \param replacedOp
   void removeOpInCurrentGroups(size_t grpIdx, Operation *op,
                                Operation *replacedOp);
+  /// update operation in grpIdx group related information
   void updateOpGroupInfo(size_t grpIdx);
 
+  /// make a transfer_read operation and  read the producer operation result
   Value
   canonicalizeCurrentOperation(Operation *op, const Value &transferReadOperand,
                                size_t operandIdx,
                                vector::TransferReadOp *srcReadOp = nullptr);
 
+  /// make a transfer_read operation
   Operation *
   createTransferReadOpBefore(Operation *op, const Value &operand,
                              vector::TransferReadOp *srcReadOp = nullptr);
@@ -570,6 +609,7 @@ public:
 /// generate for loop for each operation.
 class ForLoopGenerator : virtual public CanonicalizerCommonUsedData {
 private:
+  /// currrent function IR
   func::FuncOp func;
 
 public:
@@ -579,7 +619,9 @@ public:
   virtual ~ForLoopGenerator() noexcept {}
 
   void setGeneratorFunc(func::FuncOp &func) noexcept { this->func = func; }
+  /// clear current group operation
   void clearCurrentOperationGroup(size_t grpIdx);
+  /// vectorize operations in current operation group
   void generateGroupOpVectorizedIR(const int idx);
 
   /// prepare for loop iteration args
@@ -597,17 +639,18 @@ public:
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap,
       const size_t groupId, Operation *op,
       const DenseMap<size_t, size_t> &setIdxMap = DenseMap<size_t, size_t>({}));
+  /// rewrite operation as vectorize IR in current operation group
   void
   rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
                               const std::queue<Operation *> *queue = nullptr);
+  /// Reimplementation of writing a tensor from a constant of denseElementattr.
   void createNewConstantOp(Operation *srcOp,
                            vector::TransferWriteOp *transferWriteOp,
                            size_t groupSteps);
-  // elementwise for loop
+  // Generate elementwise operation for loop
   mlir::FailureOr<scf::ForOp>
   generateVectorizedForLoop(const size_t groupId, IRRewriter &rewriter,
                             const VectorType vectorType);
-
   scf::ForOp constructNestedForOp(const size_t groupIdx, OpBuilder &b,
                                   const Location &loc, ArrayRef<int64_t> dims,
                                   GenerateLoopHelper &loopHelper);
@@ -616,41 +659,42 @@ public:
                                       std::queue<Operation *> &queue,
                                       GenerateLoopHelper &loopHelperParam);
 
+  /// Set correct operand with loop args for the operation
   void setOperationCorrectOperand(
-      Operation *op, ValueRange iterArgs,
-      const DenseMap<Value, int> &operandIdxMap,
-      DenseMap<Value, Value> &originalOperandLoopArgsMap,
-      ArrayRef<Value> inductionVars,
-      const DenseMap<Operation *, AffineMap> &opPermuationMap,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
+      Operation *op, const DenseMap<Operation *, AffineMap> &opPermuationMap,
+      GenerateLoopHelper &loopHelperParam);
 
+  ///  Get current anchor return retults
   void getResultInCurrentOps(const size_t anchorIdx, const size_t groupId,
                              const std::queue<Operation *> &ops,
                              SmallVector<Value, 4> &results,
                              DenseMap<Value, int> &nextAnchorResultsIdxMap,
                              DenseMap<Value, Value> &forResultOrignalResultMap);
-  /// get next anchor's iteration loop args
+  /// Get next anchor's iteration loop args
   void getInitArgsToNextAnchor(llvm::DenseMap<Value, int> &nextAnchorArgsIdxMap,
                                llvm::SmallVector<Value, 4> &nextAnchorArgs,
                                GenerateLoopHelper &loopHelperParam);
-
+  /// Get operation should appear in current loop anchor
   void getOperationInCurrentAnchor(const size_t anchorIdx,
                                    std::queue<Operation *> &fromQueue,
                                    std::queue<Operation *> &toQueue);
-  /// get current loop operation result
+  /// Get current loop operation result
   void generateLoopResults(OpBuilder &b, const Location &loc,
                            GenerateLoopHelper &loopHelperParam,
                            DenseMap<Value, int> &nextOperandIdxMap);
 
-  /// todo: need to add a struct to remove so many parameters
+  /// Move post operations in current operation group to the for loop body
   void movePostOpToCurrentAnchor(OpBuilder &b,
                                  GenerateLoopHelper &loopHelperParam);
 
+  /// Move previous operations in current operation group to the for loop body
   void movePreOpToCurrentAnchor(OpBuilder &b,
                                 DenseMap<Value, int> &nextLoopStateIdxMap,
                                 SmallVector<Value, 4> &nextAnchorArgs,
                                 GenerateLoopHelper &loopHelperParam);
 
+  /// replace moved operation result used by current post operations with for
+  /// loop result
   void replaceOperationsWithForLoopResult(
       IRRewriter &rewrite, const std::queue<Operation *> &movingOperations,
       GenerateLoopHelper &loopHelperParam);
@@ -662,42 +706,41 @@ public:
       const size_t grpIdx,
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
 
+  /// reduction operation reduction axis for loop
   scf::ForOp reductionAxisGenerateForLoop(OpBuilder &opBuilder,
                                           const size_t reductionIdx,
                                           GenerateLoopHelper &loopHelperParam);
-
+  /// reduction operation parallel axis for loop
   scf::ForOp parallelAxisGenerateForLoop(OpBuilder &opBuilder,
                                          GenerateLoopHelper &loopHelperParam);
-
+  /// ensure accumulate operation appear in parallel loop, inorder to have
+  /// correct reduce fusion
   void ensureAccInParallelLoop(GenerateLoopHelper &loopHelperParam,
                                ArrayRef<int64_t> parallelAxis,
                                Value multiReductionAcc,
                                DenseMap<Value, int> &nextAnchorArgsIdxMap,
                                SmallVector<Value, 4> &nextAnchorArgs);
 
-  vector::TransferReadOp cloneReductionTransferRead(
-      Value &source, OpBuilder &b, IRMapping &readMap,
-      const llvm::SmallVector<int64_t, 4> &parallelAxis,
-      SmallVector<Value, 5> &inductionVars, bool lastDimReduction,
-      MultiReduceOpAxisKind rdKind = MultiReduceOpAxisKind::Parallel);
-
   /// generate for loop for transpose operation
   scf::ForOp generateTransposeForLoop(const size_t grpIdx);
+  /// shuffle instruction optimize for transpose operation
   scf::ForOp generateTransposeForLoopWithLastDim(
       OpBuilder &opBuilder, const int tpSteps, const Location &loc,
       Operation *successorWriteOp, GenerateLoopHelper &loopHelperParam);
 
+  /// generate transpose operation for loop of simple data movement
   scf::ForOp
   generateTransposeScalarDataMovement(OpBuilder &opBuilder, const Location &loc,
                                       DenseMap<size_t, size_t> &tpAxisMap,
                                       GenerateLoopHelper &loopHelperParam);
 
-  // shapecast
+  /// generate shapecast operation for loop
   scf::ForOp generateShapeCastForLoop(const size_t grpIdx);
+  /// generate simple data movement for loop
   scf::ForOp generateShapeCastReadWriteLoop(
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
       const size_t steps, const Location &loc,
-      SmallVector<Value> &inductionVars, const ValueRange &iterArgs);
+      SmallVector<Value> &inductionVars, ValueRange iterArgs);
   /// rectify indice for transfer_write operation
   /// e.g.: vector.transfer_write"(%16, %9, %c0, %c0), the first %c0 should use
   /// original indice not create by us
@@ -756,11 +799,13 @@ public:
   void replaceConstantOpAsNewOp(Operation *op, Operation *sourceOp,
                                 size_t operandIdx);
 };
-/// Vectorize vector operation with target machines simd instructions.
+/// Vectorize vector operation with target machines max simd length.
 class CanonicalizerVectorOperation : virtual public ForLoopGenerator,
                                      VectorOperationAnalyzer {
 private:
+  /// current function IR
   func::FuncOp func;
+  /// rewriter of func operation
   IRRewriter rewriter;
   CanonicalizerKind kind;
 
@@ -785,15 +830,19 @@ public:
   // get functions
   func::FuncOp &getFunc() noexcept { return func; };
   IRRewriter &getIRWewriter() noexcept { return rewriter; }
+  /// generate for loop for current special operation use \param generateFunc
   template <class T, class U>
   void processSpecialOperation(
       T &canonicalizers, const std::function<void(const size_t)> &generateFunc);
-  //
+  // Canonicalize special operation
   void canonicalizeSpecialOperation();
+  /// clear special operation canonicalizer container
   void clearSpecialOperationCanonicalizers();
+  /// add a dummy special canonicalizer
   void dummyInitSpecialOperation(size_t steps);
+  /// initialize all the speical operation canonicalizer
   void initSpeicalOperationCanonicalizers();
-
+  /// run the vector canonicalizer for the IR
   void run();
 };
 } // namespace

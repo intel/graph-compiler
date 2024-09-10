@@ -53,10 +53,12 @@ func.func @add_tensor_test0(%arg0: tensor<11008x4096xf32>, %arg1: tensor<11008x4
 // CHECK: scf.yield
 // CHECK: %[[WRITE:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<16xf32>, tensor<16x64xf32>
 // CHECK: scf.yield
-// CHECK: scf.for
-// CHECK: scf.for
-// CHECK: scf.for
-// CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<16x64xf32>, vector<16xf32>
+// CHECK: scf.for %[[arg1:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg2:.*]] = %[[EMPTY1]]) -> (tensor<16x1x64xf32>)
+// CHECK: scf.for %[[arg3:.*]] = %[[C0]] to %[[C1]] step %[[C1]] iter_args(%[[arg4:.*]] = %[[arg2]]) -> (tensor<16x1x64xf32>)
+// CHECK: scf.for %[[arg5:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg6:.*]] = %[[arg4]]) -> (tensor<16x1x64xf32>)
+// CHECK: %[[APPLY0:.*]] = affine.apply #[[map0]]()[%[[arg3]], %[[arg5]]]
+// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<16x64xf32>, vector<16xf32>
+// CHECK: %[[WRITE1:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<16xf32>, tensor<16x1x64xf32>
 func.func @reduce_keepdimtest1(%arg0: tensor<16x32x64xf32>) -> tensor<16x1x64xf32> {
   %0 = tensor.empty() : tensor<16x64xf32>
   %reduce = linalg.reduce
