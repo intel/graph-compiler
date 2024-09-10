@@ -106,6 +106,11 @@ def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
   let description = [{
     Convert the gpu alloc, dealloc, memcpy and launch operations to GpuOclRuntime calls.
   }];
+  let options = [
+    Option<"callFinish", "call-finish", "bool",
+           /*default=*/"false",
+           "Call finish() after each kernel launch.">
+    ];
 }
 #endif // GC_USE_IMEX
 
