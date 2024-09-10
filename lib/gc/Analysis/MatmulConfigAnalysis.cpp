@@ -534,7 +534,9 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
     config.numNuma = 1;
   auto splitedAttr = root->getAttrOfType<IntegerAttr>("splited");
   if (splitedAttr) {
-    config.numaId = splitedAttr.getInt();
+    config.numaId = config.numNuma == 1 ? 0 : splitedAttr.getInt();
+    assert(config.numaId < config.numNuma);
+
     llvm::errs() << "set numa ID:" << config.numaId << "\n ";
   }
   return config;

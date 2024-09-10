@@ -846,15 +846,18 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
             resultType),
         currentOp.getDpsInits()[0]);
     auto expectedNumaIterValue =
-        rewriter.create<arith::ConstantIndexOp>(loc, expectedNumaIter);
+        rewriter.create<arith::ConstantIndexOp>(loc, 0);
     // create ifOp for numa split
-    if (!numaIter)
-      numaIter = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    auto conditionOp = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::eq, numaIter, expectedNumaIterValue);
-    scf::IfOp ifOp = rewriter.create<scf::IfOp>(
-        loc, TypeRange{resultOprand.getType()}, conditionOp.getResult(), true);
-    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    // if (!numaIter) {
+    //   numaIter = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    //   llvm::errs() << "has no numa iter\n";
+    // }
+    // auto conditionOp = rewriter.create<arith::CmpIOp>(
+    //     loc, arith::CmpIPredicate::eq, numaIter, expectedNumaIterValue);
+    // scf::IfOp ifOp = rewriter.create<scf::IfOp>(
+    //     loc, TypeRange{resultOprand.getType()}, conditionOp.getResult(),
+    //     true);
+    // rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
     // Create the brgemm op and replace the origin linalg op
     linalg::LinalgOp matmul;
     if (dyn_cast<mlir::ShapedType>(weightOprand.getType()).getShape().size() ==
@@ -879,12 +882,12 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       // else
       //   return failure();
     }
-    rewriter.create<scf::YieldOp>(loc, matmul.getOperation()->getResult(0));
+    // rewriter.create<scf::YieldOp>(loc, matmul.getOperation()->getResult(0));
 
-    rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
-    rewriter.create<scf::YieldOp>(loc, resultOprand);
+    // rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+    // rewriter.create<scf::YieldOp>(loc, resultOprand);
 
-    Value result = ifOp.getOperation()->getResult(0);
+    Value result = matmul.getOperation()->getResult(0);
 
     // Insert the result back to the original tensor
     for (Operation *user : currentOp->getResult(0).getUsers())
@@ -1052,10 +1055,12 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
       scf::ForallOp forallOp =
           dyn_cast<scf::ForallOp>(outerLoopResult->forallOps.front());
 
-      std::optional<mlir::Value> optionalLoopInductionVar =
-          forallOp.getSingleInductionVar();
-      if (optionalLoopInductionVar)
-        numaIter = *optionalLoopInductionVar;
+      SmallVector<Value> optionalLoopInductionVar = forallOp.getInductionVars();
+      if (!optionalLoopInductionVar.empty()) {
+        llvm::errs() << optionalLoopInductionVar.size() << "\n";
+        numaIter = optionalLoopInductionVar.front();
+      }
+
       if (auto optionalLoopStep = forallOp.getSingleStep()) {
         if (auto stepAttr = dyn_cast<Attribute>(*optionalLoopStep)) {
           int64_t stepValue = dyn_cast<IntegerAttr>(stepAttr).getInt();
@@ -1063,6 +1068,8 @@ struct DeepTileMatmul : public OpInterfaceRewritePattern<linalg::LinalgOp> {
         }
       }
     }
+    expectedNumaIter = 1;
+    llvm::errs() << "expectedNumaIter: " << expectedNumaIter << "\n";
 
     linalgOp = dyn_cast<linalg::LinalgOp>(outerLoopResult->tiledOps.back());
 
