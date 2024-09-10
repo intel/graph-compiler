@@ -153,4 +153,26 @@ def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
   ];
 }
 
+def SplitComputeIntensivePatterns : Pass<"split-compute-intensive-patterns"> {
+  let summary = "Split matmul patterns";
+  let description = [{
+    Split matmul patterns' weights into several parts, number of which aligns
+    with the number of target machine's numa node.
+  }];
+  let dependentDialects = [
+    "mlir::linalg::LinalgDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::arith::ArithDialect"];
+}
+
+def DecomposeOpsForBufferize : Pass<"decompose-ops-for-bufferize", "func::FuncOp"> {
+  let summary = "Decompose complex ops into sequences of basic ops";
+  let description = [{
+    Decompose complex ops into sequences of basic ops, so as to further bufferize the complex ops.
+  }];
+  let dependentDialects = [
+      "tensor::TensorDialect"
+  ];
+}
+
 #endif // GC_DIALECT_GC_PASSES

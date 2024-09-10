@@ -53,6 +53,9 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
+  char *snc = getenv("SNC_ON");
+  if (snc && std::stoi(snc) == 1)
+    pm.addPass(createSplitComputeIntensivePatterns());
   PrintIRPassOptions option1{"before deeptile passes result"};
   pm.addPass(createPrintIRPass(option1));
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
@@ -98,6 +101,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
 // scf + arith + math + vector + memref + linalg.brgemm
 void populateBufferizationPasses(mlir::OpPassManager &pm) {
   // The flow follows https://mlir.llvm.org/docs/Bufferization/#overview
+  pm.addNestedPass<func::FuncOp>(createDecomposeOpsForBufferize());
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   bufferization::OneShotBufferizationOptions options;
   options.bufferizeFunctionBoundaries = true;

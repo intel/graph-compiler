@@ -23,6 +23,8 @@ gc_add_mlir_library(GcPasses
   MergeNestedForall.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
+  SplitComputeIntensivePatterns.cpp
+  DecomposeOpsForBufferization.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
