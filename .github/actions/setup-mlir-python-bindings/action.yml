@@ -4,6 +4,7 @@ runs:
   using: "composite"
   steps:
     - name: Set LLVM hash
+      shell: bash
       run: |
         echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
 
@@ -17,4 +18,5 @@ runs:
         path: llvm-dep
 
     - name: Install requirements
+      shell: bash
       run: python3 -m pip install -r llvm-dep/mlir/python/requirements.txt
