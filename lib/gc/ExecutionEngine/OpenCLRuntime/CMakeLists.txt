@@ -16,6 +16,7 @@ target_compile_options (GcOpenclRuntime PUBLIC -fexceptions -frtti)
 target_include_directories(GcOpenclRuntime PRIVATE
     ${MLIR_INCLUDE_DIRS}
     ${OpenCL_INCLUDE_DIRS}
+    ${PROJECT_SOURCE_DIR}/include
     )
 
 message(STATUS "OpenCL Libraries: ${OpenCL_LIBRARIES}")
