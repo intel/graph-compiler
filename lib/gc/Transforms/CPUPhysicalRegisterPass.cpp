@@ -3021,15 +3021,10 @@ bool VectorFusionStrategy::isNeedNewGroup(Operation *op) {
     Operation *prevOp = nullptr;
     prevOp = getNotReadWriteOperaiton(tmpQ);
     if (!prevOp) {
-
-      if (opGroups.back().back()->getParentOp() != op->getParentOp() or
-          isSpecialOp(op)) {
-        // if previous operation is not in the same block, we need to create a
-        // group
-        return true;
-      }
-
-      return false;
+      // if previous operation is not in the same block, we need to create a
+      // group
+      return opGroups.back().back()->getParentOp() != op->getParentOp() or
+             isSpecialOp(op);
     }
 
     if (prevOp->getParentOp() != op->getParentOp())
