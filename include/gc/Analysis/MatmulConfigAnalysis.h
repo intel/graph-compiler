@@ -130,6 +130,12 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
         SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
         SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N},
         SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
+  } else if (linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                              linalgx::PackingType::MM2D4D)) {
+    return SmallVector<SmallVector<DimType>>{
+        SmallVector<DimType>{DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N},
+        SmallVector<DimType>{DimType::M, DimType::N}};
   }
   return failure();
 }
