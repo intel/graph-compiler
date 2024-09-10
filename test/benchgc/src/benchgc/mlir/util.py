@@ -195,7 +195,6 @@ def attach_dlti(flags: argparse.Namespace, module: ir.Module):
             #dlti.dl_entry<"max_vector_width", {max_vector_width} : i64>>
         >}} {{}}
     """
-    print(dlti_template)
     with module.context:
         template_module = ir.Module.parse(dlti_template)
         module.operation.attributes["dlti.target_system_spec"] = (
