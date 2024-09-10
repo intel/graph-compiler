@@ -57,7 +57,6 @@ jobs:
         id: setup-mlir-python-bindings
         uses: ./.github/actions/setup-mlir-python-bindings
 
-
       - name: Run coverity build
         run: |
           
