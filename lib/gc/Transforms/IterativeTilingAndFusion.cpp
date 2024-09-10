@@ -610,11 +610,6 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
   return success(numTiledOps > 1);
 }
 
-/// This is a workaround to deal with LinalgXOp
-static bool isTilableLinalgXOp(Operation *op) {
-  return linalgx::isAnyGenericPackedMatmulOp(op);
-}
-
 /// Check if tiled op inside a loop?
 /// E.g.
 /// %1 = scf.for(){
@@ -627,7 +622,7 @@ static bool isTilableLinalgXOp(Operation *op) {
 /// }
 static LogicalResult isTiledOpInLoop(Operation *targetOp) {
   // 1. check tilable
-  if (!isa<TilingInterface>(targetOp) && !isTilableLinalgXOp(targetOp))
+  if (!isa<TilingInterface>(targetOp))
     return failure();
   // 2. check parentOp
   auto forOp = targetOp->getParentOfType<LoopLikeOpInterface>();
