@@ -1,0 +1,20 @@
+name: setup-mlir-python-bindings
+description: Fetch and setup MLIR Python bindings
+runs:
+  using: "composite"
+  steps:
+    - name: Set LLVM hash
+      run: |
+        echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
+
+    - name: Fetch requirements for python binding
+      uses: actions/checkout@v4
+      with:
+        repository: llvm/llvm-project
+        ref: ${{ env.LLVM_HASH }}
+        sparse-checkout: mlir/python/requirements.txt
+        sparse-checkout-cone-mode: false
+        path: llvm-dep
+
+    - name: Install requirements
+      run: python3 -m pip install -r llvm-dep/mlir/python/requirements.txt
