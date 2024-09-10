@@ -58,6 +58,8 @@ def dtype_to_ctype(dtype: torch.dtype):
         return ctypes.c_short
     elif dtype == torch.bool:
         return ctypes.c_bool
+    elif dtype == torch.uint32:
+        return ctypes.c_uint32
     else:
         raise ValueError(f"Unsupported torch dtype: {dtype}")
 
@@ -83,6 +85,10 @@ def str_to_mlir_dtype(ctx: ir.Context, dtype: str) -> ir.Type:
         return ir.Float8E5M2Type.get(ctx)
     elif dtype == "s32":
         return ir.IntegerType.get_signed(32, ctx)
+    elif dtype == "i32":
+        return ir.IntegerType.get_signless(32, ctx)
+    elif dtype == "u32":
+        return ir.IntegerType.get_unsigned(32, ctx)
     else:
         raise Exception(f"data type not support: {dtype}")
 
@@ -91,7 +97,7 @@ def str_to_mlir_typed_attr(ctx: ir.Context, dtype: str, value: Any) -> ir.Attrib
     mlir_dtype = str_to_mlir_dtype(ctx, dtype)
     if dtype in ["f32", "f64", "bf16", "f16", "f8_e4m3", "f8_e5m2"]:
         return ir.FloatAttr.get(mlir_dtype, value)
-    elif dtype in ["u8", "s8", "s32"]:
+    elif dtype in ["u8", "s8", "s32", "i32", "u32"]:
         return ir.IntegerAttr.get(mlir_dtype, value)
     elif dtype == "boolean":
         return ir.BoolAttr.get(value)
