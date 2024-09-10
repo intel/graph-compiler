@@ -66,6 +66,7 @@ _dtype_2_range = {
     "u8": (0, 255),
     "s8": (-128, 127),
     "s32": (-2147483648, 2147483520),
+    "i32": (-2147483648, 2147483520),
 }
 
 
@@ -131,7 +132,7 @@ def get_dtype(dtype: str) -> torch.dtype:
         return torch.bfloat16
     elif dtype == "u8" or dtype == "ui8":
         return torch.uint8
-    elif dtype == "s8" or dtype == "i8":
+    elif dtype in ["s8", "i8", "si8"]:
         return torch.int8
     elif dtype == "boolean":
         return torch.uint8
@@ -139,8 +140,10 @@ def get_dtype(dtype: str) -> torch.dtype:
         return torch.float8_e4m3fn
     elif dtype == "f8_e5m2":
         return torch.float8_e5m2
-    elif dtype == "s32" or dtype == "i32":
+    elif dtype in ["s32", "i32", "si32"]:
         return torch.int32
+    elif dtype in ["u32", "ui32"]:
+        return torch.uint32
     else:
         raise Exception(f"data type not support: {dtype}")
 
@@ -332,3 +335,33 @@ class Checker:
 
 def nelem(shape: List[int]) -> int:
     return reduce(operator.mul, shape)
+
+
+def to_int_list(s: str) -> List[int]:
+    """
+    Parsing the cmd for list of int values
+
+    Args:
+        s (str): int values in cmd, example: 2x3x4
+
+    Returns:
+        List[int]: int values in list, example: [2, 3, 4]
+    """
+    if not s or len(s) == 0:
+        return []
+    return [int(i) for i in s.strip().split("x")]
+
+
+def to_bool_list(s: str) -> List[bool]:
+    """
+    Parsing the cmd for list of bool values
+
+    Args:
+        s (str): bools in cmd, example: 1x0x1
+
+    Returns:
+        List[bool]: bools in list, example: [True, False, True]
+    """
+    if not s or len(s) == 0:
+        return []
+    return [bool(int(i)) for i in s.strip().split("x")]

@@ -21,6 +21,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/TilingInterface.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include <optional>
@@ -190,7 +191,7 @@ tileAndFuseProducerOfSliceImpl(RewriterBase &rewriter,
 /// @param candidateSliceOp: %4 = extract %args2
 /// @param backwardSlice: in-out parameter populated by backward extractSliceOps
 /// @return OpResult Producer : %0 = producer
-FailureOr<OpResult> mlir::scfX::getRealProducerOfExtractSliceOp(
+FailureOr<OpResult> mlir::scfX::getRealProducerFromExtractSliceOp(
     Operation *candidateSliceOp,
     SmallVector<tensor::ExtractSliceOp> &backwardSlice, unsigned curDepth,
     unsigned maxDepth) {
@@ -215,8 +216,8 @@ FailureOr<OpResult> mlir::scfX::getRealProducerOfExtractSliceOp(
     }
     if (auto sliceOp = rootSource.getDefiningOp<tensor::ExtractSliceOp>()) {
       // walk up loop to find larger candidate extractSliceOp
-      return getRealProducerOfExtractSliceOp(sliceOp, backwardSlice,
-                                             curDepth + 1);
+      return getRealProducerFromExtractSliceOp(sliceOp, backwardSlice,
+                                               curDepth + 1);
     }
     break;
   }
@@ -255,6 +256,43 @@ SmallVector<LoopLikeOpInterface> mlir::scfX::getOuterNestLoopsWhile(
   return {nestLoops.rbegin(), nestLoops.rend()};
 }
 
+/// A listener that watches which ops were erased.
+struct ErasedOpListener : public RewriterBase::Listener {
+private:
+  /// Pointers to all erased operations and blocks.
+  DenseSet<void *> erased;
+  // Hook old listener.
+  OpBuilder::Listener *oldListenerHook = nullptr;
+
+public:
+  ErasedOpListener() = default;
+  ErasedOpListener(OpBuilder::Listener *oldListener)
+      : oldListenerHook(oldListener) {}
+  void notifyOperationErased(Operation *op) override {
+    // Call old listener hook.
+    if (auto *oldListener =
+            dyn_cast_if_present<RewriterBase::Listener>(oldListenerHook))
+      oldListener->notifyOperationErased(op);
+    erased.insert(op);
+  }
+  bool isErased(Operation *op) { return erased.count(op); }
+};
+
+/// Check if it is the ForOp that yield the result of inner loop
+static LogicalResult isForOpYieldResultOfInnerLoop(LoopLikeOpInterface loop) {
+  if (auto forOp = dyn_cast<scf::ForOp>(loop.getOperation())) {
+    Block::OpListType &opsInLoopBody = forOp.getBody()->getOperations();
+    for (auto &&[index, op] : llvm::enumerate(opsInLoopBody)) {
+      // If the orderIndex of inner loop is the last second one before the
+      // yieldOp of ForOp, the given loop must yield the result of inner loop.
+      if (isa<LoopLikeOpInterface>(op)) {
+        return success((index + 2) == opsInLoopBody.size());
+      }
+    }
+  }
+  return failure();
+}
+
 /// Enhanced version of `tileAndFuseProducerOfSliceImpl`, which can deal with
 /// multi-level `extractSliceOp`. E.g.
 ///
@@ -270,7 +308,9 @@ std::optional<scf::SCFFuseProducerOfSliceResult>
 mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
                                        Operation *candidateSliceOp) {
   SmallVector<tensor::ExtractSliceOp> backwardSlice;
-  if (failed(getRealProducerOfExtractSliceOp(candidateSliceOp, backwardSlice)))
+  FailureOr<OpResult> realProducer =
+      getRealProducerFromExtractSliceOp(candidateSliceOp, backwardSlice);
+  if (failed(realProducer))
     return std::nullopt;
 
   std::optional<scf::SCFFuseProducerOfSliceResult> fuseProducerResult;
@@ -280,14 +320,18 @@ mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
   for (auto &&[index, sliceOp] : llvm::enumerate(backwardSlice)) {
     // get nest loops between next candidate sliceOp and tiled producer.
     auto whileProducerOutOfLoopBlock =
-        [&fuseProducerResult](LoopLikeOpInterface loop) -> LogicalResult {
-      if (fuseProducerResult) {
-        Block &body = loop->getRegion(0).front();
-        if (fuseProducerResult->tiledAndFusedProducer.getDefiningOp()
-                ->getBlock() == &body)
-          return failure();
-      }
-      return success();
+        [&fuseProducerResult,
+         &realProducer](LoopLikeOpInterface loop) -> LogicalResult {
+      // ensure that all surrounding outer loops are just yielding the result of
+      // the inner loops.
+      if (failed(isForOpYieldResultOfInnerLoop(loop)))
+        return failure();
+      Operation *originalOp =
+          fuseProducerResult
+              ? fuseProducerResult->tiledAndFusedProducer.getDefiningOp()
+              : realProducer->getDefiningOp();
+      Block &body = loop->getRegion(0).front();
+      return success(originalOp->getBlock() != &body);
     };
     SmallVector<LoopLikeOpInterface> outerLoops =
         getOuterNestLoopsWhile(sliceOp->getParentOfType<LoopLikeOpInterface>(),
@@ -296,6 +340,55 @@ mlir::scfX::tileAndFuseProducerOfSlice(RewriterBase &rewriter,
         tileAndFuseProducerOfSliceImpl(rewriter, sliceOp, outerLoops);
     if (!fuseProducerResult)
       return std::nullopt;
+
+    // Cache old listener.
+    OpBuilder::Listener *oldListener = rewriter.getListener();
+    // Set new listener.
+    ErasedOpListener newListener = ErasedOpListener(oldListener);
+    rewriter.setListener(&newListener);
+
+    auto producerOp =
+        cast<TilingInterface>(fuseProducerResult->origProducer.getDefiningOp());
+    unsigned resultNumber = fuseProducerResult->origProducer.getResultNumber();
+    // cache candidate slice
+    auto extractSliceOp = cast<tensor::ExtractSliceOp>(candidateSliceOp);
+    SmallVector<OpFoldResult> offsets = extractSliceOp.getMixedOffsets(),
+                              sizes = extractSliceOp.getMixedSizes(),
+                              strides = extractSliceOp.getMixedStrides();
+    // Explicitly execute DCE.
+    (void)mlir::simplifyRegions(rewriter, {*producerOp->getParentRegion()});
+    // If fused producer has multiple users.
+    bool yieldReplacement = !newListener.isErased(producerOp);
+    // Reset to old listener.
+    rewriter.setListener(oldListener);
+
+    if (yieldReplacement) {
+      OpBuilder::InsertionGuard g(rewriter);
+      // Set insertPoint right before tiled op.
+      rewriter.setInsertionPoint(fuseProducerResult->tiledOps[0]);
+      // Manually clone new candidate slice.
+      auto clonedExtractSliceOp = rewriter.create<tensor::ExtractSliceOp>(
+          producerOp->getLoc(), producerOp->getResult(resultNumber), offsets,
+          sizes, strides);
+      // Yield replacement for fused producer in avoid of repeated computation.
+      if (failed(scf::yieldReplacementForFusedProducer(
+              rewriter, clonedExtractSliceOp, fuseProducerResult.value(),
+              outerLoops)))
+        return std::nullopt;
+      // Erase cloned candidate slice.
+      rewriter.eraseOp(clonedExtractSliceOp);
+
+      unsigned loopNumResults = outerLoops.front()->getNumResults(),
+               producerNumResults = producerOp->getNumResults();
+      // Replace other users of fused producer with new loop results.
+      for (auto &&[index, result] : llvm::enumerate(producerOp->getResults())) {
+        rewriter.replaceAllUsesWith(
+            result, outerLoops.front()->getResult(loopNumResults -
+                                                  producerNumResults + index));
+      }
+      // Erase fused producer op.
+      rewriter.eraseOp(producerOp);
+    }
   }
   return fuseProducerResult;
 }
@@ -441,21 +534,6 @@ static FailureOr<OpOperand *> getConsumerFromUses(Value val,
     return failure();
 
   return operand;
-}
-
-/// Check if it is the ForOp that yield the result of inner loop
-static LogicalResult isForOpYieldResultOfInnerLoop(LoopLikeOpInterface loop) {
-  if (auto forOp = dyn_cast<scf::ForOp>(loop.getOperation())) {
-    for (auto &&[index, op] :
-         llvm::enumerate(forOp.getBody()->getOperations())) {
-      // If the orderIndex of inner loop is the last second one before the
-      // yieldOp of ForOp, the given loop must yield the result of inner loop.
-      if (isa<LoopLikeOpInterface>(op)) {
-        return success((index + 2) == forOp.getBody()->getOperations().size());
-      }
-    }
-  }
-  return failure();
 }
 
 /// Fetch the untiled consumer of a scf.for's result which is yielded by a

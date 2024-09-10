@@ -16,12 +16,12 @@
 
 
 import argparse
+import json
 import sys
 from typing import Dict, List
 
 import benchgc.mlir.util
 import benchgc.util
-import gc_mlir.ir
 import runner
 import torch
 from benchgc.arg import (
@@ -31,11 +31,23 @@ from benchgc.arg import (
     set_default_fill,
 )
 from benchgc.arg.arg import Arg
+from benchgc.bench import mlir_wrapper_bench, py_timeit_bench
 from benchgc.mlir.arg import get_mlir_args
+from benchgc.pattern import get_pattern_clz
+from gc_mlir import ir
 from gc_mlir.graph_compiler import GraphCompiler
 
-try:
-    parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
+
+def add_common_options(parser: argparse.ArgumentParser):
+    """common options for benchgc"""
+    parser.add_argument(
+        "--mode",
+        required=False,
+        help="specify the test mode, C for correctness testing, P for performance testing",
+        choices=["C", "P"],
+        default="C",
+        type=str,
+    )
     parser.add_argument(
         "--driver",
         required=False,
@@ -97,176 +109,288 @@ try:
             benchgc.util.INPUT_VERBOSE,
         ],
     )
+
     parser.add_argument(
-        "--cast",
+        "--entry",
         required=False,
-        default="cast_signed",
-        help="define attribute supported by linalg op such as matmul_transpose_b",
-        choices=["cast_signed", "cast_unsigned"],
+        default="entry",
+        help="the entry func name of a mlir",
         type=str,
     )
 
-    # single dimension index
-    # linalg.softmax
     parser.add_argument(
-        "--dimension",
-        required=False,
-        default=None,
-        help="define the dimension attribute in linalg op",
-        type=int,
-    )
-
-    # multiple dimensions array
-    # linalg.broadcast / linalg.reduce
-    parser.add_argument(
-        "--dimensions",
-        required=False,
-        default=None,
-        action="append",
-        help="define the dimensions attribute in linalg op",
-        type=int,
+        "--ir_printing",
+        action="store_true",
+        help="if we need print the ir during the pass-pipeline",
     )
 
     parser.add_argument(
-        "--dilations",
+        "--cpu_cache_sizes",
         required=False,
-        default=None,
-        action="append",
-        help="define the dilations attribute in linalg op",
-        type=int,
+        help="set the cpu cache sizes, format: L1:L2:L3",
+        type=str,
     )
 
     parser.add_argument(
-        "--strides",
+        "--max_vector_width",
         required=False,
-        default=None,
-        action="append",
-        help="define the strides attribute in linalg op",
+        help="set the cpu max_vector_width",
         type=int,
     )
-    flags = parser.parse_args()
-    benchgc.util.set_seed(flags.seed)
+
+    if parser.parse_known_args()[0].driver == "linalg":
+        parser.add_argument(
+            "--cast",
+            required=False,
+            default="cast_signed",
+            help="define attribute supported by linalg op such as matmul_transpose_b",
+            choices=["cast_signed", "cast_unsigned"],
+            type=str,
+        )
+
+        # single dimension index
+        # linalg.softmax
+        parser.add_argument(
+            "--dimension",
+            required=False,
+            default=None,
+            help="define the dimension attribute in linalg op",
+            type=int,
+        )
+
+        # multiple dimensions array
+        # linalg.broadcast / linalg.reduce
+        parser.add_argument(
+            "--dimensions",
+            required=False,
+            default=None,
+            action="append",
+            help="define the dimensions attribute in linalg op",
+            type=int,
+        )
+
+        parser.add_argument(
+            "--dilations",
+            required=False,
+            default=None,
+            action="append",
+            help="define the dilations attribute in linalg op",
+            type=int,
+        )
+
+        parser.add_argument(
+            "--strides",
+            required=False,
+            default=None,
+            action="append",
+            help="define the strides attribute in linalg op",
+            type=int,
+        )
 
 
-except argparse.ArgumentError:
-    sys.stderr.write("Argument parse failed\n")
-    sys.exit(1)
+def add_bench_options(parser: argparse.ArgumentParser):
+    """add options for bench mode"""
+    if parser.parse_known_args()[0].mode == "P":
+        parser.add_argument(
+            "--bench_kind", type=str, choices=["py", "wrapper"], default="py"
+        )
+        parser.add_argument("--warm_up", type=int, default=100)
+        parser.add_argument("--repeat", type=int, default=100)
 
-args: List[Arg] = []
 
-if flags.driver == "mlir":
-    # we need to find all args by reading the entry function
-    with open(flags.case, "r") as mlir_file:
-        with gc_mlir.ir.Context() as ctx:
-            module = gc_mlir.ir.Module.parse(mlir_file.read())
-            entry = benchgc.mlir.util.get_entry(module)
-            idx: int = 0
-            # FIXME: only support RankTensorType now
-            for i in entry.type.inputs:
-                args.append(Arg(idx))
-                args[-1].dtype = str(i.element_type)
-                args[-1].shape = list(i.shape)
-                args[-1].set_scalar()
-                idx += 1
 
-            for o in entry.type.results:
-                args.append(Arg(idx))
-                args[-1].dtype = str(o.element_type)
-                args[-1].shape = list(o.shape)
-                args[-1].set_scalar()
-                idx += 1
-elif flags.driver in ["linalg"]:
-    # all arg shape/dt should be provided in single op test
-    for i in range(len(flags.md)):
-        args.append(Arg(i))
+def add_pattern_options(parser: argparse.ArgumentParser):
+    """add options for each pattern"""
+    if parser.parse_known_args()[0].driver == "pattern":
+        pattern_name = parser.parse_known_args()[0].case
+        get_pattern_clz(pattern_name).add_args(parser)
 
-    for md in flags.md:
-        colon = md.find(":")
-        if colon == -1:
-            raise Exception("Wrong md format: %s", md)
-        idx = int(md[:colon])
-        args[idx].set_md(md[colon + 1 :])
 
-    from .linalg import mlir_op
+def get_module_and_args(flags: argparse.Namespace):
+    args: List[Arg] = []
+    if flags.driver in ["mlir", "pattern"]:
+        # we need to find all args by reading the entry function
+        with ir.Context() as ctx:
+            if flags.driver == "mlir":
+                with open(flags.case, "r") as mlir_file:
+                    module = ir.Module.parse(mlir_file.read())
+            elif flags.driver == "pattern":
+                pattern_clz = get_pattern_clz(flags.case)
+                module = pattern_clz(ctx, flags).ir_module
+            else:
+                raise Exception("unexpected error")
 
-    mlir_func = mlir_op[flags.case]
-    module = mlir_func(flags, args)
-else:
-    raise Exception(f"unsupported driver {flags.driver}")
+        entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
+        idx: int = 0
+        # FIXME: only support RankTensorType now
+        for i in entry.type.inputs:
+            args.append(Arg(idx))
+            args[-1].dtype = str(i.element_type)
+            args[-1].shape = list(i.shape)
+            args[-1].set_scalar()
+            idx += 1
 
-for fill in flags.fill:
-    colon = fill.find(":")
-    if colon == -1:
-        raise Exception("Wrong fill format: %s", fill)
-    idx = int(fill[:colon])
-    args[idx].set_fill(fill[colon + 1 :])
+        for o in entry.type.results:
+            args.append(Arg(idx))
+            args[-1].dtype = str(o.element_type)
+            args[-1].shape = list(o.shape)
+            args[-1].set_scalar()
+            idx += 1
 
-for cmp in flags.cmp:
-    colon = cmp.find(":")
-    if colon == -1:
-        raise Exception("Wrong cmp format: %s", cmp)
-    idx = int(cmp[:colon])
-    args[idx].set_cmp(cmp[colon + 1 :])
+    elif flags.driver in ["linalg"]:
+        # all arg shape/dt should be provided in single op test
+        for i in range(len(flags.md)):
+            args.append(Arg(i))
 
-entry = benchgc.mlir.util.get_entry(module)
+        for md in flags.md:
+            colon = md.find(":")
+            if colon == -1:
+                raise Exception("Wrong md format: %s", md)
+            idx = int(md[:colon])
+            args[idx].set_md(md[colon + 1 :])
 
-for i, arg in enumerate(args):
-    # use zero filling if the arg is return value
-    set_default_fill(flags, arg, args, i >= len(entry.type.inputs))
-    set_default_compare(flags, arg, args, i >= len(entry.type.inputs))
+        from .linalg import mlir_op
 
-for arg in args:
-    arg.print_verbose(flags.verbose)
-
-if flags.verbose >= benchgc.util.MODULE_VERBOSE:
-    print(module)
-
-ref_args: List[torch.Tensor] = []
-gc_args: List[torch.Tensor | int] = []
-ref_tensors: Dict[str, torch.Tensor] = {}
-gc_tensors: Dict[str, torch.Tensor] = {}
-
-for i in range(len(args)):
-    tensor = fill_tensor(flags, args[i], i)
-    gc_tensors["%arg" + str(i)] = tensor
-    ref_tensors["%arg" + str(i)] = tensor.clone()
-    ref_args.append(ref_tensors["%arg" + str(i)])
-    if args[i].scalar:
-        gc_args.append(tensor.data_ptr())
+        if flags.case.startswith("reduce."):
+            mlir_func = mlir_op["reduce"]
+        else:
+            mlir_func = mlir_op[flags.case]
+        module = mlir_func(flags, args)
     else:
-        gc_args.append(tensor)
+        raise Exception(f"unsupported driver {flags.driver}")
+
+    for fill in flags.fill:
+        colon = fill.find(":")
+        if colon == -1:
+            raise Exception("Wrong fill format: %s", fill)
+        idx = int(fill[:colon])
+        args[idx].set_fill(fill[colon + 1 :])
+
+    for cmp in flags.cmp:
+        colon = cmp.find(":")
+        if colon == -1:
+            raise Exception("Wrong cmp format: %s", cmp)
+        idx = int(cmp[:colon])
+        args[idx].set_cmp(cmp[colon + 1 :])
+
+    entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
+
+    for i, arg in enumerate(args):
+        # use zero filling if the arg is return value
+        set_default_fill(flags, arg, args, i >= len(entry.type.inputs))
+        set_default_compare(flags, arg, args, i >= len(entry.type.inputs))
+
+    for arg in args:
+        arg.print_verbose(flags.verbose)
+
+    benchgc.mlir.util.attach_dlti(flags, module)
+
+    if flags.verbose >= benchgc.util.MODULE_VERBOSE:
+        print(module)
+    return module, args
 
 
-# ref_out contains return value of the entry
-ref_out = runner.ref_run(entry, ref_tensors)
+def correctness_testing(flags: argparse.Namespace, module: ir.Module, args: List[Arg]):
+    ref_args: List[torch.Tensor] = []
+    gc_args: List[torch.Tensor | int] = []
+    ref_tensors: Dict[str, torch.Tensor] = {}
+    gc_tensors: Dict[str, torch.Tensor] = {}
 
-# we need to swap the result into the args if some arg is the return value
-if ref_out is not None:
+    for i in range(len(args)):
+        tensor = fill_tensor(flags, args[i], i)
+        gc_tensors["%arg" + str(i)] = tensor
+        ref_tensors["%arg" + str(i)] = tensor.clone()
+        ref_args.append(ref_tensors["%arg" + str(i)])
+        if args[i].scalar:
+            gc_args.append(tensor.data_ptr())
+        else:
+            gc_args.append(tensor)
+
+    entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
+    # ref_out contains return value of the entry
+    ref_out = runner.ref_run(entry, ref_tensors)
+
+    # we need to swap the result into the args if some arg is the return value
     for i in range(len(ref_out)):
         ref_args[0 - i - 1] = ref_out[0 - i - 1]
 
-mlir_args = get_mlir_args(gc_args)
-passes = "any(gc-cpu-pipeline)"
+    mlir_args = get_mlir_args(gc_args)
+    passes = "any(gc-cpu-pipeline)"
 
-with module.context:
-    compiler = GraphCompiler(passes)
-    engine = compiler.compile_and_jit(module)
-    engine.invoke("entry", *mlir_args)
+    with module.context as ctx:
+        if flags.ir_printing:
+            ctx.enable_multithreading(False)
+        compiler = GraphCompiler(passes)
+        engine = compiler.compile_and_jit(module, flags.ir_printing)
+        engine.invoke(flags.entry, *mlir_args)
 
-fail, mistrust = False, False
-for i in range(len(args)):
-    # gc_arg contains address for scalar value
-    # we need to find result by arg name
-    res = compare_tensor(
-        args[i], ref_args[i], gc_tensors["%arg" + str(i)], flags.verbose
-    )
-    fail = fail or (not res[0])
-    if res[1] is not None:
-        mistrust = mistrust | res[1]
-if fail:
-    print(f"FAIL: {flags.driver}.{flags.case}")
-    sys.exit(1)
-elif mistrust:
-    print(f"MISTRUST: {flags.driver}.{flags.case}")
-else:
-    print(f"PASSED: {flags.driver}.{flags.case}")
+    fail, mistrust = False, False
+    for i in range(len(args)):
+        # gc_arg contains address for scalar value
+        # we need to find result by arg name
+        res = compare_tensor(
+            args[i], ref_args[i], gc_tensors["%arg" + str(i)], flags.verbose
+        )
+        fail = fail or (not res[0])
+        if res[1] is not None:
+            mistrust = mistrust | res[1]
+    if fail:
+        print(f"FAIL: {flags.driver}.{flags.case}")
+        sys.exit(1)
+    elif mistrust:
+        print(f"MISTRUST: {flags.driver}.{flags.case}")
+    else:
+        print(f"PASSED: {flags.driver}.{flags.case}")
+
+
+def performance_testing(flags: argparse.Namespace, module: ir.Module, args: List[Arg]):
+    gc_args: List[torch.Tensor | int] = []
+    gc_tensors: Dict[str, torch.Tensor] = {}
+    for i in range(len(args)):
+        tensor = fill_tensor(flags, args[i], i)
+        gc_tensors["%arg" + str(i)] = tensor
+        if args[i].scalar:
+            gc_args.append(tensor.data_ptr())
+        else:
+            gc_args.append(tensor)
+
+    mlir_args = get_mlir_args(gc_args)
+    with module.context as ctx, ir.Location.unknown():
+        if flags.ir_printing:
+            ctx.enable_multithreading(False)
+        bench_kind = py_timeit_bench if flags.bench_kind == "py" else mlir_wrapper_bench
+        execute_cost, compile_cost = bench_kind(
+            module,
+            flags.entry,
+            "any(gc-cpu-pipeline)",
+            mlir_args,
+            flags.ir_printing,
+            flags.repeat,
+            flags.warm_up,
+        )
+        print("===========bench result===========")
+        json_res = json.dumps(
+            {
+                "args": vars(flags),
+                "compile_cost(ms)": compile_cost,
+                "execute_cost(ms)": execute_cost,
+            },
+            indent=4,
+        )
+        print(json_res)
+
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
+    add_common_options(arg_parser)
+    add_bench_options(arg_parser)
+    add_pattern_options(arg_parser)
+    flags = arg_parser.parse_args()
+    benchgc.util.set_seed(flags.seed)
+    ir_module, module_args = get_module_and_args(flags)
+    if flags.mode == "C":
+        correctness_testing(flags, ir_module, module_args)
+    elif flags.mode == "P":
+        performance_testing(flags, ir_module, module_args)
+    else:
+        pass
