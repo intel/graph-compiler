@@ -6,7 +6,7 @@ layers. There are two types of constant tensors:
 
 - Type 1: they are available at compile time. They can appear as literal values within the model, such as 
 `arith.constant` operations in MLIR. They can also appear as the arguments of the MLIR module entry function and 
-are marked as compile-time available constant explicitly. Constants in OpenVINO belong to this type. The IR of an 
+are marked as compile-time available constants explicitly. Constants in OpenVINO belong to this type. The IR of an 
 OpenVINO model consists of its topology and constant values, like weights, in memory. 
 When transforming OpenVINO IR to MLIR, the constants can be lowered into `arith.constant` operations, 
 or arguments of the MLIR module entry function. Since the concrete values of the constants are compile-time 
@@ -19,8 +19,9 @@ instead of real tensors. The literal values of these constant tensors are availa
 Within the IR, there are operations that take the constant tensors as parameters and process them, such as 
 reordering or packing. Outputs of such operations are also constants. However, these operations will run every time 
 the kernel being executed, which causes redundant memory and computation consumptions. 
-This pass modifies the IR so that these operations will only run once. For Type 1 constants, these operations will only 
-run once in compile time. For Type 2 constants, these operations will only run once in the first execution time.
+This pass modifies the IR so that these operations will only run once. For Type 1 constants, the compiler can choose to 
+run these operations once in compile time or runtime. For Type 2 constants, these operations will only run once in 
+runtime, more specificly, the first execution time.
 
 ## 2 Background
 These is no similar pass in the MLIR community currently. 
@@ -31,7 +32,7 @@ the tensors are usually high-dimensional and the operations that process the con
 compiled kernels. So traditional constant folding cannot handle them well. 
 
 Our pass can be thought of enhanced constant folding. It makes the constant tensors be processed only once and the 
-processed tensors are cached to buffers in compile time to reuse in runtime.
+processed tensors are cached to buffers to reuse in later executions.
 
 ### 2.2 Constant tensors caching in OpenVINO
 There are already some similar transformations in OpenVINO. For each `Graph`, there is a `GraphContext` member. 
@@ -64,12 +65,12 @@ The analysis step is mainly to identify the operations that take the constant te
 tensors. They will be marked as interested ops. 
 
 The main work of analysis step will be implemented as a 
-[DataFlow Analysis](https://mlir.llvm.org/docs/Tutorials/DataFlowAnalysis/) pass. In the input MLIR graph,
+[DataFlow Analysis](https://mlir.llvm.org/docs/Tutorials/DataFlowAnalysis/) pass. In the MLIR module's entry function,
 the constant tensors will appear as outputs of `arith.constant` operations or arguments of the MLIR module 
-entry function marked with constant attributes. The constantness starts its propagation 
+entry function marked with `constant` attributes. The constantness starts its propagation 
 from these tensors to the output tensors of operations that process them. Eventually, these operations
 will form a subgraph, which is named as 'constant subgraph'. Another subgraph, which contains non-constant operations, 
-consumes the outputs of constant subgraph and the parameters to the graph.
+consumes the outputs of constant subgraph and the non-constant parameters to the graph.
 
 Because the constantness information is carried by tensors, the analysis step is on linalg-on-tensor level. 
 The interested ops are most likely `reorder`, `pack` or `broadcast` ops, so the analysis step should be after the 
@@ -81,7 +82,7 @@ shown):
 ```mlir
 module {
     // %weight0 and %weight1 is Type 1 constant. %weight2 is Type 2 constant.
-    main(%feature0: tensor<*xbf16>, %weight1: tensor<*xbf16>, %weight2: tensor<*xbf16>) 
+    entry(%feature0: tensor<*xbf16>, %weight1: tensor<*xbf16>, %weight2: tensor<*xbf16>) 
             -> %feature3: tensor<*xbf16> attributes {compiletime_const_args_index = [1 : i32], runtime_const_args_index = [2 : i32]} {
         %weight0 = arith.constant dense<"0x01234567..."> : tensor<*xbf16>
         %packedWeight0 = tensor.pack(%weight0, ...)
@@ -96,12 +97,12 @@ module {
 ```
 
 After transformation, there will be three functions in the module, one for compile time folding, one for runtime 
-folding and one for computing. The compile time folding function contains the operations that consume and produce 
+folding and one as new entry. The compile time folding function contains the operations that consume and produce 
 constants of Type 1. The runtime folding function contains the operations that consume and produce 
-constants of Type 2. The computing function will take all folded tensors as inputs. The expected output IR will be like:
+constants of Type 2. The new entry function will take all folded tensors as inputs. The expected output IR will be like:
 ```mlir
 module {
-    compute(%feature0: tensor<*xbf16>, %foldedWeight0: tensor<*xbf16>, %foldedWeight1: tensor<*xbf16>, %foldedWeight2: tensor<*xbf16>) 
+    entry(%feature0: tensor<*xbf16>, %foldedWeight0: tensor<*xbf16>, %foldedWeight1: tensor<*xbf16>, %foldedWeight2: tensor<*xbf16>) 
             -> %feature3: tensor<*xbf16> {
         %feature1 = linalg.matmul(%feature0, %foldedWeight0)
         %feature2 = linalg.matmul(%feature1, %foldedWeight1)
@@ -120,69 +121,75 @@ module {
     }
 }
 ```
+However, this requires that the `compiletime_fold` to be called in compile time, which makes the compilation pipeline 
+complex. So we also provide a simplified version, which does all the folding at runtime. In this case, the output IR 
+will be like:
+```mlir
+module {
+    entry(%feature0: tensor<*xbf16>, %foldedWeight0: tensor<*xbf16>, %foldedWeight1: tensor<*xbf16>, %foldedWeight2: tensor<*xbf16>) 
+            -> %feature3: tensor<*xbf16> {
+        %feature1 = linalg.matmul(%feature0, %foldedWeight0)
+        %feature2 = linalg.matmul(%feature1, %foldedWeight1)
+        %feature3 = linalg.matmul(%feature2, %foldedWeight2)
+        return %feature3
+    }
+    runtime_fold(%weight1: tensor<*xbf16>, %weight2: tensor<*xbf16>) 
+            -> %foldedWeight0, %foldedWeight1, %foldedWeight2: tensor<*xbf16>, tensor<*xbf16>, tensor<*xbf16> {
+        %weight0 = arith.constant dense<"0x01234567..."> : tensor<*xbf16>
+        %foldedWeight0 = tensor.pack(%weight0, ...)
+        %foldedWeight1 = tensor.pack(%weight1, ...)
+        %foldedWeight2 = tensor.pack(%weight2, ...)
+        return %foldedWeight0, %foldedWeight1, %foldedWeight2
+    }
+}
+```
+The simplified version is adopted as the default choice.
+
 We place this transformation at linalg-on-tensor level, right after the analysis step.
 
-### 3.3 Management of cached tensors
-Later after compiled to executable, the compile time folding function will be executed to generate folded tensors, 
-which need to be cached into buffers for future use. These buffers will be under management of the runtime context. 
-The execution of the compile time folding function will be the final step of the compile stage. 
+### 3.3 Management of cached tensors. Integration.
+This part is designed for integration with OpenVINO. For other frontends (like benchgc or OneDNN Graph), 
+the details may be different.
+
+Later after compiled to executable, the folding function will be executed to generate folded tensors, 
+which need to be cached into buffers for future use. These buffers will be under the management of a runtime context, 
+if there is one, or the `MLIROp`s. 
 
 An example implementation will be a map which stores pairs of a global index and an allocated buffer:
 ```c++
-// shared by MlirOps
-std::unordered_map<int64_t, void *> id2Buffers;
+struct CachedBuffer {
+    void* buffer;
+    std::vector<int64_t> shape;
+    std::vector<int64_t> strides;
+};
 
-std::vector<void *> getCachedBufers(const std::unordered_map<int64_t, void *> &id2Buffers, 
-                                    const std::vector<int64_t> &indexes);
-```
-
-During the execution of compile time folding function, when a buffer is allocated for the folded tensor,  
-an index will be assigned to the buffer. The map stores these pairs. This map is shared by all `MlirOp`s. 
-Each `MlirOp` holds the indexes of buffers it uses.
-
-```C++
-// Last step of the compile stage
-void executeCompileTimeFoldingFunc(ov::MlirOp op) {
-    std::vector<std::pair<int64_t, void *>> allocatedBuffers = allocateBuffers(op, COMPILE_TIME, id2Buffers);
-    std::vector<void *> cachedBuffers;
-    for (auto p : allocatedBuffers) {
-        op.cachedBuffersIndexes.push_back(p.first);
-        cachedBuffers.push_back(p.second);
-    }
-    op.compileTimeFold(cachedBuffers);
-}
-
-// MlirOp corresponds to a subgraph from OpenVINO model.
-void compile(ov::MlirOp op, mlir::ModuleOp module) {
+class OPENVINO_API MLIROp {
     ...
-    constantSubgraphAnalysis(); // analysis step
-    constantSubgraphTransform(); // transform step
-    ...
-    executeCompileTimeFoldingFunc(op); // execute the folding function
+    std::unordered_map<int64_t, CachedBuffer> cached_const_buffers;
+    int executionCount = 0;
 }
 ```
 
-In the first execution, both the runtime folding function and the computing function will be executed. 
-Runtime folding function will also allocate buffers and add them to `id2Buffers`. 
-In later executions, only the computing function will be executed.
+When a buffer is allocated for the folded tensor, an index will be assigned to the buffer. 
+The map stores these pairs. This map can be shared by all `MLIROp`s and each `MLIROp` holds the indexes of buffers 
+it uses, or each `MLIROp` holds its own map. In current implementation, each `MLIROp` holds its own map.
+During the execution of folding function, the buffers are filled with folded values.
+
+In the first execution, both the runtime folding function and the entry function will be executed. 
+In later executions, only the entry function will be executed.
 ```C++
-void execute(ov::MlirOp op) {
-    if (op.executionCount == 0) {
-        std::vector<std::pair<int64_t, void *>> allocatedBuffers = allocateBuffers(op, RUNTIME, id2Buffers);
-        std::vector<void *> cachedBuffers;
-        for (auto p : allocatedBuffers) {
-            op.cachedBuffersIndexes.push_back(p.first);
-            cachedBuffers.push_back(p.second);
-        }
-        op.runtimeFold(cachedBuffers);
+void ov::MLIROp::execute(InputTensors& inputs, OutputTensors& outputs) {
+    if (executionCount == 0) {
+        std::vector<void *> constantInputs = ...;
+        std::vector<void *> cachedBuffers = ...;
+        runtimeFold(constantInputs, cachedBuffers);
     }
 
-    std::vector<int64_t> indexes = op.cachedBuffersIndexes;
-    std::vector<void *> cachedBuffers = getCachedBufers(id2Buffers, indexes);
-    op.compute(feature0, cachedBuffers);
+    std::vector<void *> nonConstantInputs = ...;
+    entry(nonConstantInputs, cachedBuffers, outputs);
 
-    op.executionCount += 1;
-    ......
+    executionCount += 1;
+    ...
 }
 ```
 
@@ -225,6 +232,3 @@ the folding on `extf`, `mulf` and `truncf`. Then the pass moves the `broadcast` 
 Then the `extf`, `mulf` and `truncf` can be folded, and the `broadcast` is still not folded.
 Strict constraints have to be applied to this optimization to ensure the semantic correctness. The children ops 
 should be element-wise operations from `linalg`, `arith` or `math` dialects.
-
-## 4 Concerns
-1. Two MlirOps with same topology and different Type 1 constant values need to be compiled individually.
