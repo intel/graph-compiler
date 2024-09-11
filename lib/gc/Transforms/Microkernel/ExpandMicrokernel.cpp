@@ -51,6 +51,28 @@ struct BrgemmInfo {
   BrgemmMode mode;
 };
 
+// This method try to retrieve static strides from MemRef, and allow dynamic
+// strides if corresponding dims == `1` and they are batch/leading dims. Would
+// place `INT_MAX` in corresponding stride position.
+static FailureOr<SmallVector<int64_t>>
+getCompensatedStrides(ArrayRef<int64_t> shape, Value val, int64_t batchDim,
+                      int64_t leadingDim) {
+  auto strides = utils::getStrides(val);
+  if (failed(strides))
+    return failure();
+  for (size_t idx = 0; idx < strides->size(); idx++) {
+    if ((*strides)[idx] == ShapedType::kDynamic) {
+      if (idx != (size_t)batchDim || idx != (size_t)leadingDim)
+        return failure();
+      // We can ignore the stride if dim == 1 (no need to step)
+      if (shape[idx] != 1)
+        return failure();
+      (*strides)[idx] = LONG_MAX;
+    }
+  }
+  return strides;
+}
+
 static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
   Value operandA = brgemmOp.getOperandA();
   Value operandB = brgemmOp.getOperandB();
@@ -82,66 +104,57 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
     return {batchDimSize, leadingDimSize, minorDimSize};
   };
 
-  auto checkAndGetLdStride = [&](int64_t leadingDim,
-                                 Value operand) -> FailureOr<int64_t> {
+  auto checkAndGetStride =
+      [&](int64_t batchDim, int64_t leadingDim,
+          Value operand) -> FailureOr<std::pair<int64_t, int64_t>> {
     auto operandShape = checkTypeAndGetShape(operand);
     if (failed(operandShape))
       return failure();
-    auto stridesOnOperand = utils::getStaticStrides(operand);
+    auto stridesOnOperand =
+        getCompensatedStrides(*operandShape, operand, batchDim, leadingDim);
     if (failed(stridesOnOperand))
       return failure();
     auto leadingDimStride = (*stridesOnOperand)[leadingDim];
     if (operandShape->size() == 4)
       // Input B VNNI format exists, special treatment to align with non-VNNI
       // format
-      return leadingDimStride / (*operandShape)[3];
-    return leadingDimStride;
-  };
-
-  auto checkAndGetBatchStride = [&](int64_t batchDim,
-                                    Value operand) -> FailureOr<int64_t> {
-    auto stridesOnOperand = utils::getStaticStrides(operand);
-    if (failed(stridesOnOperand))
-      return failure();
-    return (*stridesOnOperand)[batchDim];
+      return std::pair<int64_t, int64_t>{(*stridesOnOperand)[batchDim],
+                                         leadingDimStride / (*operandShape)[3]};
+    return std::pair<int64_t, int64_t>{(*stridesOnOperand)[batchDim],
+                                       leadingDimStride};
   };
 
   // A(m, k)
   auto batchDimA = brgemmOp.getBatchDimA();
   auto leadingDimA = brgemmOp.getLeadingDimA();
   auto [batchA, M, KA] = checkAndGetDimSize(batchDimA, leadingDimA, operandA);
-  auto lda = checkAndGetLdStride(leadingDimA, operandA);
-  if (failed(batchA) || failed(M) || failed(KA) || failed(lda))
+  auto strideA = checkAndGetStride(batchDimA, leadingDimA, operandA);
+  if (failed(batchA) || failed(M) || failed(KA) || failed(strideA))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] M, K, Lda for A: " << *M << ", "
-                          << *KA << ", " << *lda << "\n");
+                          << *KA << ", " << strideA->first << ", "
+                          << strideA->second << "\n");
 
   // B(k, n)
   auto batchDimB = brgemmOp.getBatchDimB();
   auto leadingDimB = brgemmOp.getLeadingDimB();
   auto [batchB, KB, N] = checkAndGetDimSize(batchDimB, leadingDimB, operandB);
-  auto ldb = checkAndGetLdStride(leadingDimB, operandB);
-  if (failed(batchB) || failed(KB) || failed(N) || failed(ldb))
+  auto strideB = checkAndGetStride(batchDimB, leadingDimB, operandB);
+  if (failed(batchB) || failed(KB) || failed(N) || failed(strideB))
     return failure();
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] K, N, Ldb for B: " << *KB
-                          << ", " << *N << ", " << *ldb << "\n");
+                          << ", " << *N << ", " << strideB->first << ", "
+                          << strideB->second << "\n");
   assert(*batchA == *batchB && *KA == *KB &&
          "Expecting matching shapes of inputs");
 
   // C(m, n)
-  auto ldc = checkAndGetLdStride(0, operandC);
-  if (failed(ldc))
+  // Put irrelevant value in parameter `batchDim` for C as we don't need it
+  auto strideC = checkAndGetStride(0, 0, operandC);
+  if (failed(strideC))
     return failure();
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Ld stride on C: " << ldc
-                          << "\n");
-
-  auto strideA = checkAndGetBatchStride(brgemmOp.getBatchDimA(), operandA);
-  if (failed(strideA))
-    return failure();
-
-  auto strideB = checkAndGetBatchStride(brgemmOp.getBatchDimB(), operandB);
-  if (failed(strideB))
-    return failure();
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] Ld stride on C: "
+                          << strideC->second << "\n");
 
   bool isInit = false;
   auto flags = brgemmOp.getFlagsAttr();
@@ -157,19 +170,21 @@ static FailureOr<BrgemmInfo> inferBrgemmInfo(microkernel::BrgemmOp brgemmOp) {
 
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmInfo] final BrgemmInfo: m(" << *M
                           << "), n(" << *N << "), k(" << *KB << "), batch("
-                          << *batchA << "), lda(" << *lda << "), ldb(" << *ldb
-                          << "), ldc(" << *ldc << "), strideA(" << *strideA
-                          << "), strideB(" << *strideB << ")\n");
+                          << *batchA << "), lda(" << strideA->second
+                          << "), ldb(" << strideB->second << "), ldc("
+                          << strideC->second << "), batchStrideA("
+                          << strideA->first << "), batchStrideB("
+                          << strideB->first << ")\n");
   BrgemmInfo info{*M,
                   *N,
                   *KA,
                   *batchA,
                   0 /* addrLen useless under stride mode */,
-                  *lda,
-                  *ldb,
-                  *ldc,
-                  *strideA,
-                  *strideB,
+                  strideA->second,
+                  strideB->second,
+                  strideC->second,
+                  strideA->first,
+                  strideB->first,
                   isInit,
                   BrgemmInfo::STRIDE_MODE};
   return info;

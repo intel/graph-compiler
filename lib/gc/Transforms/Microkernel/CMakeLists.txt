@@ -2,10 +2,13 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS MLIRIR)
 
 include(onednn)
 
-gc_add_mlir_dialect_library(MLIRMicrokernelTransforms
+gc_add_mlir_library(MLIRMicrokernelTransforms
 	ConvertLinalgToMicrokernel.cpp
         ExpandMicrokernel.cpp
         ConvertMicrokernelToDnnlFunc.cpp
+        EarlyDispatchMicrokernel.cpp
+        MicrokernelInvariantCodeMotion.cpp
+        MergeBranchMicrokernelContext.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/
@@ -17,6 +20,7 @@ gc_add_mlir_dialect_library(MLIRMicrokernelTransforms
         ${MLIR_LINK_COMPONENTS}
         GcInterface 
 	GcUtilsIR
+        MLIRMicrokernel
         )
 
 get_property(GC_DNNL_INCLUDES GLOBAL PROPERTY GC_DNNL_INCLUDES)
