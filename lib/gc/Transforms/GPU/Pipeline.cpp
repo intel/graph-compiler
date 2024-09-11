@@ -77,8 +77,6 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createParallelLoopToGpuPass());
 
   pm.addNestedPass<func::FuncOp>(imex::createInsertGPUAllocsPass("opencl"));
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(memref::createNormalizeMemRefsPass());
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(imex::createSetSPIRVCapabilitiesPass());
