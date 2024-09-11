@@ -53,6 +53,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
   // todo: tensor constant propagation pass
+  pm.addPass(createConstantSubgraphAnalysisPass());
+  pm.addPass(createConstantTensorFoldingPass());
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
 

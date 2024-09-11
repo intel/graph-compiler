@@ -22,6 +22,8 @@ def OneDNNGraphDialect : Dialect {
         This dialect follows oneDNN Graph Specification.
     }];
     let cppNamespace = "::mlir::onednn_graph";
+
+    let hasOperationAttrVerify = 1;
 }
 
 #endif // ONEDNNGRAPH_DIALECT

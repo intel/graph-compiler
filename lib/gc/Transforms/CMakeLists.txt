@@ -16,6 +16,8 @@ gc_add_mlir_library(GcPasses
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
+  ConstantSubgraphAnalysis.cpp
+  ConstantTensorFolding.cpp
   DecomposeAggregatedOps.cpp
   DeepTileContractionOp.cpp
   TilingUtil.cpp
@@ -37,6 +39,7 @@ gc_add_mlir_library(GcPasses
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
     MLIRMicrokernelTransforms
+    GcAnalysis
   )
 
 if(GC_ENABLE_IMEX)
