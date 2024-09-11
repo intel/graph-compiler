@@ -1,0 +1,28 @@
+import os
+import sys
+
+llvm_obj_root = "@LLVM_BINARY_DIR@"
+llvm_lib_dir = "@LLVM_LIBRARY_DIR@"
+shlib_ext = "@LTDL_SHLIB_EXT@"
+gc_lib_dir = "@LLVM_LIBRARY_OUTPUT_INTDIR@"
+GC_ENABLE_DNNL_API ="@GC_ENABLE_DNNL_API@" in ["ON", "1"]
+
+if sys.platform.startswith("win32"):
+    mlir_runner_utils_dir = os.path.normpath(os.path.join(llvm_obj_root, "bin"))
+    shlib_prefix = ""
+else:
+    mlir_runner_utils_dir = llvm_lib_dir
+    shlib_prefix = "lib"
+
+MLIR_C_RUNNER_UTILS = os.path.normpath(
+    os.path.join(
+        mlir_runner_utils_dir, shlib_prefix + "mlir_c_runner_utils" + shlib_ext
+    )
+)
+MLIR_RUNNER_UTILS = os.path.normpath(
+    os.path.join(mlir_runner_utils_dir, shlib_prefix + "mlir_runner_utils" + shlib_ext)
+)
+
+GC_CPU_RUNTIME = os.path.normpath(
+    os.path.join(gc_lib_dir, shlib_prefix + "GcCpuRuntime" + shlib_ext)
+)

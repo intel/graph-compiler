@@ -10,8 +10,11 @@
 #include <atomic>
 #include <chrono>
 #include <immintrin.h>
-#include <omp.h>
 #include <stdarg.h>
+
+#ifdef GC_NEEDS_OMP_WRAPPER
+#include <omp.h>
+#endif
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -65,7 +68,7 @@ void gc_init_barrier(barrier_t *b, int num_barriers, uint64_t thread_count) {
   }
 }
 
-#if GC_NEEDS_OMP_WRAPPER
+#ifdef GC_NEEDS_OMP_WRAPPER
 void WEAK_SYMBOL __kmpc_barrier(void *loc, int32_t global_tid) {
 #pragma omp barrier
 }

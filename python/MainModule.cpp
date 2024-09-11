@@ -24,11 +24,12 @@
 PYBIND11_MODULE(_gc_mlir, m) {
   m.doc() = "Graph-compiler MLIR Python binding";
 
-  mlirRegisterGraphCompilerPasses();
+  mlirRegisterAllGCPassesAndPipelines();
+
   //===----------------------------------------------------------------------===//
   // OneDNNGraph
   //===----------------------------------------------------------------------===//
-
+#ifdef GC_HAS_ONEDNN_DIALECT
   auto onednn_graphM = m.def_submodule("onednn_graph");
   onednn_graphM.def(
       "register_dialect",
@@ -40,11 +41,11 @@ PYBIND11_MODULE(_gc_mlir, m) {
         }
       },
       py::arg("context") = py::none(), py::arg("load") = true);
+#endif
 
   //===----------------------------------------------------------------------===//
   // CPURuntime
   //===----------------------------------------------------------------------===//
-  mlirRegisterCPURuntimePasses();
   auto cpuruntimeM = m.def_submodule("cpuruntime");
   cpuruntimeM.def(
       "register_dialect",

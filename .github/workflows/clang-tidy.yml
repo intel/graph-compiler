@@ -39,16 +39,15 @@ jobs:
       shell: bash
       run: |
         echo LLVM_HASH=$(cat graph-compiler/cmake/llvm-version.txt) >> $GITHUB_ENV
-        echo RUN_ID=$(gh run list -w "LLVM Build" --repo intel/graph-compiler --json databaseId --jq '.[0].databaseId') >> $GITHUB_ENV
 
     - name: Fetch llvm artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: "llvm-${{ env.LLVM_HASH }}"
-        path: llvm
-        github-token: ${{ github.token }}
-        run-id: ${{ env.RUN_ID }}
-    
+      run: |
+        gh run download \
+          --repo ${{ github.repository }} \
+          -n "llvm-${{ env.LLVM_HASH }}" \
+          --dir llvm
+        tar -zxf llvm/llvm.tgz
+     
     - name: Unwrap pre-built llvm
       run: |
         cd llvm
@@ -62,7 +61,7 @@ jobs:
     - name: Get changed files
       run: |
         cd graph-compiler
-        echo "CHANGED_FILES=$(git diff --name-only $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd' ')" >> $GITHUB_ENV
+        echo "CHANGED_FILES=$(git diff --name-only --diff-filter=d $MERGE_BASE ${{ github.event.pull_request.head.sha }} | paste -sd' ')" >> $GITHUB_ENV
         
     - name: Prepare Environment
       shell: bash
@@ -81,7 +80,8 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=True \
           -DCMAKE_C_COMPILER=$(which clang) \
           -DCMAKE_CXX_COMPILER=$(which clang++) \
-          -DLLVM_EXTERNAL_LIT=$(which lit)
+          -DLLVM_EXTERNAL_LIT=$(which lit) \
+          -DDNNL_USE_CLANG_SANITIZER="Undefined"
 
     - name: Prepare inc file
       run: |
@@ -102,4 +102,4 @@ jobs:
       shell: bash
       run: |
         cd build
-        python3 ../llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -warnings-as-errors=* -p ./ -config-file ../llvm-project/mlir/.clang-tidy -clang-tidy-binary $(which clang-tidy) ${{ env.CHANGED_FILES }}
+        python3 ../llvm-project/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -warnings-as-errors=* -p ./ -config-file ../llvm-project/mlir/.clang-tidy -clang-tidy-binary $(which clang-tidy-15) ${{ env.CHANGED_FILES }}
