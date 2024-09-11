@@ -275,6 +275,9 @@ def get_module_and_args(flags: argparse.Namespace):
 
     entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
 
+    with module.context:
+        entry.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
+
     for i, arg in enumerate(args):
         # use zero filling if the arg is return value
         set_default_fill(flags, arg, args, i >= len(entry.type.inputs))

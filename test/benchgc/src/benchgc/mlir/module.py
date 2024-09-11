@@ -41,8 +41,6 @@ def init_module(
                     results=[x.get_mlir_type(ctx) for x in outputs],
                 ),
             )
-            f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
-
             with ir.InsertionPoint(f.add_entry_block()):
                 block_args = f.entry_block.arguments
                 func.ReturnOp(op_func(ctx, *block_args))
@@ -67,8 +65,6 @@ def init_reduce_module(
                     results=[output.get_mlir_type(ctx)],
                 ),
             )
-            f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
-
             with ir.InsertionPoint(f.add_entry_block()):
                 block_args = f.entry_block.arguments
 
