@@ -19,6 +19,9 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#define GET_ATTRDEF_CLASSES
+#include "gc/Dialect/Linalgx/LinalgxOpsAttributes.h.inc"
+
 #define GET_OP_CLASSES
 #include "gc/Dialect/Linalgx/LinalgxOps.h.inc"
 

@@ -16,12 +16,16 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/Parser/Parser.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::linalgx;
 
 #include "gc/Dialect/Linalgx/LinalgxOpsDialect.cpp.inc"
+#define GET_ATTRDEF_CLASSES
+#include "gc/Dialect/Linalgx/LinalgxOpsAttributes.cpp.inc"
 
 void LinalgxDialect::initialize() {
   addOperations<
@@ -31,5 +35,9 @@ void LinalgxDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "gc/Dialect/Linalgx/LinalgxStructuredOps.cpp.inc"
+      >();
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "gc/Dialect/Linalgx/LinalgxOpsAttributes.cpp.inc"
       >();
 }

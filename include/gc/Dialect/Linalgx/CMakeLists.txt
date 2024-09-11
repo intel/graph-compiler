@@ -1,3 +1,7 @@
+set(LLVM_TARGET_DEFINITIONS LinalgxDialect.td)
+mlir_tablegen(LinalgxOpsAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=linalgx)
+mlir_tablegen(LinalgxOpsAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=linalgx)
+
 add_mlir_dialect(LinalgxOps linalgx)
 set(LLVM_TARGET_DEFINITIONS LinalgxStructuredOps.td)
 mlir_tablegen(LinalgxStructuredOps.h.inc -gen-op-decls)
