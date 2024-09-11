@@ -25,6 +25,7 @@ using namespace mlir;
 
 static const char code1[] = R"mlir(
 module {
+llvm.mlir.global external constant @__num_orig_args(3 : i32) {addr_space = 0 : i32} : i32
 func.func @compute(%a: tensor<128xf32>, %b: tensor<128xf32>) -> tensor<128xf32> attributes { llvm.emit_c_interface } {
     %out = tensor.empty() : tensor<128xf32>
     %2 = linalg.add ins(%a, %b : tensor<128xf32>,tensor<128xf32>) outs(%out : tensor<128xf32>) -> tensor<128xf32>
