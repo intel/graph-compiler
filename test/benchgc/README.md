@@ -8,6 +8,8 @@ Benchgc is a tool used to verify the correctness and performance of graph compil
 * python >= 3.10
 * torch >= 2.2
 * Enable mlir python binding, Refer to [`python/README.md`](../../python/README.md) for detail
+* Set the envs
+  * OMP_NUM_THREADS [int] : the `num_threads` for dlti attr, default = 1
 
 ## Build 
 There are two ways for using benchgc
@@ -106,6 +108,12 @@ module {
 | Integer | I | a, b |
 | Pytorch tensor dump | F | dump filename |
 | Benchdnn driver | D | driver_name[:driver filling parameter]* |
+
+### --cpu_cache_sizes, --max_vector_width
+* BenchGC will automatically obtain target info and add the DLTI attr to the IR
+* In some cases, if the system info obtained by BenchGC is not accurate, you can specify the relevant attributes for BenchGC through these options.
+* --cpu_cache_sizes: cpu cache sizes in bytes, format: L1:L2:L3, example: `--cpu_cache_sizes 49152:2097152:110100480`
+* --max_vector_width: the maximum width of vector registers available in a CPU, example `--max_vector_width `
 
 #### Benchdnn driver filling
 
