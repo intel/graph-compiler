@@ -187,6 +187,14 @@ def add_common_options(parser: argparse.ArgumentParser):
             type=int,
         )
 
+        parser.add_argument(
+            "--permutation",
+            required=False,
+            default=None,
+            action="append",
+            help="define the permutation attribute in linalg op",
+            type=int,
+        )
 
 def add_bench_options(parser: argparse.ArgumentParser):
     """add options for bench mode"""
