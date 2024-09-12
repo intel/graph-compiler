@@ -57,6 +57,7 @@ func.func @basic() -> memref<8x64xf32> {
     } else {
       "test.source"(%k)  : (memref<8x64xf32>) -> ()
     }
+    // CHECK-DAG: {__mergealloc_scope = [[FORSCOPE]] : i64}
   }
   return %b : memref<8x64xf32>
 }
