@@ -181,6 +181,18 @@ def PropagateLayoutOnNamedOps : Pass<"propagate-layout-on-named-ops"> {
       ];
 }
 
+def EliminateConstantWeightPack : Pass<"eliminate-constant-weight-pack", "func::FuncOp"> {
+  let summary = "EliminateConstantWeightPack.";
+  let description = [{
+    EliminateConstantWeightPack.
+  }];
+  let dependentDialects = [
+      "mlir::tensor::TensorDialect",
+      "mlir::linalg::LinalgDialect",
+      "mlir::func::FuncDialect"
+      ];
+}
+
 def PostProcessPackUnpack : Pass<"post-process-pack-unpack"> {
   let summary = "Fold and simplify pack and unpack ops.";
   let description = [{
