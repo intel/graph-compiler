@@ -5,9 +5,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include <vector>
+#include <unordered_set>
 
-#define GC_GPU_OCL_DEF_ONLY
+#define GC_GPU_OCL_CONST_ONLY
 #include "gc/ExecutionEngine/GPURuntime/GpuOclRuntime.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
@@ -17,17 +17,15 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 
 using namespace mlir;
+using namespace mlir::gc::gpu;
 
-namespace mlir {
-namespace gc {
+namespace mlir::gc {
 #define GEN_PASS_DECL_GPUTOGPUOCL
 #define GEN_PASS_DEF_GPUTOGPUOCL
 #include "gc/Transforms/Passes.h.inc"
-} // namespace gc
-} // namespace mlir
+} // namespace mlir::gc
 
 namespace {
-
 LLVM::CallOp funcCall(OpBuilder &builder, const StringRef name,
                       const Type returnType, const ArrayRef<Type> argTypes,
                       const Location loc, const ArrayRef<Value> arguments,
@@ -42,8 +40,10 @@ LLVM::CallOp funcCall(OpBuilder &builder, const StringRef name,
   return builder.create<LLVM::CallOp>(loc, function, arguments);
 }
 
-// Assuming that the pointer to GcGpuOclContext is passed as the last
-// memref<anyType> with zero dims argument of the current function.
+// Assuming that the pointer to the context is passed as the last argument
+// of the current function of type memref<anyType> with zero dims. When lowering
+// to LLVM, the memref arg is replaced with 3 args of types ptr, ptr, i64.
+// Returning the first one.
 Value getCtxPtr(const OpBuilder &rewriter) {
   auto func =
       rewriter.getBlock()->getParent()->getParentOfType<LLVM::LLVMFuncOp>();
@@ -55,7 +55,7 @@ struct Helper final {
   Type voidType;
   Type ptrType;
   Type idxType;
-  mutable std::set<SmallString<32>> kernelNames;
+  mutable std::unordered_set<std::string> kernelNames;
 
   explicit Helper(MLIRContext *ctx, LLVMTypeConverter &converter)
       : converter(converter), voidType(LLVM::LLVMVoidType::get(ctx)),
@@ -81,7 +81,7 @@ struct Helper final {
       rewriter.create<LLVM::StoreOp>(loc, kernelPtrs[i], elementPtr);
     }
 
-    funcCall(rewriter, GC_GPU_OCL_KERNEL_DESTROY, voidType, {idxType, ptrType},
+    funcCall(rewriter, GPU_OCL_KERNEL_DESTROY, voidType, {idxType, ptrType},
              loc, {size, kernelPtrsArray});
   }
 };
@@ -117,7 +117,7 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
         }
       }
       auto size = helper.idxConstant(rewriter, loc, staticSize);
-      auto ptr = funcCall(rewriter, GC_GPU_OCL_MALLOC, helper.ptrType,
+      auto ptr = funcCall(rewriter, GPU_OCL_MALLOC, helper.ptrType,
                           {helper.ptrType, helper.idxType}, loc,
                           {getCtxPtr(rewriter), size})
                      .getResult();
@@ -158,7 +158,7 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
     }
 
     size = idxMul(size, helper.idxConstant(rewriter, loc, staticSize));
-    auto ptr = funcCall(rewriter, GC_GPU_OCL_MALLOC, helper.ptrType,
+    auto ptr = funcCall(rewriter, GPU_OCL_MALLOC, helper.ptrType,
                         {helper.ptrType, helper.idxType}, loc,
                         {getCtxPtr(rewriter), size})
                    .getResult();
@@ -194,7 +194,7 @@ struct ConvertDealloc final : ConvertOpPattern<gpu::DeallocOp> {
     auto loc = gpuDealloc.getLoc();
     MemRefDescriptor dsc(adaptor.getMemref());
     auto ptr = dsc.allocatedPtr(rewriter, loc);
-    auto oclDealloc = funcCall(rewriter, GC_GPU_OCL_DEALLOC, helper.voidType,
+    auto oclDealloc = funcCall(rewriter, GPU_OCL_DEALLOC, helper.voidType,
                                {helper.ptrType, helper.ptrType}, loc,
                                {getCtxPtr(rewriter), ptr});
     rewriter.replaceOp(gpuDealloc, oclDealloc);
@@ -227,7 +227,7 @@ struct ConvertMemcpy final : ConvertOpPattern<gpu::MemcpyOp> {
     auto dstPtr = dstDsc.alignedPtr(rewriter, loc);
     auto size = helper.idxConstant(rewriter, loc, elementSize * numElements);
     auto oclMemcpy = funcCall(
-        rewriter, GC_GPU_OCL_MEMCPY, helper.voidType,
+        rewriter, GPU_OCL_MEMCPY, helper.voidType,
         {helper.ptrType, helper.ptrType, helper.ptrType, helper.idxType}, loc,
         {getCtxPtr(rewriter), srcPtr, dstPtr, size});
     rewriter.replaceOp(gpuMemcpy, oclMemcpy);
@@ -249,7 +249,7 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
 
     const Location loc = gpuLaunch.getLoc();
     auto kernelArgs = adaptor.getKernelOperands();
-    std::vector<Value> args;
+    SmallVector<Value> args;
     args.reserve(kernelArgs.size() + 2);
     args.emplace_back(getCtxPtr(rewriter));
     args.emplace_back(kernelPtr.value());
@@ -265,7 +265,7 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
     }
 
     const auto gpuOclLaunch =
-        funcCall(rewriter, GC_GPU_OCL_KERNEL_LAUNCH, helper.voidType,
+        funcCall(rewriter, GPU_OCL_KERNEL_LAUNCH, helper.voidType,
                  {helper.ptrType, helper.ptrType}, loc, args, true);
     rewriter.replaceOp(gpuLaunch, gpuOclLaunch);
     return success();
@@ -284,7 +284,9 @@ private:
     SmallString<128> getFuncName("getGcGpuOclKernel_");
     getFuncName.append(kernelModName);
 
-    if (helper.kernelNames.insert(SmallString<32>(kernelModName)).second) {
+    if (helper.kernelNames
+            .insert(std::string(kernelModName.begin(), kernelModName.end()))
+            .second) {
       auto insPoint = rewriter.saveInsertionPoint();
       SmallString<128> strBuf("gcGpuOclKernel_");
       strBuf.append(kernelModName);
@@ -391,10 +393,10 @@ private:
     auto spirv = LLVM::createGlobalString(loc, rewriter, str("SPIRV"),
                                           binaryAttr.getValue(),
                                           LLVM::Linkage::Internal);
-    auto spirvSize = rewriter.create<mlir::LLVM::ConstantOp>(
+    auto spirvSize = rewriter.create<LLVM::ConstantOp>(
         loc, helper.idxType,
-        mlir::IntegerAttr::get(helper.idxType,
-                               static_cast<int64_t>(binaryAttr.size())));
+        IntegerAttr::get(helper.idxType,
+                         static_cast<int64_t>(binaryAttr.size())));
 
     SmallVector<int32_t> globalSize;
     SmallVector<int32_t> localSize;
@@ -436,7 +438,7 @@ private:
     auto argNum =
         helper.idxConstant(rewriter, loc, adaptor.getKernelOperands().size());
     auto createKernelCall = funcCall(
-        rewriter, GC_GPU_OCL_KERNEL_CREATE, helper.ptrType,
+        rewriter, GPU_OCL_KERNEL_CREATE, helper.ptrType,
         {helper.ptrType, helper.idxType, helper.ptrType, helper.ptrType,
          helper.ptrType, helper.ptrType, helper.idxType, helper.ptrType},
         loc,
@@ -501,7 +503,7 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
     assert(mod);
     OpBuilder rewriter(mod.getBody(), mod.getBody()->end());
     auto destruct = rewriter.create<LLVM::LLVMFuncOp>(
-        mod.getLoc(), GC_GPU_OCL_MOD_DESTRUCTOR,
+        mod.getLoc(), GPU_OCL_MOD_DESTRUCTOR,
         LLVM::LLVMFunctionType::get(helper.voidType, {}),
         LLVM::Linkage::External);
     auto loc = destruct.getLoc();

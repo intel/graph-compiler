@@ -6,22 +6,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_GPUOCLMODULE_H
-#define GC_GPUOCLMODULE_H
+#ifndef GC_GPUOCLRUNTIME_H
+#define GC_GPUOCLRUNTIME_H
 
-#define GC_GPU_OCL_MALLOC "gcGpuOclMaloc"
-#define GC_GPU_OCL_DEALLOC "gcGpuOclDealloc"
-#define GC_GPU_OCL_MEMCPY "gcGpuOclMemcpy"
-#define GC_GPU_OCL_KERNEL_CREATE "gcGpuOclKernelCreate"
-#define GC_GPU_OCL_KERNEL_DESTROY "gcGpuOclKernelDestroy"
-#define GC_GPU_OCL_KERNEL_LAUNCH "gcGpuOclKernelLaunch"
-#define GC_GPU_OCL_MOD_DESTRUCTOR "gcGpuOclModuleDestructor"
+namespace mlir::gc::gpu {
+constexpr char GPU_OCL_MALLOC[] = "gcGpuOclMalloc";
+constexpr char GPU_OCL_DEALLOC[] = "gcGpuOclDealloc";
+constexpr char GPU_OCL_MEMCPY[] = "gcGpuOclMemcpy";
+constexpr char GPU_OCL_KERNEL_CREATE[] = "gcGpuOclKernelCreate";
+constexpr char GPU_OCL_KERNEL_DESTROY[] = "gcGpuOclKernelDestroy";
+constexpr char GPU_OCL_KERNEL_LAUNCH[] = "gcGpuOclKernelLaunch";
+constexpr char GPU_OCL_MOD_DESTRUCTOR[] = "gcGpuOclModuleDestructor";
+} // namespace mlir::gc::gpu
 
-#ifndef GC_GPU_OCL_DEF_ONLY
+#ifndef GC_GPU_OCL_CONST_ONLY
 
 // TBD
 
 #else
-#undef GC_GPU_OCL_DEF_ONLY
+#undef GC_GPU_OCL_CONST_ONLY
 #endif
 #endif
