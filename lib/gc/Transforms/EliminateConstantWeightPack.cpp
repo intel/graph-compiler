@@ -79,8 +79,8 @@ void EliminateConstantWeightPack::runOnOperation() {
             argPack->getLoc(), ty.getShape(), ty.getElementType());
         rewriter.replaceAllUsesWith(srcVal, argReplace);
         parentBlock->eraseArgument(idx);
-        parentBlock->addArgument(newArgTy, argPack->getLoc());
-        Value newPackedArg = parentBlock->getArguments().back();
+        parentBlock->insertArgument(idx, newArgTy, argPack->getLoc());
+        Value newPackedArg = parentBlock->getArguments()[idx];
         rewriter.replaceAllUsesWith(
             packedMatmul.getDpsInputOperands()[1]->get(), newPackedArg);
         updated = true;
