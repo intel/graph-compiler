@@ -651,6 +651,17 @@ struct PackVNNI<linalg::GenericOp>
   }
 };
 
+static FailureOr<linalgx::PackingType>
+shallRevertToType(linalg::GenericOp matmulOp) {
+  if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
+                                       linalgx::PackingType::MM4D))
+    return linalgx::PackingType::MM2D4D;
+  else if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
+                                            linalgx::PackingType::VNNI_MM4D))
+    return linalgx::PackingType::VNNI_MM2D;
+  return failure();
+}
+
 // revert pack unpack on the input/output side
 struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
   RevertMatmulPacking(MLIRContext *context, PatternBenefit benefit = 1)
@@ -658,8 +669,8 @@ struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
   LogicalResult matchAndRewrite(linalg::GenericOp matmulOp,
                                 PatternRewriter &rewriter) const override {
     // match MM4D or MM4DVNNI
-    if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
-                                         linalgx::PackingType::VNNI_MM4D)) {
+    FailureOr<linalgx::PackingType> revertType = shallRevertToType(matmulOp);
+    if (succeeded(revertType)) {
       // replace VNNI_MM4D with unpack + VNNI_MM2D + pack
       // get preceding pack and successive unpack
       auto packInputOp =
@@ -697,7 +708,7 @@ struct RevertMatmulPacking : public OpRewritePattern<linalg::GenericOp> {
           packInitInnerTiles, packInitOuterDimsPerm);
       // replace vnni_4D with vnni_2D
       auto VNNI2D = linalgx::makeGenericPackedMatmulOp(
-          rewriter, loc, linalgx::PackingType::VNNI_MM2D,
+          rewriter, loc, *revertType,
           ValueRange{reUnpackInput, matmulOp.getDpsInputOperand(1)->get()},
           ValueRange{reUnpackInit});
       if (failed(VNNI2D))

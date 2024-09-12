@@ -55,6 +55,9 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: layout propagation pass
   pm.addPass(createPropagateLayoutOnNamedOps());
   pm.addPass(createPostProcessPackUnpack());
+  pm.addNestedPass<func::FuncOp>(createEliminateConstantWeightPack());
+  populateCleanUpPasses(pm);
+  pm.addPass(createPrintIRPass());
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
@@ -145,8 +148,6 @@ void populateMicroKernelPasses(mlir::OpPassManager &pm) {
   pm.addPass(mlir::microkernel::createMergeBranchMicrokernelContext());
   pm.addPass(mlir::microkernel::createMicrokernelInvariantCodeMotion());
   populateCleanUpPasses(pm);
-  PrintIRPassOptions option{"MicroKernel passes result"};
-  pm.addPass(createPrintIRPass(option));
 }
 
 void populateCPURuntimePasses(mlir::OpPassManager &pm) {

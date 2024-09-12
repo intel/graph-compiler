@@ -263,10 +263,11 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
                      SmallVector<TensorLayout>{CLayout});
     return ret;
   }
-  // TODO(yifei): add condition constant_A
+  // TODO(yifei): add detailed check for constant A or B
+  bool constantA = false, constantB = true;
   TensorLayout transposedLayout({1, 0}, {}, {});
   SmallVector<TensorLayout> ALayouts, BLayouts, CLayouts;
-  if (curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
+  if (constantA || curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
       (elementType.isBF16() && curInputLayouts[0] == transposedLayout)) {
     ALayouts.emplace_back(
         APackInfo.first, APackInfo.second,
@@ -276,17 +277,7 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
     ALayouts.emplace_back(APackInfo.first, SmallVector<int64_t>{},
                           SmallVector<OpFoldResult>{});
   }
-  if (curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
-      (elementType.isBF16() && curInputLayouts[0] == transposedLayout)) {
-    ALayouts.emplace_back(
-        APackInfo.first, APackInfo.second,
-        SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
-                                  rewriter.getIndexAttr(iik)});
-  } else {
-    ALayouts.emplace_back(APackInfo.first, SmallVector<int64_t>{},
-                          SmallVector<OpFoldResult>{});
-  }
-  if (curInputLayouts[1].isBlocking() || K % iik || N % iin ||
+  if (constantB || curInputLayouts[1].isBlocking() || K % iik || N % iin ||
       elementType.isBF16()) {
     BLayouts.emplace_back(
         BPackInfo.first, BPackInfo.second,
