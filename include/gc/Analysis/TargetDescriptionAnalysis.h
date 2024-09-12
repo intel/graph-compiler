@@ -77,13 +77,13 @@ public:
   static constexpr StringLiteral kNumThreads = "num_threads";
 
   // get runtime OMP_NUM_THREADS
-  unsigned getNumThreads();
+  unsigned getNumThreads() const;
 
   // get cache size by cacheLevel
-  unsigned getCacheSize(uint8_t cacheLevel);
+  unsigned getCacheSize(uint8_t cacheLevel) const;
 
   // get the maximum vector length in bits
-  unsigned getMaxVectorWidth();
+  unsigned getMaxVectorWidth() const;
 
   CPUTargetDescriptionAnalysis(Operation *op)
       : TargetDescriptionAnalysisBase(op, DeviceType::CPU) {}

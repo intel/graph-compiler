@@ -19,12 +19,15 @@ namespace gc {
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                               const MatmulConfig &config) {
 
-  ss << "MThreads: " << config.MThreads << ", NThreads: " << config.NThreads
-     << ", KThreads: " << config.KThreads << ", MBlock: " << config.MBlock
-     << ", NBlock: " << config.NBlock << ", KBlock: " << config.KBlock
-     << ", innerMostMBlock: " << config.innerMostMBlock
-     << ", innerMostNBlock: " << config.innerMostNBlock
-     << ", innerMostKBlock: " << config.innerMostKBlock;
+  ss << "{MThreads = " << config.MThreads
+     << ": i32, NThreads = " << config.NThreads
+     << ": i32, KThreads = " << config.KThreads
+     << ": i32, MBlock = " << config.MBlock
+     << ": i32, NBlock = " << config.NBlock
+     << ": i32, KBlock = " << config.KBlock
+     << ": i32, innermostMBlock = " << config.innerMostMBlock
+     << ": i32, innermostNBlock = " << config.innerMostNBlock
+     << ": i32, innermostKBlock = " << config.innerMostKBlock << ": i32}\n";
   return ss;
 }
 
@@ -91,15 +94,24 @@ bool validateThreads(ArrayRef<uint32_t> threads,
   return actualThreads == numThreads;
 }
 
+struct CostModelOption {
+  ArrayRef<uint32_t> shape;
+  MatmulConfig cfg;
+  CPUTargetDescriptionAnalysis sysDesc;
+  bool verbose = false;
+};
+
+using CostModelFn = std::function<double(linalg::LinalgOp &linalgOp,
+                                         const CostModelOption &option)>;
+
 // calculate the cost of the hardware efficiency(whether the vector register is
 // fully utilized)
 double vectorRegEfficiencyCost(linalg::LinalgOp &linalgOp,
-                               ArrayRef<uint32_t> shape,
-                               const MatmulConfig &config,
-                               CPUTargetDescriptionAnalysis &sysDesc) {
+                               const CostModelOption &option) {
+  MatmulConfig config = option.cfg;
   size_t dtypeSize = DataLayout().getTypeSizeInBits(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
-  size_t maxVectorWidth = sysDesc.getMaxVectorWidth() / dtypeSize;
+  size_t maxVectorWidth = option.sysDesc.getMaxVectorWidth() / dtypeSize;
   // TODO: take matrix register like amx into account
   double cost = (maxVectorWidth - config.innerMostMBlock % maxVectorWidth) %
                     maxVectorWidth * 1.0 / config.innerMostMBlock +
@@ -112,11 +124,10 @@ double vectorRegEfficiencyCost(linalg::LinalgOp &linalgOp,
 
 // calculate the cost of the workload balance
 double workloadBalancedCost(linalg::LinalgOp &linalgOp,
-                            ArrayRef<uint32_t> shape,
-                            const MatmulConfig &config,
-                            CPUTargetDescriptionAnalysis &sysDesc) {
-  assert(shape.size() >= 3 && "shape.size() should >= 3");
-  uint32_t M = shape[0], N = shape[1], K = shape[2];
+                            const CostModelOption &option) {
+  MatmulConfig config = option.cfg;
+  assert(option.shape.size() >= 3 && "shape.size() should >= 3");
+  uint32_t M = option.shape[0], N = option.shape[1], K = option.shape[2];
   uint32_t MTaskNum = llvm::divideCeil(M, config.MBlock);
   uint32_t NTaskNum = llvm::divideCeil(N, config.NBlock);
   uint32_t KTaskNum = llvm::divideCeil(K, config.KBlock);
@@ -124,17 +135,37 @@ double workloadBalancedCost(linalg::LinalgOp &linalgOp,
       llvm::divideCeil(MTaskNum, llvm::divideCeil(MTaskNum, config.MThreads)) *
       llvm::divideCeil(NTaskNum, llvm::divideCeil(NTaskNum, config.NThreads)) *
       llvm::divideCeil(KTaskNum, llvm::divideCeil(KTaskNum, config.KThreads));
-  double cost = sysDesc.getNumThreads() * 1.0 / actualThreads;
+  double cost = option.sysDesc.getNumThreads() * 1.0 / actualThreads;
+  if (option.verbose) {
+    LLVM_DEBUG(llvm::dbgs() << "MTaskNum is: " << MTaskNum << "\n");
+
+    LLVM_DEBUG(llvm::dbgs()
+               << "MThreads usage is: "
+               << llvm::divideCeil(MTaskNum,
+                                   llvm::divideCeil(MTaskNum, config.MThreads))
+               << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "NThreads usage is: "
+               << llvm::divideCeil(NTaskNum,
+                                   llvm::divideCeil(NTaskNum, config.NThreads))
+               << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "KThreads usage is: "
+               << llvm::divideCeil(KTaskNum,
+                                   llvm::divideCeil(KTaskNum, config.KThreads))
+               << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "actualThreads usage is: " << actualThreads << "\n");
+  }
   return cost;
 }
 
 // calculate the cost of the memory consumption on the thread
 double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
-                                     ArrayRef<uint32_t> shape,
-                                     const MatmulConfig &config,
-                                     CPUTargetDescriptionAnalysis &sysDesc) {
-  assert(shape.size() >= 3 && "shape.size() should >= 3");
-  uint32_t M = shape[0], N = shape[1], K = shape[2];
+                                     const CostModelOption &option) {
+  assert(option.shape.size() >= 3 && "shape.size() should >= 3");
+  MatmulConfig config = option.cfg;
+  uint32_t M = option.shape[0], N = option.shape[1], K = option.shape[2];
   size_t dtypeSize = DataLayout().getTypeSize(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
   // if use K split, there will be one more final reduce and break the post
@@ -150,11 +181,10 @@ double memoryConsumptionOnThreadCost(linalg::LinalgOp &linalgOp,
 
 // calculate the cost of the computation intensity on the L2 cache
 double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
-                                     ArrayRef<uint32_t> shape,
-                                     const MatmulConfig &config,
-                                     CPUTargetDescriptionAnalysis &sysDesc) {
+                                     const CostModelOption &option) {
+  MatmulConfig config = option.cfg;
   double fullLoadRatio = 0.7;
-  uint32_t L2Cache = sysDesc.getCacheSize(2);
+  uint32_t L2Cache = option.sysDesc.getCacheSize(2);
   size_t dtypeSize = DataLayout().getTypeSize(
       ShapeAdaptor(linalgOp.getDpsInputs()[1].getType()).getElementType());
   uint32_t outOfCachePenalty = 1024;
@@ -168,11 +198,27 @@ double computationIntensityOnL2Cache(linalg::LinalgOp &linalgOp,
   return 1 / computationIntensity;
 }
 
-double paddingCost(linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
-                   const MatmulConfig &config,
-                   CPUTargetDescriptionAnalysis &sysDesc) {
+double KSlicingCost(linalg::LinalgOp &linalgOp, const CostModelOption &option) {
+  assert(option.shape.size() >= 3 && "shape.size() should >= 3");
+  MatmulConfig config = option.cfg;
+  double cost = config.KThreads;
+  const unsigned int bigKThreshold = 4096;
+  if (option.shape[2] > bigKThreshold) {
+    cost = config.KThreads <= 2 ? 1 : config.KThreads;
+  }
+  return cost;
+}
+
+double CBufferResuseCost(linalg::LinalgOp &linalgOp,
+                         const CostModelOption &option) {
+  MatmulConfig config = option.cfg;
+  return config.innerMostKBlock * 1.0 / config.KBlock;
+}
+
+double paddingCost(linalg::LinalgOp &linalgOp, const CostModelOption &option) {
+  MatmulConfig config = option.cfg;
   double cost = 0;
-  uint32_t M = shape[0], N = shape[1], K = shape[2];
+  uint32_t M = option.shape[0], N = option.shape[1], K = option.shape[2];
   bool isPadOnM = M % config.innerMostMBlock != 0,
        isPadOnK = K % config.innerMostKBlock != 0,
        isPadOnN = N % config.innerMostNBlock != 0;
@@ -191,10 +237,6 @@ double paddingCost(linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape,
   return cost;
 }
 
-using CostModelFn = std::function<double(
-    linalg::LinalgOp &linalgOp, ArrayRef<uint32_t> shape, MatmulConfig cfg,
-    CPUTargetDescriptionAnalysis &sysDesc)>;
-
 // filter the config by the cost model
 std::vector<MatmulConfig>
 filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
@@ -206,7 +248,7 @@ filterConfigByCostModel(ArrayRef<MatmulConfig> configs,
   std::vector<float> costs;
   std::vector<size_t> idx;
   for (auto &&[i, config] : llvm::enumerate(configs)) {
-    costs.push_back(costModel(linalgOp, shape, config, sysDesc));
+    costs.push_back(costModel(linalgOp, {shape, config, sysDesc, false}));
     idx.push_back(i);
   }
   std::stable_sort(idx.begin(), idx.end(), [&costs](size_t i1, size_t i2) {
@@ -382,6 +424,7 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
 // workload balance
 // communication
 // previous matmul
+// C buffer reuse
 MatmulConfig MatmulConfigAnalysis::getConfig() {
   if (!hasConfig) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(root)) {
@@ -455,20 +498,21 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
       SmallVector<NamedAttribute> attrs(linalgOp->getAttrs());
       bool hasPredefinedConfig = readConfigFromAttrs(config, attrs);
 
+      SmallVector<std::tuple<CostModelFn, std::string, double>> costModelList =
+          {{CBufferResuseCost, "CBufferResuseCost", -1},
+           {workloadBalancedCost, "workloadBalancedCost", -1},
+           {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
+           {computationIntensityOnL2Cache, "computationIntensityOnL2Cache", -1},
+           {KSlicingCost, "KSlicingCost", -1},
+           {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost", -1},
+           {paddingCost, "paddingCost", -1}};
+      SmallVector<uint32_t> shape = {M, N, K};
+
       // if there is a given config, skip the cost model
       if (!hasPredefinedConfig) {
         LLVM_DEBUG(llvm::dbgs() << "No predefined config\n");
         // TODO: Could add a weight or priority for cost model
-        SmallVector<std::tuple<CostModelFn, std::string, double>>
-            costModelList = {
-                {workloadBalancedCost, "workloadBalancedCost", 1},
-                {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
-                {computationIntensityOnL2Cache, "computationIntensityOnL2Cache",
-                 -1},
-                {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost",
-                 -1},
-                {paddingCost, "paddingCost", -1}};
-        SmallVector<uint32_t> shape = {M, N, K};
+
         std::vector<MatmulConfig> configCandidates =
             prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock,
                                     allowIndivisibleInnerBlock);
@@ -484,6 +528,11 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
       LLVM_DEBUG(llvm::dbgs()
                  << "Final config\nNumThreads: " << sysDesc.getNumThreads()
                  << ", MatmulConfig: " << config << "\n");
+      for (auto &&[fn, name, threshold] : costModelList) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << name << ": "
+                   << fn(linalgOp, {shape, config, sysDesc, true}) << "\n");
+      }
     }
     hasConfig = true;
   }

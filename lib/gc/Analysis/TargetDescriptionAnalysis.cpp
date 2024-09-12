@@ -59,44 +59,35 @@ TargetDescriptionAnalysisBase::getPropertyValue(StringRef key) {
       Builder(getContext()).getStringAttr(key));
 }
 
-unsigned CPUTargetDescriptionAnalysis::getNumThreads() {
-    char *numThreads = getenv("OMP_NUM_THREADS");
-    if (numThreads)
-    {
-        return std::stoi(numThreads);
-    }
-    return 1;
+unsigned CPUTargetDescriptionAnalysis::getNumThreads() const {
+  char *numThreads = getenv("OMP_NUM_THREADS");
+  if (numThreads) {
+    return std::stoi(numThreads);
+  }
+  return 1;
 }
 
-unsigned CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) {
+unsigned CPUTargetDescriptionAnalysis::getCacheSize(uint8_t cacheLevel) const {
   assert(cacheLevel > 0 && cacheLevel < 4 && "Invalid cache level");
-  if (cacheLevel == 1)
-  {
-      char *cacheSize = getenv("L1_CACHE_SIZE");
-      if (cacheSize)
-      {
-          return std::stoi(cacheSize);
-      }
-  }
-  else if (cacheLevel == 2)
-  {
-      char *cacheSize = getenv("L2_CACHE_SIZE");
-      if (cacheSize)
-      {
-          return std::stoi(cacheSize);
-      }
-  }
-  else if (cacheLevel == 3)
-  {
-      char *cacheSize = getenv("L3_CACHE_SIZE");
-      if (cacheSize)
-      {
-          return std::stoi(cacheSize);
-      }
+  if (cacheLevel == 1) {
+    char *cacheSize = getenv("L1_CACHE_SIZE");
+    if (cacheSize) {
+      return std::stoi(cacheSize);
+    }
+  } else if (cacheLevel == 2) {
+    char *cacheSize = getenv("L2_CACHE_SIZE");
+    if (cacheSize) {
+      return std::stoi(cacheSize);
+    }
+  } else if (cacheLevel == 3) {
+    char *cacheSize = getenv("L3_CACHE_SIZE");
+    if (cacheSize) {
+      return std::stoi(cacheSize);
+    }
   }
 }
 
-unsigned CPUTargetDescriptionAnalysis::getMaxVectorWidth() {
+unsigned CPUTargetDescriptionAnalysis::getMaxVectorWidth() const {
   static const unsigned defaultMaxVectorWidth = 512;
   return defaultMaxVectorWidth;
 }
