@@ -10,6 +10,15 @@ python3 -m benchgc --verbose 0 --driver linalg --case matmul --md 0:32x128xbf16 
 
 # f32
 
+# reduce
+
+python3 -m benchgc --verbose 0 --driver linalg --case reduce.add --md 0:128x64x8xf32 --md 1:128xf32 --dimensions=1 --dimensions=2 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case reduce.mul --md 0:128x8xf32 --md 1:128xf32 --dimensions=1 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case reduce.max --md 0:128x64x8xf32 --md 1:128xf32 --dimensions=1 --dimensions=2 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case reduce.min --md 0:128x64x8xf32 --md 1:128xf32 --dimensions=1 --dimensions=2 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case reduce.l1 --md 0:128x64x8xf32 --md 1:128xf32 --dimensions=1 --dimensions=2 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case reduce.l2_square --md 0:128x64x8xf32 --md 1:128xf32 --dimensions=1 --dimensions=2 || FAIL=1
+
 # misc
 python3 -m benchgc --verbose 0 --driver linalg --case fill --md 0:f32 --md 1:32x4096xf32 --cmp 1:P:0:0 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case copy --md 0:1024x1024xf32 --md 1:1024x1024xbf16 || FAIL=1
@@ -92,15 +101,17 @@ python3 -m benchgc --verbose 0 --driver linalg --case pooling_nwc_max --md 0:4x3
 python3 -m benchgc --verbose 0 --driver linalg --case pooling_nwc_sum --md 0:4x32x4xf32 --md 1:4xf32 --md 2:4x13x4xf32 --strides 2 --dilations 2 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case pooling_nwc_min --md 0:4x32x4xf32 --md 1:4xf32 --md 2:4x13x4xf32 --strides 2 --dilations 2 || FAIL=1
 
-# generic / reduce
+# generic
 python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/generic.mlir || FAIL=1
-python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/reduce.mlir || FAIL=1
 
 # softmax
 # python3 -m benchgc --verbose 0 --driver linalg --case softmax --md 0:32x4096xf32 --md 1:32x4096xf32 --dimension 1 || FAIL=1
 
 # mlir
 # python3 -m benchgc --verbose 0 --driver mlir --case ${CASE_DIR}/llama2.mlir || FAIL=1
+
+#mlp
+python3 -m benchgc --verbose 1  --driver pattern --case mlp --batch_size=32 --hidden_size_list=32x16x64 --has_bias=1x1 --act_type=noop --dtype=f32 
 
 set +e
 exit $FAIL

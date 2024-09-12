@@ -17,13 +17,13 @@
 from typing import Dict, Tuple
 
 import benchgc.util
-import gc_mlir.ir
 import torch
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 
 
 def ref_empty(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, var: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     return (
         torch.zeros(

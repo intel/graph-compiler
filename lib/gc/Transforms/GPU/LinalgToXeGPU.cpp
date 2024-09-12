@@ -1394,6 +1394,92 @@ private:
   LinalgToXeGPUOptions options;
 };
 
+// Create XeGPU kernel out of memory fill operation.
+LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
+                                     PatternRewriter &rewriter) {
+  Location loc = linalgOp.getLoc();
+  auto ctx = linalgOp.getContext();
+
+  auto scalar = linalgOp.getDpsInputs()[0];
+  auto output = linalgOp.getDpsInits()[0];
+  auto outputType = cast<ShapedType>(output.getType());
+  auto outputShape = outputType.getShape();
+
+  // Extract SIMD sized sub-tiles
+  int maxSizeSIMD = 256;
+  int64_t subTileCols = outputShape[1];
+  int64_t subTileRows = std::min(outputShape[0], maxSizeSIMD / subTileCols);
+
+  // Output descriptors for later stores.
+  SmallVector<Value> outputTiles = createDescriptorTiles(
+      rewriter, loc, output, outputShape, {0, 0}, {subTileRows, subTileCols});
+
+  SmallVector<Value> results;
+  for (size_t i = 0; i < outputTiles.size(); i++) {
+    // Operands are sub-tiles at the same location.
+    auto flatType = VectorType::get({subTileRows * subTileCols},
+                                    outputType.getElementType());
+    auto tileType = VectorType::get({subTileRows, subTileCols},
+                                    outputType.getElementType());
+    Value vec = rewriter.create<vector::BroadcastOp>(loc, flatType, scalar);
+    Value res = rewriter.create<vector::ShapeCastOp>(loc, tileType, vec);
+
+    if (!res)
+      return failure();
+
+    results.push_back(res);
+  }
+
+  // Store results.
+  auto writeCacheHint =
+      xegpu::CachePolicyAttr::get(ctx, xegpu::CachePolicy::WRITE_BACK);
+  for (size_t i = 0; i < outputTiles.size(); i++) {
+    rewriter.create<xegpu::StoreNdOp>(loc, results[i], outputTiles[i],
+                                      /*l1_hint=*/writeCacheHint,
+                                      /*l2_hint=*/writeCacheHint,
+                                      /*l3_hint=*/writeCacheHint);
+  }
+
+  rewriter.eraseOp(linalgOp);
+
+  return success();
+}
+
+// Convert a named fill operation to an XeGPU kernel.
+template <typename LinalgOpTy>
+struct ConvertMemoryFillToXeGPU : public OpRewritePattern<LinalgOpTy> {
+  using OpRewritePattern<LinalgOpTy>::OpRewritePattern;
+
+  ConvertMemoryFillToXeGPU(MLIRContext *ctx, LinalgToXeGPUOptions options)
+      : OpRewritePattern<LinalgOpTy>(ctx), options(options) {}
+
+  LogicalResult matchAndRewrite(LinalgOpTy linalgOp,
+                                PatternRewriter &rewriter) const override {
+    if (!linalgOp.hasPureBufferSemantics()) {
+      return rewriter.notifyMatchFailure(
+          linalgOp, "Linalg eltwise to GPU expects memref type");
+    }
+    if (linalgOp.hasDynamicShape()) {
+      return rewriter.notifyMatchFailure(
+          linalgOp, "Expect static shape when mapping to GPU");
+    }
+    auto isInputValid =
+        success(linalgOp.isScalar(linalgOp.getDpsInputOperand(0)));
+    if (failed(isInputValid))
+      return isInputValid;
+
+    auto isOutputValid =
+        isValidMemrefOperand(linalgOp, linalgOp.getDpsInits()[0], rewriter);
+    if (failed(isOutputValid))
+      return isOutputValid;
+
+    return createMemoryFillKernel(linalgOp, rewriter);
+  }
+
+private:
+  LinalgToXeGPUOptions options;
+};
+
 // TODO: Finalize BRGEMM support and register the pattern.
 void populateLinalgGemmToXeGPUPatterns(RewritePatternSet &patterns,
                                        LinalgToXeGPUOptions options) {
@@ -1418,6 +1504,12 @@ void populateLinalgEltwiseToXeGPUPatterns(RewritePatternSet &patterns,
                                                           options);
 }
 
+void populateLinalgMemoryFillToXeGPUPatterns(RewritePatternSet &patterns,
+                                             LinalgToXeGPUOptions options) {
+  patterns.add<ConvertMemoryFillToXeGPU<linalg::FillOp>>(patterns.getContext(),
+                                                         options);
+}
+
 struct LinalgToXeGPU : public gc::impl::LinalgToXeGPUBase<LinalgToXeGPU> {
   using LinalgToXeGPUBase::LinalgToXeGPUBase;
 
@@ -1428,6 +1520,11 @@ struct LinalgToXeGPU : public gc::impl::LinalgToXeGPUBase<LinalgToXeGPU> {
     RewritePatternSet gemmPatterns(&getContext());
     populateLinalgGemmToXeGPUPatterns(gemmPatterns, options);
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(gemmPatterns));
+
+    // Convert memory fill ops.
+    RewritePatternSet fillPatterns(&getContext());
+    populateLinalgMemoryFillToXeGPUPatterns(fillPatterns, options);
+    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(fillPatterns));
 
     // Convert other remaining ops.
     RewritePatternSet patterns(&getContext());

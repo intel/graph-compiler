@@ -171,9 +171,6 @@ public:
     if (targetInfoIter->second.hasTilereleased) {
       rewriter.eraseOp(op);
     } else {
-      // auto region = opStructInfo.maxInvariantScope->getRegion(0);
-      // auto block = &region.getBlocks().front();
-      // auto enditer = block->end();
       // rewriter.moveOpBefore(op, block, enditer);
       rewriter.moveOpAfter(op, opStructInfo.maxInvariantScope);
       // Mark all sub scope as released to avoid duplicate Tilerelease

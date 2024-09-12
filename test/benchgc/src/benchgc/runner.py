@@ -19,16 +19,17 @@ from typing import Dict, Tuple
 import gc_mlir._mlir_libs
 import gc_mlir.dialects
 import gc_mlir.dialects.func
-import gc_mlir.ir
 import torch
 from benchgc.arith import ref_op as arith_ref_op
 from benchgc.linalg import ref_op as linalg_ref_op
+from benchgc.math import ref_op as math_ref_op
 from benchgc.mlir.util import MLIRCache
 from benchgc.tensor import ref_op as tensor_ref_op
+from gc_mlir import ir
 
 
 def dfs_op(
-    cache: MLIRCache, op: gc_mlir.ir.OpView, tensors: Dict[str, torch.Tensor]
+    cache: MLIRCache, op: ir.OpView, tensors: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
 
     dialect_call: str = str(op.name)
@@ -43,6 +44,8 @@ def dfs_op(
         ref_op = tensor_ref_op
     elif dialect_call.startswith("arith"):
         ref_op = arith_ref_op
+    elif dialect_call.startswith("math"):
+        ref_op = math_ref_op
     else:
         build_cache = len(cache.next) == 0
         for i in range(len(op.regions)):
@@ -65,7 +68,7 @@ def dfs_op(
 
 
 def dfs_region(
-    cache: MLIRCache, region: gc_mlir.ir.Region, tensors: Dict[str, torch.Tensor]
+    cache: MLIRCache, region: ir.Region, tensors: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     build_cache = len(cache.next) == 0
     for i in range(len(region.blocks)):
@@ -82,7 +85,7 @@ def dfs_region(
 
 
 def dfs_block(
-    cache: MLIRCache, block: gc_mlir.ir.Block, tensors: Dict[str, torch.Tensor]
+    cache: MLIRCache, block: ir.Block, tensors: Dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, ...]:
     build_cache = len(cache.next) == 0
     for i in range(len(block.operations)):

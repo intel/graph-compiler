@@ -512,7 +512,6 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
       if (!hasPredefinedConfig) {
         LLVM_DEBUG(llvm::dbgs() << "No predefined config\n");
         // TODO: Could add a weight or priority for cost model
-
         std::vector<MatmulConfig> configCandidates =
             prepareConfigCandidates(root, sysDesc, shape, givenInnermostBlock,
                                     allowIndivisibleInnerBlock);

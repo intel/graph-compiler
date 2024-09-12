@@ -21,7 +21,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Utils/StructuredOpMatcher.h"
@@ -54,8 +53,7 @@ customInferContractionDims(linalg::LinalgOp linalgOp) {
   auto dims = linalg::inferContractionDims(linalgOp);
   if (failed(dims))
     return failure();
-  if (llvm::isa<linalgx::BatchReduceMatmulVnniOp>(linalgOp) ||
-      linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+  if (linalgx::isGenericPackedMatmulOp(linalgOp,
                                        linalgx::PackingType::VNNI_BRMM3D)) {
     // For VnniOp, the K reduction dims (dim index 3 & 4) cannot be infered by
     // linalg utils because they form complex affine in operand A; Manually add
@@ -160,6 +158,23 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
   else
     return failure();
 
+  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
+  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
+  Type operandBElemType = getElementTypeOrSelf(operandB->get());
+  if (operandBElemType.isF32()) {
+    if (kAffinePos.size() == 2) {
+      LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions for input "
+                                 "B, should be non-VNNI\n");
+      return failure();
+    }
+  } else {
+    if (kAffinePos.size() == 1) {
+      LLVM_DEBUG(llvm::dbgs() << "[checkStructure] Wrong dimensions for input "
+                                 "B, should be VNNI\n");
+      return failure();
+    }
+  }
+
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] Candidate dims: "
                           << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] m pos in affine: " << mAffinePos
@@ -171,9 +186,6 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
                << "[inferBrgemmDims] k pos in affine: " << kp << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] batch pos in affine: "
                           << batchAffinePos << "\n");
-
-  OpOperand *operandA = linalgOp.getDpsInputOperands()[0];
-  OpOperand *operandB = linalgOp.getDpsInputOperands()[1];
 
   BrgemmDims brgemmDims;
 
@@ -327,9 +339,7 @@ static bool checkFusibleFillOp(DenseMap<Value, Value> &replaceMap,
   bool fuseFill = false;
   Value operandC = op.getDpsInitsMutable()[0].get();
   auto defOp = operandC.getDefiningOp();
-  if (!defOp)
-    return false;
-  if (auto fillOp = dyn_cast<linalg::FillOp>(defOp)) {
+  if (auto fillOp = dyn_cast_or_null<linalg::FillOp>(defOp)) {
     auto inputCst = dyn_cast_or_null<arith::ConstantOp>(
         fillOp.getInputs()[0].getDefiningOp());
     if (isZeroArithConstant(inputCst)) {
@@ -347,8 +357,8 @@ public:
   using OpRewritePattern<ContractionOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(ContractionOp op,
                                 PatternRewriter &rewriter) const final {
-    if (llvm::isa<linalg::GenericOp>(op) &&
-        !linalgx::isGenericPackedMatmulOp(op.getOperation(),
+    if (!isa<linalg::BatchReduceMatmulOp>(op) &&
+        !linalgx::isGenericPackedMatmulOp(op,
                                           linalgx::PackingType::VNNI_BRMM3D))
       return failure();
     if (!op.hasPureTensorSemantics())
@@ -379,8 +389,7 @@ public:
     patterns
         .add<ConvertContractionOpToBrgemmRewriter<linalg::BatchReduceMatmulOp>>(
             &getContext());
-    patterns.add<
-        ConvertContractionOpToBrgemmRewriter<linalgx::BatchReduceMatmulVnniOp>>(
+    patterns.add<ConvertContractionOpToBrgemmRewriter<linalg::GenericOp>>(
         &getContext());
     patterns.add<ConvertContractionOpToBrgemmRewriter<linalg::GenericOp>>(
         &getContext());

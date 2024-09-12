@@ -130,16 +130,14 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
   if (llvm::isa<linalg::ContractionOpInterface>(linalgOp.getOperation())) {
     return getContractionOpOperandDimType(linalgOp);
   } else if (linalgx::isGenericPackedMatmulOp(
-                 linalgOp.getOperation(), linalgx::PackingType::VNNI_MM2D) ||
-             llvm::isa<linalgx::Mm2DVnniOp>(linalgOp)) {
+                 linalgOp.getOperation(), linalgx::PackingType::VNNI_MM2D)) {
     return SmallVector<SmallVector<DimType>>{
         SmallVector<DimType>{DimType::M, DimType::K},
         SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
                              DimType::K},
         SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
   } else if (linalgx::isGenericPackedMatmulOp(
-                 linalgOp.getOperation(), linalgx::PackingType::VNNI_MM4D) ||
-             llvm::isa<linalgx::Mm4DVnniOp>(linalgOp)) {
+                 linalgOp.getOperation(), linalgx::PackingType::VNNI_MM4D)) {
     return SmallVector<SmallVector<DimType>>{
         SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
         SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,

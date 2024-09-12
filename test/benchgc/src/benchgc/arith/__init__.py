@@ -18,21 +18,19 @@ import argparse
 import importlib
 from typing import Callable, Dict, List, Tuple
 
-import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.util import MLIRCache
+from gc_mlir import ir
 
 ref_op: Dict[
     str,
     Callable[
-        [MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]],
+        [MLIRCache, ir.OpView, Dict[str, torch.Tensor]],
         Tuple[torch.Tensor, ...],
     ],
 ] = {}
-mlir_op: Dict[
-    str, Callable[[argparse.Namespace, List[Arg], List[Arg]], gc_mlir.ir.Module]
-] = {}
+mlir_op: Dict[str, Callable[[argparse.Namespace, List[Arg], List[Arg]], ir.Module]] = {}
 
 for dri in ["basic"]:
     mod = importlib.import_module(f"benchgc.arith.{dri}")

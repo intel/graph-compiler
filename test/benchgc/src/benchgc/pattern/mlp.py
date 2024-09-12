@@ -16,91 +16,19 @@
 ################################################################################
 
 import argparse
-from abc import ABC, abstractmethod
+from re import U
 from typing import List
 
-import numpy as np
+from benchgc.arg.arg import Arg
+from benchgc.mlir.util import str_to_mlir_dtype
+from benchgc.util import to_bool_list, to_int_list
 from gc_mlir import ir
 from gc_mlir.dialects import arith, func, linalg, tensor
-from gc_mlir.ir import BF16Type, FloatAttr
-from utils import (
-    STR_TO_MLIR_TYPE,
-    get_default_passes,
-    get_kernel_func_from_module,
-    make_mlir_ndarray,
-    to_bool_list,
-    to_int_list,
-)
+
+from .base import Pattern
 
 
-class Driver(ABC):
-    """Abstract class for driver."""
-
-    @staticmethod
-    @abstractmethod
-    def add_args(parser: argparse.ArgumentParser):
-        """Add arguments to parser"""
-        pass
-
-    @abstractmethod
-    def handle_args(self, args: argparse.Namespace):
-        """Get and handle the args"""
-        pass
-
-    def __init__(self, ctx: ir.Context, args: argparse.Namespace):
-        self.main_entry = "main_entry"
-        self.handle_args(args)
-        self.ir_module = self.init_module(ctx)
-
-    @abstractmethod
-    def init_module(self, ctx: ir.Context) -> ir.Module:
-        """Create MLIR moudule by args"""
-        pass
-
-    @abstractmethod
-    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
-        """Create numpy arg for entry function"""
-        pass
-
-    def get_passes(self) -> str:
-        """Get pass pipeline"""
-        return get_default_passes()
-
-
-class LoadMLIR(Driver):
-    @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
-        parser.add_argument("--path", type=str, required=True)
-        parser.add_argument("--entry", type=str, default="main_entry")
-
-    def handle_args(self, args: argparse.Namespace):
-        self.path = args.path
-        self.main_entry = args.entry
-
-    def _get_mlir(self):
-        with open(self.path, "r") as file:
-            content = file.read()
-        return content
-
-    def init_module(self, ctx: ir.Context) -> ir.Module:
-        module = ir.Module.parse(self._get_mlir(), ctx)
-        bench_func = get_kernel_func_from_module(module, self.main_entry)
-        bench_func.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
-        return module
-
-    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
-        bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
-        np_args = []
-        for arg in bench_func.arguments:
-            np_args.append(make_mlir_ndarray(arg.type))
-
-        if not disable_results_to_params:
-            for res in bench_func.type.results:
-                np_args.append(make_mlir_ndarray(res))
-
-        return np_args
-
-class MLP(Driver):
+class MLP(Pattern):
     @staticmethod
     def add_args(parser: argparse.ArgumentParser):
         parser.add_argument("--batch_size", type=int, default=1)
@@ -142,7 +70,7 @@ class MLP(Driver):
         with ctx, ir.Location.unknown():
             layers = len(self.hidden_size_list) - 1
             module = ir.Module.create()
-            dtype = STR_TO_MLIR_TYPE(self.dtype, ctx)
+            dtype = str_to_mlir_dtype(ctx, self.dtype)
             src = ir.RankedTensorType.get(
                 [self.batch_size, self.hidden_size_list[0]], dtype
             )
@@ -176,7 +104,6 @@ class MLP(Driver):
                         inputs=[src] + weights + bias, results=[result]
                     ),
                 )
-                f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
                 with ir.InsertionPoint(f.add_entry_block()):
                     data = f.entry_block.arguments[0]
                     bias_idx = len(weights) + 1
@@ -193,13 +120,11 @@ class MLP(Driver):
                         layer_out_shape = [
                             self.batch_size,
                             self.hidden_size_list[i + 1],
-                        ]                        
+                        ]
                         out = linalg.fill(
                             zero, outs=[tensor.EmptyOp(layer_out_shape, dtype)]
                         )
-                        data = linalg.matmul(
-                            data, weight, outs=[out]
-                        )
+                        data = linalg.matmul(data, weight, outs=[out])
                         if bias:
                             broadcast_bias = linalg.broadcast(
                                 bias,
@@ -213,7 +138,7 @@ class MLP(Driver):
                             )
 
                         if self.act_type == "relu":
-                            element = FloatAttr.get(dtype, 0)
+                            element = ir.FloatAttr.get(dtype, 0)
                             tensor_type = ir.RankedTensorType.get(
                                 layer_out_shape, dtype
                             )
@@ -225,13 +150,24 @@ class MLP(Driver):
                     func.ReturnOp([data])
         return module
 
-    def prepare_np_args(self, disable_results_to_params: False) -> List[np.ndarray]:
-        bench_func = get_kernel_func_from_module(self.ir_module, self.main_entry)
-        np_args = []
-        for arg in bench_func.arguments:
-            np_args.append(make_mlir_ndarray(arg.type))
+    def default_fill(
+        flags: argparse.Namespace,
+        arg: Arg,
+        arglist: List[Arg],
+    ):
+        arg.fill_type = "U"
+        arg.fill_param = ["0", "1"]
 
-        if not disable_results_to_params:
-            for res in bench_func.type.results:
-                np_args.append(make_mlir_ndarray(res))
-        return np_args
+    def default_compare(
+        flags: argparse.Namespace,
+        arg: Arg,
+        arglist: List[Arg],
+    ):
+        arg.cmp_type = "P"
+        if arg.dtype == "f32":
+            arg.cmp_param = [str(1e-5)]
+        elif arg.dtype == "bf16":
+            arg.cmp_param = [str(5e-2)]
+        else:
+            raise Exception("Unsupported dtype for mlp pattern")
+        arg.cmp_param.append("100.0")

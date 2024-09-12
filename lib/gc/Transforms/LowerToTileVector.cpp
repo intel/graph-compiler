@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -34,14 +34,6 @@ namespace {
 #define SAFE_EXPAND(X) X
 #define LDBG(X) LLVM_DEBUG(DBGS() << SAFE_EXPAND(X) << "\n")
 
-#define IMPLEMENTED_MATMUL                                                     \
-  linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,               \
-      linalg::BatchReduceMatmulOp, linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp,   \
-      linalg::MatmulOp, linalg::BatchMatmulOp,                                 \
-      linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp,        \
-      linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
-      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp
-
 #define SUPPORT_TENSOR_OP                                                      \
   tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::ConcatOp
 
@@ -54,7 +46,7 @@ static inline bool isRequiredTensorOp(Operation *operation) {
 
 /// matmul operation or fill + matmul operation
 static bool isMatchedOperationSet(Operation *op) {
-  if (isa<IMPLEMENTED_MATMUL>(op))
+  if (linalgx::isMatmulOp(op))
     return true;
 
   // Operation produce for matmul can't lower.
@@ -63,7 +55,7 @@ static bool isMatchedOperationSet(Operation *op) {
     return false;
 
   return llvm::any_of(op->getUsers(),
-                      [](Operation *x) { return isa<IMPLEMENTED_MATMUL>(x); });
+                      [](Operation *x) { return linalgx::isMatmulOp(x); });
 }
 
 static bool isContainsDynamicSize(ArrayRef<int64_t> sizes) {
@@ -660,8 +652,7 @@ struct LowerToTileVectorPass
     // transpose or braodcast semantic etc.
     vector::populateVectorTransferPermutationMapLoweringPatterns(secondPattern);
     // Remove unnessary broadcast operation
-    // TODO: disable this pattern until the following support is ready
-    // vector::populateSinkVectorBroadcastPatterns(secondPattern);
+    vector::populateSinkVectorOpsPatterns(secondPattern);
     // Second fold (with the help of the `applyPatternsAndFoldGreedily`
     // function) can help us to eliminate redundant operation like consecutive
     // read and write.
