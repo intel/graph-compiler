@@ -15,6 +15,7 @@ gc_add_mlir_library(GcPasses
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
   IterativeTilingAndFusion.cpp
+  EliminateConstantWeightPack.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
   PropagateLayout.cpp
