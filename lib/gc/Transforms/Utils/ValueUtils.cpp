@@ -98,21 +98,26 @@ static bool isZeroOp(Operation *defOp) {
       .Default([&](Operation *op) { return false; });
 }
 
-FailureOr<SmallVector<int64_t>> getStaticStrides(Value value) {
+FailureOr<SmallVector<int64_t>> getStrides(Value value) {
   auto valueType = value.getType();
   if (!isa<MemRefType>(valueType))
     return failure();
   auto memrefType = cast<MemRefType>(valueType);
   SmallVector<int64_t> strides;
   int64_t offset;
-  if (failed(getStridesAndOffset(memrefType, strides, offset))) {
+  if (failed(getStridesAndOffset(memrefType, strides, offset)))
     return failure();
-  }
-  if (llvm::any_of(strides, [](int64_t stride) {
+  return strides;
+}
+
+FailureOr<SmallVector<int64_t>> getStaticStrides(Value value) {
+  auto strides = getStrides(value);
+  if (failed(strides))
+    return failure();
+  if (llvm::any_of(*strides, [](int64_t stride) {
         return stride == ShapedType::kDynamic;
-      })) {
+      }))
     return failure();
-  }
   return strides;
 }
 

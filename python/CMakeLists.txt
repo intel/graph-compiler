@@ -49,6 +49,8 @@ declare_mlir_python_sources(GcPythonSources.Common
     __init__.py
     graph_compiler.py
     dialects/__init__.py
+    tools/__init__.py
+    tools/cpuinfo.py
     # init hooks
     _mlir_libs/_site_initialize_0.py
 )
@@ -84,6 +86,13 @@ declare_mlir_python_extension(GcPythonSources.Extension
     MainModule.cpp
   EMBED_CAPI_LINK_LIBS
     GcCAPI
+)
+
+declare_mlir_python_extension(GcPythonSources.CpuInfoExtension
+  MODULE_NAME _cpuinfo
+  ADD_TO_PARENT GcPythonSources
+  SOURCES
+    CPUInfo.cpp
 )
 
 ################################################################################

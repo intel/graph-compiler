@@ -3,7 +3,6 @@ add_subdirectory(Utils)
 gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRIR
   MLIRSupport
-  MLIRMicrokernelTransforms
   MLIRBufferizationToMemRef
   MLIRBufferizationPipelines)
 
@@ -37,6 +36,7 @@ gc_add_mlir_library(GcPasses
     ${MLIR_LINK_COMPONENTS}
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
+    MLIRMicrokernelTransforms
   )
 
 if(GC_ENABLE_IMEX)
