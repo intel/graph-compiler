@@ -23,6 +23,7 @@ python3 -m benchgc --verbose 0 --driver linalg --case reduce.l2_square --md 0:12
 python3 -m benchgc --verbose 0 --driver linalg --case fill --md 0:f32 --md 1:32x4096xf32 --cmp 1:P:0:0 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case copy --md 0:1024x1024xf32 --md 1:1024x1024xbf16 || FAIL=1
 python3 -m benchgc --verbose 0 --driver linalg --case broadcast --md 0:1024xf32 --md 1:2x32x1024xf32 --dimensions=0 --dimensions=1 || FAIL=1
+python3 -m benchgc --verbose 0 --driver linalg --case transpose --md 0:32x64x128xf32 --md 1:64x128x32xf32 --permutation=1 --permutation=2 --permutation=0 || FAIL=1
 
 # matmul
 python3 -m benchgc --verbose 0 --driver linalg --case batch_matmul --md 0:16x512x64xf32 --md 1:16x64x32xf32 --md 2:16x512x32xf32 || FAIL=1
