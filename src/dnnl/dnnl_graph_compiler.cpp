@@ -22,7 +22,7 @@
 
 #include "JsonParser.h"
 #include "gc/ExecutionEngine/Driver/Driver.h"
-#include "gc_utils.h"
+#include "gc/Utils.h"
 #include "gc_version.h"
 
 #include "mlir/ExecutionEngine/MemRefUtils.h"

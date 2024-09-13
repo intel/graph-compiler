@@ -18,7 +18,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "gc_utils.h"
+#include "gc/Utils.h"
 
 #define OCL_RUNTIME_EXPORT GC_DLL_EXPORT
 

@@ -21,7 +21,7 @@
 #include <unistd.h>
 #endif
 
-#include "gc_utils.h"
+#include "gc/Utils.h"
 
 #ifdef _MSC_VER
 #define __builtin_expect(EXP_, C) (EXP_)

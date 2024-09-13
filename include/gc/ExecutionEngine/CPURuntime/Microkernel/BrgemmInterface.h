@@ -11,7 +11,7 @@
 
 #include <cmath>
 
-#include "gc_utils.h"
+#include "gc/Utils.h"
 
 extern "C" {
 // Runtime interfaces
