@@ -599,7 +599,49 @@ func.func @reduce_fuse_test12(%input: tensor<16x32x64xf32>,
   func.return %1 : tensor<16x32xf32>
 }
 
-// CHECK-LABEL: func @add_small_tensor_test13
+// CHECK-LABEL: func @reduce_fuse_test13
+// CHECK: %[[CST:.*]] = arith.constant dense<0.000000e+00> : vector<16xf32>
+// CHECK: %[[C64:.*]] = arith.constant 64 : index
+// CHECK: %[[C32:.*]] = arith.constant 32 : index
+// CHECK: %[[C16:.*]] = arith.constant 16 : index
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[CST_0:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[EMPTY0:.*]] = tensor.empty() : tensor<16x32x64xf32>
+// CHECK: scf.for %[[arg2:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg3:.*]] = %[[EMPTY0]]) -> (tensor<16x32x64xf32>)
+// CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C32]] step %[[C1]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<16x32x64xf32>)
+// CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg7:.*]] = %[[arg5]]) -> (tensor<16x32x64xf32>)
+// CHECK: %[[READ0:.*]] = vector.transfer_read %{{.*}}[%[[arg2]], %[[arg4]], %[[arg6]]], %[[CST_0]] {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ0]] : vector<16xf32>
+// CHECK: %[[WRITE0:.*]] = vector.transfer_write %[[ADD0]], %[[arg7]][%[[arg2]], %[[arg4]], %[[arg6]]] {in_bounds = [true]} : vector<16xf32>, tensor<16x32x64xf32>
+// CHECK: scf.for %[[arg2:.*]] = %[[C0]] to %[[C16]] step %[[C16]] iter_args(%[[arg3:.*]] = %[[arg1]]) -> (tensor<16xf32>)
+// CHECK: %[[READ1:.*]] = vector.transfer_read %[[arg3]][%[[arg2]]], %[[CST_0]] {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
+// CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg5:.*]] = %[[READ1]]) -> (vector<16xf32>)
+// CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C32]] step %[[C1]] iter_args(%[[arg7:.*]] = %[[CST]]) -> (vector<16xf32>)
+// CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg9:.*]] = %[[arg7]]) -> (vector<16xf32>)
+// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}[%[[arg2]], %[[arg6]], %[[arg8]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ2]], %[[arg9]] : vector<16xf32>
+// CHECK: %[[REDUCTION:.*]] = vector.reduction <add>, {{.*}} : vector<16xf32> into f32
+// CHECK: %[[INSERT:.*]] = vector.insert %[[REDUCTION]], %[[arg5]] [%[[arg4]]] : f32 into vector<16xf32>
+// CHECK: %[[MUL:.*]] = arith.mulf {{.*}}, {{.*}} : vector<16xf32>
+// CHECK: %[[WRITE1:.*]] = vector.transfer_write {{.*}}, %[[arg3]][%[[arg2]]] {in_bounds = [true]} : vector<16xf32>, tensor<16xf32>
+func.func @reduce_fuse_test13(%input: tensor<16x32x64xf32>,
+                  %init: tensor<16xf32>) -> tensor<16xf32> {
+  %0 = linalg.add ins(%input, %input : tensor<16x32x64xf32>,tensor<16x32x64xf32>)
+       outs(%input : tensor<16x32x64xf32>) -> tensor<16x32x64xf32>
+  %reduce = linalg.reduce
+      ins(%0:tensor<16x32x64xf32>)
+      outs(%init:tensor<16xf32>)
+      dimensions = [1, 2]
+      (%in: f32, %out: f32) {
+        %2 = arith.addf %out, %in: f32
+        linalg.yield %2: f32
+      }
+  %1 = linalg.mul ins(%reduce, %reduce : tensor<16xf32>, tensor<16xf32>) outs(%init: tensor<16xf32>) -> tensor<16xf32>
+  func.return %1 : tensor<16xf32>
+}
+
+// CHECK-LABEL: func @add_small_tensor_test14
 // CHECK: %[[C2:.*]] = arith.constant 2 : index
 // CHECK: %[[C1:.*]] = arith.constant 1 : index
 // CHECK: %[[C0:.*]] = arith.constant 0 : index
@@ -612,7 +654,7 @@ func.func @reduce_fuse_test12(%input: tensor<16x32x64xf32>,
 // CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<1xf32>
 // CHECK: %[[ADD1:.*]] = arith.maximumf %[[ADD0]], %[[CST]] : vector<1xf32>
 // CHECK: %[[WRITE:.*]] = vector.transfer_write {{.*}}, {{.*}} : vector<1xf32>, tensor<2xf32>
-func.func @add_small_tensor_test13(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -> tensor<2xf32> {
+func.func @add_small_tensor_test14(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -> tensor<2xf32> {
   %0 = tensor.empty() : tensor<2xf32>
   %cst = arith.constant dense<0.000000e+00> : tensor<2xf32>
   %1 = linalg.add ins(%arg0, %arg1 : tensor<2xf32>, tensor<2xf32>) outs(%0: tensor<2xf32>) -> tensor<2xf32>

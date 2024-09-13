@@ -8,10 +8,8 @@
 #ifndef GC_PASSES_TILINGVECTOR_H
 #define GC_PASSES_TILINGVECTOR_H
 
+#include "gc/Analysis//VectorBasedFusionAnalysis.h"
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
-#include "gc/Dialect/Microkernel/MicrokernelOps.h"
-#include "gc/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -19,23 +17,17 @@
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
-#include "mlir/Dialect/Traits.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/Float16bits.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
-#include <queue>
+
 namespace mlir {
 namespace gc {
-namespace {
 
 //===----------------------------------------------------------------------===//
 // helper function
@@ -47,11 +39,22 @@ Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
 /// get operation read or write tensor
 mlir::FailureOr<Value> getOperationOperateTensor(Operation *op);
 
-/// record hardware information
-struct HardWareInfo {
-  bool favx512f = true;
-  bool favx2 = true;
-};
+/// set correct operand for the operation
+void setOperationCorrectOperand(
+    Operation *op, ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
+    DenseMap<Value, Value> &originalOperandLoopArgsMap,
+    ArrayRef<Value> inductionVars,
+    DenseMap<Operation *, AffineMap> &opPermuationMap);
+
+/// get fusion kind
+/// Has two kind:
+/// 1. OperationGroup:
+///     The operation is converted into physical registers through our fusion
+///     strategy.
+/// 2. Operations:(TODO:)
+///     The user ensures that there is no data dependency between operations,
+///     and we directly convert the operations into physical register sizes.
+enum CanonicalizerKind { GroupOperations, Operations };
 
 /// To avoid too many parameters in function when generate for loop
 struct GenerateLoopHelper {
@@ -132,139 +135,12 @@ struct GenerateLoopHelper {
                                DenseMap<Value, Value> &argsOriginalMap);
 };
 
-/// set correct operand for the operation
-void setOperationCorrectOperand(
-    Operation *op, ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    ArrayRef<Value> inductionVars,
-    DenseMap<Operation *, AffineMap> &opPermuationMap);
-
 //===----------------------------------------------------------------------===//
 // vectorize operation class
 //===----------------------------------------------------------------------===//
 
-/// Vector type conversion helper class
-class TypeHelper {
-private:
-  HardWareInfo HWInfo;
-
-public:
-  /// use \param info to set hardware information
-  void setHardWareInfo(HardWareInfo &info) { HWInfo = info; }
-  /// get vector \param type max loop step according to hardware information
-  int getDataTypeValidSteps(VectorType type);
-  /// get vector \param type an even for loop step
-  int generateValidSteps(int steps, VectorType type);
-  /// get vector \param type max simd length according to hardware information
-  int getDataTypeMAXSIMDLength(VectorType type);
-  /// get operation's vector type
-  VectorType getVectorzedType(Operation *op, uint32_t loopStep = 0);
-};
-
-/// Operation fusion strategy class.
-/// 1. Classify operaions:
-/// classify the operations into :
-///    a. reorder, transpose. Reorder(or transpose) dim may bring data
-///    dependency.
-///    b. elemenwise. Those operations can be fused into a common for loop.
-///    c. broadcast. Need to analysis broadcast dim and the data
-///    dependency.
-///    d. reduction. Need to analysis broadcast dim and the
-///    data dependency.
-/// Same group operations have no data dependencies. They can be fused into a
-/// common for loop body.
-
-/// Using queue to store the operation order. In order to ensure that
-/// subsequent moves to the operation will not cause semantic changes.
-class VectorFusionStrategy : public TypeHelper {
-private:
-  func::FuncOp func;
-  SmallVector<std::queue<Operation *>, 8> opGroups;
-  SmallVector<uint32_t, 8> groupMaxSteps;
-  /// vector type which has bigest rank in current operation group
-  llvm::SmallDenseMap<size_t, VectorType> groupBigestRankVectorType;
-  /// query current operation in which group, return group index
-  DenseMap<Operation *, size_t> opGroupIndexMap;
-  /// can fused into prev operation which axis position
-  DenseMap<Operation *, size_t> opAnchorPos;
-  /// record some operations which not need to No need to judge whether can be
-  /// fused
-  std::queue<Operation *> notNeedToJudgeOps;
-
-public:
-  VectorFusionStrategy() = default;
-  VectorFusionStrategy(func::FuncOp &func) : func(func) {}
-  VectorFusionStrategy(func::FuncOp &func, TypeHelper &typeHelper)
-      : TypeHelper(typeHelper), func(func) {}
-
-  VectorFusionStrategy(VectorFusionStrategy &strategy)
-      : func(strategy.func), opGroups(strategy.opGroups),
-        groupMaxSteps(strategy.groupMaxSteps),
-        opGroupIndexMap(strategy.opGroupIndexMap),
-        opAnchorPos(strategy.opAnchorPos) {};
-
-  VectorFusionStrategy(VectorFusionStrategy &&strategy)
-      : func(std::move(strategy.func)), opGroups(std::move(strategy.opGroups)),
-        groupMaxSteps(std::move(strategy.groupMaxSteps)),
-        opGroupIndexMap(std::move(strategy.opGroupIndexMap)),
-        opAnchorPos(std::move(strategy.opAnchorPos)) {};
-
-  VectorFusionStrategy &operator=(VectorFusionStrategy &&) = default;
-
-  /// Get the map which contains each group vector type which has biggest rank.
-  llvm::SmallDenseMap<size_t, VectorType> &
-  getGroupBiggestRankVectorType() noexcept {
-    return groupBigestRankVectorType;
-  };
-  /// Get the operation group obtained by fusion strategy analysis
-  SmallVector<std::queue<Operation *>, 8> &getOpGroups() noexcept {
-    return opGroups;
-  }
-  /// Get the operation belong to which group index map
-  DenseMap<Operation *, size_t> &getOpGroupIndexMap() noexcept {
-    return opGroupIndexMap;
-  }
-  /// Get the map contains max steps of each group
-  llvm::SmallVector<uint32_t, 8> &getGroupMaxSteps() noexcept {
-    return groupMaxSteps;
-  }
-  /// Get the map contains anchor position of each operation
-  llvm::DenseMap<Operation *, size_t> &getOpAnchorPos() noexcept {
-    return opAnchorPos;
-  }
-  /// Get current function IR
-  func::FuncOp &getFunc() { return func; }
-  /// Do fusion strategy
-  void classifyOperations();
-
-  /// Whether two operations have compatible vector shapes
-  bool isCompatibleVectorType(Operation *op1, Operation *op2);
-
-  /// update bigest vector type for last operation group
-  void updateGroupBigestVectorType(VectorType vectorType);
-
-  /// Check whether the operation can fuse with previous operation
-  bool isNeedNewGroup(Operation *op);
-
-  /// Add Operation \p op into current last group or a new Group
-  /// \p op must has valid value, can't be nullptr
-  void addOperationToGroup(Operation *op);
-
-  /// run the vector-based fusion strategy
-  void run();
-};
-
-/// Has two kind:
-/// 1. OperationGroup:
-///     The operation is converted into physical registers through our fusion
-///     strategy.
-/// 2. Operations:(TODO:)
-///     The user ensures that there is no data dependency between operations,
-///     and we directly convert the operations into physical register sizes.
-enum CanonicalizerKind { OperationsGroup, Operations };
-
 /// base class of special operation
-template <class T> class SpecialOperationCanonicalizer : virtual TypeHelper {
+template <class T> class SpecialOperationCanonicalizer {
 private:
   /// store current special operation
   SmallVector<T, 4> candidateRdOps;
@@ -396,7 +272,7 @@ class BroadcastCanonicalizer
 private:
 public:
   BroadcastCanonicalizer(
-      const llvm::SmallVector<vector::BroadcastOp, 4> &candidateBcOps,
+      const SmallVector<vector::BroadcastOp, 4> &candidateBcOps,
       size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::BroadcastOp>(
             candidateBcOps, SpecialOperationKind::OP_Broadcast, steps) {};
@@ -457,172 +333,22 @@ public:
   bool isReadWriteOnLastDim();
 };
 
-/// operation return kind, which is used to determine whether the operation need
-/// to return it's result in current for loop
-enum class ReturnTypeKind {
-  RT_Both,
-  RT_OutGroup,
-  RT_InGroup,
-};
-
-class CanonicalizerCommonUsedData : public TypeHelper {
-private:
-  VectorFusionStrategy fusionStrategy;
-
-private:
-  /// analysis the operation's operands and results
-  SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
-      groupOpResults;
-  /// store loop iteration args for each of operation group
-  SmallVector<SetVector<Value>, 8> groupOpInitArgs;
-
-  // store read and write operations permutation maps in order to convenient
-  // to replace loop induction var
-  DenseMap<Operation *, AffineMap> opPermuationMap;
-  SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizers;
-  SmallVector<BroadcastCanonicalizer, 8> broadcastCanonicalizers;
-  SmallVector<TransposeCanonicalizer, 8> transposeCanonicalizers;
-  SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
-
-public:
-  CanonicalizerCommonUsedData() = default;
-  CanonicalizerCommonUsedData(VectorFusionStrategy &fusionStrategy)
-      : fusionStrategy(fusionStrategy) {};
-
-  CanonicalizerCommonUsedData(
-      VectorFusionStrategy &fusionStrategy,
-      SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
-          &groupOpResults,
-      SmallVector<SetVector<Value>, 8> &groupOpInitArgs,
-      DenseMap<Operation *, AffineMap> &opPermuationMap)
-      : fusionStrategy(fusionStrategy), groupOpResults(groupOpResults),
-        groupOpInitArgs(groupOpInitArgs), opPermuationMap(opPermuationMap) {}
-  virtual ~CanonicalizerCommonUsedData() noexcept {};
-
-  /// Set fusion strategy
-  void setFuseStrategy(VectorFusionStrategy &&strategy) {
-    fusionStrategy = std::move(strategy);
-    llvm::SmallVector<std::queue<Operation *>, 8> &opGroups =
-        fusionStrategy.getOpGroups();
-    // init operations results and initialization args
-    if (opGroups.size() != groupOpResults.size() ||
-        opGroups.size() != groupOpInitArgs.size()) {
-      groupOpResults.clear();
-      groupOpInitArgs.clear();
-      for (size_t i = 0; i < opGroups.size(); i++) {
-        groupOpResults.emplace_back(
-            llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>());
-        groupOpInitArgs.emplace_back(SetVector<Value>());
-      }
-    }
-  }
-
-  void setGroupOpResults(
-      const SmallVector<
-          llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
-          &results) {
-    groupOpResults = std::move(results);
-  }
-
-  void setGroupOpIterArgs(
-      const SmallVector<llvm::SetVector<Value>, 8> &initArgs) noexcept {
-    groupOpInitArgs = std::move(initArgs);
-  }
-
-  void setPermutationMap(const DenseMap<Operation *, AffineMap> &map) noexcept {
-    opPermuationMap = std::move(map);
-  }
-
-  // get methods
-  VectorFusionStrategy &getFusionStrategy() noexcept { return fusionStrategy; }
-
-  SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8> &
-  getGroupOpResults() noexcept {
-    return groupOpResults;
-  }
-
-  SmallVector<SetVector<Value>, 8> &getGroupOpInitArgs() noexcept {
-    return groupOpInitArgs;
-  }
-
-  DenseMap<Operation *, AffineMap> &getOpPermuationMap() noexcept {
-    return opPermuationMap;
-  }
-
-  SmallVector<MultiReductionCanonicalizer, 8> &
-  getMultiRdCanonicalizers() noexcept {
-    return multiRdCanonicalizers;
-  }
-
-  SmallVector<BroadcastCanonicalizer, 8> &
-  getBroadcastCanonicalizers() noexcept {
-    return broadcastCanonicalizers;
-  }
-
-  SmallVector<TransposeCanonicalizer, 8> &
-  getTransposeCanonicalizers() noexcept {
-    return transposeCanonicalizers;
-  }
-
-  SmallVector<ShapeCastCanonicalizer, 8> &
-  getShapeCastCanonicalizers() noexcept {
-    return shapeCastCanonicalizers;
-  }
-
-  /// whether \param grpIdx operation group has special operation
-  bool isGroupHasSpecialOperation(const size_t grpIdx);
-
-  /// make emtpy tensor and write the operation result to the tensor
-  void generateEmptyTensorAndWrite(
-      Operation *sourceOp,
-      llvm::DenseMap<Operation *, std::pair<Value, Value>>
-          &srcOpCanoniclizedMap,
-      size_t anchorPos, ReturnTypeKind retKind,
-      DenseMap<Operation *, size_t> &visitedOperation);
-
-  /// update \param opGid operation group
-  void updateOpOperandResultInGroups(size_t opGid, Operation *op,
-                                     const Value &init = Value(),
-                                     const Value &result = Value());
-  /// replace \param op in \param grpIdx operation group with \param replacedOp
-  void removeOpInCurrentGroups(size_t grpIdx, Operation *op,
-                               Operation *replacedOp);
-  /// update operation in grpIdx group related information
-  void updateOpGroupInfo(size_t grpIdx);
-
-  /// make a transfer_read operation and  read the producer operation result
-  Value
-  canonicalizeCurrentOperation(Operation *op, const Value &transferReadOperand,
-                               size_t operandIdx,
-                               vector::TransferReadOp *srcReadOp = nullptr);
-
-  /// make a transfer_read operation
-  Operation *
-  createTransferReadOpBefore(Operation *op, const Value &operand,
-                             vector::TransferReadOp *srcReadOp = nullptr);
-  /// get next operation in current operation group
-  template <class Target>
-  Operation *getNextTargetOperationInCurrentGroup(Operation *curOp,
-                                                  const size_t grpIdx);
-};
-
 /// generate for loop for each operation.
-class ForLoopGenerator : virtual public CanonicalizerCommonUsedData {
+class ForLoopGenerator {
 private:
-  /// currrent function IR
-  func::FuncOp func;
+  GroupOperationFusion vectorBasedFusion;
 
 public:
-  ForLoopGenerator() = default;
-  ForLoopGenerator(func::FuncOp &func) : func(func) {}
+  ForLoopGenerator(GroupOperationFusion &fusion) : vectorBasedFusion(fusion) {}
 
   virtual ~ForLoopGenerator() noexcept {}
 
-  void setGeneratorFunc(func::FuncOp &func) noexcept { this->func = func; }
+  void setVectorBaseFusion(GroupOperationFusion &vectorBasedFusion) {
+    this->vectorBasedFusion = vectorBasedFusion;
+  };
+
   /// clear current group operation
   void clearCurrentOperationGroup(size_t grpIdx);
-  /// vectorize operations in current operation group
-  void generateGroupOpVectorizedIR(const int idx);
 
   /// prepare for loop iteration args
   void prepareForLoopArgs(const size_t grpIdx, GenerateLoopHelper &loopHelper);
@@ -639,6 +365,11 @@ public:
       DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap,
       const size_t groupId, Operation *op,
       const DenseMap<size_t, size_t> &setIdxMap = DenseMap<size_t, size_t>({}));
+
+  // get methods
+  GroupOperationFusion &getVectorBasedFusion() noexcept {
+    return vectorBasedFusion;
+  }
   /// rewrite operation as vectorize IR in current operation group
   void
   rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
@@ -654,7 +385,7 @@ public:
   scf::ForOp constructNestedForOp(const size_t groupIdx, OpBuilder &b,
                                   const Location &loc, ArrayRef<int64_t> dims,
                                   GenerateLoopHelper &loopHelper);
-
+  /// move operations in \param queue to current loop anchor
   void moveOperationsToCurrentForBody(const OpBuilder &b,
                                       std::queue<Operation *> &queue,
                                       GenerateLoopHelper &loopHelperParam);
@@ -698,13 +429,80 @@ public:
   void replaceOperationsWithForLoopResult(
       IRRewriter &rewrite, const std::queue<Operation *> &movingOperations,
       GenerateLoopHelper &loopHelperParam);
+
+  /// rectify indice for transfer_write operation
+  /// e.g.: vector.transfer_write"(%16, %9, %c0, %c0), the first %c0 should use
+  /// original indice not create by us
+  void rectifyWriteOperationIndice(vector::TransferWriteOp *originalWriteOp,
+                                   SmallVectorImpl<Value> &writeVars);
+  /// rectify indice for transfer_read operation, like broadcast operation
+  /// fusion by transfer_read , but the transfer_read operation is in innermost
+  /// for loop body, we must set correct for loop var. e.g.:
+  /// vector.transfer_read"(%16, %9, %c0), the first %c0 should use correct for
+  /// innermost loop iter vars
+  void rectifyReadOperationIndice(vector::TransferReadOp *originalReadOp,
+                                  VectorType loopType,
+                                  ArrayRef<Value> inductionVars,
+                                  SmallVectorImpl<Value> &readVars);
+
+  /// rectify each group operand use  for loop result
+  void rectifyGroupOperands(size_t currentGroupId, Value originalResult,
+                            Value forResult);
+};
+
+class LoopGeneratorImpl : public ForLoopGenerator {
+
+private:
+  SmallVector<MultiReductionCanonicalizer, 8> multiRdCanonicalizers;
+  SmallVector<BroadcastCanonicalizer, 8> broadcastCanonicalizers;
+  SmallVector<TransposeCanonicalizer, 8> transposeCanonicalizers;
+  SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
+
+public:
+  LoopGeneratorImpl(GroupOperationFusion &fusion) : ForLoopGenerator(fusion) {};
+
+  virtual ~LoopGeneratorImpl() noexcept {};
+
+  SmallVector<MultiReductionCanonicalizer, 8> &
+  getMultiRdCanonicalizers() noexcept {
+    return multiRdCanonicalizers;
+  }
+
+  SmallVector<BroadcastCanonicalizer, 8> &
+  getBroadcastCanonicalizers() noexcept {
+    return broadcastCanonicalizers;
+  }
+
+  SmallVector<TransposeCanonicalizer, 8> &
+  getTransposeCanonicalizers() noexcept {
+    return transposeCanonicalizers;
+  }
+
+  SmallVector<ShapeCastCanonicalizer, 8> &
+  getShapeCastCanonicalizers() noexcept {
+    return shapeCastCanonicalizers;
+  }
+  /// clear special operation canonicalizer container
+  void clearSpecialOperationCanonicalizers();
+
+  /// add a dummy special canonicalizer
+  void dummyInitSpecialOperation(size_t steps);
+
+  /// initialize all the speical operation canonicalizer
+  void initSpeicalOperationCanonicalizers();
+
+  /// generate for loop for current special operation use \param generateFunc
+  template <class T, class U>
+  void processSpecialOperation(
+      T &canonicalizers, const std::function<void(const size_t)> &generateFunc);
+  // Canonicalize special operation
+  void canonicalizeSpecialOperation();
+
+  /// whether \param grpIdx operation group has special operation
+  bool isGroupHasSpecialOperation(const size_t grpIdx);
+
   // multireduction forloop  methods
   scf::ForOp generateMultiReductionForLoop(const size_t grpIdx);
-  /// Rearrange the current opIR to facilitate the generation of the correct
-  /// reduction IR
-  void rearrageMultiReductionIR(
-      const size_t grpIdx,
-      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
 
   /// reduction operation reduction axis for loop
   scf::ForOp reductionAxisGenerateForLoop(OpBuilder &opBuilder,
@@ -720,6 +518,12 @@ public:
                                Value multiReductionAcc,
                                DenseMap<Value, int> &nextAnchorArgsIdxMap,
                                SmallVector<Value, 4> &nextAnchorArgs);
+
+  /// Rearrange the current opIR to facilitate the generation of the correct
+  /// reduction IR
+  void rearrageMultiReductionIR(
+      const size_t grpIdx,
+      DenseMap<Operation *, DenseMap<size_t, size_t>> &indiceLoopMap);
 
   /// generate for loop for transpose operation
   scf::ForOp generateTransposeForLoop(const size_t grpIdx);
@@ -741,46 +545,29 @@ public:
       OpBuilder &opBuilder, const size_t grpIdx, const size_t forDimIdx,
       const size_t steps, const Location &loc,
       SmallVector<Value> &inductionVars, ValueRange iterArgs);
-  /// rectify indice for transfer_write operation
-  /// e.g.: vector.transfer_write"(%16, %9, %c0, %c0), the first %c0 should use
-  /// original indice not create by us
-  void rectifyWriteOperationIndice(vector::TransferWriteOp *originalWriteOp,
-                                   SmallVectorImpl<Value> &writeVars);
-  /// rectify indice for transfer_read operation, like broadcast operation
-  /// fusion by transfer_read , but the transfer_read operation is in innermost
-  /// for loop body, we must set correct for loop var. e.g.:
-  /// vector.transfer_read"(%16, %9, %c0), the first %c0 should use correct for
-  /// innermost loop iter vars
-  void rectifyReadOperationIndice(vector::TransferReadOp *originalReadOp,
-                                  VectorType loopType,
-                                  ArrayRef<Value> inductionVars,
-                                  SmallVectorImpl<Value> &readVars);
 
-  /// rectify each group operand use  for loop result
-  void rectifyGroupOperands(size_t currentGroupId, Value originalResult,
-                            Value forResult);
+  /// vectorize operations in current operation group
+  void generateGroupOpVectorizedIR(const int idx);
 };
 
-class VectorOperationAnalyzer : virtual public CanonicalizerCommonUsedData {
+/// group operation fusion implementation class
+class GroupOperationFusionImpl : public GroupOperationAnalysis {
 private:
-  func::FuncOp func;
+  /// In which tensor is the result of the source operation stored, and the
+  /// result of transfer_write.
   DenseMap<Operation *, std::pair<Value, Value>> srcOpCanoniclizedMap;
+  /// have visited operations
   DenseMap<Operation *, size_t> visitedOperation;
 
 public:
-  virtual ~VectorOperationAnalyzer() = default;
-  VectorOperationAnalyzer() = default;
-  VectorOperationAnalyzer(func::FuncOp &func) : func(func) {}
+  virtual ~GroupOperationFusionImpl() = default;
+  GroupOperationFusionImpl(func::FuncOp &func, HardWareInfo &info)
+      : GroupOperationAnalysis(func, info) {}
 
-  void setAnalysisFunc(func::FuncOp &func) { this->func = func; }
-  ///  remove the useless operation, due to it result is not require by other
-  // operation
-  void analysisEmptyGroup();
-  /// get each operation in each group maximum support vectorization length
-  void analysisGroupMaxSteps();
-  /// analysis operation result of current group whether needed by other
-  /// operation
-  void analysisGroupOperaion();
+  /// Generate emtpy tensor and write operations for operations that need to
+  /// return their results, and generate read operations for operations that
+  /// need to read parameters from the block.
+  void canonicalizeEachOperationGroup();
 
   void specialOperationRectify(DenseMap<Operation *, size_t> &visitedOperation);
   /// update operation result kind
@@ -789,63 +576,63 @@ public:
 
   /// process the operation which need to return result
   /// \param *op current operation
-  void groupOperationNeedReturnResult(size_t sourceOpGid, Operation *sourceOp,
-                                      Operation *op, size_t operandIdx,
-                                      bool inSameGroupNeedReturn);
+  void GroupOperationReturnResultProcess(size_t sourceOpGid,
+                                         Operation *sourceOp, Operation *op,
+                                         size_t operandIdx,
+                                         bool inSameGroupNeedReturn);
   /// source operation write it's result to a tensor
   void makeSourceOpWriteResultToTensor(Operation *sourceOp, size_t sourceOpGid,
                                        ReturnTypeKind rtKind);
   /// analysis constant operation and replace it with a new constant operation
   void replaceConstantOpAsNewOp(Operation *op, Operation *sourceOp,
                                 size_t operandIdx);
+  /// replace \param op in \param grpIdx operation group with \param replacedOp
+  void removeOpInCurrentGroups(size_t grpIdx, Operation *op,
+                               Operation *replacedOp);
+  /// update operation in grpIdx group related information
+  void updateOpGroupInfo(size_t grpIdx);
+  /// make a transfer_read operation and  read the producer operation result
+  Value
+  canonicalizeCurrentOperation(Operation *op, const Value &transferReadOperand,
+                               size_t operandIdx,
+                               vector::TransferReadOp *srcReadOp = nullptr);
+  /// update \param opGid operation group
+  void updateOpOperandResultInGroups(size_t opGid, Operation *op,
+                                     const Value &init = Value(),
+                                     const Value &result = Value());
+
+  /// make emtpy tensor and write the operation result to the tensor
+  void generateEmptyTensorAndWrite(
+      Operation *sourceOp,
+      llvm::DenseMap<Operation *, std::pair<Value, Value>>
+          &srcOpCanoniclizedMap,
+      size_t anchorPos, ReturnTypeKind retKind,
+      DenseMap<Operation *, size_t> &visitedOperation);
+
+  /// make a transfer_read operation
+  Operation *
+  createTransferReadOpBefore(Operation *op, const Value &operand,
+                             vector::TransferReadOp *srcReadOp = nullptr);
 };
 /// Vectorize vector operation with target machines max simd length.
-class CanonicalizerVectorOperation : virtual public ForLoopGenerator,
-                                     VectorOperationAnalyzer {
+class VectorOperationCanonicalizer {
 private:
-  /// current function IR
-  func::FuncOp func;
-  /// rewriter of func operation
-  IRRewriter rewriter;
+  GroupOperationFusionImpl fusion;
+  LoopGeneratorImpl loopGenerator;
   CanonicalizerKind kind;
+  func::FuncOp func;
+  IRRewriter rewriter;
 
 public:
-  CanonicalizerVectorOperation(
-      func::FuncOp func,
-      CanonicalizerKind kind = CanonicalizerKind::OperationsGroup,
-      HardWareInfo hwInfo = {})
-      : func(func), rewriter(func), kind(kind) {
-    setAnalysisFunc(func);
-    setGeneratorFunc(func);
-    setHardWareInfo(hwInfo);
-    // vector operation fusion
-    if (kind == CanonicalizerKind::OperationsGroup) {
-      VectorFusionStrategy fusionStrategy(func);
-      fusionStrategy.run();
-      setFuseStrategy(std::move(fusionStrategy));
-    }
-  }
-  virtual ~CanonicalizerVectorOperation() = default;
-
-  // get functions
-  func::FuncOp &getFunc() noexcept { return func; };
-  IRRewriter &getIRWewriter() noexcept { return rewriter; }
-  /// generate for loop for current special operation use \param generateFunc
-  template <class T, class U>
-  void processSpecialOperation(
-      T &canonicalizers, const std::function<void(const size_t)> &generateFunc);
-  // Canonicalize special operation
-  void canonicalizeSpecialOperation();
-  /// clear special operation canonicalizer container
-  void clearSpecialOperationCanonicalizers();
-  /// add a dummy special canonicalizer
-  void dummyInitSpecialOperation(size_t steps);
-  /// initialize all the speical operation canonicalizer
-  void initSpeicalOperationCanonicalizers();
+  VectorOperationCanonicalizer(
+      func::FuncOp &func, HardWareInfo &info,
+      CanonicalizerKind kind = CanonicalizerKind::GroupOperations)
+      : fusion(func, info), loopGenerator(fusion.getGroupOperationFusion()),
+        kind(kind), rewriter(func) {}
+  virtual ~VectorOperationCanonicalizer() = default;
   /// run the vector canonicalizer for the IR
   void run();
 };
-} // namespace
 } // namespace gc
 } // namespace mlir
 #endif
