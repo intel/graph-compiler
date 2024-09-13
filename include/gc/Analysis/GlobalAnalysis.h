@@ -90,6 +90,8 @@ public:
 
   bool operator==(const TensorLayout &layout) const;
 
+  bool operator!=(const TensorLayout &layout) const;
+
 private:
   SmallVector<int64_t> outerAxis;
   SmallVector<int64_t> innerAxis;
@@ -152,8 +154,10 @@ private:
 };
 
 namespace utils {
+bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp);
+
 bool isPackableNamedOp(Operation *op);
-}
+} // namespace utils
 } // namespace gc
 } // namespace mlir
 

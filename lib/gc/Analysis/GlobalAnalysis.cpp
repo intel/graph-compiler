@@ -18,10 +18,10 @@ namespace gc {
 #define DEBUG_TYPE "global-analysis"
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
-                              const TensorLayout &layoutCache) {
-  SmallVector<int64_t> outerAxis = layoutCache.getOuterAxis();
-  SmallVector<int64_t> innerAxis = layoutCache.getInnerAxis();
-  SmallVector<OpFoldResult> tileSizes = layoutCache.getTileSizes();
+                              const TensorLayout &tmpLayoutCache) {
+  SmallVector<int64_t> outerAxis = tmpLayoutCache.getOuterAxis();
+  SmallVector<int64_t> innerAxis = tmpLayoutCache.getInnerAxis();
+  SmallVector<OpFoldResult> tileSizes = tmpLayoutCache.getTileSizes();
   ss << "[";
   llvm::interleaveComma(outerAxis, ss);
   if (!innerAxis.empty()) {
@@ -41,6 +41,10 @@ bool TensorLayout::operator==(const TensorLayout &layout) const {
   return (this->outerAxis == layout.getOuterAxis()) &&
          (this->innerAxis == layout.getInnerAxis()) &&
          (this->tileSizes == layout.getTileSizes());
+}
+
+bool TensorLayout::operator!=(const TensorLayout &layout) const {
+  return !(*this == layout);
 }
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
@@ -161,15 +165,6 @@ static size_t getTargetInputIdx(ArrayRef<TensorLayout> curInputLayouts) {
   return 0;
 }
 
-static bool supportedContractionNamedOpList(linalg::LinalgOp &linalgOp) {
-  if (isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
-          linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
-          linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
-          linalgOp))
-    return true;
-  return false;
-}
-
 std::pair<SmallVector<int64_t>, SmallVector<int64_t>>
 getPackingAxis(int64_t numRank, bool transposed) {
   assert(numRank >= 2 &&
@@ -220,8 +215,9 @@ static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
   return true;
 }
 
-// if forceBlocking is set, we strictly follow matmul config to block to
-// blocking layout; otherwise we follow query format logic
+// if forceBlocking is set to true, we will unconditionally convert
+// input/weight/output to blocking layout; otherwise we follow the default
+// heuristic logic
 static SmallVector<OperatorLayout, 2>
 queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
                   ArrayRef<TensorLayout> curInputLayouts,
@@ -247,7 +243,7 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
   auto CPackInfo = getPackingAxis(CRank, /*transposed*/ false);
   // query the cost model for tile sizes
   MatmulConfig cfg = MatmulConfigAnalysis(matmulOp.getOperation()).getConfig();
-  uint32_t iim = cfg.innerMostKBlock, iin = cfg.innerMostNBlock,
+  uint32_t iim = cfg.innerMostMBlock, iin = cfg.innerMostNBlock,
            iik = cfg.innerMostKBlock;
   if (forceBlocking) {
     TensorLayout ALayout(APackInfo.first, APackInfo.second,
@@ -263,11 +259,12 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
                      SmallVector<TensorLayout>{CLayout});
     return ret;
   }
-  // TODO(yifei): add condition constant_A
-  TensorLayout transposedLayout({1, 0}, {}, {});
+  // TODO(yifei): add detailed check for constant A or B
+  bool constantA = false, constantB = true;
   SmallVector<TensorLayout> ALayouts, BLayouts, CLayouts;
-  if (curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
-      (elementType.isBF16() && curInputLayouts[0] == transposedLayout)) {
+  if (constantA || curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
+      (elementType.isBF16() &&
+       curInputLayouts[0] == TensorLayout({1, 0}, {}, {}))) {
     ALayouts.emplace_back(
         APackInfo.first, APackInfo.second,
         SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
@@ -276,17 +273,7 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
     ALayouts.emplace_back(APackInfo.first, SmallVector<int64_t>{},
                           SmallVector<OpFoldResult>{});
   }
-  if (curInputLayouts[0].isBlocking() || (M % iim) || (K % iik) ||
-      (elementType.isBF16() && curInputLayouts[0] == transposedLayout)) {
-    ALayouts.emplace_back(
-        APackInfo.first, APackInfo.second,
-        SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
-                                  rewriter.getIndexAttr(iik)});
-  } else {
-    ALayouts.emplace_back(APackInfo.first, SmallVector<int64_t>{},
-                          SmallVector<OpFoldResult>{});
-  }
-  if (curInputLayouts[1].isBlocking() || K % iik || N % iin ||
+  if (constantB || curInputLayouts[1].isBlocking() || K % iik || N % iin ||
       elementType.isBF16()) {
     BLayouts.emplace_back(
         BPackInfo.first, BPackInfo.second,
@@ -316,6 +303,7 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
           CPackInfo.first, CPackInfo.second,
           SmallVector<OpFoldResult>{rewriter.getIndexAttr(iim),
                                     rewriter.getIndexAttr(iin)});
+      // duplicate ALayouts and BLayouts
       ALayouts.emplace_back(ALayouts[0]);
       BLayouts.emplace_back(BLayouts[0]);
     }
@@ -330,192 +318,272 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
 
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   IRRewriter rewriter(root);
+  int64_t totalLayoutPossibilities = 1;
+  std::vector<int64_t> possibilities;
+  int64_t numMatmuls = 0;
   root->walk([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-      auto curInputs = linalgOp.getDpsInputOperands();
-      auto curResults = linalgOp.getOperation()->getResults();
-      // get current op's input layouts
-      SmallVector<TensorLayout> curInputLayouts;
-      for (auto input : curInputs) {
-        auto parent = input->get().getDefiningOp();
-        if (layoutCache.find(parent) != layoutCache.end()) {
-          // TODO(yifei): it is not always 0 here
-          curInputLayouts.push_back(layoutCache[parent].getOutputLayout(0));
-        } else {
+      if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp)) {
+        auto curInputs = linalgOp.getDpsInputOperands();
+        SmallVector<TensorLayout> curInputLayouts;
+        for (auto input : curInputs)
           curInputLayouts.push_back(TensorLayout::createPlainLayout(
               linalgOp.getMatchingIndexingMap(input).getNumResults()));
-        }
-      }
-      // infer current op's output layout accordingly
-      if (supportedContractionNamedOpList(linalgOp)) {
         auto suggestedLayouts =
-            queryMatmulLayout(rewriter, linalgOp, curInputLayouts, true);
-        layoutCache[linalgOp] = suggestedLayouts[0];
-      } else if (mlir::gc::utils::isPackableNamedOp(op)) {
-        // infer layout for non-contraction/non-convolution linalg named ops
-        // and linalg generic ops
-        SmallVector<TensorLayout> inputLayouts, outputLayouts;
-        size_t targetIdx = getTargetInputIdx(curInputLayouts);
-        for (size_t i = 0; i < curInputs.size(); ++i) {
-          // getMatchingIndexingMap
-          if (i != targetIdx) {
-            auto indexRelation = inferIndexingMapRelation(
-                linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
-                linalgOp.getMatchingIndexingMap(curInputs[i]));
-            if (failed(indexRelation)) {
-              return WalkResult::skip();
-            }
-            TensorLayout inputLayout =
-                inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
-            inputLayouts.push_back(inputLayout);
-          } else {
-            inputLayouts.push_back(curInputLayouts[targetIdx]);
-          }
-        }
-        auto indexRelation = inferIndexingMapRelation(
-            linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
-            linalgOp.getIndexingMapMatchingResult(curResults[0]));
-        if (failed(indexRelation)) {
-          return WalkResult::skip();
-        }
-        TensorLayout outputLayout =
-            inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
-        outputLayouts.push_back(outputLayout);
-        OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
-        layoutCache[linalgOp] = suggestedLayout;
+            queryMatmulLayout(rewriter, linalgOp, curInputLayouts);
+        possibilities.push_back(suggestedLayouts.size());
+        totalLayoutPossibilities *= possibilities.back();
+        numMatmuls++;
       }
-    } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
-      auto inputOperand = padOp.getSource();
-      auto inputRank =
-          cast<ShapedType>(inputOperand.getType()).getShape().size();
-      auto parent = inputOperand.getDefiningOp();
-      TensorLayout curInputLayout =
-          layoutCache.find(parent) != layoutCache.end()
-              ? layoutCache[parent].getOutputLayout(0)
-              : TensorLayout::createPlainLayout(inputRank);
-      SmallVector<TensorLayout> inputLayouts{curInputLayout},
-          outputLayouts{curInputLayout};
-      OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
-      layoutCache[padOp] = suggestedLayout;
-    } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
-      SmallVector<ReassociationIndices> reassocIndices =
-          expandShapeOp.getReassociationIndices();
-      auto staticOutputShape = expandShapeOp.getStaticOutputShape();
-      auto parent = expandShapeOp.getSrc().getDefiningOp();
-      auto inputShape = expandShapeOp.getSrcType().getShape();
-      TensorLayout curInputLayout =
-          layoutCache.find(parent) != layoutCache.end()
-              ? layoutCache[parent].getOutputLayout(0)
-              : TensorLayout::createPlainLayout(inputShape.size());
-      SmallVector<int64_t> innerTileSizes;
-      auto tileSizes = getConstantIntValues(curInputLayout.getTileSizes());
-      if (tileSizes) {
-        innerTileSizes = *tileSizes;
-      } else {
-        return WalkResult::skip();
-      }
-      ArrayRef<int64_t> innerPosPos = curInputLayout.getInnerAxis();
-      ArrayRef<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
-      SmallVector<int64_t> projectedInnerDimsPos =
-          projectToInnerMostNonUnitDimsPos(innerPosPos, reassocIndices,
-                                           staticOutputShape);
-
-      if (!isDimsDivisibleByTileSizes(projectedInnerDimsPos, staticOutputShape,
-                                      innerTileSizes)) {
-        return WalkResult::skip();
-      }
-      SmallVector<int64_t> newOuterDimsPerm;
-      for (auto outerPos : outerDimsPerm) {
-        newOuterDimsPerm.insert(newOuterDimsPerm.end(),
-                                reassocIndices[outerPos].begin(),
-                                reassocIndices[outerPos].end());
-      }
-      TensorLayout outputLayout(newOuterDimsPerm, projectedInnerDimsPos,
-                                curInputLayout.getTileSizes());
-      SmallVector<TensorLayout> inputLayouts{curInputLayout},
-          outputLayouts{outputLayout};
-      OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
-      layoutCache[expandShapeOp] = suggestedLayout;
-    } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
-      SmallVector<ReassociationIndices> reassocIndices =
-          collapseShapeOp.getReassociationIndices();
-      auto parent = collapseShapeOp.getSrc().getDefiningOp();
-      auto inputShape = collapseShapeOp.getSrcType().getShape();
-      TensorLayout curInputLayout =
-          layoutCache.find(parent) != layoutCache.end()
-              ? layoutCache[parent].getOutputLayout(0)
-              : TensorLayout::createPlainLayout(inputShape.size());
-      auto innerPos = curInputLayout.getInnerAxis();
-      llvm::SetVector<int64_t> innerPosSet(innerPos.begin(), innerPos.end());
-      for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
-        // For each reassociation, figure out which dimensions get packed if
-        // any.
-        llvm::SetVector<int64_t> collapseDimPos(indices.begin(), indices.end());
-        llvm::SetVector<int64_t> packedDims =
-            llvm::set_intersection(innerPosSet, collapseDimPos);
-        // only one of the collapsed indices can be packed
-        if (packedDims.size() > 1)
-          return WalkResult::skip();
-        // Only the inner-most expanded dimension should be packed. Otherwise,
-        // elements order will be affected after operation reordering.
-        if (!packedDims.empty() && packedDims[0] != indices.back())
-          return WalkResult::skip();
-      }
-
-      // Project pack.inner_dims_pos to positions before shape expansion.
-      SmallVector<int64_t> projectedInnerDimsPos;
-      for (auto pos : innerPos) {
-        for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
-          if (llvm::any_of(indices, [&](int64_t collapseDim) {
-                return collapseDim == pos;
-              })) {
-            projectedInnerDimsPos.push_back(idx);
-            break;
-          }
-        }
-      }
-      assert(projectedInnerDimsPos.size() == innerPos.size() &&
-             "Invalid dim pos projection");
-
-      // outerPerm shall be a permutation of reassocIndices
-      auto outerPerm = curInputLayout.getOuterAxis();
-      SmallVector<int64_t> newOuterDimsPerm;
-      int64_t axisIdx = 0;
-      while (axisIdx < outerPerm.size()) {
-        for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
-          if (llvm::any_of(indices, [&](int64_t collapseDim) {
-                return collapseDim == outerPerm[axisIdx];
-              })) {
-            for (auto collapseDim : indices) {
-              if (collapseDim != outerPerm[axisIdx++])
-                return WalkResult::skip();
-            }
-            newOuterDimsPerm.push_back(idx);
-            break;
-          }
-        }
-      }
-      TensorLayout outputLayout(newOuterDimsPerm, projectedInnerDimsPos,
-                                curInputLayout.getTileSizes());
-      SmallVector<TensorLayout> inputLayouts{curInputLayout},
-          outputLayouts{outputLayout};
-      OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
-      layoutCache[collapseShapeOp] = suggestedLayout;
-    }
-    if (layoutCache.find(op) != layoutCache.end()) {
-      LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
-                              << " is: " << layoutCache[op] << "\n");
     }
     return WalkResult::advance();
   });
+  auto computePackingCost =
+      [&](linalg::LinalgOp linalgOp, ArrayRef<TensorLayout> curInputLayouts,
+          ArrayRef<TensorLayout> suggestedLayout) -> int64_t {
+    int64_t cost = 0;
+    for (auto [operand, curLayout, suggestedLayout] :
+         llvm::zip(linalgOp.getDpsInputOperands(), curInputLayouts,
+                   suggestedLayout)) {
+      if (curLayout != suggestedLayout) {
+        ArrayRef<int64_t> shape = linalgOp.getShape(operand);
+        int64_t inputSize = std::accumulate(
+            shape.begin(), shape.end(), (int64_t)1, std::multiplies<int64_t>());
+        if (suggestedLayout.isBlocking())
+          cost += inputSize * 0.9;
+        else
+          cost += inputSize;
+      }
+    }
+    return cost;
+  };
+  std::vector<int64_t> curChoice(possibilities.size(), 0);
+  int64_t bestCost = std::numeric_limits<int64_t>::max();
+  for (int64_t trialIdx = 0; trialIdx < totalLayoutPossibilities; ++trialIdx) {
+    // trialIdx to map
+    int64_t tmpIdx = trialIdx;
+    for (size_t i = 0; i < possibilities.size(); i++) {
+      curChoice[i] = tmpIdx % possibilities[i];
+      tmpIdx /= possibilities[i];
+    }
+    LLVM_DEBUG(llvm::dbgs() << "Inferring with layout choice: [");
+    LLVM_DEBUG(llvm::interleaveComma(curChoice, llvm::dbgs()));
+    LLVM_DEBUG(llvm::dbgs() << "].\n");
+    int64_t curMatmulIdx = 0;
+    int64_t curCost = 0;
+    DenseMap<Operation *, OperatorLayout> tmpLayoutCache;
+    root->walk([&](Operation *op) {
+      if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+        auto curInputs = linalgOp.getDpsInputOperands();
+        auto curResults = linalgOp.getOperation()->getResults();
+        // get current op's input layouts
+        SmallVector<TensorLayout> curInputLayouts;
+        for (auto input : curInputs) {
+          auto parent = input->get().getDefiningOp();
+          if (tmpLayoutCache.find(parent) != tmpLayoutCache.end()) {
+            // TODO(yifei): it is not always 0 here
+            curInputLayouts.push_back(
+                tmpLayoutCache[parent].getOutputLayout(0));
+          } else {
+            curInputLayouts.push_back(TensorLayout::createPlainLayout(
+                linalgOp.getMatchingIndexingMap(input).getNumResults()));
+          }
+        }
+        // infer current op's output layout accordingly
+        if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp)) {
+          auto suggestedLayouts =
+              queryMatmulLayout(rewriter, linalgOp, curInputLayouts, false);
+          tmpLayoutCache[linalgOp] =
+              suggestedLayouts[curChoice[curMatmulIdx++]];
+          curCost += computePackingCost(
+              linalgOp, curInputLayouts,
+              tmpLayoutCache[linalgOp].getSupportedInputLayouts());
+        } else if (mlir::gc::utils::isPackableNamedOp(op)) {
+          // infer layout for non-contraction/non-convolution linalg named ops
+          // and linalg generic ops
+          SmallVector<TensorLayout> inputLayouts, outputLayouts;
+          size_t targetIdx = getTargetInputIdx(curInputLayouts);
+          for (size_t i = 0; i < curInputs.size(); ++i) {
+            // getMatchingIndexingMap
+            if (i != targetIdx) {
+              auto indexRelation = inferIndexingMapRelation(
+                  linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
+                  linalgOp.getMatchingIndexingMap(curInputs[i]));
+              if (failed(indexRelation)) {
+                return WalkResult::skip();
+              }
+              TensorLayout inputLayout =
+                  inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
+              inputLayouts.push_back(inputLayout);
+            } else {
+              inputLayouts.push_back(curInputLayouts[targetIdx]);
+            }
+          }
+          auto indexRelation = inferIndexingMapRelation(
+              linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
+              linalgOp.getIndexingMapMatchingResult(curResults[0]));
+          if (failed(indexRelation)) {
+            return WalkResult::skip();
+          }
+          TensorLayout outputLayout =
+              inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
+          outputLayouts.push_back(outputLayout);
+          OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+          tmpLayoutCache[linalgOp] = suggestedLayout;
+          curCost +=
+              computePackingCost(linalgOp, curInputLayouts, inputLayouts);
+        }
+      } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
+        auto inputOperand = padOp.getSource();
+        auto inputRank =
+            cast<ShapedType>(inputOperand.getType()).getShape().size();
+        auto parent = inputOperand.getDefiningOp();
+        TensorLayout curInputLayout =
+            tmpLayoutCache.find(parent) != tmpLayoutCache.end()
+                ? tmpLayoutCache[parent].getOutputLayout(0)
+                : TensorLayout::createPlainLayout(inputRank);
+        SmallVector<TensorLayout> inputLayouts{curInputLayout},
+            outputLayouts{curInputLayout};
+        OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+        tmpLayoutCache[padOp] = suggestedLayout;
+      } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
+        SmallVector<ReassociationIndices> reassocIndices =
+            expandShapeOp.getReassociationIndices();
+        auto staticOutputShape = expandShapeOp.getStaticOutputShape();
+        auto parent = expandShapeOp.getSrc().getDefiningOp();
+        auto inputShape = expandShapeOp.getSrcType().getShape();
+        TensorLayout curInputLayout =
+            tmpLayoutCache.find(parent) != tmpLayoutCache.end()
+                ? tmpLayoutCache[parent].getOutputLayout(0)
+                : TensorLayout::createPlainLayout(inputShape.size());
+        SmallVector<int64_t> innerTileSizes;
+        auto tileSizes = getConstantIntValues(curInputLayout.getTileSizes());
+        if (tileSizes) {
+          innerTileSizes = *tileSizes;
+        } else {
+          return WalkResult::skip();
+        }
+        ArrayRef<int64_t> innerPosPos = curInputLayout.getInnerAxis();
+        ArrayRef<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
+        SmallVector<int64_t> projectedInnerDimsPos =
+            projectToInnerMostNonUnitDimsPos(innerPosPos, reassocIndices,
+                                             staticOutputShape);
+
+        if (!isDimsDivisibleByTileSizes(projectedInnerDimsPos,
+                                        staticOutputShape, innerTileSizes)) {
+          return WalkResult::skip();
+        }
+        SmallVector<int64_t> newOuterDimsPerm;
+        for (auto outerPos : outerDimsPerm) {
+          newOuterDimsPerm.insert(newOuterDimsPerm.end(),
+                                  reassocIndices[outerPos].begin(),
+                                  reassocIndices[outerPos].end());
+        }
+        TensorLayout outputLayout(newOuterDimsPerm, projectedInnerDimsPos,
+                                  curInputLayout.getTileSizes());
+        SmallVector<TensorLayout> inputLayouts{curInputLayout},
+            outputLayouts{outputLayout};
+        OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+        tmpLayoutCache[expandShapeOp] = suggestedLayout;
+      } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
+        SmallVector<ReassociationIndices> reassocIndices =
+            collapseShapeOp.getReassociationIndices();
+        auto parent = collapseShapeOp.getSrc().getDefiningOp();
+        auto inputShape = collapseShapeOp.getSrcType().getShape();
+        TensorLayout curInputLayout =
+            tmpLayoutCache.find(parent) != tmpLayoutCache.end()
+                ? tmpLayoutCache[parent].getOutputLayout(0)
+                : TensorLayout::createPlainLayout(inputShape.size());
+        auto innerPos = curInputLayout.getInnerAxis();
+        llvm::SetVector<int64_t> innerPosSet(innerPos.begin(), innerPos.end());
+        for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
+          // For each reassociation, figure out which dimensions get packed if
+          // any.
+          llvm::SetVector<int64_t> collapseDimPos(indices.begin(),
+                                                  indices.end());
+          llvm::SetVector<int64_t> packedDims =
+              llvm::set_intersection(innerPosSet, collapseDimPos);
+          // only one of the collapsed indices can be packed
+          if (packedDims.size() > 1)
+            return WalkResult::skip();
+          // Only the inner-most expanded dimension should be packed. Otherwise,
+          // elements order will be affected after operation reordering.
+          if (!packedDims.empty() && packedDims[0] != indices.back())
+            return WalkResult::skip();
+        }
+
+        // Project pack.inner_dims_pos to positions before shape expansion.
+        SmallVector<int64_t> projectedInnerDimsPos;
+        for (auto pos : innerPos) {
+          for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
+            if (llvm::any_of(indices, [&](int64_t collapseDim) {
+                  return collapseDim == pos;
+                })) {
+              projectedInnerDimsPos.push_back(idx);
+              break;
+            }
+          }
+        }
+        assert(projectedInnerDimsPos.size() == innerPos.size() &&
+               "Invalid dim pos projection");
+
+        // outerPerm shall be a permutation of reassocIndices
+        auto outerPerm = curInputLayout.getOuterAxis();
+        SmallVector<int64_t> newOuterDimsPerm;
+        int64_t axisIdx = 0;
+        while (axisIdx < outerPerm.size()) {
+          for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
+            if (llvm::any_of(indices, [&](int64_t collapseDim) {
+                  return collapseDim == outerPerm[axisIdx];
+                })) {
+              for (auto collapseDim : indices) {
+                if (collapseDim != outerPerm[axisIdx++])
+                  return WalkResult::skip();
+              }
+              newOuterDimsPerm.push_back(idx);
+              break;
+            }
+          }
+        }
+        TensorLayout outputLayout(newOuterDimsPerm, projectedInnerDimsPos,
+                                  curInputLayout.getTileSizes());
+        SmallVector<TensorLayout> inputLayouts{curInputLayout},
+            outputLayouts{outputLayout};
+        OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
+        tmpLayoutCache[collapseShapeOp] = suggestedLayout;
+      }
+      if (tmpLayoutCache.find(op) != tmpLayoutCache.end()) {
+        LLVM_DEBUG(llvm::dbgs() << "Inferred layout of op: " << op->getName()
+                                << " is: " << tmpLayoutCache[op] << "\n");
+      }
+      return WalkResult::advance();
+    });
+    if (curCost < bestCost) {
+      bestCost = curCost;
+      layoutCache = tmpLayoutCache;
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Current cost " << curCost
+                 << " is lower than the best cost; update best cost."
+                 << "\n");
+    }
+  }
 }
 
 namespace utils {
+bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp) {
+  if (isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
+          linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
+          linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
+          linalgOp))
+    return true;
+  return false;
+}
+
 bool isPackableNamedOp(Operation *op) {
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
     if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
         !isa<linalg::ConvolutionOpInterface>(linalgOp.getOperation()) &&
-        !supportedContractionNamedOpList(linalgOp)) {
+        !isSupportedContractionNamedOp(linalgOp)) {
       return true;
     }
   } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::PadOp>(
