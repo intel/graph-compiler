@@ -441,8 +441,7 @@ static LogicalResult createAndReplaceWithGenericVNNIMatmul(
 }
 
 template <typename OpTy>
-static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
-                                   bool useNamedOp = false) {
+static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp) {
   auto elementType = getElementTypeOrSelf(mmt4dOp.getInputs()[0].getType());
   if (!elementType.isBF16() && !elementType.isInteger(8))
     return rewriter.notifyMatchFailure(mmt4dOp, "require bf16/int8 data type");
@@ -469,17 +468,10 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
   Value VNNIPack = rewriter.create<tensor::PackOp>(
       loc, RHSOperand->get(), dest, innerPos, tileSize, zero, outerPerm);
   SmallVector<Value> inputsValues{mmt4dOp.getInputs()[0], VNNIPack};
-  if (useNamedOp) {
-    auto vnniOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
-        loc, mmt4dOp.getDpsInits().getTypes(), inputsValues,
-        mmt4dOp.getDpsInits());
-    rewriter.replaceOp(mmt4dOp, vnniOp);
-  } else {
-    auto result = mlir::gc::createAndReplaceWithGenericVNNIMatmul(
-        rewriter, mmt4dOp.getContext(), inputsValues, mmt4dOp.getDpsInits(),
-        batchDimSize, blockingFactor, mmt4dOp);
-  }
-  return success();
+  LogicalResult result = mlir::gc::createAndReplaceWithGenericVNNIMatmul(
+      rewriter, mmt4dOp.getContext(), inputsValues, mmt4dOp.getDpsInits(),
+      batchDimSize, blockingFactor, mmt4dOp);
+  return result;
 }
 
 // strictly check whether the packed matmul is BMKmk & BNKkn
@@ -513,8 +505,7 @@ If possible, pack to Mm2DVnniOp or Mm4DVnniOp.
 If not possible, pack to GenericOp.
 */
 static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
-                                     linalg::GenericOp matmulOp,
-                                     bool useNamedOp = false) {
+                                     linalg::GenericOp matmulOp) {
   if (matmulOp.getDpsInputs().size() != 2)
     return rewriter.notifyMatchFailure(matmulOp, "require 2 inputs");
 
@@ -562,17 +553,10 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
 
   int64_t batchDimSize = weightRank - 4;
   SmallVector<Value> inputsValues{matmulOp.getInputs()[0], VNNIPack};
-  if (useNamedOp) {
-    Value operandC = matmulOp.getDpsInits()[0];
-    auto VNNIMatmulOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
-        loc, operandC.getType(), inputsValues, ValueRange{operandC});
-    rewriter.replaceOp(matmulOp, VNNIMatmulOp);
-  } else {
-    mlir::gc::createAndReplaceWithGenericVNNIMatmul(
-        rewriter, matmulOp.getContext(), inputsValues, matmulOp.getDpsInits(),
-        batchDimSize, blockingFactor, matmulOp);
-  }
-  return success();
+  LogicalResult result = mlir::gc::createAndReplaceWithGenericVNNIMatmul(
+      rewriter, matmulOp.getContext(), inputsValues, matmulOp.getDpsInits(),
+      batchDimSize, blockingFactor, matmulOp);
+  return result;
 }
 
 template <typename OpTy> struct PackVNNI : public OpRewritePattern<OpTy> {

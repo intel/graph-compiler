@@ -22,21 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set LLVM hash
-        run: |
-          echo LLVM_HASH=$(cat cmake/llvm-version.txt) >>$GITHUB_ENV
-
-      - name: Fetch requirements for python binding
-        uses: actions/checkout@v4
-        with:
-          repository: llvm/llvm-project
-          ref: ${{ env.LLVM_HASH }}
-          sparse-checkout: mlir/python/requirements.txt
-          sparse-checkout-cone-mode: false
-          path: llvm-dep
-
-      - name: Install requirements
-        run: python3 -m pip install -r llvm-dep/mlir/python/requirements.txt
+      - name: Setup MLIR Python bindings
+        id: setup-mlir-python-bindings
+        uses: ./.github/actions/setup-mlir-python-bindings
 
       - name: Build
         run: |
@@ -45,3 +33,15 @@ jobs:
       - name: Test
         run: |
           cmake --build build --target gc-check
+
+      - name: Build and install benchgc
+        working-directory: build
+        run: |
+          ninja benchgc
+          pip uninstall -y benchgc || true
+          pip install test/benchgc/dist/benchgc-*.whl
+      - name: Correctness Test
+        env:
+          LD_PRELOAD: /lib/x86_64-linux-gnu/libomp5.so
+        run: |
+          scripts/correctness.sh

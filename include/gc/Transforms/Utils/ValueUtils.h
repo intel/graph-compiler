@@ -20,15 +20,18 @@ bool isValConstZero(Value val);
 // Returns true if the op defining `val` represents a zero filled tensor.
 bool isZeroTensor(Value val);
 
-// Returns the strides of `val`. The method returns something usefull
+// Returns the strides of `val`. The method returns something useful
+// only if the `val` type is a strided memref.
+FailureOr<SmallVector<int64_t>> getStrides(Value val);
+
+// Returns the strides of `val`. The method returns something useful
 // only if the `val` type is a strided memref and the strides are statically
 // known.
 FailureOr<SmallVector<int64_t>> getStaticStrides(Value val);
 
 // Return the offset and ptr for `val`. Assert if `val`
 // is not a memref.
-std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value val,
-                                        Location loc);
+std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand);
 
 } // namespace utils
 } // namespace mlir

@@ -10,6 +10,7 @@
 #define MLIR_ANALYSIS_MATMULCONFIGANALYSIS_H
 
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
@@ -46,52 +47,87 @@ inline SmallVector<unsigned> extractDimTypeIdx(ArrayRef<DimType> tyList,
   return idxList;
 }
 
+inline void getDimTypeFromIterators(linalg::LinalgOp linalgOp,
+                                    SmallVectorImpl<DimType> &dimTypes) {
+  SmallVector<mlir::utils::IteratorType> iteratorTypes =
+      linalgOp.getIteratorTypesArray();
+
+  for (const auto &&[idx, iterType] : llvm::enumerate(iteratorTypes)) {
+    if (iterType == mlir::utils::IteratorType::parallel) {
+      SmallVector<std::pair<Value, unsigned>> operandDimPairs;
+      linalgOp.mapIterationSpaceDimToAllOperandDims(idx, operandDimPairs);
+      if (operandDimPairs.size() == 3) {
+        dimTypes.push_back(DimType::Batch);
+      } else if (llvm::any_of(operandDimPairs,
+                              [&](std::pair<Value, unsigned> pair) {
+                                return pair.first ==
+                                       dyn_cast<linalg::ContractionOpInterface>(
+                                           linalgOp.getOperation())
+                                           .lhs();
+                              })) {
+        dimTypes.push_back(DimType::M);
+      } else {
+        dimTypes.push_back(DimType::N);
+      }
+    } else if (iterType == mlir::utils::IteratorType::reduction) {
+      dimTypes.push_back(DimType::K);
+    }
+  }
+}
+
+inline SmallVector<DimType>
+matchOperandToDimTypes(linalg::LinalgOp linalgOp, OpOperand *operand,
+                       ArrayRef<DimType> allDimTypes) {
+  ArrayRef<AffineExpr> map =
+      linalgOp.getMatchingIndexingMap(operand).getResults();
+  SmallVector<DimType> res;
+  for (const AffineExpr &dim : map) {
+    AffineDimExpr dimExpr = dyn_cast<AffineDimExpr>(dim);
+    res.push_back(allDimTypes[dimExpr.getPosition()]);
+  }
+  return res;
+}
+
+inline SmallVector<SmallVector<DimType>>
+getContractionOpOperandDimType(linalg::LinalgOp linalgOp) {
+  SmallVector<DimType> dimTypes;
+  getDimTypeFromIterators(linalgOp, dimTypes);
+  SmallVector<DimType> ADimTypes = matchOperandToDimTypes(
+      linalgOp, linalgOp.getDpsInputOperand(0), dimTypes);
+  SmallVector<DimType> BDimTypes = matchOperandToDimTypes(
+      linalgOp, linalgOp.getDpsInputOperand(1), dimTypes);
+  SmallVector<DimType> CDimTypes =
+      matchOperandToDimTypes(linalgOp, linalgOp.getDpsInitOperand(0), dimTypes);
+
+  return SmallVector<SmallVector<DimType>>{ADimTypes, BDimTypes, CDimTypes};
+}
+
 // Get the operand dim type for every operand for the given linalg op
 inline FailureOr<SmallVector<SmallVector<DimType>>>
 getOprandDimType(linalg::LinalgOp &linalgOp) {
   // TODO: replace the linalgx op with generic op
-  if (llvm::isa<linalg::MatmulOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (llvm::isa<linalgx::Mm2DVnniOp>(linalgOp)) {
+  if (llvm::isa<linalg::ContractionOpInterface>(linalgOp.getOperation())) {
+    return getContractionOpOperandDimType(linalgOp);
+  } else if (linalgx::isGenericPackedMatmulOp(
+                 linalgOp.getOperation(), linalgx::PackingType::VNNI_MM2D)) {
     return SmallVector<SmallVector<DimType>>{
         SmallVector<DimType>{DimType::M, DimType::K},
         SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
                              DimType::K},
         SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalgx::Mm4DVnniOp>(linalgOp)) {
+  } else if (linalgx::isGenericPackedMatmulOp(
+                 linalgOp.getOperation(), linalgx::PackingType::VNNI_MM4D)) {
     return SmallVector<SmallVector<DimType>>{
         SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
         SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N,
                              DimType::K},
         SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulOp>(linalgOp)) {
+  } else if (linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                              linalgx::PackingType::MM4D)) {
     return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::MatmulTransposeAOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::K, DimType::M},
-        SmallVector<DimType>{DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::MatmulTransposeBOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::N, DimType::K},
-        SmallVector<DimType>{DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulTransposeAOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::M},
-        SmallVector<DimType>{DimType::Batch, DimType::K, DimType::N},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
-  } else if (llvm::isa<linalg::BatchMatmulTransposeBOp>(linalgOp)) {
-    return SmallVector<SmallVector<DimType>>{
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::N, DimType::K},
-        SmallVector<DimType>{DimType::Batch, DimType::M, DimType::N}};
+        SmallVector<DimType>{DimType::M, DimType::K, DimType::M, DimType::K},
+        SmallVector<DimType>{DimType::N, DimType::K, DimType::K, DimType::N},
+        SmallVector<DimType>{DimType::M, DimType::N, DimType::M, DimType::N}};
   }
   return failure();
 }
@@ -99,11 +135,21 @@ getOprandDimType(linalg::LinalgOp &linalgOp) {
 // The analysis to extract the matmul configuration from the given linalg op
 struct MatmulConfigAnalysis {
 public:
-  explicit MatmulConfigAnalysis(Operation *root);
-  MatmulConfig getConfig() { return config; }
+  // Extract the matmul configuration from the given linalg op
+  MatmulConfigAnalysis(Operation *root) : root(root){};
+
+  // Get the matmul configuration
+  MatmulConfig getConfig();
+
+  void setAllowIndivisibleInnerBlock(bool allow) {
+    allowIndivisibleInnerBlock = allow;
+  }
 
 private:
-  MatmulConfig config;
+  MatmulConfig config = MatmulConfig{1, 1, 1, 1, 1, 1, 1, 1, 1};
+  Operation *root;
+  bool hasConfig = false;
+  bool allowIndivisibleInnerBlock = true;
 };
 
 } // namespace gc

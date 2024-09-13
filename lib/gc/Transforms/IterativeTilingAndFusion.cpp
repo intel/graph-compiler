@@ -46,6 +46,8 @@ getClosestExtractSliceOfOperand(OpOperand &operand) {
     if (auto loop =
             dyn_cast<LoopLikeOpInterface>(iterArg.getOwner()->getParentOp()))
       return getClosestExtractSliceOfOperand(*loop.getTiedLoopInit(iterArg));
+    // If operand is not using loop init.
+    return failure();
   }
 
   Operation *defineOp = operand.get().getDefiningOp();
@@ -167,10 +169,11 @@ exactTilingOnPackUnPackFilter(RewriterBase &rewriter,
       tileSizesOnInnerDims =
           llvm::to_vector(ArrayRef(tileSizes).take_back(innerTiles.size()));
     } else {
-      // Upstream doesn't implement `getTiledImplementationFromOperandTile`
-      // interface of `packOp` so far. In another word, `packOp` could not be
-      // fused as consumer. As a result, just return failure currently.
-      return failure();
+      // tileSize comes from OpOperand
+      ArrayRef<int64_t> innerDimPos = packOp.getInnerDimsPos();
+      for (auto &pos : innerDimPos) {
+        tileSizesOnInnerDims.push_back(tileSizes[pos]);
+      }
     }
   } else if (auto unPackOp = dyn_cast<tensor::UnPackOp>(defOrUse.ownerOp)) {
     innerTiles = unPackOp.getMixedTiles();
@@ -254,8 +257,8 @@ tilingSizesIfMatchedFilter(RewriterBase &rewriter,
       if (defOrUse.isDef()) {
         SmallVector<tensor::ExtractSliceOp> backwardSlice;
         FailureOr<OpResult> realProducer =
-            scfX::getRealProducerOfExtractSliceOp(otherCandidate,
-                                                  backwardSlice);
+            scfX::getRealProducerFromExtractSliceOp(otherCandidate,
+                                                    backwardSlice);
         if (succeeded(realProducer) &&
             realProducer->getDefiningOp() == defOrUse.ownerOp)
           return failure();
@@ -473,13 +476,13 @@ tileAndFuseProducerOfOpOperand(RewriterBase &rewriter, OpOperand &operand,
   // stage, sorted from inner to outer.
   SmallVector<tensor::ExtractSliceOp> backwardSlice;
   FailureOr<OpResult> realProducer =
-      scfX::getRealProducerOfExtractSliceOp(*closestSliceOp, backwardSlice);
+      scfX::getRealProducerFromExtractSliceOp(*closestSliceOp, backwardSlice);
   if (failed(realProducer))
     return std::nullopt;
 
   // c. Check the producer of root source if is tilable.
-  Operation *producer = realProducer->getDefiningOp<TilingInterface>();
-  if (!producer)
+  Operation *producerOp = realProducer->getDefiningOp<TilingInterface>();
+  if (!producerOp)
     return std::nullopt;
 
   CandidateDefOrUse defOrUse{*realProducer};
@@ -526,7 +529,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       return false;
     unsigned index = std::distance(uses.begin(), iter);
     SmallVector<unsigned> indices =
-        llvm::to_vector(llvm::seq<unsigned>(0, numberUses));
+        llvm::to_vector(llvm::seq<unsigned>(numberUses));
     indices.push_back(indices[index]);
     indices.erase(indices.begin() + index);
     operand->get().shuffleUseList(indices);
@@ -536,8 +539,8 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
   SmallVector<scf::SCFFuseConsumerOfSliceResult> fusedResultList;
   for (auto useOperand : *realConsumers) {
     // c. Check the consumer of top level result if is tilable.
-    Operation *consumer = dyn_cast<TilingInterface>(useOperand->getOwner());
-    if (!consumer)
+    Operation *consumerOp = dyn_cast<TilingInterface>(useOperand->getOwner());
+    if (!consumerOp)
       continue;
 
     CandidateDefOrUse defOrUse{useOperand};
@@ -559,7 +562,7 @@ tileAndFuseConsumerOfOpResult(RewriterBase &rewriter, OpResult result,
       // f. Manually run cse on region which contains original consumer op in
       // avoid of conflict with subsequent `tileAndFuseConsumerOfSlice` get nest
       // loops between next candidate sliceOp and tiled producer.
-      (void)mlir::simplifyRegions(rewriter, {*consumer->getParentRegion()});
+      (void)mlir::simplifyRegions(rewriter, {*consumerOp->getParentRegion()});
     }
   }
   if (fusedResultList.empty())
@@ -607,12 +610,6 @@ LogicalResult iterativelyFuseProducerAndConsumerOfTiledOp(
   return success(numTiledOps > 1);
 }
 
-/// This is a workaround to deal with LinalgXOp
-static bool isTilableLinalgXOp(Operation *op) {
-  return isa<linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,
-             linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp>(op);
-}
-
 /// Check if tiled op inside a loop?
 /// E.g.
 /// %1 = scf.for(){
@@ -625,7 +622,7 @@ static bool isTilableLinalgXOp(Operation *op) {
 /// }
 static LogicalResult isTiledOpInLoop(Operation *targetOp) {
   // 1. check tilable
-  if (!isa<TilingInterface>(targetOp) && !isTilableLinalgXOp(targetOp))
+  if (!isa<TilingInterface>(targetOp))
     return failure();
   // 2. check parentOp
   auto forOp = targetOp->getParentOfType<LoopLikeOpInterface>();
@@ -633,12 +630,9 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
     return failure();
 
   // 3. check whether has either extract or insert slice op
-  auto walkResult = forOp->walk(
-      [](tensor::ExtractSliceOp) { return WalkResult::interrupt(); });
-  if (!walkResult.wasInterrupted())
-    return failure();
-  walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
-    return isa<tensor::InsertSliceOp, tensor::ParallelInsertSliceOp>(op)
+  auto walkResult = forOp->walk([](OffsetSizeAndStrideOpInterface op) {
+    return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp,
+               tensor::ParallelInsertSliceOp>(op)
                ? WalkResult::interrupt()
                : WalkResult::advance();
   });
@@ -647,11 +641,18 @@ static LogicalResult isTiledOpInLoop(Operation *targetOp) {
 
 using OpTileSizeMap = std::unordered_map<std::string, SmallVector<int64_t>>;
 
+struct defaultTileConfig {
+  // OpTy-to-TileSize mapping
+  OpTileSizeMap tsMap;
+  // ND-tile size
+  unsigned ndTile;
+};
+
 /// Default Tiling function only effective for certain `OpTy` operation
 static FailureOr<scf::SCFTilingResult>
 defaultTilingOfType(RewriterBase &rewriter, Operation *op,
                     function_ref<bool(Operation *)> isaOpTy,
-                    const OpTileSizeMap &tsMap) {
+                    const defaultTileConfig &cfg) {
   // a. Check <OpTy>
   if (!isa<TilingInterface>(op) || !isaOpTy(op))
     return failure();
@@ -672,18 +673,20 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   // Erase dialect name, such as Linalg or Tensor.
   opName.erase(0, opName.find(".") + 1);
 
-  if (tsMap.count(opName)) {
-    SmallVector<int64_t> userDefaultTileSize = tsMap.find(opName)->second;
+  if (cfg.tsMap.count(opName)) {
+    SmallVector<int64_t> userDefaultTileSize = cfg.tsMap.find(opName)->second;
     defaultTileSize =
         getAsOpFoldResult(rewriter.getI64ArrayAttr(userDefaultTileSize));
   } else {
     defaultTileSize.resize(iteratorTypes.size(), rewriter.getIndexAttr(0));
     // Try tileSize from `32` to `16`.
     SmallVector<int64_t> tsOrder = {32, 16};
-    // Only 2D tile is expected.
-    int tileDims = (isa<mlir::linalg::LinalgOp>(op) && !linalgx::isMatmulOp(op))
-                       ? cast<mlir::linalg::LinalgOp>(op).getNumReductionLoops()
-                       : 0;
+    // Record how many dims have been tiled, including fully tiled, i.e.
+    // tileSize == dimSize.
+    unsigned nonOneTileDims =
+        (isa<mlir::linalg::LinalgOp>(op) && !linalgx::isMatmulOp(op))
+            ? cast<mlir::linalg::LinalgOp>(op).getNumReductionLoops()
+            : 0;
     // Reverse both of iteration type and domain from inner to outer.
     std::reverse(iteratorTypes.begin(), iteratorTypes.end());
     std::reverse(iterationDomain.begin(), iterationDomain.end());
@@ -692,21 +695,29 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
       // All parallel iterator will be tiled by `32` or `16`. If need
       // specified, please set option `defaultTileSize`, like `matmul:{64,64}`.
       if (iterType == utils::IteratorType::parallel) {
-        Range curDomain = iterationDomain[en];
-        std::optional<int64_t> tripCount = mlir::constantTripCount(
-            curDomain.offset, curDomain.size, curDomain.stride);
-        if (tileDims >= 2 && en > 0) {
+        if (nonOneTileDims >= cfg.ndTile && en > 0) {
           defaultTileSize[en] = rewriter.getIndexAttr(1);
           continue;
-        } else if (tripCount) {
+        }
+        Range curDomain = iterationDomain[en];
+        if (std::optional<int64_t> tripCount = mlir::constantTripCount(
+                curDomain.offset, curDomain.size, curDomain.stride)) {
+          // skip dummy tiling.
+          if (tripCount == 1)
+            continue;
           for (auto &ts : tsOrder) {
-            if (*tripCount % ts == 0 && *tripCount > ts) {
+            // If `tripCount` equals to `tileSize`, Do NOT explicitly tile it in
+            // avoid of non-zero offset.
+            if (*tripCount == ts)
+              break;
+            if (*tripCount % ts == 0) {
               defaultTileSize[en] = rewriter.getIndexAttr(ts);
               break;
             }
           }
         }
-        tileDims++;
+        // Fallback to fully tiled.
+        nonOneTileDims++;
       }
     }
   }
@@ -731,7 +742,7 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
 
 void iterativeTilingAndFusionUntilExhaustion(
     RewriterBase &rewriter, func::FuncOp &f,
-    const CandidateSliceOptions &sliceOptions, const OpTileSizeMap &tsMap) {
+    const CandidateSliceOptions &sliceOptions, const defaultTileConfig &cfg) {
   // Collect untiled and tiled ops respectively
   llvm::SetVector<Operation *> tiledOps, unTiledOps;
 
@@ -799,7 +810,7 @@ void iterativeTilingAndFusionUntilExhaustion(
       for (auto &isaOpTy : priorityOpTypeOrder) {
         for (auto &op : unTiledOps) {
           FailureOr<scf::SCFTilingResult> tilingResult =
-              defaultTilingOfType(rewriter, op, isaOpTy, tsMap);
+              defaultTilingOfType(rewriter, op, isaOpTy, cfg);
           if (succeeded(tilingResult)) {
             tiledOps.insert(tilingResult->tiledOps[0]);
             rewriter.replaceOp(op, tilingResult->replacements);
@@ -881,8 +892,8 @@ public:
     // Get rewriter
     IRRewriter rewriter(&ctx);
     // Run iterative fusion
-    iterativeTilingAndFusionUntilExhaustion(rewriter, func, sliceOptions,
-                                            tsMap);
+    iterativeTilingAndFusionUntilExhaustion(
+        rewriter, func, sliceOptions, defaultTileConfig{tsMap, defaultNDTile});
   }
 };
 

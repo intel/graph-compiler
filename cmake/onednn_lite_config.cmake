@@ -176,43 +176,46 @@ elseif(UNIX OR MINGW)
         # very upset. Tell it that it's okay and that we love it
         # unconditionally.
         append(CMAKE_CCXX_NOWARN_FLAGS "-Wno-pass-failed")
-        if(DNNL_USE_CLANG_SANITIZER MATCHES "Memory(WithOrigin)?")
-            if(NOT DNNL_CPU_THREADING_RUNTIME STREQUAL "SEQ")
-                message(WARNING "Clang OpenMP is not compatible with MSan! "
-                    "Expect a lot of false positives!")
-            endif()
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=memory")
-            if(DNNL_USE_CLANG_SANITIZER STREQUAL "MemoryWithOrigin")
+
+        if (DEFINED DNNL_USE_CLANG_SANITIZER)
+            if(DNNL_USE_CLANG_SANITIZER MATCHES "Memory(WithOrigin)?")
+                if(NOT DNNL_CPU_THREADING_RUNTIME STREQUAL "SEQ")
+                    message(WARNING "Clang OpenMP is not compatible with MSan! "
+                        "Expect a lot of false positives!")
+                endif()
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=memory")
+                if(DNNL_USE_CLANG_SANITIZER STREQUAL "MemoryWithOrigin")
+                    append(CMAKE_CCXX_SANITIZER_FLAGS
+                        "-fsanitize-memory-track-origins=2")
+                    append(CMAKE_CCXX_SANITIZER_FLAGS
+                        "-fno-omit-frame-pointer")
+                endif()
+                set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
+            elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Undefined")
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=undefined")
                 append(CMAKE_CCXX_SANITIZER_FLAGS
-                    "-fsanitize-memory-track-origins=2")
-                append(CMAKE_CCXX_SANITIZER_FLAGS
-                    "-fno-omit-frame-pointer")
+                    "-fno-sanitize=function,vptr")  # work around linking problems
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-fno-omit-frame-pointer")
+                set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
+            elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Address")
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=address")
+                set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
+            elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Thread")
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=thread")
+                set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
+            elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Leak")
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=leak")
+                set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
+            else()
+                message(FATAL_ERROR
+                    "Unsupported Clang sanitizer '${DNNL_USE_CLANG_SANITIZER}'")
             endif()
-            set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
-        elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Undefined")
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=undefined")
-            append(CMAKE_CCXX_SANITIZER_FLAGS
-                "-fno-sanitize=function,vptr")  # work around linking problems
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-fno-omit-frame-pointer")
-            set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
-        elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Address")
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=address")
-            set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
-        elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Thread")
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=thread")
-            set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
-        elseif(DNNL_USE_CLANG_SANITIZER STREQUAL "Leak")
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-fsanitize=leak")
-            set(DNNL_ENABLED_CLANG_SANITIZER "${DNNL_USE_CLANG_SANITIZER}")
-        elseif(NOT DNNL_USE_CLANG_SANITIZER STREQUAL "")
-            message(FATAL_ERROR
-                "Unsupported Clang sanitizer '${DNNL_USE_CLANG_SANITIZER}'")
-        endif()
-        if(DNNL_ENABLED_CLANG_SANITIZER)
-            message(STATUS
-                "Using Clang ${DNNL_ENABLED_CLANG_SANITIZER} "
-                "sanitizer (experimental!)")
-            append(CMAKE_CCXX_SANITIZER_FLAGS "-g -fno-omit-frame-pointer")
+            if(DNNL_ENABLED_CLANG_SANITIZER)
+                message(STATUS
+                    "Using Clang ${DNNL_ENABLED_CLANG_SANITIZER} "
+                    "sanitizer (experimental!)")
+                append(CMAKE_CCXX_SANITIZER_FLAGS "-g -fno-omit-frame-pointer")
+            endif()
         endif()
 
         if (DNNL_USE_CLANG_TIDY MATCHES "(CHECK|FIX)" AND ${CMAKE_VERSION} VERSION_LESS "3.6.0")

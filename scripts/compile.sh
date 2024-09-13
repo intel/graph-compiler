@@ -82,15 +82,13 @@ else
 fi
 
 load_llvm() {
-    local run_id
-
     if [ "$ENABLE_IMEX"  = "true" ]; then
         local llvm_version="llvm-${LLVM_HASH}-imex-patched"
     else
         local llvm_version="llvm-${LLVM_HASH}"
     fi
 
-    gh run download "$run_id" \
+    gh run download \
         --repo "$REPO" \
         -n "$llvm_version" \
         --dir "$llvm_dir"
@@ -122,17 +120,18 @@ build_llvm() {
         local mlir_ext_dir="$EXTERNALS_DIR/mlir-extensions"
         if ! [ -d "$mlir_ext_dir" ]; then
             cd "$EXTERNALS_DIR"
-            git clone https://github.com/Menooker/mlir-extensions.git
+            git clone https://github.com/intel/mlir-extensions.git
             cd "$mlir_ext_dir"
         else
             cd "$mlir_ext_dir"
             git fetch --all
         fi
 
-        git checkout dev
+        IMEX_HASH=$(cat "$PROJECT_DIR/cmake/imex-version.txt")
+        git checkout ${IMEX_HASH}
 
         cd "$llvm_dir"
-        find "$mlir_ext_dir/build_tools/patches" -name '*.patch' -exec git apply  {} +
+        find "$mlir_ext_dir/build_tools/patches" -name '*.patch' | sort -V | xargs git apply
     fi
 
     cmake -G Ninja llvm -B build \
@@ -148,7 +147,7 @@ build_llvm() {
         -DLLVM_LINK_LLVM_DYLIB=$DYN_LINK \
         -DLLVM_INCLUDE_RUNTIMES=OFF \
         -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_TESTS=ON \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_INCLUDE_DOCS=OFF \
         -DLLVM_INSTALL_UTILS=ON \
@@ -163,6 +162,7 @@ build_llvm() {
 get_llvm() {
     if [ ! -z "$DEV_BUILD" ]; then
         mkdir -p "$EXTERNALS_DIR"
+        cd "$EXTERNALS_DIR"
         build_llvm
         cd "$PROJECT_DIR"
         return 0
