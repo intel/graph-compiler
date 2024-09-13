@@ -399,7 +399,7 @@ int getNearestVectorStep(const int step) {
     n = n >> 1;
     nbits++;
   }
-  if (nbits > 6 and !(nbits == 7 && step == 64))
+  if (nbits > 6 and (nbits != 7 or step != 64))
     llvm_unreachable("wrong nbits appear");
   return (1 << (nbits - 1)) == step ? step : (1 << nbits);
 }

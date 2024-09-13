@@ -276,7 +276,7 @@ public:
       const SmallVector<vector::BroadcastOp, 4> &candidateBcOps,
       size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::BroadcastOp>(
-            candidateBcOps, SpecialOperationKind::OP_Broadcast, steps) {};
+            candidateBcOps, SpecialOperationKind::OP_Broadcast, steps){};
   virtual ~BroadcastCanonicalizer() noexcept {}
   void prepareSpecialOperationInfo() override {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -295,9 +295,9 @@ public:
       const llvm::SmallVector<vector::TransposeOp, 4> &candidateTpOps,
       size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::TransposeOp>(
-            candidateTpOps, SpecialOperationKind::OP_Transpose, steps) {};
+            candidateTpOps, SpecialOperationKind::OP_Transpose, steps){};
   virtual ~TransposeCanonicalizer() noexcept {}
-  void prepareSpecialOperationInfo() override {};
+  void prepareSpecialOperationInfo() override{};
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_Transpose;
   }
@@ -324,7 +324,7 @@ public:
       const SmallVector<vector::ShapeCastOp, 4> &candidateScOps,
       size_t steps = 1)
       : SpecialOperationCanonicalizer<vector::ShapeCastOp>(
-            candidateScOps, SpecialOperationKind::OP_ShapeCast, steps) {};
+            candidateScOps, SpecialOperationKind::OP_ShapeCast, steps){};
   virtual ~ShapeCastCanonicalizer() {}
   void prepareSpecialOperationInfo() override {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
@@ -460,7 +460,7 @@ private:
   SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
 
 public:
-  LoopGeneratorImpl(GroupOperationFusion &fusion) : ForLoopGenerator(fusion) {};
+  LoopGeneratorImpl(GroupOperationFusion &fusion) : ForLoopGenerator(fusion){};
 
   virtual ~LoopGeneratorImpl() noexcept {};
 
