@@ -30,8 +30,7 @@ namespace gc {
       tensor::InsertSliceOp, microkernel::BrgemmOp
 
 static inline bool isNotNeedToProcessOp(Operation *op) {
-  return isa<NOT_NEED_TO_PROCESS_OP>(op) or
-         linalgx::isAnyGenericPackedMatmulOp(op);
+  return isa<NOT_NEED_TO_PROCESS_OP>(op) or linalgx::isMatmulOp(op);
 }
 
 static inline bool isSpecialOp(Operation *op) {
