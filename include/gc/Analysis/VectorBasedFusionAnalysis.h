@@ -12,6 +12,7 @@
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Transforms/Passes.h"
+#include "gc/Transforms/Utils/VectorUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -24,11 +25,6 @@
 
 namespace mlir {
 namespace gc {
-
-mlir::FailureOr<VectorType> getOperationVectorType(Operation *op,
-                                                   bool isPrevOp = true);
-int getNearestVectorStep(const int step);
-mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op);
 
 /// record hardware information
 struct HardWareInfo {
@@ -136,7 +132,7 @@ public:
       : VectorFusionBase(strategy.getFunction(), strategy.getHardwareInfo()),
         opGroups(strategy.opGroups), groupMaxSteps(strategy.groupMaxSteps),
         opGroupIndexMap(strategy.opGroupIndexMap),
-        opAnchorPos(strategy.opAnchorPos) {};
+        opAnchorPos(strategy.opAnchorPos){};
 
   GroupOperationFusion(GroupOperationFusion &&strategy)
       : VectorFusionBase(strategy.getFunction(), strategy.getHardwareInfo()),
@@ -145,7 +141,7 @@ public:
         groupBigestRankVectorType(
             std::move(strategy.getGroupBiggestRankVectorType())),
         opGroupIndexMap(std::move(strategy.opGroupIndexMap)),
-        opAnchorPos(std::move(strategy.opAnchorPos)) {};
+        opAnchorPos(std::move(strategy.opAnchorPos)){};
 
   GroupOperationFusion &operator=(GroupOperationFusion &fusion) {
     this->getOpGroups() = fusion.getOpGroups();

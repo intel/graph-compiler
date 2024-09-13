@@ -10,7 +10,6 @@
 
 #include "gc/Analysis//VectorBasedFusionAnalysis.h"
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
-#include "gc/Transforms/Utils/VectorUtils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -21,7 +20,6 @@
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
-#include "mlir/ExecutionEngine/Float16bits.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/CSE.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -29,23 +27,6 @@
 
 namespace mlir {
 namespace gc {
-
-//===----------------------------------------------------------------------===//
-// helper function
-//===----------------------------------------------------------------------===//
-
-/// build a constant operation of index type
-Value makeIndexArithConstantOp(OpBuilder &opBuilder, Location &loc, int64_t x);
-
-/// get operation read or write tensor
-mlir::FailureOr<Value> getOperationOperateTensor(Operation *op);
-
-/// set correct operand for the operation
-void setOperationCorrectOperand(
-    Operation *op, ValueRange iterArgs, DenseMap<Value, int> &operandIdxMap,
-    DenseMap<Value, Value> &originalOperandLoopArgsMap,
-    ArrayRef<Value> inductionVars,
-    DenseMap<Operation *, AffineMap> &opPermuationMap);
 
 /// get fusion kind
 /// Has two kind:

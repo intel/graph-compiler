@@ -150,6 +150,8 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());

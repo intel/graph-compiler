@@ -85,18 +85,6 @@ static inline void moveOpBeginingOfBlock(Operation *op) {
   op->moveBefore(&block->front());
 }
 
-/// find the original tensor
-Value findOriginalTensor(Value writeTensor, Block *block) {
-  while (auto wtOp = dyn_cast_or_null<vector::TransferWriteOp>(
-             writeTensor.getDefiningOp())) {
-    if (block != writeTensor.getDefiningOp()->getBlock())
-      break;
-
-    writeTensor = wtOp->getOperand(1);
-  }
-  return writeTensor;
-}
-
 /// whether operation is a not support operation
 bool isNotSupportOperation(Operation *op) {
   return isa<vector::MaskOp, vector::ConstantMaskOp, vector::MaskedLoadOp,
@@ -515,13 +503,6 @@ void classifyAccRelatedOps(std::queue<Operation *> &accRelatedOps,
     else
       sourceRelatedOps.push(op);
   }
-}
-
-Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
-                               int64_t x) {
-  return opBuilder.create<arith::ConstantOp>(
-      loc, opBuilder.getIndexType(),
-      opBuilder.getIntegerAttr(opBuilder.getIndexType(), x));
 }
 
 void ForLoopGenerator::moveOperationsToCurrentForBody(
@@ -2422,25 +2403,6 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
       llvm_unreachable("Failed to rewrite operation");
     }
   }
-}
-
-mlir::FailureOr<Value> getOperationOperateTensor(Operation *op) {
-  return TypeSwitch<Operation *, mlir::FailureOr<Value>>(op)
-      .Case<vector::TransferWriteOp>(
-          [&](vector::TransferWriteOp transferWriteOp) {
-            // find original tensor.empty operation
-            auto writeTensor = transferWriteOp->getOperand(1);
-            writeTensor =
-                findOriginalTensor(writeTensor, transferWriteOp->getBlock());
-            return writeTensor;
-          })
-      .Case<vector::TransferReadOp>([&](vector::TransferReadOp transferReadOp) {
-        return transferReadOp->getOperand(0);
-      })
-      .Default([&](Operation *op) {
-        LDBG("Try to get not DPS operation inits: " << *op << "\n");
-        return failure();
-      });
 }
 
 void GroupOperationFusionImpl::removeOpInCurrentGroups(size_t grpIdx,

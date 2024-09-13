@@ -160,5 +160,154 @@ std::variant<float, int64_t> numericLimitsMaximum(Type type) {
   }
 }
 
+mlir::FailureOr<VectorType> getOperationVectorType(Operation *op,
+                                                   bool isPrevOp) {
+  if (not op)
+    return failure();
+
+  auto isDynamicType = [](VectorType &type) { return !type.hasStaticShape(); };
+  auto ret =
+      TypeSwitch<Operation *, mlir::FailureOr<VectorType>>(op)
+          .Case<vector::TransferWriteOp>(
+              [&](vector::TransferWriteOp transferWriteOp)
+                  -> mlir::FailureOr<VectorType> {
+                if (auto retType = dyn_cast<VectorType>(
+                        transferWriteOp.getOperandTypes()[0]))
+                  return retType;
+
+                return failure();
+              })
+          .Case<vector::TransferReadOp>(
+              [&](vector::TransferReadOp transferReadOp)
+                  -> mlir::FailureOr<VectorType> {
+                return transferReadOp.getVectorType();
+              })
+          .Case<vector::MultiDimReductionOp>(
+              [&](vector::MultiDimReductionOp multiReductionOp) {
+                if (isPrevOp)
+                  return cast<VectorType>(
+                      multiReductionOp->getResultTypes()[0]);
+
+                // TODO: may need to add accumulate value vectortype
+                return cast<VectorType>(multiReductionOp.getSourceVectorType());
+              })
+          .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
+            if (isPrevOp) {
+              if (op->getResultTypes().empty())
+                return failure();
+
+              if (auto shapedType =
+                      dyn_cast<VectorType>(op->getResultTypes()[0]))
+                return shapedType;
+
+              return failure();
+            }
+            if (op->getOperandTypes().empty())
+              return failure();
+
+            if (auto shapedType =
+                    dyn_cast<VectorType>(op->getOperandTypes()[0]))
+              return shapedType;
+
+            return failure();
+          });
+  if (!failed(ret) and isDynamicType(ret.value()))
+    return failure();
+
+  return ret;
+}
+
+mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op) {
+  if (not op)
+    return failure();
+
+  auto isDynamicType = [](VectorType &type) { return !type.hasStaticShape(); };
+  auto ret =
+      TypeSwitch<Operation *, mlir::FailureOr<VectorType>>(op)
+          .Case<vector::TransferWriteOp>(
+              [&](vector::TransferWriteOp transferWriteOp)
+                  -> mlir::FailureOr<VectorType> {
+                if (auto retType =
+                        cast<VectorType>(transferWriteOp.getOperandTypes()[0]))
+                  return retType;
+                return failure();
+              })
+          .Case<vector::TransferReadOp>(
+              [&](vector::TransferReadOp transferReadOp)
+                  -> mlir::FailureOr<VectorType> {
+                return transferReadOp.getVectorType();
+              })
+          .Case<vector::MultiDimReductionOp>(
+              [&](vector::MultiDimReductionOp multiReductionOp) {
+                return cast<VectorType>(multiReductionOp.getSourceVectorType());
+              })
+          .Default([&](Operation *op) -> mlir::FailureOr<VectorType> {
+            if (op->getResultTypes().empty() and op->getOperandTypes().empty())
+              return failure();
+
+            if (op->getResultTypes().empty())
+              return cast<VectorType>(op->getOperandTypes()[0]);
+
+            if (op->getOperandTypes().empty())
+              return cast<VectorType>(op->getResultTypes()[0]);
+
+            auto opdType = cast<VectorType>(op->getOperandTypes()[0]);
+            auto retType = cast<VectorType>(op->getResultTypes()[0]);
+            return opdType.getRank() > retType.getRank() ? opdType : retType;
+          });
+  if (!failed(ret) and isDynamicType(ret.value()))
+    return failure();
+
+  return ret;
+}
+
+int getNearestVectorStep(const int step) {
+  if (step <= 0)
+    llvm_unreachable("Wrong step.");
+
+  int nbits = 0, n = step;
+  while (n) {
+    n = n >> 1;
+    nbits++;
+  }
+  if (nbits > 6 and (nbits != 7 or step != 64))
+    llvm_unreachable("wrong nbits appear");
+  return (1 << (nbits - 1)) == step ? step : (1 << nbits);
+}
+
+Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
+                               int64_t x) {
+  return opBuilder.create<arith::ConstantOp>(
+      loc, opBuilder.getIndexType(),
+      opBuilder.getIntegerAttr(opBuilder.getIndexType(), x));
+}
+
+Value findOriginalTensor(Value writeTensor, Block *block) {
+  while (auto wtOp = dyn_cast_or_null<vector::TransferWriteOp>(
+             writeTensor.getDefiningOp())) {
+    if (block != writeTensor.getDefiningOp()->getBlock())
+      break;
+
+    writeTensor = wtOp->getOperand(1);
+  }
+  return writeTensor;
+}
+
+mlir::FailureOr<Value> getOperationOperateTensor(Operation *op) {
+  return TypeSwitch<Operation *, mlir::FailureOr<Value>>(op)
+      .Case<vector::TransferWriteOp>(
+          [&](vector::TransferWriteOp transferWriteOp) {
+            // find original tensor.empty operation
+            auto writeTensor = transferWriteOp->getOperand(1);
+            writeTensor =
+                findOriginalTensor(writeTensor, transferWriteOp->getBlock());
+            return writeTensor;
+          })
+      .Case<vector::TransferReadOp>([&](vector::TransferReadOp transferReadOp) {
+        return transferReadOp->getOperand(0);
+      })
+      .Default([&](Operation *op) { return failure(); });
+}
+
 } // namespace gc
 } // namespace mlir
