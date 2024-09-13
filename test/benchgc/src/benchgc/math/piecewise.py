@@ -14,17 +14,20 @@
 # limitations under the License.
 ################################################################################
 
-import setuptools
+from typing import Dict, Tuple
 
-setuptools.setup(
-    name="benchgc",
-    description="benchmark tool for graph compiler",
-    package_dir={
-        "benchgc": "src/benchgc",
-        "gc_mlir": "../../python_packages/gc_mlir_core/gc_mlir",
-    },
-    packages=setuptools.find_packages("src")
-    + setuptools.find_namespace_packages("../../python_packages/gc_mlir_core"),
-    package_data={"gc_mlir": ["_mlir_libs/*.so"]},
-    install_requires=["torch", "numpy"],
-)
+import gc_mlir.ir as ir
+import torch
+from benchgc.mlir.util import MLIRCache
+
+
+def ref_absf(
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
+) -> Tuple[torch.Tensor, ...]:
+    return (torch.abs(var[cache.opr[0]]),)
+
+
+def ref_absi(
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
+) -> Tuple[torch.Tensor, ...]:
+    return (torch.abs(var[cache.opr[0]]),)

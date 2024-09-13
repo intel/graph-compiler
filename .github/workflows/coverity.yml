@@ -53,6 +53,10 @@ jobs:
           echo "email=$email" | tee -a $GITHUB_ENV
           echo "version=$version" | tee -a $GITHUB_ENV
 
+      - name: Setup MLIR Python bindings
+        id: setup-mlir-python-bindings
+        uses: ./.github/actions/setup-mlir-python-bindings
+
       - name: Run coverity build
         run: |
           

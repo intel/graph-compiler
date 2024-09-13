@@ -14,12 +14,42 @@
 # limitations under the License.
 ################################################################################
 
-from typing import List, Tuple
+import argparse
+from typing import List, Set, Tuple
 
 import benchgc.arg
 import benchgc.util
 import torch
+from benchgc.arg.arg import Arg
+from benchgc.arg.compare import p2p
 
+op: Set[str] = set(
+    [
+        "linalg.reduce.add",
+        "linalg.reduce.mul",
+        "linalg.reduce.max",
+        "linalg.reduce.min",
+        "linalg.reduce.l1",
+        "linalg.reduce.l2_square",
+    ]
+)
+
+
+def default_fill(
+    flags: argparse.Namespace,
+    arg: Arg,
+    arglist: List[Arg],
+):
+    if arg.index > 0:
+        raise Exception("reduce fill: dst filling is not allowed")
+    arg.fill_param = [
+        "reduce",
+        flags.case,
+        arglist[0].dtype,
+        arglist[1].dtype,
+        str(arglist[0].nelem() // arglist[1].nelem()),
+    ]
+    arg.fill_type = "D"
 
 def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tensor:
 
@@ -30,22 +60,17 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
 
     safe_to_reduce_elems: int = benchgc.util.get_problem_bounds(op, sdtype)[0]
 
-    neutral_value: float = 1.0 if op == "mul" else 0.0
+    neutral_value: float = 1.0 if op == "reduce.mul" else 0.0
 
     shift: float = (
         1.0
-        if (
-            op == "mean"
-            or op == "min"
-            and not sdtype.is_signed
-            and not ddtype.is_signed
-        )
+        if (op == "reduce.min" and not sdtype.is_signed and not ddtype.is_signed)
         else 0.0
     )
 
     value_range: int = benchgc.util.get_problem_bounds(op, sdtype)[1]
 
-    is_mul_fp: bool = op == "mul" and sdtype.is_floating_point
+    is_mul_fp: bool = op == "reduce.mul" and sdtype.is_floating_point
     min_range: int = -value_range if is_mul_fp else 1
 
     index = torch.arange(benchgc.util.nelem(shape)).reshape(shape)
@@ -69,10 +94,18 @@ def fill(shape: List[int], dtype: torch.dtype, params: List[str]) -> torch.Tenso
     return value.to(dtype)
 
 
+def default_compare(
+    flags: argparse.Namespace,
+    arg: Arg,
+    arglist: List[Arg],
+):
+    arg.cmp_type = "D"
+    arg.cmp_param = ["reduce", arg.dtype, flags.case]
+
 def compare(
-    ref: torch.Tensor, res: torch.Tensor, verbose: int
+    param: List[str], ref: torch.Tensor, res: torch.Tensor, verbose: int
 ) -> Tuple[bool, bool | None]:
     dtype = ref.dtype
     ref = ref.to(torch.float)
     res = res.to(torch.float)
-    return benchgc.arg.p2p(benchgc.util.get_eps(dtype), 30.0, ref, res, verbose)
+    return p2p(benchgc.util.get_eps(dtype), 30.0, ref, res, verbose)

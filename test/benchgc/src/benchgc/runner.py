@@ -22,6 +22,7 @@ import gc_mlir.dialects.func
 import torch
 from benchgc.arith import ref_op as arith_ref_op
 from benchgc.linalg import ref_op as linalg_ref_op
+from benchgc.math import ref_op as math_ref_op
 from benchgc.mlir.util import MLIRCache
 from benchgc.tensor import ref_op as tensor_ref_op
 from gc_mlir import ir
@@ -43,6 +44,8 @@ def dfs_op(
         ref_op = tensor_ref_op
     elif dialect_call.startswith("arith"):
         ref_op = arith_ref_op
+    elif dialect_call.startswith("math"):
+        ref_op = math_ref_op
     else:
         build_cache = len(cache.next) == 0
         for i in range(len(op.regions)):

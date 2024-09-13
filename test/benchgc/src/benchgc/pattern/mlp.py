@@ -104,8 +104,6 @@ class MLP(Pattern):
                         inputs=[src] + weights + bias, results=[result]
                     ),
                 )
-                f.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
-
                 with ir.InsertionPoint(f.add_entry_block()):
                     data = f.entry_block.arguments[0]
                     bias_idx = len(weights) + 1
