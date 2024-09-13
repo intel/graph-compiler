@@ -86,7 +86,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
   llvm::ArrayRef<int32_t> foldArgs;
   do {
     {
-      auto expectArgs = engine->lookup("__num_orig_num_args");
+      auto expectArgs = engine->lookup("__num_orig_args");
       if (!expectArgs) { // nothing to fold, It is OK.
         llvm::consumeError(expectArgs.takeError());
         // break out of the scope, don't need to lookup other things
@@ -98,7 +98,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     // If lookup("__num_orig_num_args") succeeds, then all the following should
     // also succeed.
     {
-      auto expectBufferIds = engine->lookup("__runtime_fold_buffer_ids_");
+      auto expectBufferIds = engine->lookup("__runtime_fold_buffer_ids");
       if (!expectBufferIds) {
         expectBufferIds.takeError();
         break;
