@@ -187,6 +187,14 @@ def add_common_options(parser: argparse.ArgumentParser):
             type=int,
         )
 
+        parser.add_argument(
+            "--permutation",
+            required=False,
+            default=None,
+            action="append",
+            help="define the permutation attribute in linalg op",
+            type=int,
+        )
 
 def add_bench_options(parser: argparse.ArgumentParser):
     """add options for bench mode"""
@@ -274,6 +282,9 @@ def get_module_and_args(flags: argparse.Namespace):
         args[idx].set_cmp(cmp[colon + 1 :])
 
     entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
+
+    with module.context:
+        entry.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
 
     for i, arg in enumerate(args):
         # use zero filling if the arg is return value
