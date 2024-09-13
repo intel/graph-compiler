@@ -592,7 +592,7 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
   globalIndexes.insert(globalIndexes.begin(), globalIndexes.size());
   auto moduleOp = dyn_cast<ModuleOp>(topOp);
   addGlobalI64Array(moduleOp, moduleOp.getLoc(), builder,
-                    "__" + name + "_buffer_ids_", globalIndexes);
+                    "__" + name + "_buffer_ids", globalIndexes);
 
   auto returnOp =
       builder.create<func::ReturnOp>(topOp->getLoc(), outputValuesInFold);
@@ -604,6 +604,24 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
                                        return op->getBlock() == foldBlock;
                                      });
   }
+
+  // the ranks of folded results.
+  SmallVector<int32_t> foldRanks;
+  // the shapes of folded results.
+  SmallVector<int64_t> foldShapes;
+  for (Value &tensor : outputValuesInFold) {
+    auto t = dyn_cast<TensorType>(tensor.getType());
+    Type eleType = t.getElementType();
+    int64_t bitWidth = eleType.getIntOrFloatBitWidth() / 8; // bytes
+    ArrayRef<int64_t> shape = t.getShape();
+    foldRanks.push_back(shape.size());
+    foldShapes.insert(foldShapes.end(), shape.begin(), shape.end());
+    foldShapes.push_back(bitWidth);
+  }
+  addGlobalI32Array(moduleOp, moduleOp.getLoc(), builder, "__folded_ranks",
+                    foldRanks);
+  addGlobalI64Array(moduleOp, moduleOp.getLoc(), builder, "__folded_shapes",
+                    foldShapes);
 
   foldFunc.setVisibility(SymbolTable::Visibility::Public);
   foldFunc->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
@@ -621,11 +639,13 @@ void modifyComputeFunc(MLIRContext *context, OpBuilder &builder,
                        std::unordered_set<int> &constArgsIndexes,
                        SmallVector<Type> &outputTypes,
                        SmallVector<Value> &outputValues) {
-  // the indexes of args to the folding func.
+  // the indexes of args to the folding func, including to-fold tensors and
+  // folded results.
   SmallVector<int32_t> foldArgs;
-  // the indexes of folded args.
+  // the indexes of folded results.
   SmallVector<int32_t> foldIds;
-  // the indexes of args to the computing func.
+  // the indexes of args to the computing func, including non-fold tensors and
+  // folded results.
   SmallVector<int32_t> computeArgs;
 
   // modify the BlockArguments of block
@@ -705,7 +725,7 @@ void modifyComputeFunc(MLIRContext *context, OpBuilder &builder,
   addGlobalI32Array(moduleOp, moduleOp.getLoc(), builder, "__compute_args",
                     computeArgs);
 
-  addGlobalI32(moduleOp, moduleOp.getLoc(), builder, "__num_orig_num_args",
+  addGlobalI32(moduleOp, moduleOp.getLoc(), builder, "__num_orig_args",
                oriNumArgs);
 }
 
@@ -728,6 +748,14 @@ void canonicalizeAndClean(MLIRContext *context, Operation *topOp) {
   topOp->walk([&](Operation *op) {
     if (op->getAttr("onednn_graph.in_const_subgraph")) {
       op->removeAttr("onednn_graph.in_const_subgraph");
+    }
+  });
+  topOp->walk([&](func::FuncOp op) {
+    if (op.getOperation()->getAttr("compiletime_const_args_index")) {
+      op.getOperation()->removeAttr("compiletime_const_args_index");
+    }
+    if (op.getOperation()->getAttr("runtime_const_args_index")) {
+      op.getOperation()->removeAttr("runtime_const_args_index");
     }
   });
 }

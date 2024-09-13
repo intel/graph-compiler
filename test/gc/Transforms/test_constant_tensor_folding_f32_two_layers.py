@@ -111,7 +111,7 @@ module {
 #map3 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #map4 = affine_map<(d0, d1, d2, d3) -> (d1, d3)>
 module {
-  llvm.mlir.global external constant @__num_orig_num_args(5 : i32) {addr_space = 0 : i32} : i32
+  llvm.mlir.global external constant @__num_orig_args(5 : i32) {addr_space = 0 : i32} : i32
   llvm.mlir.global external constant @__compute_args(dense<[5, 0, 5, 6, 7, 8]> : tensor<6xi32>) {addr_space = 0 : i32} : !llvm.array<6 x i32>
   llvm.mlir.global external constant @__fold_args(dense<[8, 1, 2, 3, 4, 5, 6, 7, 8]> : tensor<9xi32>) {addr_space = 0 : i32} : !llvm.array<9 x i32>
   llvm.mlir.global external constant @__runtime_fold_buffer_ids_(dense<[4, 0, 1, 2, 3]> : tensor<5xi64>) {addr_space = 0 : i32} : !llvm.array<5 x i64>
