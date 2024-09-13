@@ -207,9 +207,6 @@ bool hasDataDependency(Operation *op1, Operation *op2) {
   if (isa<vector::BroadcastOp>(op2))
     return true;
 
-  if (isa<vector::BroadcastOp>(op1))
-    return true;
-
   // only special operation may cause data dependency
   if (!isSpecialOp(op1))
     return hasDataDependency(op2, op1);
