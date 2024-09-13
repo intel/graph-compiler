@@ -79,7 +79,7 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
   // TODO(yifei): remove lower pack here
-  // pm.addPass(createLowerPackUnpack());
+  pm.addPass(createLowerPackUnpack());
   populateCleanUpPasses(pm);
   // fold useless tensor operation pass
   pm.addPass(createFoldTensorOperation());
@@ -89,7 +89,7 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::OpPassManager &pm) {
 
-  pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
+  // pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
   // Do promotion for math / arith ops
   pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
@@ -103,7 +103,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   // oneDNN graph spec
   // pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
-  pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
+  // pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
 }

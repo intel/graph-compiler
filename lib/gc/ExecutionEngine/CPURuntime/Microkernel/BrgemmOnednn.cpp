@@ -142,10 +142,6 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
   size_t B_offset_in_bytes;
   size_t C_offset_in_bytes;
   {
-    read_lock_guard_t g(g_brgemm_lock);
-    assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
-           "Invalid kernel handler");
-
     brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
     kernel = g_brgemm_kernel_list[kernel_idx];
 
@@ -154,7 +150,6 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
     C_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_c) * C_offset;
   }
 
-  assert(kernel && "Invalid brgemm kernel pointer");
   char *A_arith = (char *)A;
   char *B_arith = (char *)B;
   char *C_arith = (char *)C;
