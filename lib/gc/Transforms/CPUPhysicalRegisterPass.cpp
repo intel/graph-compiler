@@ -47,7 +47,7 @@ void printGroupOps(SmallVector<std::queue<Operation *>, 8> &opGroups) {
   }
 }
 
-static inline bool isUsedByOtherOp(Operation *op) {
+static inline bool isProducerOp(Operation *op) {
   return isa<affine::AffineApplyOp>(op);
 }
 
@@ -77,7 +77,9 @@ static inline bool isSpecialOp(Operation *op) {
 
 static inline void moveOpBeginingOfBlock(Operation *op) {
   Block *block = op->getBlock();
-  assert(not block->getOperations().empty() && "Empty block.");
+  if (block->getOperations().empty())
+    llvm_unreachable("Emtpy block.");
+
   if (&block->front() == op)
     return;
   op->moveBefore(&block->front());
@@ -236,11 +238,11 @@ FailureOr<Value> createArithSplatConstantOp(IRRewriter &rewriter,
     return failure();
 
   TypedAttr attr;
-  if (isa<FloatType>(newOperandType.getElementType())) {
+  if (isa<FloatType>(newOperandType.getElementType()))
     getConstantDenseAttr<DenseFPElementsAttr>(attr, newOperandType, valueType);
-  } else {
+  else
     getConstantDenseAttr<DenseIntElementsAttr>(attr, newOperandType, valueType);
-  }
+
   return rewriter.create<arith::ConstantOp>(loc, attr)->getResults()[0];
 }
 
@@ -253,211 +255,6 @@ bool needReturnResult(std::pair<ReturnTypeKind, size_t> &retType,
          retType.second < anchorIdx;
 }
 
-union Float32Bits {
-  uint32_t u;
-  float f;
-};
-
-const uint32_t kF32MantiBits = 23;
-const uint32_t kF32HalfMantiBitDiff = 13;
-const uint32_t kF32HalfBitDiff = 16;
-const Float32Bits kF32Magic = {113 << kF32MantiBits};
-const uint32_t kF32HalfExpAdjust = (127 - 15) << kF32MantiBits;
-const uint32_t kF32BfMantiBitDiff = 16;
-
-/// Constructs the 16 bit representation for a half precision value from a float
-/// value. This implementation is adapted from Eigen.
-uint16_t float2half(float floatValue) {
-  const Float32Bits inf = {255 << kF32MantiBits};
-  const Float32Bits f16max = {(127 + 16) << kF32MantiBits};
-  const Float32Bits denormMagic = {((127 - 15) + (kF32MantiBits - 10) + 1)
-                                   << kF32MantiBits};
-  uint32_t signMask = 0x80000000u;
-  uint16_t halfValue = static_cast<uint16_t>(0x0u);
-  Float32Bits f;
-  f.f = floatValue;
-  uint32_t sign = f.u & signMask;
-  f.u ^= sign;
-
-  if (f.u >= f16max.u) {
-    const uint32_t halfQnan = 0x7e00;
-    const uint32_t halfInf = 0x7c00;
-    // Inf or NaN (all exponent bits set).
-    halfValue = (f.u > inf.u) ? halfQnan : halfInf; // NaN->qNaN and Inf->Inf
-  } else {
-    // (De)normalized number or zero.
-    if (f.u < kF32Magic.u) {
-      // The resulting FP16 is subnormal or zero.
-      //
-      // Use a magic value to align our 10 mantissa bits at the bottom of the
-      // float. As long as FP addition is round-to-nearest-even this works.
-      f.f += denormMagic.f;
-
-      halfValue = static_cast<uint16_t>(f.u - denormMagic.u);
-    } else {
-      uint32_t mantOdd =
-          (f.u >> kF32HalfMantiBitDiff) & 1; // Resulting mantissa is odd.
-
-      // Update exponent, rounding bias part 1. The following expressions are
-      // equivalent to `f.u += ((unsigned int)(15 - 127) << kF32MantiBits) +
-      // 0xfff`, but without arithmetic overflow.
-      f.u += 0xc8000fffU;
-      // Rounding bias part 2.
-      f.u += mantOdd;
-      halfValue = static_cast<uint16_t>(f.u >> kF32HalfMantiBitDiff);
-    }
-  }
-
-  halfValue |= static_cast<uint16_t>(sign >> kF32HalfBitDiff);
-  return halfValue;
-}
-
-/// Converts the 16 bit representation of a half precision value to a float
-/// value. This implementation is adapted from Eigen.
-float half2float(uint16_t halfValue) {
-  const uint32_t shiftedExp =
-      0x7c00 << kF32HalfMantiBitDiff; // Exponent mask after shift.
-
-  // Initialize the float representation with the exponent/mantissa bits.
-  Float32Bits f = {
-      static_cast<uint32_t>((halfValue & 0x7fff) << kF32HalfMantiBitDiff)};
-  const uint32_t exp = shiftedExp & f.u;
-  f.u += kF32HalfExpAdjust; // Adjust the exponent
-
-  // Handle exponent special cases.
-  if (exp == shiftedExp) {
-    // Inf/NaN
-    f.u += kF32HalfExpAdjust;
-  } else if (exp == 0) {
-    // Zero/Denormal?
-    f.u += 1 << kF32MantiBits;
-    f.f -= kF32Magic.f;
-  }
-
-  f.u |= (halfValue & 0x8000) << kF32HalfBitDiff; // Sign bit.
-  return f.f;
-}
-
-// Constructs the 16 bit representation for a bfloat value from a float value.
-// This implementation is adapted from Eigen.
-uint16_t float2bfloat(float floatValue) {
-  if (std::isnan(floatValue))
-    return std::signbit(floatValue) ? 0xFFC0 : 0x7FC0;
-
-  Float32Bits floatBits;
-  floatBits.f = floatValue;
-  uint16_t bfloatBits;
-
-  // Least significant bit of resulting bfloat.
-  uint32_t lsb = (floatBits.u >> kF32BfMantiBitDiff) & 1;
-  uint32_t roundingBias = 0x7fff + lsb;
-  floatBits.u += roundingBias;
-  bfloatBits = static_cast<uint16_t>(floatBits.u >> kF32BfMantiBitDiff);
-  return bfloatBits;
-}
-
-// Converts the 16 bit representation of a bfloat value to a float value. This
-// implementation is adapted from Eigen.
-float bfloat2float(uint16_t bfloatBits) {
-  Float32Bits floatBits;
-  floatBits.u = static_cast<uint32_t>(bfloatBits) << kF32BfMantiBitDiff;
-  return floatBits.f;
-}
-
-std::variant<float, int64_t> numeric_limits_minimum(Type type) {
-  Type t1 = getElementTypeOrSelf(type);
-  if (t1.isF32()) {
-    return -std::numeric_limits<float>::infinity();
-  } else if (t1.isBF16()) {
-    return bfloat2float(float2bfloat(-std::numeric_limits<float>::infinity()));
-  } else if (t1.isF16()) {
-    return (float)half2float(
-        float2half(-std::numeric_limits<float>::infinity()));
-  } else if (t1.isSignedInteger(8)) {
-    return int64_t(-128);
-  } else if (t1.isSignedInteger(32)) {
-    return int64_t(std::numeric_limits<int32_t>::min());
-  } else if (t1.isSignlessInteger(8) or t1.isSignlessInteger(32)) {
-    return int64_t(0);
-  } else {
-    LDBG("Unsupported data type: " << t1 << "\n");
-    assert(0 && "unsupported data type");
-    return (int64_t)0;
-  }
-}
-
-std::variant<float, int64_t> numericLimitsMaximum(Type type) {
-  Type t1 = getElementTypeOrSelf(type);
-  if (t1.isF32()) {
-    return std::numeric_limits<float>::infinity();
-  } else if (t1.isBF16()) {
-    return bfloat2float(float2bfloat(std::numeric_limits<float>::infinity()));
-  } else if (t1.isF16()) {
-    return (float)half2float(
-        float2half(std::numeric_limits<float>::infinity()));
-  } else if (t1.isSignedInteger(8)) {
-    return int64_t(127);
-  } else if (t1.isSignedInteger(32)) {
-    return int64_t(std::numeric_limits<int32_t>::max());
-  } else if (t1.isSignlessInteger(8)) {
-    return int64_t(255);
-  } else if (t1.isSignedInteger(32)) {
-    return int64_t(std::numeric_limits<uint32_t>::max());
-  } else {
-    LDBG("Unsupported data type: " << t1 << "\n");
-    assert(0 && "unsupported data type");
-    return (int64_t)0;
-  }
-}
-
-template <typename T = float>
-T getInitValForReduce(vector::CombiningKind kind, Type t) {
-  T result;
-  Type t1 = getElementTypeOrSelf(t);
-
-  switch (kind) {
-  case vector::CombiningKind::ADD:
-    if (t1.isIntOrIndex())
-      result = 0;
-    else if (isa<FloatType>(t1))
-      result = 0.0f;
-    else
-      llvm_unreachable("invalid value types for ADD reduction");
-    break;
-  case vector::CombiningKind::MAXNUMF:
-  case vector::CombiningKind::MAXIMUMF:
-    assert(isa<FloatType>(t1) && "expected float values");
-    result = std::get<T>(numeric_limits_minimum(t));
-    break;
-  case vector::CombiningKind::MINNUMF:
-  case vector::CombiningKind::MINIMUMF:
-    assert(isa<FloatType>(t1) && "expected float values");
-    result = std::get<T>(numericLimitsMaximum(t));
-    break;
-  case vector::CombiningKind::MAXSI:
-  case vector::CombiningKind::MAXUI:
-    assert(t1.isIntOrIndex() && "expected int values");
-    result = std::get<T>(numeric_limits_minimum(t));
-    break;
-  case vector::CombiningKind::MINSI:
-  case vector::CombiningKind::MINUI:
-    assert(t1.isIntOrIndex() && "expected int values");
-    result = std::get<T>(numericLimitsMaximum(t));
-    break;
-  case vector::CombiningKind::MUL:
-    if (t1.isIntOrIndex())
-      result = 1;
-    else if (isa<FloatType>(t1))
-      result = 1.f;
-    else
-      llvm_unreachable("invalid value types for MUL reduction");
-    break;
-  default:
-    llvm_unreachable("unsupported reduction kind");
-  };
-  return result;
-}
-
 // Since we rewrite transfer_read and transfer_write, the `permutationmap` must
 // be changed.
 void setOpVectorizationPermutationMap(Operation *op, OpBuilder &rewriter,
@@ -465,7 +262,8 @@ void setOpVectorizationPermutationMap(Operation *op, OpBuilder &rewriter,
                                       const AffineMap &permutationMap) {
   auto dimExpr = permutationMap.getResults();
   auto lastDim = dyn_cast<AffineDimExpr>(dimExpr.back());
-  assert(isa<AffineDimExpr>(lastDim));
+  if (not isa<AffineDimExpr>(lastDim))
+    llvm_unreachable("Must be AffineDimExpr.");
 
   SmallVector<AffineExpr, 1> affineExprs;
   affineExprs.push_back(lastDim);
@@ -677,8 +475,10 @@ void getPrevOps(std::queue<Operation *> &prevOps,
 void getPostOps(std::queue<Operation *> &postOps,
                 std::queue<Operation *> &opQueue, Operation *currentOp) {
   // pop multireduction op
-  assert(currentOp == opQueue.front() && "Current operation is not the front "
-                                         "operation of the operation queue.");
+  if (currentOp != opQueue.front())
+    llvm_unreachable(
+        "Current operation is not the front operation of the operation queue.");
+
   opQueue.pop();
   while (!opQueue.empty()) {
     postOps.push(opQueue.front());
@@ -805,7 +605,8 @@ void ForLoopGenerator::getInitArgsToNextAnchor(
     for (auto x : curOperands) {
       if (!visited.contains(x) and opInitArgs.contains(x) and
           opAnchorPos[cur] > loopHelperParam.anchorIdx) {
-        assert(loopHelperParam.originalOperandLoopArgsMap.contains(x));
+        if (not loopHelperParam.originalOperandLoopArgsMap.contains(x))
+          llvm_unreachable("Must contains current value.");
         int loopStateIdx = loopHelperParam.currentLoopStateIdxMap
                                [loopHelperParam.originalOperandLoopArgsMap[x]];
         updateCurrentArgsStatus(loopHelperParam.loopIterArgs, loopStateIdx,
@@ -1221,8 +1022,8 @@ scf::ForOp LoopGeneratorImpl::parallelAxisGenerateForLoop(
         DenseMap<Operation *, size_t> &opIndexMap =
             fusionStrategy.getOpGroupIndexMap();
 
-        assert(opIndexMap.contains(multiReductionOp) &&
-               " Must constains multireduction operation.");
+        if (not opIndexMap.contains(multiReductionOp))
+          llvm_unreachable("Must constains multireduction operation.");
 
         size_t opIndex = opIndexMap[multiReductionOp];
         SmallVector<std::queue<Operation *>, 8> &opGroups =
@@ -1686,7 +1487,8 @@ scf::ForOp LoopGeneratorImpl::generateShapeCastReadWriteLoop(
             while ((int64_t)itrIdx < smallType.getRank()) {
 
               size_t endShape = getFirstTrueIndex(visitedAxis), dimSize = 1;
-              assert(endShape < rank and endShape >= 0 && "Invalid endShape");
+              if (endShape >= rank)
+                llvm_unreachable("Invalid shape.");
               // skip non corresponding axis
               // e.g.: vector<32x16x1x32xbf16> -> vector<1x512x32xbf16>
               while (loopType.getShape()[endShape] >
@@ -2095,8 +1897,9 @@ bool ShapeCastCanonicalizer::isReadWriteOnLastDim() {
   int64_t itrIdx = 0;
   while (itrIdx < smallRankType.getRank()) {
     int64_t endShape = getFirstTrueIndex(visitedAxis), dimSize = 1;
-    assert(endShape < largeRankType.getRank() and endShape >= 0 &&
-           "Invalid endShape");
+    if (endShape >= largeRankType.getRank() or endShape < 0)
+      llvm_unreachable("Invalid endShape.");
+
     // skip non corresponding axis
     // e.g.: vector<32x16x1x32xbf16> -> vector<1x512x32xbf16>
     while (largeRankType.getShape()[endShape] >
@@ -2301,7 +2104,9 @@ void ForLoopGenerator::setOperationCorrectOperand(
   int offset = isa<vector::TransferWriteOp>(op) ? 2 : 1;
   if (dyn_cast<vector::TransferWriteOp>(op) ||
       dyn_cast<vector::TransferReadOp>(op)) {
-    assert(opPermuationMap.contains(op));
+    if (not opPermuationMap.contains(op))
+      llvm_unreachable("Map must contains operation.");
+
     auto permutationMap = opPermuationMap.at(op);
 
     auto dimExpr = permutationMap.getResults();
@@ -2459,7 +2264,7 @@ Value setOutGroupOperationOperandResult(Operation *op,
               } else {
                 // write original vector into tensor
                 // then we transfer_read from the tensor
-                assert(0 && "Not support non-splat constant value.");
+                llvm_unreachable("Not support non-splat constant value.");
               }
             } else if (isa<FloatType>(resultElementType)) {
               initValueAttr = FloatAttr::get(
@@ -2614,7 +2419,7 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
             });
     if (failed(lowerResult)) {
       LDBG("Failed to rewrite operation: " << *op << "\n");
-      assert(false && "Failed to rewrite operation");
+      llvm_unreachable("Failed to rewrite operation");
     }
   }
 }
@@ -2763,7 +2568,9 @@ void GroupOperationFusionImpl::specialOperationRectify(
       //  remain transfer read operation to do the broadcast fusion
       if (isa<vector::BroadcastOp>(op)) {
         auto srcOp = op->getOperand(0).getDefiningOp();
-        assert(isa<vector::TransferReadOp>(srcOp));
+        if (not isa<vector::TransferReadOp>(srcOp))
+          llvm_unreachable("Must be read operation.");
+
         // only have write operation, otherwise the group size will bigger
         // than 1. Because the last operation is always a write operation in
         // each group
@@ -3221,7 +3028,7 @@ struct CPUPhysicalRegisterPass
       return;
     }
     // affineApply operation is always used by other operations.
-    std::function<bool(Operation *)> candidateFunc = isUsedByOtherOp;
+    std::function<bool(Operation *)> candidateFunc = isProducerOp;
     moveSomeInterferenceOperation(&func, ctx, candidateFunc);
     candidateFunc = isCandidateMoveOperations;
     moveSomeInterferenceOperation(&func, ctx, candidateFunc);

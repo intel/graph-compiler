@@ -1,4 +1,4 @@
-//===- TilingVector.h - Tiling large vector to small vector -----*- C++ -*-===//
+//===- TilingVector.hpp - Tiling large vector to small vector ---*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,6 +10,7 @@
 
 #include "gc/Analysis//VectorBasedFusionAnalysis.h"
 #include "gc/Analysis/TargetDescriptionAnalysis.h"
+#include "gc/Transforms/Utils/VectorUtils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"

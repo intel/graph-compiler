@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "gc/Analysis/VectorBasedFusionAnalysis.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 
 namespace mlir {
 namespace gc {
@@ -22,16 +22,16 @@ namespace gc {
       arith::TruncFOp, arith::TruncIOp
 
 #define NOT_NEED_TO_PROCESS_OP                                                 \
-  linalg::GenericOp, linalg::BatchReduceMatmulOp, linalg::MatmulOp,            \
-      linalg::BatchMatmulOp, linalg::BatchMatmulTransposeAOp,                  \
-      linalg::BatchMatmulTransposeBOp, linalg::MatmulTransposeAOp,             \
-      linalg::MatmulTransposeBOp, linalg::QuantizedBatchMatmulOp,              \
-      linalg::QuantizedMatmulOp, tensor::CollapseShapeOp,                      \
-      tensor::ExpandShapeOp, tensor::ExtractSliceOp, tensor::InsertSliceOp,    \
-      microkernel::BrgemmOp
+  linalg::BatchReduceMatmulOp, linalg::MatmulOp, linalg::BatchMatmulOp,        \
+      linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp,        \
+      linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \
+      linalg::QuantizedBatchMatmulOp, linalg::QuantizedMatmulOp,               \
+      tensor::CollapseShapeOp, tensor::ExpandShapeOp, tensor::ExtractSliceOp,  \
+      tensor::InsertSliceOp, microkernel::BrgemmOp
 
 static inline bool isNotNeedToProcessOp(Operation *op) {
-  return isa<NOT_NEED_TO_PROCESS_OP>(op);
+  return isa<NOT_NEED_TO_PROCESS_OP>(op) or
+         linalgx::isAnyGenericPackedMatmulOp(op);
 }
 
 static inline bool isSpecialOp(Operation *op) {
@@ -72,7 +72,7 @@ void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
     while (dimB < dimA && j < rankB)
       dimB *= b[j++];
     if (dimA != dimB) {
-      assert(false && " Invalid shape cast operation.");
+      llvm::llvm_unreachable_internal(" Invalid shape cast operation.");
       break;
     }
     if (bAxisBegin != j) {
@@ -87,12 +87,13 @@ void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
     if (j < rankB && all_of(b.slice(j), isOne))
       j = rankB;
   }
-
-  assert(i == rankA && j == rankB && "Invalid shapecast operation.");
+  if (i != rankA or j != rankB)
+    llvm_unreachable("Invalid shapecast operation.");
 }
 
 bool isScalar(Type type) {
-  assert(type && "Not a valid type");
+  if (not type)
+    llvm_unreachable("Not a valid type");
   if (auto vecType = dyn_cast<VectorType>(type))
     return false;
   if (auto tensorType = dyn_cast<TensorType>(type))
@@ -107,8 +108,8 @@ void getSrcBroadcastDim(const ShapedType &input, const ShapedType &output,
   // following auto_broadcast semantics
   const size_t input_rank = inputShape.size();
   const size_t output_rank = outputShape.size();
-  assert(output_rank >= input_rank &&
-         "Incorrect input or output shape for broadcast op.");
+  if (output_rank < input_rank)
+    llvm_unreachable("Incorrect input or output shape for broadcast op.");
   const size_t offset = output_rank - input_rank;
   for (size_t i = 0; i < input_rank; ++i) {
     if (inputShape[i] == outputShape[i + offset] ||
@@ -390,13 +391,16 @@ mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op) {
 
 /// select nearest even step
 int getNearestVectorStep(const int step) {
-  assert(step > 0);
+  if (step <= 0)
+    llvm_unreachable("Wrong step.");
+
   int nbits = 0, n = step;
   while (n) {
     n = n >> 1;
     nbits++;
   }
-  assert(nbits <= 6 || (nbits == 7 && step == 64));
+  if (nbits > 6 and !(nbits == 7 && step == 64))
+    llvm_unreachable("wrong nbits appear");
   return (1 << (nbits - 1)) == step ? step : (1 << nbits);
 }
 
@@ -488,7 +492,7 @@ VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loopStep) {
   // down into a loop.
   mlir::FailureOr<VectorType> baseType = getOperationVectorType(op);
   if (failed(baseType)) {
-    assert(0 && "Failed to get vector type for operation");
+    llvm_unreachable("Failed to get vector type for operation");
     return VectorType();
   }
   auto vectorizedType = baseType.value();
@@ -518,7 +522,7 @@ int TypeHelper::generateValidSteps(int steps, VectorType type) {
     return favx2bits / typebits;
 
   // invalid hardware
-  assert(false && "Invalid hardware.");
+  llvm_unreachable("Invalid hardware.");
   return -1;
 }
 
@@ -590,7 +594,8 @@ void GroupOperationFusion::updateGroupBigestVectorType(VectorType vectorType) {
 }
 
 void GroupOperationFusion::addOperationToGroup(Operation *op) {
-  assert(op);
+  if (not op)
+    llvm_unreachable("Op can't be NULL.");
   VectorType vectorType = getOperationMaxVectorType(op).value();
   if (isNeedNewGroup(op))
     opGroups.emplace_back(std::queue<Operation *>());
