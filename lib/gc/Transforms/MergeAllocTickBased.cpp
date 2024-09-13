@@ -44,7 +44,7 @@ static inline int64_t getSizeInBytes(MemRefType &memType) {
 static bool needsHoistOutOfParallelLoop(Operation *op) {
   Operation *parent =
       op->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
-  if (parent && isa<scf::ForallOp>(parent)) {
+  if (isa_and_nonnull<scf::ForallOp>(parent)) {
     // check if the current allocation is between the nested pfor, and use
     // inside the inner parallel loop
     SmallVector<Operation *, 4> parallelOpInCurBlock;
@@ -71,26 +71,20 @@ static bool needsHoistOutOfParallelLoop(Operation *op) {
 }
 
 static bool isForallLoopBoundStatic(Operation *op) {
-  bool isStatic = true;
-  if (auto forallOp = dyn_cast<scf::ForallOp>(op)) {
-    OpBuilder builder{forallOp->getContext()};
-    SmallVector<Value> upperBounds = forallOp.getUpperBound(builder);
-    SmallVector<Value> lowerBounds = forallOp.getLowerBound(builder);
-
-    isStatic &= llvm::all_of(upperBounds, [](Value &ub) {
-      return (ub.getDefiningOp() &&
-              isa<arith::ConstantIndexOp>(ub.getDefiningOp()));
-    });
-
-    isStatic &= llvm::all_of(lowerBounds, [](Value &lb) {
-      return (lb.getDefiningOp() &&
-              isa<arith::ConstantIndexOp>(lb.getDefiningOp()));
-    });
-
-    return isStatic;
-  } else {
+  auto forallOp = dyn_cast<scf::ForallOp>(op);
+  if (!forallOp)
     return false;
+
+  for (auto [lb, ub, step] :
+       llvm::zip(forallOp.getMixedLowerBound(), forallOp.getMixedUpperBound(),
+                 forallOp.getMixedStep())) {
+    std::optional<int64_t> lbConst = getConstantIntValue(lb);
+    std::optional<int64_t> ubConst = getConstantIntValue(ub);
+    std::optional<int64_t> stepConst = getConstantIntValue(step);
+    return lbConst.has_value() && ubConst.has_value() && stepConst.has_value();
   }
+
+  return false;
 }
 
 void Tick::update(int64_t tick) {
@@ -535,10 +529,11 @@ Value MergeAllocDefaultMutator::buildView(OpBuilder &builder, Block *scope,
     return builder.create<memref::ViewOp>(
         loc, origAllocOp->getResultTypes().front(), mergedAlloc,
         byteShiftPerThread, ValueRange{});
-  } else
+  } else {
     return builder.create<memref::ViewOp>(loc,
                                           origAllocOp->getResultTypes().front(),
                                           mergedAlloc, byteShift, ValueRange{});
+  }
 }
 
 LogicalResult
