@@ -9,9 +9,11 @@
 #define GC_EXECUTIONENGINE_CPURUNTIME_CONSTANT_CACHE_H
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <stdint.h>
-
+#include <unordered_map>
 namespace mlir {
 namespace gc {
 /**
@@ -79,7 +81,7 @@ struct ConstCacheProxy : RefCountManaged {
                   size_t size, bool is_lazy)
       : RefCountManaged(vkeepAlive), size(size), isLazy(is_lazy),
         buffer(buffer) {}
-  ~ConstCacheProxy();
+  ~ConstCacheProxy() = default;
 
   // get the buffer and increment the refcount. If the buffer is evicted,
   // returns null
@@ -117,20 +119,52 @@ private:
 };
 
 struct CachedGraphTensor {
+  // Multiple tensors can reside in one common ConstCacheProxy `base`, with
+  // different offsets.
   std::shared_ptr<ConstCacheProxy> base;
   size_t offset;
-  CachedGraphTensor(const std::shared_ptr<ConstCacheProxy> &base,
-                    size_t offset);
+  CachedGraphTensor(const std::shared_ptr<ConstCacheProxy> &base, size_t offset)
+      : base{base}, offset{offset} {
+    // todo: fill in real values
+    ref.basePtr = (char *)base->getBufferUnsafe() + offset;
+    ref.data = ref.basePtr;
+    ref.offset = 0;
+    memset(ref.sizes, 0, sizeof(ref.sizes));
+    memset(ref.strides, 0, sizeof(ref.strides));
+  }
   friend class JitModule;
 
 private:
   StridedMemRefType<char, 8> ref;
 };
 
-std::shared_ptr<CachedGraphTensor> queryCacheTensor(uint64_t key);
-bool regCachedTensor(uint64_t key, const std::shared_ptr<ConstCacheProxy> &base,
-                     size_t offset);
+static std::unordered_map<int64_t, std::shared_ptr<CachedGraphTensor>> cache;
 
+inline std::shared_ptr<ConstCacheProxy> createConstCacheProxy(size_t size) {
+  // simply allocate buffer and return
+  std::shared_ptr<void> base = std::shared_ptr<void>{
+      std::aligned_alloc(64, size), [](void *p) { std::free(p); }};
+  return std::make_shared<ConstCacheProxy>(base, base.get(), size, true);
+}
+
+inline std::shared_ptr<CachedGraphTensor> queryCacheTensor(int64_t key) {
+  auto itr = cache.find(key);
+  if (itr != cache.end()) {
+    return itr->second;
+  }
+  return nullptr;
+}
+
+inline bool regCachedTensor(int64_t key,
+                            const std::shared_ptr<ConstCacheProxy> &base,
+                            size_t offset) {
+  if (queryCacheTensor(key)) {
+    return false;
+  }
+
+  cache[key] = std::make_shared<CachedGraphTensor>(base, offset);
+  return true;
+}
 } // namespace gc
 } // namespace mlir
 

@@ -18,7 +18,6 @@ gc_add_mlir_library(GcCpuRuntime
     SHARED
     Parallel.cpp
     MemoryPool.cpp
-    ConstantCache.cpp
     ${MICROKERNEL_RUNTIME_SOURCES}
 
     DEPENDS

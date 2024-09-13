@@ -20,6 +20,8 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
+#define DEBUG_TYPE "driver"
+
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
@@ -49,8 +51,8 @@ const DialectRegistry &initCompilerAndGetDialects() {
   return reg;
 }
 
-static const char defaultComputeName[] = "_mlir_ciface_compute";
-static const char defaultFoldName[] = "_mlir_ciface_fold";
+static const char defaultEntryName[] = "_mlir_ciface_entry";
+static const char defaultFoldName[] = "_mlir_ciface_runtime_fold";
 llvm::Expected<std::shared_ptr<JitModule>>
 JitModule::create(Operation *op, const DriverOptions &options) {
   if (options.runTransforms) {
@@ -69,43 +71,49 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     return exec.takeError();
   }
   auto &engine = *exec;
-  uint32_t numOrigArgs;
-  {
-    auto expectArgs = engine->lookup("__num_orig_num_args");
-    if (!expectArgs) {
-      return expectArgs.takeError();
-    }
-    numOrigArgs = *reinterpret_cast<uint32_t *>(*expectArgs);
+
+  auto expectEntry = engine->lookupPacked(defaultEntryName);
+  if (!expectEntry) {
+    // entry function must exist
+    return expectEntry.takeError();
   }
-  JitModuleFuncT compute;
-  {
-    auto expectCompute = engine->lookupPacked(defaultComputeName);
-    if (!expectCompute) {
-      return expectCompute.takeError();
-    }
-    compute = *expectCompute;
-  }
-  llvm::ArrayRef<uint64_t> foldBufferIds;
+  JitModuleFuncT entry = *expectEntry;
+
+  int32_t numOrigArgs;
+  llvm::ArrayRef<int64_t> foldBufferIds;
   JitModuleFuncT fold = nullptr;
-  llvm::ArrayRef<uint32_t> computeArgs;
-  llvm::ArrayRef<uint32_t> foldArgs;
+  llvm::ArrayRef<int32_t> entryArgs;
+  llvm::ArrayRef<int32_t> foldArgs;
   do {
-    auto expectBufferIds = engine->lookup("__fold_buffer_ids");
-    if (!expectBufferIds) {
-      // nothing to fold, It is OK.
-      llvm::consumeError(expectBufferIds.takeError());
-      // break out of the scope, don't need to lookup "fold" function
-      break;
-    } else {
-      auto raw = reinterpret_cast<uint64_t *>(*expectBufferIds);
-      foldBufferIds = llvm::ArrayRef<uint64_t>{raw + 1, raw[0]};
+    {
+      auto expectArgs = engine->lookup("__num_orig_num_args");
+      if (!expectArgs) { // nothing to fold, It is OK.
+        llvm::consumeError(expectArgs.takeError());
+        // break out of the scope, don't need to lookup other things
+        break;
+      }
+      numOrigArgs = *reinterpret_cast<int32_t *>(*expectArgs);
+    }
+
+    // If lookup("__num_orig_num_args") succeeds, then all the following should
+    // also succeed.
+    {
+      auto expectBufferIds = engine->lookup("__runtime_fold_buffer_ids_");
+      if (!expectBufferIds) {
+        expectBufferIds.takeError();
+        break;
+      }
+      auto raw = reinterpret_cast<int64_t *>(*expectBufferIds);
+      foldBufferIds =
+          llvm::ArrayRef<int64_t>{raw + 1, static_cast<size_t>(raw[0])};
     }
 
     // find "fold" func
     {
       auto expectFold = engine->lookupPacked(defaultFoldName);
       if (!expectFold) {
-        return expectFold.takeError();
+        expectFold.takeError();
+        break;
       }
       fold = *expectFold;
     }
@@ -114,20 +122,22 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     {
       auto expectFold = engine->lookup("__fold_args");
       if (!expectFold) {
-        return expectFold.takeError();
+        expectFold.takeError();
+        break;
       }
-      auto raw = reinterpret_cast<uint32_t *>(*expectFold);
-      foldArgs = llvm::ArrayRef<uint32_t>{raw + 1, raw[0]};
+      auto raw = reinterpret_cast<int32_t *>(*expectFold);
+      foldArgs = llvm::ArrayRef<int32_t>{raw + 1, static_cast<size_t>(raw[0])};
     }
 
-    // find "computeArgs"
+    // find "entryArgs"
     {
       auto expect = engine->lookup("__compute_args");
       if (!expect) {
-        return expect.takeError();
+        expect.takeError();
+        break;
       }
-      auto raw = reinterpret_cast<uint32_t *>(*expect);
-      computeArgs = llvm::ArrayRef<uint32_t>{raw + 1, raw[0]};
+      auto raw = reinterpret_cast<int32_t *>(*expect);
+      entryArgs = llvm::ArrayRef<int32_t>{raw + 1, static_cast<size_t>(raw[0])};
     }
   } while (false);
 
@@ -143,22 +153,22 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     foldInfo.emplace_back(std::move(ret));
   }
 
-  return std::make_shared<JitModule>(std::move(engine), compute, fold,
-                                     numOrigArgs, computeArgs, foldArgs,
+  return std::make_shared<JitModule>(std::move(engine), entry, fold,
+                                     numOrigArgs, entryArgs, foldArgs,
                                      std::move(foldInfo));
 }
 
 JitModule::JitModule(
-    std::unique_ptr<ExecutionEngine> engine, JitModuleFuncT compute,
-    JitModuleFuncT fold, size_t numOrigArgs,
+    std::unique_ptr<ExecutionEngine> engine, JitModuleFuncT entry,
+    JitModuleFuncT fold, int32_t numOrigArgs,
     // The code inside `engine` has the ownership of the buffer
-    llvm::ArrayRef<uint32_t> computeArgs,
+    llvm::ArrayRef<int32_t> entryArgs,
     // The code inside `engine` has the ownership  of the buffer
-    llvm::ArrayRef<uint32_t> foldArgs,
+    llvm::ArrayRef<int32_t> foldArgs,
     std::vector<std::shared_ptr<CachedGraphTensor>> &&cachekeepAlive)
-    : engine{std::move(engine)}, compute{compute}, fold{fold},
-      numOrigArgs{numOrigArgs}, foldArgs{foldArgs},
-      computeArgs{computeArgs}, keepAlive{std::move(cachekeepAlive)} {
+    : engine{std::move(engine)}, entry{entry}, fold{fold},
+      numOrigArgs{numOrigArgs}, foldArgs{foldArgs}, entryArgs{entryArgs},
+      keepAlive{std::move(cachekeepAlive)} {
   for (const auto &cache : keepAlive) {
     auto currentItr =
         std::find(cacheBases.begin(), cacheBases.end(), cache->base.get());
@@ -174,9 +184,10 @@ JitModule::JitModule(
 JitModule::~JitModule() = default;
 
 static void prepareCallArgs(llvm::SmallVector<void *, 32> &realargs,
-                            GeneralMemrefPtr *origargs, size_t numOrigArgs,
-                            GeneralMemrefPtr *foldedCache,
-                            llvm::ArrayRef<uint32_t> realArgIdx) {
+                            GeneralMemrefPtr *origargs, int32_t numArgs,
+                            int32_t numOrigArgs, GeneralMemrefPtr *foldedCache,
+                            llvm::ArrayRef<int32_t> realArgIdx) {
+  // inputs, including unfolded and folded
   realargs.reserve(realArgIdx.size());
   for (auto argIdx : realArgIdx) {
     if (argIdx < numOrigArgs) {
@@ -185,19 +196,23 @@ static void prepareCallArgs(llvm::SmallVector<void *, 32> &realargs,
       realargs.push_back(&foldedCache[argIdx - numOrigArgs]);
     }
   }
+  // outputs
+  for (int i = numOrigArgs; i < numArgs; ++i) {
+    realargs.push_back(&origargs[i]);
+  }
 }
 
-void JitModule::call(GeneralMemrefPtr *args) {
+void JitModule::call(GeneralMemrefPtr *args, int32_t numArgs) {
   if (unlikely(cacheInfo.empty())) {
     // fast path, no folded cached buffers
     // Silly code, MLIR execution engine requires pointers of real args as
     // inputs
     llvm::SmallVector<void *, 32> realargs;
-    realargs.reserve(numOrigArgs);
-    for (size_t i = 0; i < numOrigArgs; i++) {
+    realargs.reserve(numArgs);
+    for (int i = 0; i < numArgs; i++) {
       realargs.push_back(&args[i]);
     }
-    compute(realargs.data());
+    entry(realargs.data());
     return;
   }
 
@@ -234,15 +249,21 @@ void JitModule::call(GeneralMemrefPtr *args) {
     }
     foldedCache = slowFold.data();
     llvm::SmallVector<void *, 32> realargs;
-    prepareCallArgs(realargs, args, numOrigArgs, foldedCache, foldArgs);
+    prepareCallArgs(realargs, args, numArgs, numOrigArgs, foldedCache,
+                    foldArgs);
+    LLVM_DEBUG(llvm::dbgs() << "foldArgs size: " << foldArgs.size() << '\n');
     fold(realargs.data());
   }
 
-  // stage 3, call compute
+  // stage 3, call entry
   {
     llvm::SmallVector<void *, 32> realargs;
-    prepareCallArgs(realargs, args, numOrigArgs, foldedCache, computeArgs);
-    compute(realargs.data());
+    prepareCallArgs(realargs, args, numArgs, numOrigArgs, foldedCache,
+                    entryArgs);
+    LLVM_DEBUG(llvm::dbgs()
+               << "entryArgs size: " << entryArgs.size()
+               << ", Entry real args size: " << realargs.size() << '\n');
+    entry(realargs.data());
   }
 
   // stage 4, cleanup

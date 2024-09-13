@@ -31,7 +31,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 
-// #include "gc/ExecutionEngine/CPURuntime/ConstantCache.hpp"
+#include "gc/ExecutionEngine/CPURuntime/ConstantCache.h"
 
 #define DEBUG_TYPE "constant-tensor-folding"
 
@@ -316,17 +316,6 @@ void postponeBroadcast(Block &block) {
 
 static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
 
-// get from dnnl_graph_compiler_context
-// void *allocator(size_t size) { return std::aligned_alloc(64, size); }
-// void deallocator(void *ptr) { std::free(ptr); }
-
-// std::shared_ptr<ConstCacheProxy> createConstCacheProxy(size_t size) {
-//   // simply allocate buffer and return
-//   std::shared_ptr<void> base = std::shared_ptr<void>{
-//       std::aligned_alloc(64, size), [](void *p) { std::free(p); }};
-//   return std::make_shared<ConstCacheProxy>(base, base.get(), size, true);
-// }
-
 size_t divideAndCeil(size_t x, size_t y) { return (x + y - 1) / y; }
 
 // Manager
@@ -349,12 +338,13 @@ struct ConstGraphTensorCacheManager {
       totalSize += divideAndCeil(size, 64) * 64;
     }
     LLVM_DEBUG(llvm::dbgs() << "Alloc total size: " << totalSize << '\n');
-    // auto base = createConstCacheProxy(totalSize);
+    auto base = createConstCacheProxy(totalSize);
     std::vector<uint64_t> globalIds(buffersSize.size());
     size_t offset = 0;
     for (size_t i = 0; i < buffersSize.size(); i++) {
       LLVM_DEBUG(llvm::dbgs() << "Alloc offset: " << offset << '\n');
-      // regCachedTensor(cachedTensorGlobalId, base, offset);
+      bool regRes = regCachedTensor(cachedTensorGlobalId, base, offset);
+      assert(regRes && "Register constant tensor failed");
       globalIds[i] = cachedTensorGlobalId;
       ++cachedTensorGlobalId;
       offset += divideAndCeil(buffersSize[i], 64) * 64;
@@ -862,6 +852,7 @@ void ConstantTensorFolding::runOnOperation() {
   }
 
   canonicalizeAndClean(context, topOp);
+  topOp->dump();
 }
 
 std::unique_ptr<Pass> createConstantTensorFoldingPass() {
