@@ -94,6 +94,7 @@ static bool isDPASCompatible(linalg::LinalgOp linalgOp, int kTile,
                              ArrayRef<int64_t> dpasTile) {
   if (!(isa<linalg::MatmulOp>(linalgOp) ||
         isa<linalg::BatchReduceMatmulOp>(linalgOp) ||
+        isa<linalg::MatmulTransposeBOp>(linalgOp) ||
         isa<linalg::GenericOp>(linalgOp))) {
     return false;
   }
@@ -633,12 +634,11 @@ static SmallVector<Value> updateTilesOffsets(PatternRewriter &rewriter,
 //
 // The descriptor sub-tiles are ordered in row-major fashion with respect to the
 // whole load tile.
-static SmallVector<Value> createDescriptorTiles(PatternRewriter &rewriter,
-                                                Location loc, Value src,
-                                                ArrayRef<int64_t> loadShape,
-                                                ArrayRef<int64_t> loadOffsets,
-                                                ArrayRef<int64_t> descTile,
-                                                int arrayLength = 1) {
+static SmallVector<Value>
+createDescriptorTiles(PatternRewriter &rewriter, Location loc, Value src,
+                      ArrayRef<int64_t> loadShape,
+                      ArrayRef<int64_t> loadOffsets, ArrayRef<int64_t> descTile,
+                      int arrayLength = 1, bool transpose = false) {
   assert(arrayLength == 1 && "Array descriptors are not supported");
 
   auto type = cast<ShapedType>(src.getType());
@@ -669,6 +669,11 @@ static SmallVector<Value> createDescriptorTiles(PatternRewriter &rewriter,
     Value newRowOffs = rewriter.create<arith::ConstantIndexOp>(loc, i);
     for (int j = 0; j < loadShape[1]; j += descTile[1] * arrayLength) {
       Value newColOffs = rewriter.create<arith::ConstantIndexOp>(loc, j);
+      if (transpose) {
+        Value temp = newRowOffs;
+        newRowOffs = newColOffs;
+        newColOffs = temp;
+      }
       auto tile = rewriter
                       .create<xegpu::UpdateNdOffsetOp>(
                           loc, descType, rootTile,
@@ -693,7 +698,8 @@ static SmallVector<Value> createDescriptorTiles(PatternRewriter &rewriter,
 static SmallVector<Value> createCoarseDscTiles(PatternRewriter &rewriter,
                                                Location loc, Value src,
                                                ArrayRef<int64_t> sgTile,
-                                               bool isVnni) {
+                                               bool isVnni,
+                                               bool transpose = false) {
   assert(sgTile.size() <= 2 &&
          "Require at most 2D tile size for eltwise lowering");
 
@@ -727,7 +733,8 @@ static SmallVector<Value> createCoarseDscTiles(PatternRewriter &rewriter,
   // NOLINTEND
 
   return createDescriptorTiles(rewriter, loc, src, sgTile2D, {0, 0},
-                               {sgLoadRows, sgLoadCols}, arrayLength);
+                               {sgLoadRows, sgLoadCols}, arrayLength,
+                               transpose);
 }
 
 // Return vector type with specified VNNI shape.
@@ -745,7 +752,8 @@ static SmallVector<Value>
 loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
                 xegpu::CachePolicyAttr hint,
                 std::optional<VnniConfig> vnniConf = std::nullopt,
-                DenseI64ArrayAttr transpose = nullptr) {
+                DenseI64ArrayAttr transpose = nullptr,
+                IntegerAttr transpose_bit = nullptr) {
   // Assume all tiles have the same shape.
   auto tileType = cast<xegpu::TensorDescType>(loadTiles[0].getType());
   assert(llvm::all_of(loadTiles,
@@ -760,10 +768,9 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
                                 *vnniConf);
     packedAttr = mlir::UnitAttr::get(rewriter.getContext());
   }
-  IntegerAttr transpose_bit = nullptr;
+
   SmallVector<Value> loadVec;
   for (auto tile : loadTiles) {
-
     auto loadOp = rewriter.create<xegpu::LoadNdOp>(
         loc, vecLoadType, tile, packedAttr, transpose, transpose_bit,
         /*l1_hint=*/hint,
@@ -860,6 +867,57 @@ extractVecSubTiles(PatternRewriter &rewriter, Location loc,
   return subTiles;
 }
 
+static Value findAndReplaceTranspose(Value matmulOperand,
+                                     std::vector<Operation *> &toErase) {
+  auto defOp = matmulOperand.getDefiningOp();
+  if (!defOp) {
+    return nullptr;
+  }
+  linalg::TransposeOp transposeOp = nullptr;
+  Value newMatmulOperand = nullptr;
+
+  for (auto x : defOp->getUsers()) {
+    if (isa<linalg::TransposeOp>(x)) {
+      transposeOp = dyn_cast<linalg::TransposeOp>(x);
+
+      auto transposeRes = transposeOp.getDpsInits()[0];
+      // verify that there are no other users of the transpose result
+      // rather than our matmul
+      for (auto trUser : transposeRes.getUsers()) {
+        if (isa<linalg::MatmulOp>(trUser) ||
+            isa<linalg::BatchReduceMatmulOp>(trUser) ||
+            isa<linalg::GenericOp>(trUser)) {
+          auto matmulOp = dyn_cast<linalg::LinalgOp>(trUser);
+          auto actualMatmulOperand = matmulOp.getDpsInputs()[1];
+          if (actualMatmulOperand != matmulOperand) {
+            return nullptr;
+          }
+        } else if (isa<memref::DeallocOp>(trUser) ||
+                   isa<memref::AllocaOp>(trUser)) {
+          // allow allocs and deallocs as users
+          continue;
+        } else if (isa<linalg::TransposeOp>(trUser)) {
+          // check if it's the same transpose as we're processing
+          if (!mlir::OperationEquivalence::isEquivalentTo(trUser, transposeOp,
+                                                          nullptr)) {
+            return nullptr;
+          }
+          continue;
+        } else {
+          // do not allow other users
+          return nullptr;
+        }
+      }
+      toErase.push_back(x);
+      break;
+    }
+  }
+  if (transposeOp) {
+    newMatmulOperand = transposeOp.getDpsInputs()[0];
+  }
+  return newMatmulOperand;
+}
+
 // Create XeGPU DPAS kernel out of GEMM-like operation.
 static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
                                       ArrayRef<int64_t> dpasTile, int kTile,
@@ -867,8 +925,11 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
                                       PatternRewriter &rewriter) {
   assert((isa<linalg::MatmulOp>(linalgOp) ||
           isa<linalg::BatchReduceMatmulOp>(linalgOp) ||
+          isa<linalg::MatmulTransposeBOp>(linalgOp) ||
           isa<linalg::GenericOp>(linalgOp)) &&
          "Requires a GEMM-like op for DPAS lowering");
+
+  std::vector<Operation *> toErase;
 
   Location loc = linalgOp.getLoc();
   auto ctx = linalgOp.getContext();
@@ -876,6 +937,17 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   auto matA = linalgOp.getDpsInputs()[0];
   auto matB = linalgOp.getDpsInputs()[1];
   auto matC = linalgOp.getDpsInits()[0];
+
+  bool transposeB = false;
+  if (isa<linalg::MatmulTransposeBOp>(linalgOp)) {
+    transposeB = true;
+  } else {
+    Value newMatB = findAndReplaceTranspose(matB, toErase);
+    if (newMatB) {
+      matB = newMatB;
+      transposeB = true;
+    }
+  }
 
   auto typeA = cast<ShapedType>(matA.getType());
   auto typeC = cast<ShapedType>(matC.getType());
@@ -961,7 +1033,8 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
 
   // Create B sub-tiles.
   SmallVector<Value> tilesB =
-      createCoarseDscTiles(rewriter, loc, matB, {kTile, dimN}, /*isVnni=*/true);
+      createCoarseDscTiles(rewriter, loc, matB, {kTile, dimN},
+                           /*isVnni=*/true, transposeB);
 
   // Create input prefetch tiles.
   int64_t numThreads = 1;
@@ -995,9 +1068,12 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
     auto prefetchDescA = createGemmCoopPrefetchTile(
         rewriter, linalgOp, /*inputPos=*/0, numThreads, {blockRows, blockCols},
         {dimM, dimN}, kTile);
+
     auto prefetchDescB = createGemmCoopPrefetchTile(
         rewriter, linalgOp, /*inputPos=*/1, numThreads, {blockRows, blockCols},
-        {dimM, dimN}, kTile);
+        (transposeB) ? std::vector<int32_t>{dimM, dimN}
+                     : std::vector<int32_t>{dimN, dimM},
+        kTile);
 
     if (succeeded(prefetchDescA) && succeeded(prefetchDescB)) {
       prefetchA = prefetchDescA->getResult();
@@ -1012,7 +1088,9 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
         prefetchA = updateTilesOffsets(rewriter, loc, ValueRange{prefetchA},
                                        {0, kTile})[0];
         prefetchB = updateTilesOffsets(rewriter, loc, ValueRange{prefetchB},
-                                       {kTile, 0})[0];
+                                       (transposeB)
+                                           ? std::vector<int64_t>{0, kTile}
+                                           : std::vector<int64_t>{kTile, 0})[0];
       }
     } else {
       // Disable coop prefetching on failure.
@@ -1083,15 +1161,26 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
       loadNdDescTiles(rewriter, loc, tilesA, readCacheHint);
   auto tileTypeA = cast<xegpu::TensorDescType>(tilesA[0].getType());
 
+  DenseI64ArrayAttr transpose = nullptr;
+  IntegerAttr transpose_bit = nullptr;
+
+  if (transposeB) {
+    transpose_bit = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 32);
+    transpose = DenseI64ArrayAttr::get(rewriter.getContext(), {1, 0});
+  }
+
   // Load B sub-tiles.
   SmallVector<Value> loadVecB =
-      loadNdDescTiles(rewriter, loc, tilesB, readCacheHint, vnniConfB);
+      loadNdDescTiles(rewriter, loc, tilesB, readCacheHint, vnniConfB,
+                      transpose, transpose_bit);
   auto tileTypeB = cast<xegpu::TensorDescType>(tilesB[0].getType());
 
   // Update offsets of the input tiles.
   // Shift along the reduction dimension.
   tilesA = updateTilesOffsets(rewriter, loc, tilesA, {0, kTile});
-  tilesB = updateTilesOffsets(rewriter, loc, tilesB, {kTile, 0});
+  tilesB = updateTilesOffsets(rewriter, loc, tilesB,
+                              transposeB ? std::vector<int64_t>{0, kTile}
+                                         : std::vector<int64_t>{kTile, 0});
 
   // Prefetch the next set of input tiles.
   if (isCoopPrefetch) {
@@ -1101,7 +1190,9 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
     prefetchA =
         updateTilesOffsets(rewriter, loc, ValueRange{prefetchA}, {0, kTile})[0];
     prefetchB =
-        updateTilesOffsets(rewriter, loc, ValueRange{prefetchB}, {kTile, 0})[0];
+        updateTilesOffsets(rewriter, loc, ValueRange{prefetchB},
+                           transposeB ? std::vector<int64_t>{0, kTile}
+                                      : std::vector<int64_t>{kTile, 0})[0];
   } else {
     // Apply naive prefetching for each subgroup separately.
     prefetchTiles(rewriter, loc, tilesA, readCacheHint);
@@ -1197,7 +1288,11 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   }
 
   rewriter.eraseOp(linalgOp);
-
+  for (auto &op : toErase) {
+    // op->dropAllUses();
+    rewriter.eraseOp(op);
+    // op->erase();
+  }
   return success();
 }
 
@@ -1288,7 +1383,7 @@ struct ConvertGemmLikeToXeGPU : public OpRewritePattern<LinalgOpTy> {
   // Constrain conversion to the supported GEMM-like ops.
   static_assert(
       llvm::is_one_of<LinalgOpTy, linalg::MatmulOp, linalg::BatchReduceMatmulOp,
-                      linalg::GenericOp>::value);
+                      linalg::GenericOp, linalg::MatmulTransposeBOp>::value);
 
   ConvertGemmLikeToXeGPU(MLIRContext *ctx, LinalgToXeGPUOptions options)
       : OpRewritePattern<LinalgOpTy>(ctx), options(options) {}
@@ -1495,8 +1590,9 @@ private:
 void populateLinalgGemmToXeGPUPatterns(RewritePatternSet &patterns,
                                        LinalgToXeGPUOptions options) {
   patterns.add<ConvertGemmLikeToXeGPU<linalg::MatmulOp>,
-               ConvertGemmLikeToXeGPU<linalg::GenericOp>>(patterns.getContext(),
-                                                          options);
+               ConvertGemmLikeToXeGPU<linalg::GenericOp>,
+               ConvertGemmLikeToXeGPU<linalg::MatmulTransposeBOp>>(
+      patterns.getContext(), options);
 }
 
 void populateLinalgEltwiseToXeGPUPatterns(RewritePatternSet &patterns,
