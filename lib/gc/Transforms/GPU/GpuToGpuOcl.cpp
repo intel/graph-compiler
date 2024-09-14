@@ -398,29 +398,23 @@ private:
         IntegerAttr::get(helper.idxType,
                          static_cast<int64_t>(binaryAttr.size())));
 
-    SmallVector<int32_t> globalSize;
-    SmallVector<int32_t> localSize;
-    SmallVector<int32_t> argSize;
-    kernelMod->walk([&](gpu::GPUFuncOp func) {
-      if (func.getName() == gpuLaunch.getKernelName()) {
-        for (auto s : func.getKnownGridSize().value()) {
-          globalSize.emplace_back(s);
-        }
-        for (auto s : func.getKnownBlockSize().value()) {
-          localSize.emplace_back(s);
-        }
-      }
-    });
-    assert(globalSize.size() == 3 && localSize.size() == 3);
-    globalSize = {globalSize[0] * localSize[0], globalSize[1] * localSize[1],
-                  globalSize[2] * localSize[2]};
+    SmallVector<Value> gridSize;
+    SmallVector<Value> blockSize;
+    SmallVector<Value> argSize;
+    gridSize.emplace_back(gpuLaunch.getGridSizeX());
+    gridSize.emplace_back(gpuLaunch.getGridSizeY());
+    gridSize.emplace_back(gpuLaunch.getGridSizeZ());
+    blockSize.emplace_back(gpuLaunch.getBlockSizeX());
+    blockSize.emplace_back(gpuLaunch.getBlockSizeY());
+    blockSize.emplace_back(gpuLaunch.getBlockSizeZ());
+
     for (auto arg : adaptor.getKernelOperands()) {
       auto type = arg.getType();
       auto size = type.isIntOrFloat() ? type.getIntOrFloatBitWidth() / 8 : 0;
-      argSize.emplace_back(size);
+      argSize.emplace_back(helper.idxConstant(rewriter, loc, size));
     }
 
-    auto array = [&](SmallVector<int32_t> &values) {
+    auto array = [&](SmallVector<Value> &values) {
       auto size = helper.idxConstant(rewriter, loc, values.size());
       auto arrayPtr = rewriter.create<LLVM::AllocaOp>(loc, helper.ptrType,
                                                       helper.idxType, size);
@@ -428,8 +422,13 @@ private:
         auto elementPtr = rewriter.create<LLVM::GEPOp>(
             loc, helper.ptrType, helper.idxType, arrayPtr,
             helper.idxConstant(rewriter, loc, i));
-        rewriter.create<LLVM::StoreOp>(
-            loc, helper.idxConstant(rewriter, loc, values[i]), elementPtr);
+        auto value = values[i];
+        if (auto cast = value.getDefiningOp<UnrealizedConversionCastOp>()) {
+          assert(getConstantIntValue(cast.getOperand(0)));
+          value = helper.idxConstant(
+              rewriter, loc, getConstantIntValue(cast.getOperand(0)).value());
+        }
+        rewriter.create<LLVM::StoreOp>(loc, value, elementPtr);
       }
       return arrayPtr.getResult();
     };
@@ -442,8 +441,8 @@ private:
         {helper.ptrType, helper.idxType, helper.ptrType, helper.ptrType,
          helper.ptrType, helper.ptrType, helper.idxType, helper.ptrType},
         loc,
-        {ctx, spirvSize, spirv, name, array(globalSize), array(localSize),
-         argNum, array(argSize)});
+        {ctx, spirvSize, spirv, name, array(gridSize), array(blockSize), argNum,
+         array(argSize)});
     auto result = createKernelCall.getResult();
 
     // Save the kernel pointer to the global var using CAS
