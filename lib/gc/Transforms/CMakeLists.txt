@@ -38,8 +38,8 @@ gc_add_mlir_library(GcPasses
     ${MLIR_LINK_COMPONENTS}
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
-    MLIRMicrokernelTransforms
     GcAnalysis
+    MLIRMicrokernelTransforms
   )
 
 if(GC_ENABLE_IMEX)

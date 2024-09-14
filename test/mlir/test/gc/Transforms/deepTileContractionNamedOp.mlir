@@ -73,7 +73,21 @@ func.func @matmul_4Dx4D_bf16(%arg0: tensor<128x128x32x32xbf16>, %arg1: tensor<12
     // CHECK: scf.if
     // CHECK: linalg.copy
     // CHECK: else
-    %2 = linalgx.mm4d_vnni {MThreads = 16 : i32, NThreads = 2 : i32,  KThreads = 1 : i32, MBlock = 256 : i32, NBlock = 256 : i32, KBlock = 256 : i32,innermostMBlock = 32 : i32, innermostNBlock = 32 : i32,  innermostKBlock = 32 : i32 } ins(%arg0, %arg1 : tensor<128x128x32x32xbf16>, tensor<128x128x16x32x2xbf16>) outs(%1 : tensor<128x128x32x32xbf16>)  -> tensor<128x128x32x32xbf16>
+    %2 = linalg.generic {
+          MThreads = 16 : i32, NThreads = 2 : i32,  KThreads = 1 : i32, MBlock = 256 : i32, NBlock = 256 : i32, KBlock = 256 : i32,innermostMBlock = 32 : i32, innermostNBlock = 32 : i32,  innermostKBlock = 32 : i32,
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d4, d1, d5 * 2 + d6)>, 
+                           affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d2, d4, d5, d3, d6)>, 
+                           affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d2, d1, d3)>], 
+          iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]
+          } 
+          ins(%arg0, %arg1 : tensor<128x128x32x32xbf16>, tensor<128x128x16x32x2xbf16>) 
+          outs(%1 : tensor<128x128x32x32xbf16>) {
+    ^bb0(%in: bf16, %in_0: bf16, %out: bf16):
+      %b0 = arith.mulf %in, %in_0 : bf16
+      %b1 = arith.addf %out, %b0 : bf16
+      linalg.yield %b1 : bf16
+    } -> tensor<128x128x32x32xbf16>
+
     return %2 : tensor<128x128x32x32xbf16>
 }
 
@@ -114,7 +128,21 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
     // CHECK: scf.forall.in_parallel
     // CHECK: linalg.reduce {{.*}} dimensions = [0, 1, 2] 
     // CHECK: linalg.copy
-    %2 = linalgx.mm2d_vnni {MThreads = 32 : i32, NThreads = 2 : i32,  KThreads = 2 : i32, MBlock = 256 : i32, NBlock = 256 : i32, KBlock = 256 : i32,innermostMBlock = 32 : i32, innermostNBlock = 32 : i32,  innermostKBlock = 32 : i32 } ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) outs(%1 : tensor<4096x4096xbf16>)  -> tensor<4096x4096xbf16>
+    %2 = linalg.generic {
+          MThreads = 32 : i32, NThreads = 2 : i32,  KThreads = 2 : i32, MBlock = 256 : i32, NBlock = 256 : i32, KBlock = 256 : i32,innermostMBlock = 32 : i32, innermostNBlock = 32 : i32,  innermostKBlock = 32 : i32,
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d3 * 32 + d4 * 2 + d5)>, 
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d1, d3, d4, d2, d5)>, 
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1 * 32 + d2)>], 
+          iterator_types = ["parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]
+          }
+          ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) 
+          outs(%1 : tensor<4096x4096xbf16>) {
+    ^bb0(%in: bf16, %in_0: bf16, %out: bf16):
+      %b0 = arith.mulf %in, %in_0 : bf16
+      %b1 = arith.addf %out, %b0 : bf16
+      linalg.yield %b1 : bf16
+    } -> tensor<4096x4096xbf16>
+
     return %2 : tensor<4096x4096xbf16>
 }
 
@@ -154,7 +182,19 @@ func.func @matmul_2Dx4D_bf16_with_dlti(%arg0: tensor<4096x4096xbf16>, %arg1: ten
     // CHECK: else
     // CHECK: linalg.generic {indexing_maps = [#[[mapA]], #[[mapB]], #[[mapC]]], iterator_types = ["reduction", "parallel", "parallel", "reduction", "reduction"]}
     // CHECK: scf.forall.in_parallel
-    %2 = linalgx.mm2d_vnni ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) outs(%1 : tensor<4096x4096xbf16>)  -> tensor<4096x4096xbf16>
+    %2 = linalg.generic {
+          indexing_maps = [affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d3 * 32 + d4 * 2 + d5)>, 
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d1, d3, d4, d2, d5)>, 
+                           affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1 * 32 + d2)>], 
+          iterator_types = ["parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]
+          }
+          ins(%arg0, %arg1 : tensor<4096x4096xbf16>, tensor<128x128x16x32x2xbf16>) 
+          outs(%1 : tensor<4096x4096xbf16>) {
+    ^bb0(%in: bf16, %in_0: bf16, %out: bf16):
+      %b0 = arith.mulf %in, %in_0 : bf16
+      %b1 = arith.addf %out, %b0 : bf16
+      linalg.yield %b1 : bf16
+    } -> tensor<4096x4096xbf16>
     return %2 : tensor<4096x4096xbf16>
 }
 

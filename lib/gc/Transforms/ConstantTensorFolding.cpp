@@ -69,9 +69,9 @@ template <typename T> int64_t getDataSize(T t) {
   unsigned bitWidth = eleType.getIntOrFloatBitWidth() / 8; // bytes
   ArrayRef<int64_t> shape = t.getShape();
   int64_t size = bitWidth;
-  for (auto s : shape) {
+  for (auto s : shape)
     size *= s;
-  }
+
   return size;
 }
 
@@ -94,13 +94,12 @@ bool singleOperand(Operation *op) {
     Value firstOperand = op->getOperand(0);
     for (int64_t i = 1; i < op->getNumOperands(); ++i) {
       Value operand = op->getOperand(i);
-      if (firstOperand == operand) {
+      if (firstOperand == operand)
         continue;
-      }
+
       auto parentOp = operand.getDefiningOp();
-      if (parentOp && !isa<tensor::EmptyOp>(parentOp)) {
+      if (parentOp && !isa<tensor::EmptyOp>(parentOp))
         return false;
-      }
     }
   }
   return true;
@@ -121,16 +120,14 @@ bool canMoveBefore(Operation *op) {
 
   SmallVector<AffineMap> indexingMaps = linalgOp.getIndexingMapsArray();
   for (auto &affineMap : indexingMaps) {
-    if (!affineMap.isIdentity()) {
+    if (!affineMap.isIdentity())
       return false;
-    }
   }
 
   SmallVector<utils::IteratorType> iterTypes = linalgOp.getIteratorTypesArray();
   for (auto &iterType : iterTypes) {
-    if (iterType != utils::IteratorType::parallel) {
+    if (iterType != utils::IteratorType::parallel)
       return false;
-    }
   }
 
   if (op->getNumOperands() > 1) {
@@ -140,9 +137,8 @@ bool canMoveBefore(Operation *op) {
     for (int64_t i = 0; i < numInits; ++i) {
       OpOperand *outOperand = linalgOp.getDpsInitOperand(i);
       auto parentOp = outOperand->get().getDefiningOp();
-      if (!isa<tensor::EmptyOp>(parentOp)) {
+      if (!isa<tensor::EmptyOp>(parentOp))
         return false;
-      }
     }
   }
 
@@ -156,9 +152,8 @@ void postponeBroadcast(Block &block) {
   for (Operation &op : block.getOperations()) {
     if (isa<linalg::BroadcastOp>(&op)) {
       Operation *bcOp = &op;
-      if (isInConstantSubgraph(bcOp)) {
+      if (isInConstantSubgraph(bcOp))
         constBcOps.push_back(bcOp);
-      }
     }
   }
 
@@ -172,9 +167,9 @@ void postponeBroadcast(Block &block) {
     SmallVector<Operation *> prevOps;
     Operation *currOp = bcOp;
     while (true) {
-      if (currOp->getNumOperands() != 1) {
+      if (currOp->getNumOperands() != 1)
         break;
-      }
+
       Value operand = currOp->getOperand(0);
       if (isa<BlockArgument>(operand)) {
         break;
@@ -188,9 +183,9 @@ void postponeBroadcast(Block &block) {
     SmallVector<Operation *> postOps;
     currOp = bcOp;
     while (true) {
-      if (currOp->getNumResults() != 1 || !currOp->hasOneUse()) {
+      if (currOp->getNumResults() != 1 || !currOp->hasOneUse())
         break;
-      }
+
       Value input = currOp->getResult(0);
       currOp = *(input.getUsers().begin());
       Value output = currOp->getResult(0);
@@ -212,9 +207,8 @@ void postponeBroadcast(Block &block) {
         postOps.push_back(currOp);
       }
     }
-    if (postOps.empty()) {
+    if (postOps.empty())
       continue;
-    }
 
     // move bcOp after the last constant op
     SmallVector<Operation *> newPostOps;
@@ -308,9 +302,8 @@ void postponeBroadcast(Block &block) {
       return op == bcOp;
     });
 
-    for (auto it = postOps.rbegin(); it != postOps.rend(); ++it) {
+    for (auto it = postOps.rbegin(); it != postOps.rend(); ++it)
       (*it)->erase();
-    }
   }
 }
 
@@ -378,9 +371,9 @@ void getArithConstantOutputs(Block &block, SmallVector<Type> &outputTypes,
     if (isa<arith::ConstantOp>(&op)) {
       Operation *constOp = &op;
       auto constTensor = constOp->getResults().front();
-      if (!isa<TensorType>(constTensor.getType())) {
+      if (!isa<TensorType>(constTensor.getType()))
         continue;
-      }
+
       auto v = dyn_cast<Value>(constTensor);
       SmallVector<Value> valuesOnTheWay = {v}; // the constant tensors
       std::deque<Value> dq;
@@ -464,15 +457,15 @@ void getInputsAndOutputs(Block &block,
           }
           continue;
         }
-        if (!v.hasOneUse()) {
+        if (!v.hasOneUse())
           simpleTopo = false;
-        }
+
         // the children ops of v are all constant, we push their results to
         // queue
         for (Operation *child : v.getUsers()) {
-          if (!singleOperand(child) || child->getResults().size() > 1) {
+          if (!singleOperand(child) || child->getResults().size() > 1)
             simpleTopo = false;
-          }
+
           for (OpResult result : child->getResults()) {
             auto r = dyn_cast<Value>(result);
             dq.push_back(r);
@@ -549,9 +542,9 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
   }
   auto cacheManager = ConstGraphTensorCacheManager::get();
   SmallVector<int64_t> globalIndexes;
-  for (auto id : cacheManager->alloc(buffersSize)) {
+  for (auto id : cacheManager->alloc(buffersSize))
     globalIndexes.push_back(id);
-  }
+
   globalIndexes.insert(globalIndexes.begin(), globalIndexes.size());
   auto moduleOp = dyn_cast<ModuleOp>(topOp);
   addGlobalI64Array(moduleOp, moduleOp.getLoc(), builder,
