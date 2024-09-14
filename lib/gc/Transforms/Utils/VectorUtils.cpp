@@ -6,9 +6,175 @@
 //
 //===----------------------------------------------------------------------===//
 #include "gc/Transforms/Utils/VectorUtils.h"
+#include "mlir/Support/LLVM.h"
 
 namespace mlir {
 namespace gc {
+
+#define DEBUG_TYPE "vector-utils"
+
+#define DBGS() (llvm::dbgs() << '[' << DEBUG_TYPE << "] ")
+#define SAFE_EXPAND(X) X
+#define LDBG(X) LLVM_DEBUG(DBGS() << SAFE_EXPAND(X) << "\n")
+
+static inline void moveOpBeginingOfBlock(Operation *op) {
+  Block *block = op->getBlock();
+  if (block->getOperations().empty())
+    llvm_unreachable("Emtpy block.");
+
+  if (&block->front() == op)
+    return;
+  op->moveBefore(&block->front());
+}
+
+LogicalResult
+moveFront(Operation *op,
+          llvm::DenseMap<Operation *, size_t> &operationPosition) {
+  IRRewriter rewriter(op);
+  Operation *backOperation;
+  size_t pos = 0;
+  // check all the operand is block argument
+  bool allBlockArgs = true;
+  for (auto operand : op->getOperands()) {
+    if (!isa<BlockArgument>(operand)) {
+      allBlockArgs = false;
+      break;
+    }
+  }
+  if (allBlockArgs) {
+    moveOpBeginingOfBlock(op);
+    return success();
+  }
+  for (auto operand : op->getOperands()) {
+    if (isa<BlockArgument>(operand))
+      continue;
+
+    Operation *sourceOp = operand.getDefiningOp();
+    if (operationPosition[sourceOp] > pos and
+        sourceOp->getBlock() == op->getBlock()) {
+      backOperation = sourceOp;
+      pos = operationPosition[sourceOp];
+    }
+  }
+  if (pos == 0) {
+    // extract operand operation all in previous block
+    moveOpBeginingOfBlock(op);
+    return success();
+  }
+  if (backOperation) {
+    rewriter.moveOpAfter(op, backOperation);
+    return success();
+  }
+  return failure();
+}
+
+LogicalResult moveBack(Operation *op,
+                       llvm::DenseMap<Operation *, size_t> &operationPosition) {
+  IRRewriter rewriter(op);
+  Operation *firstOperation;
+  size_t pos = std::numeric_limits<size_t>::max();
+  for (auto user : op->getUsers()) {
+    if (operationPosition[user] < pos and user->getBlock() == op->getBlock()) {
+      firstOperation = user;
+      pos = operationPosition[user];
+    }
+  }
+  if (pos == std::numeric_limits<size_t>::max()) {
+    // Don't move.
+    // TODO: need to consider move before the block which use it.
+    return success();
+  }
+  if (firstOperation) {
+    rewriter.moveOpBefore(op, firstOperation);
+    return success();
+  }
+  return failure();
+}
+
+void moveCandidateOperation(
+    llvm::DenseMap<Operation *, size_t> &operationPosition,
+    ArrayRef<Operation *> candidateOps) {
+
+  for (Operation *op : candidateOps) {
+    auto ret =
+        TypeSwitch<Operation *, LogicalResult>(op)
+            .Case<affine::AffineApplyOp>([&](affine::AffineApplyOp affineOp) {
+              return moveFront(op, operationPosition);
+            })
+            .Case<tensor::ExtractSliceOp>(
+                [&](tensor::ExtractSliceOp extractOp) {
+                  return moveFront(op, operationPosition);
+                })
+            .Case<tensor::EmptyOp>([&](tensor::EmptyOp emptyOp) {
+              return moveFront(op, operationPosition);
+            })
+            .Case<tensor::InsertSliceOp>([&](tensor::InsertSliceOp insertOp) {
+              return moveBack(op, operationPosition);
+            })
+            .Case<vector::TransferReadOp>([&](vector::TransferReadOp readOp) {
+              return moveFront(op, operationPosition);
+            })
+            .Case<vector::TransferWriteOp>(
+                [&](vector::TransferWriteOp writeOp) {
+                  return moveBack(op, operationPosition);
+                })
+            .Case<vector::BroadcastOp>([&](vector::BroadcastOp bcOp) {
+              return moveFront(op, operationPosition);
+            })
+            .Default([&](Operation *op) { return success(); });
+    if (failed(ret)) {
+      LDBG("Wrong to move operation:" << *op << "\n");
+      return;
+    }
+  }
+}
+
+// Need to move some operations like extract_slice or insert_slice.
+// Because those operation may interpret our analysis result. e.g.:
+// ```
+// clang-format off
+  // %21 = vector.transfer_read %18[%c0, %c0], %cst {in_bounds = [true, true]} : tensor<16x16xf32>, vector<16x16xf32>
+  // %22 = arith.addf %21, %20 : vector<16x16xf32>
+  // %23 = vector.transfer_write %22, %extracted_slice_12[%c0, %c0] {in_bounds = [true, true]} : vector<16x16xf32>, tensor<16x16xf32>
+  // %inserted_slice_13 = tensor.insert_slice %18 into %arg14[%arg13, 0] [16, 16] [1, 1] : tensor<16x16xf32> into tensor<32x16xf32>
+  // %extracted_slice_14 = tensor.extract_slice %arg16[%arg13, 0] [16, 16] [1, 1] : tensor<32x16xf32> to tensor<16x16xf32>
+  // %24 = vector.transfer_read %cst_0[%c0, %c0], %cst {in_bounds = [true, true]} : tensor<16x16xf32>, vector<16x16xf32>
+  // %25 = arith.maximumf %22, %24 : vector<16x16xf32>
+  // %26 = vector.transfer_write %25, %extracted_slice_14[%c0, %c0] {in_bounds = [true, true]} : vector<16x16xf32>, tensor<16x16xf32>
+  // %inserted_slice_15 = tensor.insert_slice %23 into %arg15[%arg13, 0] [16, 16] [1, 1] : tensor<16x16xf32> into tensor<32x16xf32>
+  // %inserted_slice_16 = tensor.insert_slice %26 into %arg16[%arg13, 0] [16, 16] [1, 1] : tensor<16x16xf32> into tensor<32x16xf32>
+// clang-format on
+// ```
+// The maximumf and addf operation can be a same group, but the extract_slice
+// operation interpret us.
+// The move operation(extra_slice) will check its parameters. In order to
+// ensure that it does not affect the correctness of the result, we will only
+// move the moved op after the op to which the parameters belong to. If it's
+// operand is all the block argument, we will move it to the begining of the
+// block.
+// insert_slice just move them to the privious of the first operation which
+// use it.
+void moveSomeInterferenceOperation(
+    func::FuncOp *func, MLIRContext *ctx,
+    std::function<bool(Operation *)> &conditionalFunc) {
+  // Pre-order traversal of each op
+  // Record each operation position. Inorder to we can kown current operation
+  // should move after which operation.
+  DenseMap<Operation *, size_t> operationPosition;
+  SmallVector<Operation *, 8> candidateOps;
+  size_t opCounter = 0;
+
+  // get the position of each operation
+  func->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    operationPosition[op] = opCounter++;
+    if (conditionalFunc(op))
+      candidateOps.emplace_back(op);
+  });
+  moveCandidateOperation(operationPosition, candidateOps);
+  // eliminate some useless operation
+  RewritePatternSet patterns(ctx);
+  (void)applyPatternsAndFoldGreedily(*func, std::move(patterns));
+}
 
 const uint32_t kF32MantiBits = 23;
 const uint32_t kF32HalfMantiBitDiff = 13;
@@ -245,10 +411,12 @@ mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op) {
             if (op->getResultTypes().empty() and op->getOperandTypes().empty())
               return failure();
 
-            if (op->getResultTypes().empty())
+            if (op->getResultTypes().empty() or
+                not isa<VectorType>(op->getResultTypes()[0]))
               return cast<VectorType>(op->getOperandTypes()[0]);
 
-            if (op->getOperandTypes().empty())
+            if (op->getOperandTypes().empty() or
+                not isa<VectorType>(op->getOperandTypes()[0]))
               return cast<VectorType>(op->getResultTypes()[0]);
 
             auto opdType = cast<VectorType>(op->getOperandTypes()[0]);

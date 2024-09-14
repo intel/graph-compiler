@@ -123,6 +123,8 @@ private:
   // store read and write operations permutation maps in order to convenient
   // to replace loop induction var
   DenseMap<Operation *, AffineMap> opPermuationMap;
+  /// record operation operand original operate value
+  DenseMap<Value, Value> operandOriginalValue;
 
 public:
   GroupOperationFusion(func::FuncOp &func, HardWareInfo &info)
@@ -154,6 +156,7 @@ public:
     this->getGroupOpResults() = fusion.getGroupOpResults();
     this->getGroupOpInitArgs() = fusion.getGroupOpInitArgs();
     this->getOpPermuationMap() = fusion.getOpPermuationMap();
+    this->getOperandOriginalValue() = fusion.getOperandOriginalValue();
     this->getFunction() = fusion.getFunction();
     this->getHardwareInfo() = fusion.getHardwareInfo();
     this->getTypeHelper() = fusion.getTypeHelper();
@@ -195,6 +198,10 @@ public:
 
   DenseMap<Operation *, AffineMap> &getOpPermuationMap() noexcept {
     return opPermuationMap;
+  }
+
+  DenseMap<Value, Value> &getOperandOriginalValue() noexcept {
+    return operandOriginalValue;
   }
   /// set operation groups
   void setGroupOpResults(

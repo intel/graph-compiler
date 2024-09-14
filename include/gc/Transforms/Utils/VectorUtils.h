@@ -8,16 +8,55 @@
 
 #ifndef GC_TRANSFORMS_UTILS_VECTORUTILS_H
 #define GC_TRANSFORMS_UTILS_VECTORUTILS_H
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Debug.h"
 #include <limits>
 #include <stdint.h>
 #include <variant>
 
 namespace mlir {
 namespace gc {
+/// Need to move some operations like extract_slice or insert_slice.
+/// Because those operation may interpret our analysis result. e.g.:
+/// ```
+/// clang-format off
+/// %21 = vector.transfer_read %18[%c0, %c0], %cst {in_bounds = [true, true]} :
+/// tensor<16x16xf32>, vector<16x16xf32> %22 = arith.addf %21, %20 :
+/// vector<16x16xf32> %23 = vector.transfer_write %22, %extracted_slice_12[%c0,
+/// %c0] {in_bounds = [true, true]} : vector<16x16xf32>, tensor<16x16xf32>
+/// %inserted_slice_13 = tensor.insert_slice %18 into %arg14[%arg13, 0] [16, 16]
+/// [1, 1] : tensor<16x16xf32> into tensor<32x16xf32> %extracted_slice_14 =
+/// tensor.extract_slice %arg16[%arg13, 0] [16, 16] [1, 1] : tensor<32x16xf32>
+/// to tensor<16x16xf32> %24 = vector.transfer_read %cst_0[%c0, %c0], %cst
+/// {in_bounds = [true, true]} : tensor<16x16xf32>, vector<16x16xf32> %25 =
+/// arith.maximumf %22, %24 : vector<16x16xf32> %26 = vector.transfer_write %25,
+/// %extracted_slice_14[%c0, %c0] {in_bounds = [true, true]} :
+/// vector<16x16xf32>, tensor<16x16xf32> %inserted_slice_15 =
+/// tensor.insert_slice %23 into %arg15[%arg13, 0] [16, 16] [1, 1] :
+/// tensor<16x16xf32> into tensor<32x16xf32> %inserted_slice_16 =
+/// tensor.insert_slice %26 into %arg16[%arg13, 0] [16, 16] [1, 1] :
+/// tensor<16x16xf32> into tensor<32x16xf32> clang-format on
+/// ```
+/// The maximumf and addf operation can be a same group, but the extract_slice
+/// operation interpret us.
+/// The move operation(extra_slice) will check its parameters. In order to
+/// ensure that it does not affect the correctness of the result, we will only
+/// move the moved op after the op to which the parameters belong to. If it's
+/// operand is all the block argument, we will move it to the begining of the
+/// block.
+/// insert_slice just move them to the privious of the first operation which
+/// use it.
+void moveSomeInterferenceOperation(
+    func::FuncOp *func, MLIRContext *ctx,
+    std::function<bool(Operation *)> &conditionalFunc);
+
 /// build a constant operation of index type
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
                                int64_t x);

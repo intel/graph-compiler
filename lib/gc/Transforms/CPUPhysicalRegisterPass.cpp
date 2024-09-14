@@ -47,6 +47,10 @@ void printGroupOps(SmallVector<std::queue<Operation *>, 8> &opGroups) {
   }
 }
 
+static inline bool isBroadcastOp(Operation *op) {
+  return isa_and_nonnull<vector::BroadcastOp>(op);
+}
+
 static inline bool isProducerOp(Operation *op) {
   return isa<affine::AffineApplyOp>(op);
 }
@@ -73,16 +77,6 @@ static inline bool isSpecialOp(Operation *op) {
   return isa<vector::TransposeOp, vector::ReductionOp, vector::BroadcastOp,
              vector::ShapeCastOp, vector::MultiDimReductionOp, func::CallOp>(
       op);
-}
-
-static inline void moveOpBeginingOfBlock(Operation *op) {
-  Block *block = op->getBlock();
-  if (block->getOperations().empty())
-    llvm_unreachable("Emtpy block.");
-
-  if (&block->front() == op)
-    return;
-  op->moveBefore(&block->front());
 }
 
 /// whether operation is a not support operation
@@ -253,11 +247,10 @@ void setOpVectorizationPermutationMap(Operation *op, OpBuilder &rewriter,
   if (not isa<AffineDimExpr>(lastDim))
     llvm_unreachable("Must be AffineDimExpr.");
 
-  SmallVector<AffineExpr, 1> affineExprs;
-  affineExprs.push_back(lastDim);
+  SmallVector<AffineExpr, 1> affineExprs(1, lastDim);
   auto destAffineMap = AffineMap::get(tensorType.getRank(), 0, affineExprs,
                                       rewriter.getContext());
-  SmallVector<bool> inBounds(1, true);
+  SmallVector<bool, 1> inBounds(1, true);
   if (isa<vector::TransferWriteOp>(op)) {
     auto transferWriteOp = cast<vector::TransferWriteOp>(op);
     transferWriteOp.setPermutationMap(destAffineMap);
@@ -270,8 +263,7 @@ void setOpVectorizationPermutationMap(Operation *op, OpBuilder &rewriter,
 }
 
 // scf.for yield helper function
-scf::YieldOp maybeYieldValue(OpBuilder &b, Location loc,
-                             const ValueRange &value) {
+scf::YieldOp maybeYieldValue(OpBuilder &b, Location loc, ValueRange value) {
   bool hasRetVal = !value.empty();
   if (hasRetVal)
     return b.create<scf::YieldOp>(loc, value);
@@ -1303,10 +1295,10 @@ void ForLoopGenerator::replaceOpUsersWithForLoopResult(
   for (auto x : nextAnchorResults) {
     auto originalResult = forResultOrignalResultMap[x];
     Value forResult = forOp->getResults()[nextAnchorResultsIdxMap[x]];
-    rewriter.replaceOpUsesWithIf(originalResult.getDefiningOp(), forResult,
-                                 replaceIfFn);
     // subsequent group must use the replaced result as operand
     rectifyGroupOperands(grpIdx, originalResult, forResult);
+    rewriter.replaceOpUsesWithIf(originalResult.getDefiningOp(), forResult,
+                                 replaceIfFn);
   }
 }
 scf::ForOp
@@ -1943,10 +1935,6 @@ void LoopGeneratorImpl::initSpeicalOperationCanonicalizers() {
                 cast<vector::MultiDimReductionOp>(op));
             getMultiRdCanonicalizers().back().prepareSpecialOperationInfo();
           })
-          .Case<vector::BroadcastOp>([&](vector::BroadcastOp broadCastOp) {
-            getBroadcastCanonicalizers().back().getCandidateOps().emplace_back(
-                cast<vector::BroadcastOp>(op));
-          })
           .Case<vector::TransposeOp>([&](vector::TransposeOp tpOp) {
             getTransposeCanonicalizers().back().getCandidateOps().emplace_back(
                 cast<vector::TransposeOp>(op));
@@ -2428,13 +2416,13 @@ void GroupOperationFusionImpl::removeOpInCurrentGroups(size_t grpIdx,
   IRRewriter rewriter(op);
   rewriter.replaceOp(op, replacedOp);
   // update removed operation related operation anchor position
-  getGroupOperationFusion().getOpAnchorPos()[replacedOp] =
-      getOperationMaxVectorType(replacedOp)->getRank() - 1;
-  for (Operation *x : usesOp)
-    getGroupOperationFusion().getOpAnchorPos()[x] =
-        getOperationMaxVectorType(x)->getRank() - 1;
+  // getGroupOperationFusion().getOpAnchorPos()[replacedOp] =
+  //     getOperationMaxVectorType(replacedOp)->getRank() - 1;
+  // for (Operation *x : usesOp)
+  //   getGroupOperationFusion().getOpAnchorPos()[x] =
+  //       getOperationMaxVectorType(x)->getRank() - 1;
 
-  updateOpGroupInfo(grpIdx);
+  // updateOpGroupInfo(grpIdx);
 }
 
 void GroupOperationFusionImpl::updateOpGroupInfo(size_t grpIdx) {
@@ -2639,6 +2627,8 @@ void GroupOperationFusionImpl::makeSourceOpWriteResultToTensor(
       getGroupOperationFusion().getOpAnchorPos();
   SmallVector<SetVector<Value>, 8> &groupOpInitArgs =
       getGroupOperationFusion().getGroupOpInitArgs();
+  SmallVector<llvm::MapVector<Value, std::pair<ReturnTypeKind, size_t>>, 8>
+      &groupOpResults = getGroupOperationFusion().getGroupOpResults();
 
   if (!srcOpCanoniclizedMap.contains(sourceOp)) {
     // get write operation
@@ -2647,12 +2637,18 @@ void GroupOperationFusionImpl::makeSourceOpWriteResultToTensor(
                 .getNextTargetOperationInCurrentGroup<vector::TransferWriteOp>(
                     sourceOp, sourceOpGid)) {
       auto writeOpresult = writeOp->getResults()[0];
-      auto writeTensor = writeOp->getOperands()[1];
+      auto originalWriteTensor = writeOp->getOperands()[1];
       // find original tensor.empty operation
-      writeTensor = findOriginalTensor(writeTensor, sourceOp->getBlock());
+      Value writeTensor =
+          findOriginalTensor(originalWriteTensor, sourceOp->getBlock());
+      if (writeTensor != originalWriteTensor)
+        getGroupOperationFusion()
+            .getOperandOriginalValue()[originalWriteTensor] = writeTensor;
+
       srcOpCanoniclizedMap.insert({sourceOp, {writeTensor, writeOpresult}});
       groupOpInitArgs[sourceOpGid].insert(writeTensor);
-      updateReturnResultKind(writeOp, sourceOpGid, rtKind);
+      groupOpResults[sourceOpGid].insert(
+          {writeOpresult, {rtKind, OpAnchorPos[sourceOp]}});
       return;
     }
     generateEmptyTensorAndWrite(sourceOp, srcOpCanoniclizedMap,
@@ -2683,9 +2679,9 @@ void GroupOperationFusionImpl::GroupOperationReturnResultProcess(
   if (failed(dstRet)) {
     // already generate result tensor, special operation do the
     // transformation by itself
-    if (isSpecialOp(sourceOp) and inSameGroupNeedReturn) {
+    if (isSpecialOp(sourceOp) and inSameGroupNeedReturn and
+        not isBroadcastOp(sourceOp))
       return;
-    }
     makeSourceOpWriteResultToTensor(sourceOp, sourceOpGid, rtKind);
     auto opInit = canonicalizeCurrentOperation(
         op, srcOpCanoniclizedMap[sourceOp].second, operandIdx);
@@ -2703,7 +2699,66 @@ void GroupOperationFusionImpl::GroupOperationReturnResultProcess(
   }
   // transfer write operation
   groupOpInitArgs[sourceOpGid].insert(dstRet.value());
+  auto writeTensor = sourceOp->getOperand(1);
+  if (dstRet.value() != writeTensor)
+    getGroupOperationFusion().getOperandOriginalValue()[writeTensor] =
+        dstRet.value();
+
   updateReturnResultKind(sourceOp, sourceOpGid, rtKind);
+}
+
+void GroupOperationFusionImpl::broadcastFromElements(Operation *op,
+                                                     size_t grpIdx) {
+  if (not isa<vector::BroadcastOp>(op))
+    llvm_unreachable("Must be broadcast operation.");
+
+  if (not isa<VectorType>(op->getOperandTypes()[0])) {
+    auto inputBcastOp = cast<vector::BroadcastOp>(op);
+    size_t steps = getGroupOperationFusion().getGroupMaxSteps()[grpIdx];
+    IRRewriter rewriter(op);
+    VectorType newOperandType =
+        getGroupOperationFusion().getTypeHelper().getVectorzedType(op, steps);
+    if (isa_and_nonnull<arith::ConstantOp>(op->getOperand(0).getDefiningOp())) {
+      auto constantOp = cast<arith::ConstantOp>(op);
+      SmallVector<int64_t> shapes(1, steps);
+      auto dataType = mlir::VectorType::get(
+          shapes, inputBcastOp.getResultVectorType().getElementType());
+
+      FailureOr<Value> res = createArithSplatConstantOp(
+          rewriter, op->getLoc(),
+          DenseElementsAttr::get(dataType, constantOp.getValue()),
+          newOperandType);
+      if (failed(res))
+        llvm::llvm_unreachable_internal("Wrong to create constant op.");
+      removeOpInCurrentGroups(grpIdx, op, res.value().getDefiningOp());
+
+    } else {
+      auto bcastOp = rewriter.create<vector::BroadcastOp>(
+          op->getLoc(), newOperandType, op->getOperands()[0]);
+      removeOpInCurrentGroups(grpIdx, op, bcastOp);
+      std::function<bool(Operation *)> candidateFunc = isBroadcastOp;
+      moveSomeInterferenceOperation(&getGroupOperationFusion().getFunction(),
+                                    op->getContext(), candidateFunc);
+    }
+  }
+}
+
+void GroupOperationFusionImpl::scalarOperandFromElements() {
+  auto &opGroups = getGroupOperationFusion().getOpGroups();
+
+  for (auto [idx, grp] : llvm::enumerate(opGroups)) {
+
+    std::queue<Operation *> tmpQueue(grp);
+    while (!tmpQueue.empty()) {
+      auto op = tmpQueue.front();
+      tmpQueue.pop();
+      TypeSwitch<Operation *, void>(op)
+          .Case<vector::BroadcastOp>([&](vector::BroadcastOp &bcOp) {
+            broadcastFromElements(bcOp, idx);
+          })
+          .Default([&](Operation *op) { return; });
+    }
+  }
 }
 
 void GroupOperationFusionImpl::canonicalizeEachOperationGroup() {
@@ -2733,8 +2788,8 @@ void GroupOperationFusionImpl::canonicalizeEachOperationGroup() {
         bool outOfGroup = !opGroupIndexMap.contains(op);
         // Different anchor in same group and source operation is in inner
         // loop, we need to get source operation's result
-        bool inSameGroupNeedReturn =
-            !notInSameGroup and OpAnchorPos[sourceOp] > OpAnchorPos[op];
+        bool inSameGroupNeedReturn = !outOfGroup and !notInSameGroup and
+                                     OpAnchorPos[sourceOp] > OpAnchorPos[op];
 
         if (notInSameGroup or outOfGroup or inSameGroupNeedReturn)
           GroupOperationReturnResultProcess(sourceOpGid, sourceOp, op, idx,
@@ -2747,6 +2802,7 @@ void GroupOperationFusionImpl::canonicalizeEachOperationGroup() {
     }
   });
   analysisEmptyGroup();
+  scalarOperandFromElements();
   specialOperationRectify(visitedOperation);
   LDBG("Complete analysis group operation results\n");
 }
@@ -2756,6 +2812,10 @@ void ForLoopGenerator::rectifyGroupOperands(size_t currentGroupId,
                                             Value forResult) {
   size_t totalGroupSize = getVectorBasedFusion().getOpGroups().size();
   size_t startGroup = currentGroupId;
+  DenseMap<Value, Value> &operandOriginalMap =
+      getVectorBasedFusion().getOperandOriginalValue();
+  if (operandOriginalMap.contains(originalResult))
+    originalResult = operandOriginalMap[originalResult];
   while (startGroup < totalGroupSize) {
     SetVector<Value> &operandVector =
         getVectorBasedFusion().getGroupOpInitArgs()[startGroup++];
@@ -2794,11 +2854,9 @@ mlir::FailureOr<scf::ForOp> ForLoopGenerator::generateVectorizedForLoop(
 
 bool LoopGeneratorImpl::isGroupHasSpecialOperation(const size_t grpIdx) {
   auto &rdCanonicalizer = getMultiRdCanonicalizers()[grpIdx];
-  auto &bcCanonicalizer = getBroadcastCanonicalizers()[grpIdx];
   auto &tpCanonicalizer = getTransposeCanonicalizers()[grpIdx];
   auto &shapeCastCanonicalizer = getShapeCastCanonicalizers()[grpIdx];
   return !rdCanonicalizer.getCandidateOps().empty() or
-         !bcCanonicalizer.getCandidateOps().empty() or
          !tpCanonicalizer.getCandidateOps().empty() or
          !shapeCastCanonicalizer.getCandidateOps().empty();
 }
@@ -2810,9 +2868,8 @@ void LoopGeneratorImpl::generateGroupOpVectorizedIR(const int idx) {
     return;
   }
   // TODO: special operation better fusion
-  if (isGroupHasSpecialOperation(idx)) {
+  if (isGroupHasSpecialOperation(idx))
     return;
-  }
 
   VectorType groupType =
       getVectorBasedFusion().getGroupBiggestRankVectorType()[idx];
@@ -2827,152 +2884,6 @@ void LoopGeneratorImpl::generateGroupOpVectorizedIR(const int idx) {
     return;
 
   moveLoopInvariantCode(forOp.value());
-}
-
-LogicalResult
-moveFront(Operation *op,
-          llvm::DenseMap<Operation *, size_t> &operationPosition) {
-  IRRewriter rewriter(op);
-  Operation *backOperation;
-  size_t pos = 0;
-  // check all the operand is block argument
-  bool allBlockArgs = true;
-  for (auto operand : op->getOperands()) {
-    if (!isa<BlockArgument>(operand)) {
-      allBlockArgs = false;
-      break;
-    }
-  }
-  if (allBlockArgs) {
-    moveOpBeginingOfBlock(op);
-    return success();
-  }
-  for (auto operand : op->getOperands()) {
-    if (isa<BlockArgument>(operand))
-      continue;
-
-    Operation *sourceOp = operand.getDefiningOp();
-    if (operationPosition[sourceOp] > pos and
-        sourceOp->getBlock() == op->getBlock()) {
-      backOperation = sourceOp;
-      pos = operationPosition[sourceOp];
-    }
-  }
-  if (pos == 0) {
-    // extract operand operation all in previous block
-    moveOpBeginingOfBlock(op);
-    return success();
-  }
-  if (backOperation) {
-    rewriter.moveOpAfter(op, backOperation);
-    return success();
-  }
-  return failure();
-}
-
-LogicalResult moveBack(Operation *op,
-                       llvm::DenseMap<Operation *, size_t> &operationPosition) {
-  IRRewriter rewriter(op);
-  Operation *firstOperation;
-  size_t pos = std::numeric_limits<size_t>::max();
-  for (auto user : op->getUsers()) {
-    if (operationPosition[user] < pos and user->getBlock() == op->getBlock()) {
-      firstOperation = user;
-      pos = operationPosition[user];
-    }
-  }
-  if (pos == std::numeric_limits<size_t>::max()) {
-    // Don't move.
-    // TODO: need to consider move before the block which use it.
-    return success();
-  }
-  if (firstOperation) {
-    rewriter.moveOpBefore(op, firstOperation);
-    return success();
-  }
-  return failure();
-}
-
-void moveCandidateOperation(
-    llvm::DenseMap<Operation *, size_t> &operationPosition,
-    ArrayRef<Operation *> candidateOps) {
-
-  for (Operation *op : candidateOps) {
-    auto ret =
-        TypeSwitch<Operation *, LogicalResult>(op)
-            .Case<affine::AffineApplyOp>([&](affine::AffineApplyOp affineOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Case<tensor::ExtractSliceOp>(
-                [&](tensor::ExtractSliceOp extractOp) {
-                  return moveFront(op, operationPosition);
-                })
-            .Case<tensor::EmptyOp>([&](tensor::EmptyOp emptyOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Case<tensor::InsertSliceOp>([&](tensor::InsertSliceOp insertOp) {
-              return moveBack(op, operationPosition);
-            })
-            .Case<vector::TransferReadOp>([&](vector::TransferReadOp readOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Case<vector::TransferWriteOp>(
-                [&](vector::TransferWriteOp writeOp) {
-                  return moveBack(op, operationPosition);
-                })
-            .Default([&](Operation *op) { return success(); });
-    if (failed(ret)) {
-      LDBG("Wrong to move operation:" << *op << "\n");
-      return;
-    }
-  }
-}
-
-// Need to move some operations like extract_slice or insert_slice.
-// Because those operation may interpret our analysis result. e.g.:
-// ```
-// clang-format off
-  // %21 = vector.transfer_read %18[%c0, %c0], %cst {in_bounds = [true, true]} : tensor<16x16xf32>, vector<16x16xf32>
-  // %22 = arith.addf %21, %20 : vector<16x16xf32>
-  // %23 = vector.transfer_write %22, %extracted_slice_12[%c0, %c0] {in_bounds = [true, true]} : vector<16x16xf32>, tensor<16x16xf32>
-  // %inserted_slice_13 = tensor.insert_slice %18 into %arg14[%arg13, 0] [16, 16] [1, 1] : tensor<16x16xf32> into tensor<32x16xf32>
-  // %extracted_slice_14 = tensor.extract_slice %arg16[%arg13, 0] [16, 16] [1, 1] : tensor<32x16xf32> to tensor<16x16xf32>
-  // %24 = vector.transfer_read %cst_0[%c0, %c0], %cst {in_bounds = [true, true]} : tensor<16x16xf32>, vector<16x16xf32>
-  // %25 = arith.maximumf %22, %24 : vector<16x16xf32>
-  // %26 = vector.transfer_write %25, %extracted_slice_14[%c0, %c0] {in_bounds = [true, true]} : vector<16x16xf32>, tensor<16x16xf32>
-  // %inserted_slice_15 = tensor.insert_slice %23 into %arg15[%arg13, 0] [16, 16] [1, 1] : tensor<16x16xf32> into tensor<32x16xf32>
-  // %inserted_slice_16 = tensor.insert_slice %26 into %arg16[%arg13, 0] [16, 16] [1, 1] : tensor<16x16xf32> into tensor<32x16xf32>
-// clang-format on
-// ```
-// The maximumf and addf operation can be a same group, but the extract_slice
-// operation interpret us.
-// The move operation(extra_slice) will check its parameters. In order to
-// ensure that it does not affect the correctness of the result, we will only
-// move the moved op after the op to which the parameters belong to. If it's
-// operand is all the block argument, we will move it to the begining of the
-// block.
-// insert_slice just move them to the privious of the first operation which
-// use it.
-void moveSomeInterferenceOperation(
-    func::FuncOp *func, MLIRContext *ctx,
-    std::function<bool(Operation *)> &conditionalFunc) {
-  // Pre-order traversal of each op
-  // Record each operation position. Inorder to we can kown current operation
-  // should move after which operation.
-  DenseMap<Operation *, size_t> operationPosition;
-  SmallVector<Operation *, 8> candidateOps;
-  size_t opCounter = 0;
-
-  // get the position of each operation
-  func->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    operationPosition[op] = opCounter++;
-    if (conditionalFunc(op))
-      candidateOps.emplace_back(op);
-  });
-  moveCandidateOperation(operationPosition, candidateOps);
-  // eliminate some useless operation
-  RewritePatternSet patterns(ctx);
-  (void)applyPatternsAndFoldGreedily(*func, std::move(patterns));
 }
 
 /// Pass that lower to physical vector.

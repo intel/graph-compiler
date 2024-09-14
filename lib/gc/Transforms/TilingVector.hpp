@@ -299,7 +299,6 @@ public:
 
 class ShapeCastCanonicalizer
     : public SpecialOperationCanonicalizer<vector::ShapeCastOp> {
-private:
 public:
   ShapeCastCanonicalizer(
       const SmallVector<vector::ShapeCastOp, 4> &candidateScOps,
@@ -545,6 +544,9 @@ public:
   virtual ~GroupOperationFusionImpl() = default;
   GroupOperationFusionImpl(func::FuncOp &func, HardWareInfo &info)
       : GroupOperationAnalysis(func, info) {}
+
+  void broadcastFromElements(Operation *op, size_t grpIdx);
+  void scalarOperandFromElements();
 
   /// Generate emtpy tensor and write operations for operations that need to
   /// return their results, and generate read operations for operations that

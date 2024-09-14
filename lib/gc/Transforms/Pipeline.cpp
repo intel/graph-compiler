@@ -90,6 +90,7 @@ void populateVectorPasses(mlir::OpPassManager &pm) {
   // Bf16 cast elimilation pass
   pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
   pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
+  pm.addPass(createLoopInvariantCodeMotionPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
 }

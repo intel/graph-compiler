@@ -375,6 +375,9 @@ VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loopStep) {
 }
 
 int TypeHelper::generateValidSteps(int steps, VectorType type) {
+  // TODO: support odd shape using mask load store
+  if (type.getShape().back() & 1)
+    return 1;
   if (type.getShape().back() >= steps)
     return steps;
   int evenStep = getNearestVectorStep(type.getShape().back());
