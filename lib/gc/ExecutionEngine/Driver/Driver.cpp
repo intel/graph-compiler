@@ -79,7 +79,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
   }
   JitModuleFuncT entry = *expectEntry;
 
-  int32_t numOrigArgs;
+  int32_t numOrigArgs = 0;
   llvm::ArrayRef<int64_t> foldBufferIds;
   JitModuleFuncT fold = nullptr;
   llvm::ArrayRef<int32_t> entryArgs;
@@ -100,7 +100,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     {
       auto expectBufferIds = engine->lookup("__runtime_fold_buffer_ids");
       if (!expectBufferIds) {
-        expectBufferIds.takeError();
+        llvm_unreachable("Symbol: __runtime_fold_buffer_ids not found");
         break;
       }
       auto raw = reinterpret_cast<int64_t *>(*expectBufferIds);
@@ -112,7 +112,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     {
       auto expectFold = engine->lookupPacked(defaultFoldName);
       if (!expectFold) {
-        expectFold.takeError();
+        llvm_unreachable("Symbol: runtime_fold not found");
         break;
       }
       fold = *expectFold;
@@ -122,7 +122,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     {
       auto expectFold = engine->lookup("__fold_args");
       if (!expectFold) {
-        expectFold.takeError();
+        llvm_unreachable("Symbol: __fold_args not found");
         break;
       }
       auto raw = reinterpret_cast<int32_t *>(*expectFold);
@@ -133,7 +133,7 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     {
       auto expect = engine->lookup("__compute_args");
       if (!expect) {
-        expect.takeError();
+        llvm_unreachable("Symbol: __compute_args not found");
         break;
       }
       auto raw = reinterpret_cast<int32_t *>(*expect);
