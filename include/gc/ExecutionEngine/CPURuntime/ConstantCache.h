@@ -151,7 +151,7 @@ inline static size_t divideAndCeil(size_t x, size_t y) {
 
 // Manager
 struct ConstGraphTensorCacheManager {
-  int64_t cachedTensorGlobalId = 0;
+  std::atomic_int64_t cachedTensorGlobalId = 0;
 
   std::unordered_map<int64_t, std::shared_ptr<CachedGraphTensor>> cache;
 
