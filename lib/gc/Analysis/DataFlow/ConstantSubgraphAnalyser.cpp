@@ -143,9 +143,9 @@ void RunConstantSubgraphAnalyser::getConstantSubgraph(DataFlowSolver &solver,
   for (Operation &op : llvm::make_early_inc_range(block)) {
     // If all the result values of a op are const, we mark this op as const.
     bool resultsAllConstant = true;
-    if (op.getNumResults() == 0) {
+    if (op.getNumResults() == 0)
       continue;
-    }
+
     for (Value res : op.getResults()) {
       auto *lattice = solver.lookupState<Lattice<IsConstantTensor>>(res);
       if (!lattice || lattice->getValue().isUninitialized()) {
@@ -164,9 +164,8 @@ void RunConstantSubgraphAnalyser::getConstantSubgraph(DataFlowSolver &solver,
     }
   }
 
-  if (constantOperations.empty()) {
+  if (constantOperations.empty())
     return;
-  }
 }
 
 RunConstantSubgraphAnalyser::RunConstantSubgraphAnalyser() {
@@ -175,9 +174,9 @@ RunConstantSubgraphAnalyser::RunConstantSubgraphAnalyser() {
 }
 
 void RunConstantSubgraphAnalyser::run(Operation *op) {
-  if (failed(solver.initializeAndRun(op))) {
+  if (failed(solver.initializeAndRun(op)))
     return;
-  }
+
   getConstantSubgraph(solver, op);
 }
 
