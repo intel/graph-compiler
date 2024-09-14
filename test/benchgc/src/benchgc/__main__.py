@@ -124,6 +124,20 @@ def add_common_options(parser: argparse.ArgumentParser):
         help="if we need print the ir during the pass-pipeline",
     )
 
+    parser.add_argument(
+        "--cpu_cache_sizes",
+        required=False,
+        help="set the cpu cache sizes, format: L1:L2:L3",
+        type=str,
+    )
+
+    parser.add_argument(
+        "--max_vector_width",
+        required=False,
+        help="set the cpu max_vector_width",
+        type=int,
+    )
+
     if parser.parse_known_args()[0].driver == "linalg":
         parser.add_argument(
             "--cast",
@@ -173,6 +187,14 @@ def add_common_options(parser: argparse.ArgumentParser):
             type=int,
         )
 
+        parser.add_argument(
+            "--permutation",
+            required=False,
+            default=None,
+            action="append",
+            help="define the permutation attribute in linalg op",
+            type=int,
+        )
 
 def add_bench_options(parser: argparse.ArgumentParser):
     """add options for bench mode"""
@@ -192,7 +214,7 @@ def add_pattern_options(parser: argparse.ArgumentParser):
         get_pattern_clz(pattern_name).add_args(parser)
 
 
-def get_module_and_args(flags):
+def get_module_and_args(flags: argparse.Namespace):
     args: List[Arg] = []
     if flags.driver in ["mlir", "pattern"]:
         # we need to find all args by reading the entry function
@@ -203,6 +225,8 @@ def get_module_and_args(flags):
             elif flags.driver == "pattern":
                 pattern_clz = get_pattern_clz(flags.case)
                 module = pattern_clz(ctx, flags).ir_module
+            else:
+                raise Exception("unexpected error")
 
         entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
         idx: int = 0
@@ -235,7 +259,10 @@ def get_module_and_args(flags):
 
         from .linalg import mlir_op
 
-        mlir_func = mlir_op[flags.case]
+        if flags.case.startswith("reduce."):
+            mlir_func = mlir_op["reduce"]
+        else:
+            mlir_func = mlir_op[flags.case]
         module = mlir_func(flags, args)
     else:
         raise Exception(f"unsupported driver {flags.driver}")
@@ -256,6 +283,9 @@ def get_module_and_args(flags):
 
     entry = benchgc.mlir.util.get_kernel_func_from_module(module, flags.entry)
 
+    with module.context:
+        entry.attributes["llvm.emit_c_interface"] = ir.UnitAttr.get()
+
     for i, arg in enumerate(args):
         # use zero filling if the arg is return value
         set_default_fill(flags, arg, args, i >= len(entry.type.inputs))
@@ -264,12 +294,14 @@ def get_module_and_args(flags):
     for arg in args:
         arg.print_verbose(flags.verbose)
 
+    benchgc.mlir.util.attach_dlti(flags, module)
+
     if flags.verbose >= benchgc.util.MODULE_VERBOSE:
         print(module)
     return module, args
 
 
-def correctness_testing(flags, module, args):
+def correctness_testing(flags: argparse.Namespace, module: ir.Module, args: List[Arg]):
     ref_args: List[torch.Tensor] = []
     gc_args: List[torch.Tensor | int] = []
     ref_tensors: Dict[str, torch.Tensor] = {}
@@ -290,9 +322,8 @@ def correctness_testing(flags, module, args):
     ref_out = runner.ref_run(entry, ref_tensors)
 
     # we need to swap the result into the args if some arg is the return value
-    if ref_out is not None:
-        for i in range(len(ref_out)):
-            ref_args[0 - i - 1] = ref_out[0 - i - 1]
+    for i in range(len(ref_out)):
+        ref_args[0 - i - 1] = ref_out[0 - i - 1]
 
     mlir_args = get_mlir_args(gc_args)
     passes = "any(gc-cpu-pipeline)"
@@ -323,7 +354,7 @@ def correctness_testing(flags, module, args):
         print(f"PASSED: {flags.driver}.{flags.case}")
 
 
-def performance_testing(flags, module, args):
+def performance_testing(flags: argparse.Namespace, module: ir.Module, args: List[Arg]):
     gc_args: List[torch.Tensor | int] = []
     gc_tensors: Dict[str, torch.Tensor] = {}
     for i in range(len(args)):

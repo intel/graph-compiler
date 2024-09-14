@@ -23,6 +23,9 @@ gc_add_mlir_library(GcPasses
   TilingUtil.cpp
   SinkOpIntoInnerLoop.cpp
   MergeNestedForall.cpp
+  StaticMemoryPlanning.cpp
+  MergeAlloc.cpp
+  MergeAllocTickBased.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
 
@@ -36,6 +39,7 @@ gc_add_mlir_library(GcPasses
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
     GcAnalysis
+    MLIRMicrokernelTransforms
   )
 
 if(GC_ENABLE_IMEX)

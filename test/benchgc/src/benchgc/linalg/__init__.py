@@ -41,6 +41,7 @@ for dri in [
     "softmax",
     "conv",
     "pool",
+    "reduce",
 ]:
     mod = importlib.import_module(f"benchgc.linalg.{dri}")
     for key in mod.__dict__:
