@@ -4,6 +4,9 @@ gc_add_mlir_library(GcOpenclRuntime
     SHARED
     OpenCLRuntimeWrappers.cpp
 
+    LINK_LIBS PUBLIC
+    GcInterface
+
     EXCLUDE_FROM_LIBMLIR
   )
 
@@ -16,7 +19,6 @@ target_compile_options (GcOpenclRuntime PUBLIC -fexceptions -frtti)
 target_include_directories(GcOpenclRuntime PRIVATE
     ${MLIR_INCLUDE_DIRS}
     ${OpenCL_INCLUDE_DIRS}
-    ${PROJECT_SOURCE_DIR}/include
     )
 
 message(STATUS "OpenCL Libraries: ${OpenCL_LIBRARIES}")
