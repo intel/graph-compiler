@@ -314,45 +314,6 @@ void postponeBroadcast(Block &block) {
   }
 }
 
-static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
-
-size_t divideAndCeil(size_t x, size_t y) { return (x + y - 1) / y; }
-
-// Manager
-struct ConstGraphTensorCacheManager {
-  // dnnl_graph_compiler_context *ctx;
-
-  uint64_t cachedTensorGlobalId = 0;
-
-  // singleton
-  static std::shared_ptr<ConstGraphTensorCacheManager> get() {
-    static std::shared_ptr<ConstGraphTensorCacheManager> c =
-        std::make_shared<ConstGraphTensorCacheManager>();
-    return c;
-  }
-
-  // alloc and set the buf_base_ and offset_ attributes of cache
-  std::vector<uint64_t> alloc(std::vector<size_t> buffersSize) {
-    size_t totalSize = 0;
-    for (size_t size : buffersSize) {
-      totalSize += divideAndCeil(size, 64) * 64;
-    }
-    LLVM_DEBUG(llvm::dbgs() << "Alloc total size: " << totalSize << '\n');
-    auto base = createConstCacheProxy(totalSize);
-    std::vector<uint64_t> globalIds(buffersSize.size());
-    size_t offset = 0;
-    for (size_t i = 0; i < buffersSize.size(); i++) {
-      LLVM_DEBUG(llvm::dbgs() << "Alloc offset: " << offset << '\n');
-      bool regRes = regCachedTensor(cachedTensorGlobalId, base, offset);
-      assert(regRes && "Register constant tensor failed");
-      globalIds[i] = cachedTensorGlobalId;
-      ++cachedTensorGlobalId;
-      offset += divideAndCeil(buffersSize[i], 64) * 64;
-    }
-    return globalIds;
-  }
-};
-
 static void addGlobalI32(ModuleOp &module, Location loc, OpBuilder &builder,
                          StringRef name, int32_t value) {
   OpBuilder::InsertionGuard insertGuard(builder);
@@ -454,6 +415,8 @@ void getArithConstantOutputs(Block &block, SmallVector<Type> &outputTypes,
     }
   }
 }
+
+static constexpr int DATA_SIZE_EXPANDING_THRESHOLD = 8;
 
 void getInputsAndOutputs(Block &block,
                          std::unordered_set<int> &constArgsIndexes,
@@ -584,9 +547,9 @@ func::FuncOp buildFoldFunc(MLIRContext *context, OpBuilder &builder,
                << "Allocate buffer for tensor: " << tensor << "\n");
     buffersSize.push_back(getValueSize(tensor));
   }
-  auto manager = ConstGraphTensorCacheManager::get();
+  auto cacheManager = ConstGraphTensorCacheManager::get();
   SmallVector<int64_t> globalIndexes;
-  for (auto id : manager->alloc(buffersSize)) {
+  for (auto id : cacheManager->alloc(buffersSize)) {
     globalIndexes.push_back(id);
   }
   globalIndexes.insert(globalIndexes.begin(), globalIndexes.size());

@@ -138,8 +138,6 @@ private:
   StridedMemRefType<char, 8> ref;
 };
 
-static std::unordered_map<int64_t, std::shared_ptr<CachedGraphTensor>> cache;
-
 inline std::shared_ptr<ConstCacheProxy> createConstCacheProxy(size_t size) {
   // simply allocate buffer and return
   std::shared_ptr<void> base = std::shared_ptr<void>{
@@ -147,24 +145,62 @@ inline std::shared_ptr<ConstCacheProxy> createConstCacheProxy(size_t size) {
   return std::make_shared<ConstCacheProxy>(base, base.get(), size, true);
 }
 
-inline std::shared_ptr<CachedGraphTensor> queryCacheTensor(int64_t key) {
-  auto itr = cache.find(key);
-  if (itr != cache.end()) {
-    return itr->second;
-  }
-  return nullptr;
+inline static size_t divideAndCeil(size_t x, size_t y) {
+  return (x + y - 1) / y;
 }
 
-inline bool regCachedTensor(int64_t key,
-                            const std::shared_ptr<ConstCacheProxy> &base,
-                            size_t offset) {
-  if (queryCacheTensor(key)) {
-    return false;
+// Manager
+struct ConstGraphTensorCacheManager {
+  int64_t cachedTensorGlobalId = 0;
+
+  std::unordered_map<int64_t, std::shared_ptr<CachedGraphTensor>> cache;
+
+  // singleton
+  static std::shared_ptr<ConstGraphTensorCacheManager> get() {
+    static std::shared_ptr<ConstGraphTensorCacheManager> c =
+        std::make_shared<ConstGraphTensorCacheManager>();
+    return c;
   }
 
-  cache[key] = std::make_shared<CachedGraphTensor>(base, offset);
-  return true;
-}
+  std::shared_ptr<CachedGraphTensor> queryCacheTensor(int64_t key) {
+    auto itr = cache.find(key);
+    if (itr != cache.end()) {
+      return itr->second;
+    }
+    return nullptr;
+  }
+
+  bool regCachedTensor(int64_t key,
+                       const std::shared_ptr<ConstCacheProxy> &base,
+                       size_t offset) {
+    if (queryCacheTensor(key)) {
+      return false;
+    }
+
+    cache[key] = std::make_shared<CachedGraphTensor>(base, offset);
+    return true;
+  }
+
+  // alloc and set the buf_base_ and offset_ attributes of cache
+  std::vector<int64_t> alloc(std::vector<size_t> buffersSize) {
+    size_t totalSize = 0;
+    for (size_t size : buffersSize) {
+      totalSize += divideAndCeil(size, 64) * 64;
+    }
+    auto base = createConstCacheProxy(totalSize);
+    std::vector<int64_t> globalIds(buffersSize.size());
+    size_t offset = 0;
+    for (size_t i = 0; i < buffersSize.size(); i++) {
+      bool regRes = regCachedTensor(cachedTensorGlobalId, base, offset);
+      assert(regRes && "Register constant tensor failed");
+      globalIds[i] = cachedTensorGlobalId;
+      ++cachedTensorGlobalId;
+      offset += divideAndCeil(buffersSize[i], 64) * 64;
+    }
+    return globalIds;
+  }
+};
+
 } // namespace gc
 } // namespace mlir
 

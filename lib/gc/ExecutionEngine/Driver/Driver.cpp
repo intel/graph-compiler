@@ -143,11 +143,13 @@ JitModule::create(Operation *op, const DriverOptions &options) {
 
   std::vector<std::shared_ptr<CachedGraphTensor>> foldInfo;
   foldInfo.reserve(foldBufferIds.size());
+  auto cacheManager = ConstGraphTensorCacheManager::get();
   for (auto bufId : foldBufferIds) {
-    auto ret = queryCacheTensor(bufId);
+    auto ret = cacheManager->queryCacheTensor(bufId);
     if (!ret) {
       return llvm::make_error<llvm::StringError>(
-          "Failed to query the folded cached tensor",
+          "Failed to query the folded cached tensor of id: " +
+              std::to_string(bufId),
           llvm::inconvertibleErrorCode());
     }
     foldInfo.emplace_back(std::move(ret));
@@ -251,7 +253,8 @@ void JitModule::call(GeneralMemrefPtr *args, int32_t numArgs) {
     llvm::SmallVector<void *, 32> realargs;
     prepareCallArgs(realargs, args, numArgs, numOrigArgs, foldedCache,
                     foldArgs);
-    LLVM_DEBUG(llvm::dbgs() << "foldArgs size: " << foldArgs.size() << '\n');
+    LLVM_DEBUG(llvm::dbgs()
+               << "fold func args size: " << foldArgs.size() << '\n');
     fold(realargs.data());
   }
 
@@ -261,8 +264,7 @@ void JitModule::call(GeneralMemrefPtr *args, int32_t numArgs) {
     prepareCallArgs(realargs, args, numArgs, numOrigArgs, foldedCache,
                     entryArgs);
     LLVM_DEBUG(llvm::dbgs()
-               << "entryArgs size: " << entryArgs.size()
-               << ", Entry real args size: " << realargs.size() << '\n');
+               << "entry func args size: " << realargs.size() << '\n');
     entry(realargs.data());
   }
 

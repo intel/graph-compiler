@@ -106,13 +106,14 @@ TEST(ExecutionEngine, JitWrapperCached) {
   }
   ASSERT_TRUE(jit_success);
 
+  auto cacheManager = gc::ConstGraphTensorCacheManager::get();
   auto ret = std::shared_ptr<float[]>(new float[128]);
   auto proxy = std::make_shared<gc::ConstCacheProxy>(ret, ret.get(),
                                                      128 * sizeof(float), true);
   // Can not register with already existing key.
-  ASSERT_FALSE(gc::regCachedTensor(0, proxy, 0));
+  ASSERT_FALSE(cacheManager->regCachedTensor(0, proxy, 0));
 
-  proxy = gc::queryCacheTensor(0)->base;
+  proxy = cacheManager->queryCacheTensor(0)->base;
   auto data = (float *)proxy->getBufferUnsafe();
 
   OwningMemRef<float, 1> bufA{
