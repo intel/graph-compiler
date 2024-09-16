@@ -36,6 +36,9 @@
 
 namespace mlir::gc {
 void registerCPUPipeline();
+#ifdef GC_USE_IMEX
+void registerGPUPipeline();
+#endif
 } // namespace mlir::gc
 
 int main(int argc, char *argv[]) {
@@ -47,6 +50,7 @@ int main(int argc, char *argv[]) {
   imex::registerConvertGPUXToSPIRV();
   imex::registerConvertXeGPUToVC();
   imex::registerConvertXeTileToXeGPU();
+  mlir::gc::registerGPUPipeline();
 #endif
   mlir::registerAllPasses();
   mlir::gc::registerCPUPipeline();
