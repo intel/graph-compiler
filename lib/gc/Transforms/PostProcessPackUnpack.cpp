@@ -80,7 +80,7 @@ struct EliminateDummyPack : public OpRewritePattern<tensor::PackOp> {
     if (packOp.getStaticInnerTiles().empty() &&
         packOp.getInnerTiles().empty()) {
       auto outerPerm = packOp.getOuterDimsPerm();
-      for (size_t i = 0; i < outerPerm.size(); ++i) {
+      for (int64_t i = 0; i < static_cast<int64_t>(outerPerm.size()); ++i) {
         if (outerPerm[i] != i) {
           return rewriter.notifyMatchFailure(packOp, "Not dummy");
         }
@@ -103,7 +103,7 @@ struct EliminateDummyUnpack : public OpRewritePattern<tensor::UnPackOp> {
     if (unpackOp.getStaticInnerTiles().empty() &&
         unpackOp.getInnerTiles().empty()) {
       auto outerPerm = unpackOp.getOuterDimsPerm();
-      for (size_t i = 0; i < outerPerm.size(); ++i) {
+      for (int64_t i = 0; i < static_cast<int64_t>(outerPerm.size()); ++i) {
         if (outerPerm[i] != i) {
           return rewriter.notifyMatchFailure(unpackOp, "Not dummy");
         }

@@ -19,10 +19,10 @@ namespace gc {
 #define DEBUG_TYPE "global-analysis"
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
-                              const TensorLayout &tmpLayoutCache) {
-  SmallVector<int64_t> outerAxis = tmpLayoutCache.getOuterAxis();
-  SmallVector<int64_t> innerAxis = tmpLayoutCache.getInnerAxis();
-  SmallVector<OpFoldResult> tileSizes = tmpLayoutCache.getTileSizes();
+                              const TensorLayout &layout) {
+  SmallVector<int64_t> outerAxis = layout.getOuterAxis();
+  SmallVector<int64_t> innerAxis = layout.getInnerAxis();
+  SmallVector<OpFoldResult> tileSizes = layout.getTileSizes();
   ss << "[";
   llvm::interleaveComma(outerAxis, ss);
   if (!innerAxis.empty()) {
@@ -122,7 +122,7 @@ getReversedIndexMap(const DenseMap<int64_t, int64_t> &indexMap,
 }
 
 static TensorLayout
-inferTargetLayout(TensorLayout layoutBase,
+inferTargetLayout(const TensorLayout &layoutBase,
                   const DenseMap<int64_t, int64_t> &indexMap) {
   SmallVector<int64_t> baseOuterAxis = layoutBase.getOuterAxis();
   SmallVector<int64_t> baseInnerAxis = layoutBase.getInnerAxis();
@@ -203,7 +203,6 @@ projectToInnerMostNonUnitDimsPos(ArrayRef<int64_t> dimsPos,
   return projectedDimsPos;
 }
 
-// copied from mlir
 // Check if all dims in dimsPos are divisible by the corresponding tile sizes.
 static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
                                        ArrayRef<int64_t> shape,
@@ -464,8 +463,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         } else {
           return WalkResult::skip();
         }
-        ArrayRef<int64_t> innerPosPos = curInputLayout.getInnerAxis();
-        ArrayRef<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
+        SmallVector<int64_t> innerPosPos = curInputLayout.getInnerAxis();
+        SmallVector<int64_t> outerDimsPerm = curInputLayout.getOuterAxis();
         SmallVector<int64_t> projectedInnerDimsPos =
             projectToInnerMostNonUnitDimsPos(innerPosPos, reassocIndices,
                                              staticOutputShape);
@@ -532,7 +531,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         auto outerPerm = curInputLayout.getOuterAxis();
         SmallVector<int64_t> newOuterDimsPerm;
         int64_t axisIdx = 0;
-        while (axisIdx < outerPerm.size()) {
+        while (axisIdx < static_cast<int64_t>(outerPerm.size())) {
           for (auto [idx, indices] : llvm::enumerate(reassocIndices)) {
             if (llvm::any_of(indices, [&](int64_t collapseDim) {
                   return collapseDim == outerPerm[axisIdx];
@@ -572,12 +571,10 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 
 namespace utils {
 bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp) {
-  if (isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
-          linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
-          linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
-          linalgOp))
-    return true;
-  return false;
+  return isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
+             linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
+             linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
+      linalgOp);
 }
 
 bool isPackableNamedOp(Operation *op) {

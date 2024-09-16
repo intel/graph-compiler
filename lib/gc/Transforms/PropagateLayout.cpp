@@ -78,12 +78,12 @@ static Value insertLayoutUnpack(RewriterBase &rewriter, Location loc,
 }
 
 static SmallVector<int64_t> getPackedAxes(ArrayRef<int64_t> dimensions,
-                                          TensorLayout targetLayout) {
+                                          const TensorLayout &targetLayout) {
   SmallVector<int64_t> result;
   // permuting on outer axis
   auto outerPerm = targetLayout.getOuterAxis();
-  for (size_t i = 0; i < dimensions.size(); ++i) {
-    auto pos = std::find(outerPerm.begin(), outerPerm.end(), dimensions[i]);
+  for (int64_t dim : dimensions) {
+    auto pos = std::find(outerPerm.begin(), outerPerm.end(), dim);
     assert(pos != outerPerm.end() && "dimension must be within output perm.");
     result.push_back(std::distance(outerPerm.begin(), pos));
   }
@@ -138,7 +138,7 @@ static int64_t applyPermutationAndReindexReassoc(
 
 // extends linalg::pack(...) for named ops
 LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
-                           OperatorLayout opLayout) {
+                           const OperatorLayout &opLayout) {
   if (linalgOp.hasPureBufferSemantics())
     return rewriter.notifyMatchFailure(linalgOp, "require tensor semantics");
   LLVM_DEBUG(llvm::dbgs() << "Try packing named op "
@@ -166,7 +166,7 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
     LLVM_DEBUG(llvm::dbgs() << "At least one input of named op: "
                             << linalgOp.getOperation()->getName()
                             << " is not tensor. Skip.\n");
-    return failure("The op does not need packing.");
+    return failure();
   }
   for (const auto &operandsList : {inputOperands, initOperands}) {
     for (OpOperand *opOperand : operandsList) {
@@ -224,8 +224,7 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
         loc, inputs[0], inits[0], packedPermAxes);
   } else if (isa<linalg::SoftmaxOp>(linalgOp) || isa<linalg::MapOp>(linalgOp) ||
              isa<linalg::YieldOp>(linalgOp) || isa<linalg::IndexOp>(linalgOp)) {
-    return failure(
-        "Packing logic not implemented for SoftMax/Map/Yield/Index.");
+    return failure();
   } else {
     packedLinalgOp = mlir::clone(
         rewriter, linalgOp, SmallVector<Type>{inputsAndInits.back().getType()},
@@ -235,7 +234,7 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
   // Step 4. Unpack all the op results.
   for (OpResult result : packedLinalgOp->getResults()) {
     int64_t resultNum = result.getResultNumber();
-    assert(resultNum < initLayouts.size() &&
+    assert(resultNum < static_cast<int64_t>(initLayouts.size()) &&
            "Linalg op results num exceeds inits num.");
     // Build the symmetrical UnPackOp to the existing PackOp.
     unPackOps.push_back(
@@ -396,55 +395,8 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
   return success();
 }
 
-static LogicalResult createAndReplaceWithGenericVNNIMatmul(
-    RewriterBase &rewriter, MLIRContext *context, SmallVector<Value> inputs,
-    SmallVector<Value> inits, int64_t batchDimSize, int64_t blockingFactor,
-    Operation *matmulOp) {
-  AffineMap mapInput, mapWeight, mapOutput;
-  int64_t dims = batchDimSize + 7;
-  SmallVector<AffineExpr> exprs(dims);
-  // dims is in order B1, ..., Bn, M, N, K, m, n, k, vnni
-  bindDimsList<AffineExpr>(context, exprs);
-  SmallVector<AffineExpr> batchExprs(exprs.begin(),
-                                     exprs.begin() + batchDimSize);
-  AffineExpr M = exprs[batchDimSize], N = exprs[batchDimSize + 1],
-             K = exprs[batchDimSize + 2], m = exprs[batchDimSize + 3],
-             n = exprs[batchDimSize + 4], k = exprs[batchDimSize + 5],
-             vnni = exprs[batchDimSize + 6];
-  SmallVector<AffineExpr> resultA{M, K, m, k};
-  SmallVector<AffineExpr> resultB{N, K, k.floorDiv(blockingFactor), n, vnni};
-  SmallVector<AffineExpr> resultC{M, N, m, n};
-  resultA.insert(resultA.begin(), batchExprs.begin(), batchExprs.end());
-  resultB.insert(resultB.begin(), batchExprs.begin(), batchExprs.end());
-  resultC.insert(resultC.begin(), batchExprs.begin(), batchExprs.end());
-  mapInput = AffineMap::get(/*dims=*/dims, /*symbols=*/0, resultA, context);
-  mapWeight = AffineMap::get(/*dims=*/dims, /*symbols=*/0, resultB, context);
-  mapOutput = AffineMap::get(/*dims=*/dims, /*symbols=*/0, resultC, context);
-  SmallVector<mlir::utils::IteratorType> batchIterators(
-      batchDimSize, mlir::utils::IteratorType::parallel);
-  SmallVector<mlir::utils::IteratorType> iterators{
-      mlir::utils::IteratorType::parallel,
-      mlir::utils::IteratorType::parallel,
-      mlir::utils::IteratorType::reduction,
-      mlir::utils::IteratorType::parallel,
-      mlir::utils::IteratorType::parallel,
-      mlir::utils::IteratorType::reduction,
-      mlir::utils::IteratorType::reduction};
-  iterators.insert(iterators.begin(), batchIterators.begin(),
-                   batchIterators.end());
-  auto replacementOp = rewriter.create<linalg::GenericOp>(
-      matmulOp->getLoc(), inits[0].getType(), inputs, inits,
-      ArrayRef<AffineMap>{mapInput, mapWeight, mapOutput}, iterators,
-      /*doc=*/"", /*libraryCall=*/"");
-  rewriter.inlineRegionBefore(matmulOp->getRegion(0), replacementOp.getRegion(),
-                              replacementOp.getRegion().begin());
-  rewriter.replaceOp(matmulOp, replacementOp.getResult(0));
-  return success();
-}
-
 template <typename OpTy>
-static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
-                                   bool useNamedOp = false) {
+static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp) {
   auto elementType = getElementTypeOrSelf(mmt4dOp.getInputs()[0].getType());
   if (!elementType.isBF16() && !elementType.isInteger(8))
     return rewriter.notifyMatchFailure(mmt4dOp, "require bf16/int8 data type");
@@ -498,8 +450,7 @@ If possible, pack to Mm2DVnniOp or Mm4DVnniOp.
 If not possible, pack to GenericOp.
 */
 static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
-                                     linalg::GenericOp matmulOp,
-                                     bool useNamedOp = false) {
+                                     linalg::GenericOp matmulOp) {
   if (matmulOp.getDpsInputs().size() != 2)
     return rewriter.notifyMatchFailure(matmulOp, "require 2 inputs");
 
@@ -546,7 +497,6 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
   Value VNNIPack = rewriter.create<tensor::PackOp>(loc, weight.get(), dest,
                                                    innerPos, tileSize, zero);
 
-  int64_t batchDimSize = weightRank - 4;
   SmallVector<Value> inputsValues{matmulOp.getInputs()[0], VNNIPack};
   // check whether VNNIPack causes padding, weightShape is BNKkn
   int64_t innermostKDim = weightShape[weightRank - 2];
@@ -599,7 +549,7 @@ shallRevertToType(linalg::GenericOp matmulOp) {
   return failure();
 }
 
-static bool isPlainActivationMatmul(OperatorLayout matmulLayout) {
+static bool isPlainActivationMatmul(const OperatorLayout &matmulLayout) {
   auto inputLayout = matmulLayout.getSupportedInputLayouts()[0];
   auto outputLayout = matmulLayout.getSupportedInputLayouts()[0];
   return !inputLayout.isBlocking() && !outputLayout.isBlocking();
