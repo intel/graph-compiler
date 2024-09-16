@@ -256,11 +256,17 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
 
     int i = 0;
     for (auto arg : kernelArgs) {
-      if (isa<MemRefType>(gpuLaunch.getKernelOperand(i++).getType())) {
+      if (auto type = gpuLaunch.getKernelOperand(i++).getType();
+          isa<MemRefType>(type)) {
         MemRefDescriptor desc(arg);
         args.emplace_back(desc.alignedPtr(rewriter, loc));
       } else {
-        args.emplace_back(arg);
+        // Store the arg on the stack and pass the pointer
+        auto ptr = rewriter.create<LLVM::AllocaOp>(
+            loc, helper.ptrType, typeConverter->convertType(type),
+            helper.idxConstant(rewriter, loc, 1));
+        rewriter.create<LLVM::StoreOp>(loc, arg, ptr);
+        args.emplace_back(ptr);
       }
     }
 
@@ -352,7 +358,7 @@ private:
   // ...name_Ptr.
   bool createKernel(
       gpu::LaunchFuncOp &gpuLaunch, OpAdaptor &adaptor,
-      ConversionPatternRewriter &rewriter, Location &loc, ModuleOp &mod,
+      ConversionPatternRewriter &rewriter, const Location &loc, ModuleOp &mod,
       StringRef funcName,
       const std::function<SmallString<128> &(const char *chars)> &str) const {
     auto kernelModName = gpuLaunch.getKernelModuleName();
@@ -410,6 +416,8 @@ private:
 
     for (auto arg : adaptor.getKernelOperands()) {
       auto type = arg.getType();
+      // Assuming, that the value is either an integer or a float or a pointer.
+      // In the latter case, the size is 0 bytes.
       auto size = type.isIntOrFloat() ? type.getIntOrFloatBitWidth() / 8 : 0;
       argSize.emplace_back(helper.idxConstant(rewriter, loc, size));
     }
