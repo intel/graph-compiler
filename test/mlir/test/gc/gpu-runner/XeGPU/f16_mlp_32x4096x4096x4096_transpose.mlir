@@ -22,7 +22,7 @@ module {
     %9 = linalg.fill ins(%cst : f16) outs(%8 : tensor<32x4096xf16>) -> tensor<32x4096xf16>
     %t = tensor.empty() : tensor<4096x4096xf16>
     %transposed = linalg.transpose ins(%arg3 : tensor<4096x4096xf16>) outs(%t : tensor<4096x4096xf16>) permutation = [1, 0]
-    // linalg.transpose ins(%arg1 : tensor<64x256xf16>) outs(%t: tensor<256x64xf16>) permutation = [1, 0]
+
     %10 = linalg.matmul ins(%7, %transposed : tensor<32x4096xf16>, tensor<4096x4096xf16>)
                         outs(%9 : tensor<32x4096xf16>) -> (tensor<32x4096xf16>)
     %11 = tensor.empty() : tensor<32x4096xf16>
@@ -33,41 +33,50 @@ module {
     %15 = linalg.max ins(%13, %12 : tensor<32x4096xf16>, tensor<32x4096xf16>) 
                      outs(%14 : tensor<32x4096xf16>) -> tensor<32x4096xf16>
 
-    %slice = tensor.extract_slice %15[0, 0][32, 1][1, 1] : tensor<32x4096xf16> to tensor<32xf16>
-    %cast = tensor.cast %slice : tensor<32xf16> to tensor<*xf16>
+    %slice = tensor.extract_slice %15[0, 0][32, 2][1, 1] : tensor<32x4096xf16> to tensor<32x2xf16>
+    %cast = tensor.cast %slice : tensor<32x2xf16> to tensor<*xf16>
     call @printMemrefF16(%cast) : (tensor<*xf16>) -> ()
 
     return
   }
 
-  func.func @generate_t(%max : f32, %step : f32) -> tensor<4096x4096xf16> {
+  // generates asymmetric tensor
+  func.func @generate_t(%even_val : f16, %odd_val : f16) -> tensor<4096x4096xf16> {
     %0 = tensor.generate {
     ^bb0(%i : index, %j : index):
         %int0 = arith.index_cast %i : index to i32
         %int1 = arith.index_cast %j : index to i32
 
-        %mul_idx = arith.muli %int0, %int1 : i32
-        %mul_idx_f = arith.uitofp %int0 : i32 to f32
+        %c2 = arith.constant 2 : i32
+        %c0 = arith.constant 0 : i32
+        %remeinder = arith.remui %int0, %c2 : i32
+        %is_even = arith.cmpi eq, %remeinder, %c0 : i32
 
-        %tmp = arith.mulf %mul_idx_f, %step : f32
-        %remainder = arith.remf %tmp, %max : f32
-        %remainder_f16 = arith.truncf %remainder : f32 to f16
-        tensor.yield %remainder_f16 : f16
+        %val = scf.if %is_even -> (f16) {
+           scf.yield %even_val : f16
+        } else {
+           scf.yield %odd_val : f16
+        }
+
+        tensor.yield %val : f16
     } : tensor<4096x4096xf16>
     return %0 : tensor<4096x4096xf16>
   }
 
   func.func @main() {
     %0 = arith.constant dense<0.01> : tensor<32x4096xf16>
-    %1 = arith.constant dense<0.01> : tensor<4096x4096xf16>
-    %2 = arith.constant dense<0.02> : tensor<32x4096xf16>
-    %3 = arith.constant dense<0.01> : tensor<4096x4096xf16>
-    %4 = arith.constant dense<0.02> : tensor<32x4096xf16>
 
-    // FIXME
-    // %max0 = arith.constant 1.0 : f32
-    // %step0 = arith.constant 0.1 : f32
-    // %1 = call @generate_t(%max0, %step0) : (f32, f32) -> tensor<4096x4096xf16>
+    %even_v1 = arith.constant 0.02 : f16
+    %odd_v1 = arith.constant 0.01 : f16
+    %1 = call @generate_t(%even_v1, %odd_v1) : (f16, f16) -> tensor<4096x4096xf16>
+
+    %2 = arith.constant dense<0.02> : tensor<32x4096xf16>
+ 
+    %even_v2 = arith.constant 0.06 : f16
+    %odd_v2 = arith.constant 0.03 : f16
+    %3 = call @generate_t(%even_v2, %odd_v2) : (f16, f16) -> tensor<4096x4096xf16>
+
+    %4 = arith.constant dense<0.02> : tensor<32x4096xf16>
 
     func.call @linalg_mlp(%0, %1, %2, %3, %4) : (tensor<32x4096xf16>, tensor<4096x4096xf16>, tensor<32x4096xf16>, 
                                                  tensor<4096x4096xf16>, tensor<32x4096xf16>) -> ()
@@ -78,5 +87,36 @@ module {
 }
 
 // CHECK: Unranked Memref base@{{(0x)?[-0-9a-fA-F]*}}
-// CHECK-SAME: rank = 1 offset = 0 sizes = [32] strides = [4096] data =
-// CHECK-NEXT: [17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625, 17.625]
+// CHECK-SAME: rank = 2 offset = 0 sizes = [32, 2] strides = [4096, 1] data = 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375], 
+// CHECK-NEXT:  [155.875,   77.9375]

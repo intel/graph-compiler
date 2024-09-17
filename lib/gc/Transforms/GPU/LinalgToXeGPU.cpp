@@ -768,9 +768,9 @@ loadNdDescTiles(PatternRewriter &rewriter, Location loc, ValueRange loadTiles,
                                 *vnniConf);
     packedAttr = mlir::UnitAttr::get(rewriter.getContext());
   }
-
   SmallVector<Value> loadVec;
   for (auto tile : loadTiles) {
+
     auto loadOp = rewriter.create<xegpu::LoadNdOp>(
         loc, vecLoadType, tile, packedAttr, transpose, transpose_bit,
         /*l1_hint=*/hint,
@@ -867,7 +867,13 @@ extractVecSubTiles(PatternRewriter &rewriter, Location loc,
   return subTiles;
 }
 
-static Value findAndReplaceTranspose(Value matmulOperand,
+// Checks whether the given `matmulOperand` is produced by a `linalg::TransposeOp` and ensures
+// that the transpose result is only used by valid operations, such as `linalg::MatmulOp`, 
+// `linalg::BatchReduceMatmulOp`, or `linalg::GenericOp`.
+//
+// If a valid transpose operation is found, the function records it for later removal and returns the operand 
+// of the transpose operation as the new matrix multiplication operand.
+static Value findAndReplaceTranspose(const Value& matmulOperand,
                                      std::vector<Operation *> &toErase) {
   auto defOp = matmulOperand.getDefiningOp();
   if (!defOp) {
@@ -878,6 +884,11 @@ static Value findAndReplaceTranspose(Value matmulOperand,
 
   for (auto x : defOp->getUsers()) {
     if (isa<linalg::TransposeOp>(x)) {
+      if (transposeOp) {
+        // only one transpose operation is allowed
+        return nullptr;
+      }
+
       transposeOp = dyn_cast<linalg::TransposeOp>(x);
 
       auto transposeRes = transposeOp.getDpsInits()[0];
@@ -909,7 +920,6 @@ static Value findAndReplaceTranspose(Value matmulOperand,
         }
       }
       toErase.push_back(x);
-      break;
     }
   }
   if (transposeOp) {
@@ -1068,7 +1078,6 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
     auto prefetchDescA = createGemmCoopPrefetchTile(
         rewriter, linalgOp, /*inputPos=*/0, numThreads, {blockRows, blockCols},
         {dimM, dimN}, kTile);
-
     auto prefetchDescB = createGemmCoopPrefetchTile(
         rewriter, linalgOp, /*inputPos=*/1, numThreads, {blockRows, blockCols},
         (transposeB) ? std::vector<int32_t>{dimM, dimN}
@@ -1289,9 +1298,7 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
 
   rewriter.eraseOp(linalgOp);
   for (auto &op : toErase) {
-    // op->dropAllUses();
     rewriter.eraseOp(op);
-    // op->erase();
   }
   return success();
 }
