@@ -717,7 +717,7 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   IRRewriter rewriter(ctx);
   mlir::Operation *graph = getOperation();
-  // collect matmul layouts in topological order
+  // pre-collect matmul layouts in topological order
   auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
   std::vector<OperatorLayout> matmulLayouts;
   graph->walk([&](Operation *op) {
@@ -791,8 +791,7 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
       if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp) ||
           linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                           linalgx::PackingType::MM4D) ||
-          linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
+                                           linalgx::PackingType::MM4D,
                                            linalgx::PackingType::VNNI_MM4D)) {
         numMatmuls += 1;
       }

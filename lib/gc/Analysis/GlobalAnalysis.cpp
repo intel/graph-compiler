@@ -207,12 +207,12 @@ projectToInnerMostNonUnitDimsPos(ArrayRef<int64_t> dimsPos,
 static bool isDimsDivisibleByTileSizes(ArrayRef<int64_t> dimsPos,
                                        ArrayRef<int64_t> shape,
                                        ArrayRef<int64_t> tileSizes) {
-  for (auto [pos, tileSize] : llvm::zip_equal(dimsPos, tileSizes)) {
-    int64_t dim = shape[pos];
-    if (ShapedType::isDynamic(dim) || (dim % tileSize) != 0)
-      return false;
-  }
-  return true;
+  return llvm::all_of(llvm::zip_equal(dimsPos, tileSizes),
+                      [shape](std::tuple<int64_t, int64_t> sizePair) {
+                        int64_t dim = shape[std::get<0>(sizePair)];
+                        return !ShapedType::isDynamic(dim) &&
+                               (dim % std::get<1>(sizePair)) == 0;
+                      });
 }
 
 // if forceBlocking is set to true, we will unconditionally convert
