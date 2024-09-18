@@ -670,9 +670,7 @@ createDescriptorTiles(PatternRewriter &rewriter, Location loc, Value src,
     for (int j = 0; j < loadShape[1]; j += descTile[1] * arrayLength) {
       Value newColOffs = rewriter.create<arith::ConstantIndexOp>(loc, j);
       if (transpose) {
-        Value temp = newRowOffs;
-        newRowOffs = newColOffs;
-        newColOffs = temp;
+        std::swap(newRowOffs, newColOffs);
       }
       auto tile = rewriter
                       .create<xegpu::UpdateNdOffsetOp>(
@@ -1302,6 +1300,7 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   }
 
   rewriter.eraseOp(linalgOp);
+
   return success();
 }
 
