@@ -431,6 +431,9 @@ void getArithConstantOutputs(Block &block, SmallVector<Type> &outputTypes,
                         [](Operation *child) {
                           return !isInConstantSubgraph(child);
                         })) {
+          if (valuesOnTheWay.size() == 1) {
+            continue;
+          }
           if (std::find(outputValues.begin(), outputValues.end(), v) ==
               outputValues.end()) {
             outputTypes.push_back(v.getType());
