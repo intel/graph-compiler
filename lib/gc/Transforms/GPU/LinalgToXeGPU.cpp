@@ -867,26 +867,27 @@ extractVecSubTiles(PatternRewriter &rewriter, Location loc,
   return subTiles;
 }
 
-// Checks whether the given `matmulOperand` is produced by a `linalg::TransposeOp` and ensures
-// that the transpose result is only used by valid operations, such as `linalg::MatmulOp`, 
-// `linalg::BatchReduceMatmulOp`, or `linalg::GenericOp`.
+// Checks whether the given `matmulOperand` is produced by a
+// `linalg::TransposeOp` and ensures that the transpose result is only used by
+// valid operations, such as `linalg::MatmulOp`, `linalg::BatchReduceMatmulOp`,
+// or `linalg::GenericOp`.
 //
-// If a valid transpose operation is found, the function records it for later removal and returns the operand 
-// of the transpose operation as the new matrix multiplication operand.
-static Value findAndReplaceTranspose(const Value& matmulOperand,
-                                     std::vector<Operation *> &toErase) {
+// If a valid transpose operation is found, the function records it for later
+// removal and returns the operand of the transpose operation as the new matrix
+// multiplication operand.
+static FailureOr<Value> findAndReplaceTranspose(const Value &matmulOperand,
+                                                PatternRewriter &rewriter) {
   auto defOp = matmulOperand.getDefiningOp();
   if (!defOp) {
-    return nullptr;
+    return failure();
   }
   linalg::TransposeOp transposeOp = nullptr;
-  Value newMatmulOperand = nullptr;
 
   for (auto x : defOp->getUsers()) {
     if (isa<linalg::TransposeOp>(x)) {
       if (transposeOp) {
-        // only one transpose operation is allowed
-        return nullptr;
+        return rewriter.notifyMatchFailure(
+            transposeOp, "Only one transpose operation is allowed");
       }
 
       transposeOp = dyn_cast<linalg::TransposeOp>(x);
@@ -901,7 +902,9 @@ static Value findAndReplaceTranspose(const Value& matmulOperand,
           auto matmulOp = dyn_cast<linalg::LinalgOp>(trUser);
           auto actualMatmulOperand = matmulOp.getDpsInputs()[1];
           if (actualMatmulOperand != matmulOperand) {
-            return nullptr;
+            return rewriter.notifyMatchFailure(
+                trUser,
+                "Transpose result is used by more than one matmul operation");
           }
         } else if (isa<memref::DeallocOp>(trUser) ||
                    isa<memref::AllocaOp>(trUser)) {
@@ -910,22 +913,26 @@ static Value findAndReplaceTranspose(const Value& matmulOperand,
         } else if (isa<linalg::TransposeOp>(trUser)) {
           // check if it's the same transpose as we're processing
           if (!mlir::OperationEquivalence::isEquivalentTo(trUser, transposeOp,
-                                                          nullptr)) {
-            return nullptr;
+                                                          /*flags=*/nullptr)) {
+            return rewriter.notifyMatchFailure(
+                trUser, "Only one transpose operation is allowed");
           }
           continue;
         } else {
-          // do not allow other users
-          return nullptr;
+          return rewriter.notifyMatchFailure(
+              trUser,
+              "Transpose result is not allowed to be used by this operation");
         }
       }
-      toErase.push_back(x);
     }
   }
   if (transposeOp) {
-    newMatmulOperand = transposeOp.getDpsInputs()[0];
+    auto ret = transposeOp.getDpsInputs()[0];
+    rewriter.eraseOp(transposeOp);
+    return ret;
   }
-  return newMatmulOperand;
+  return rewriter.notifyMatchFailure(
+      defOp, "No transpose operation producing the operand was found");
 }
 
 // Create XeGPU DPAS kernel out of GEMM-like operation.
@@ -939,8 +946,6 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
           isa<linalg::GenericOp>(linalgOp)) &&
          "Requires a GEMM-like op for DPAS lowering");
 
-  std::vector<Operation *> toErase;
-
   Location loc = linalgOp.getLoc();
   auto ctx = linalgOp.getContext();
 
@@ -952,9 +957,9 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   if (isa<linalg::MatmulTransposeBOp>(linalgOp)) {
     transposeB = true;
   } else {
-    Value newMatB = findAndReplaceTranspose(matB, toErase);
-    if (newMatB) {
-      matB = newMatB;
+    auto newMatB = findAndReplaceTranspose(matB, rewriter);
+    if (!failed(newMatB)) {
+      matB = *newMatB;
       transposeB = true;
     }
   }
@@ -1297,9 +1302,6 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   }
 
   rewriter.eraseOp(linalgOp);
-  for (auto &op : toErase) {
-    rewriter.eraseOp(op);
-  }
   return success();
 }
 
