@@ -124,7 +124,6 @@ void populateGPUPipeline(mlir::OpPassManager &);
 #define GEN_PASS_DECL_CONSTANTTENSORFOLDING
 #include "gc/Transforms/Passes.h.inc"
 
-std::unique_ptr<Pass> createConstantSubgraphAnalysisPass();
 std::unique_ptr<Pass> createConstantTensorFoldingPass();
 
 #define GEN_PASS_REGISTRATION

@@ -169,14 +169,6 @@ def MergeNestedForall : Pass<"merge-nested-forall"> {
   let dependentDialects = ["scf::SCFDialect"];
 }
 
-def ConstantSubgraphAnalysis : Pass<"constant-subgraph-analysis"> {
-  let summary = "Constant Subgraph Analysis";
-  let description = [{
-    This pass implements a constant subgraph analysis.
-  }];
-  let constructor = "mlir::gc::createConstantSubgraphAnalysisPass()";
-}
-
 def ConstantTensorFolding : Pass<"constant-tensor-folding"> {
   let summary = "Constant Tensor Folding Transform";
   let description = [{

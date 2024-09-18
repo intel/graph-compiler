@@ -16,7 +16,6 @@ gc_add_mlir_library(GcPasses
   IterativeTilingAndFusion.cpp
   TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
-  ConstantSubgraphAnalysis.cpp
   ConstantTensorFolding.cpp
   DecomposeAggregatedOps.cpp
   DeepTileContractionOp.cpp
