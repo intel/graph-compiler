@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TEMPORARY_TILEUSINGINTERFACE_X_H
-#define TEMPORARY_TILEUSINGINTERFACE_X_H
+#ifndef TILING_UTIL_H
+#define TILING_UTIL_H
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -16,7 +16,7 @@
 namespace mlir {
 namespace linalgX {
 
-// An enahncement for the upstream pass to support tiling reduction for MKmk
+// An enhancement for the upstream pass to support tiling reduction for MKmk
 // like cases(with multiple reduction iterators).
 FailureOr<linalg::ForallReductionTilingResult> tileReductionUsingForall(
     RewriterBase &b, PartialReductionOpInterface op,
