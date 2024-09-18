@@ -33,7 +33,7 @@
 #include <memory>
 #include <unordered_map>
 
-#include "TilingUsingInterfaceX.h"
+#include "TileUsingInterfaceX.h"
 
 namespace mlir {
 namespace gc {
