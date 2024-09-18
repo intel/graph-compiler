@@ -16,6 +16,8 @@ namespace gc {
 
 #define DEBUG_TYPE "matmul-config-analysis"
 
+#define LLVM_DEBUG(x) x
+
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                               const MatmulConfig &config) {
 
@@ -530,10 +532,10 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
       SmallVector<std::tuple<CostModelFn, std::string, double>> costModelList =
           {{dynamicBufferizationCost, "dynamicBufferizationCost", 0},
            //  {CBufferResuseCost, "CBufferResuseCost", -1},
-           {workloadBalancedCost, "workloadBalancedCost", -1},
+           {workloadBalancedCost, "workloadBalancedCost", 2},
            {vectorRegEfficiencyCost, "vectorRegEfficiencyCost ", -1},
            {computationIntensityOnL2Cache, "computationIntensityOnL2Cache", -1},
-           //  {KSlicingCost, "KSlicingCost", -1},
+           {KSlicingCost, "KSlicingCost", -1},
            {memoryConsumptionOnThreadCost, "memoryConsumptionOnThreadCost", -1},
            {paddingCost, "paddingCost", -1}};
       SmallVector<uint32_t> shape = {M, N, K};
