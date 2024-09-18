@@ -480,7 +480,7 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
                                        "require packed MM4D matmul semantics");
 
   OpOperand &weight = matmulOp->getOpOperand(1);
-  // TODO(yifei): check ISA
+  // TODO(yifei): check ISA feasibility
   Location loc = matmulOp.getLoc();
   int64_t blockingFactor = elementType.isBF16() ? 2 : 4;
   SmallVector<OpFoldResult> tileSize{rewriter.getIndexAttr(blockingFactor)};
@@ -588,12 +588,25 @@ revertMatmulPacking(MLIRContext *ctx, mlir::Operation *graph,
         auto packInputInnerTiles = packInputOp.getMixedTiles();
         auto packInputInnerDimsPos = packInputOp.getInnerDimsPos();
         auto packInputOuterDimsPerm = packInputOp.getInnerDimsPos();
+        llvm::SmallVector<int64_t> unpackInputInnerDimsPos(
+            packInputInnerDimsPos);
+        // eliminate the transpose semantic in unpack
+        llvm::SmallDenseMap<int64_t, int64_t> axisMapping;
+        if (!packInputOuterDimsPerm.empty()) {
+          for (auto [index, axis] : llvm::enumerate(packInputOuterDimsPerm)) {
+            axisMapping[axis] = index;
+          }
+          for (size_t i = 0; i < packInputOuterDimsPerm.size(); ++i) {
+            unpackInputInnerDimsPos[i] =
+                axisMapping[unpackInputInnerDimsPos[i]];
+          }
+        }
         Value unpackInputDest = tensor::UnPackOp::createDestinationTensor(
             rewriter, loc, packInputOp, packInputInnerTiles,
-            packInputInnerDimsPos, packInputOuterDimsPerm);
+            unpackInputInnerDimsPos, ArrayRef<int64_t>{});
         Value reUnpackInput = rewriter.create<tensor::UnPackOp>(
-            loc, packInputOp, unpackInputDest, packInputInnerDimsPos,
-            packInputInnerTiles, packInputOuterDimsPerm);
+            loc, packInputOp, unpackInputDest, unpackInputInnerDimsPos,
+            packInputInnerTiles);
         // unpack init
         auto packInitInnerTiles = packInitOp.getMixedTiles();
         auto packInitInnerDimsPos = packInitOp.getInnerDimsPos();

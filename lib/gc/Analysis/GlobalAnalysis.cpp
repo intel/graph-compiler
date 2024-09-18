@@ -144,8 +144,8 @@ inferTargetLayout(const TensorLayout &layoutBase,
       newDimAxis.push_back(pair.first);
     }
   }
-  // TODO(yifei): double consider the performance, whether to push all new axis
-  // at the beginning of outer perm
+  // TODO(yifei): double consider the performance
+  // whether to push all new axis at the beginning of outer perm
   targetOuterAxis.insert(targetOuterAxis.begin(), newDimAxis.begin(),
                          newDimAxis.end());
   for (auto &&[ia, ts] : llvm::zip(baseInnerAxis, baseTileSizes)) {
@@ -381,7 +381,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         for (auto input : curInputs) {
           auto parent = input->get().getDefiningOp();
           if (tmpLayoutCache.find(parent) != tmpLayoutCache.end()) {
-            // TODO(yifei): it is not always 0 here
+            // TODO(yifei): extend to cases with multiple outputs
             curInputLayouts.push_back(
                 tmpLayoutCache[parent].getOutputLayout(0));
           } else {
@@ -570,10 +570,10 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 }
 
 namespace utils {
+// TODO(yifei): extend to batch matmuls, sync with deep tile matmul
 bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp) {
   return isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
-             linalg::MatmulTransposeBOp>(
-      linalgOp);
+             linalg::MatmulTransposeBOp>(linalgOp);
 }
 
 bool isPackableNamedOp(Operation *op) {
