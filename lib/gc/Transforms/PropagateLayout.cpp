@@ -251,36 +251,36 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
 }
 
 // check whether the op is already packed or not
-static bool checkPacked(Operation *op, const OperatorLayout &opLayout) {
-  // check whether rank match
-  if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-    assert(linalgOp.getDpsInits().size() ==
-               opLayout.getSupportedOutputLayouts().size() &&
-           linalgOp.getDpsInputs().size() ==
-               opLayout.getSupportedInputLayouts().size());
-    for (auto [index, layout] :
-         llvm::enumerate(opLayout.getSupportedInputLayouts())) {
-      // if dimension mismatch, then the op itself is already packed
-      if (layout.getOuterAxis().size() !=
-          cast<RankedTensorType>(linalgOp.getDpsInputs()[index].getType())
-              .getShape()
-              .size())
-        return true;
-    }
-    for (auto [index, layout] :
-         llvm::enumerate(opLayout.getSupportedOutputLayouts())) {
-      // if dimension mismatch, then the op itself is already packed
-      if (layout.getOuterAxis().size() !=
-          cast<RankedTensorType>(linalgOp.getDpsInits()[index].getType())
-              .getShape()
-              .size())
-        return true;
-    }
-  } else {
-    assert(op->getNumOperands() == 1 && op->getNumResults() == 1);
-  }
-  return false;
-}
+// static bool checkPacked(Operation *op, const OperatorLayout &opLayout) {
+//   // check whether rank match
+//   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+//     assert(linalgOp.getDpsInits().size() ==
+//                opLayout.getSupportedOutputLayouts().size() &&
+//            linalgOp.getDpsInputs().size() ==
+//                opLayout.getSupportedInputLayouts().size());
+//     for (auto [index, layout] :
+//          llvm::enumerate(opLayout.getSupportedInputLayouts())) {
+//       // if dimension mismatch, then the op itself is already packed
+//       if (layout.getOuterAxis().size() !=
+//           cast<RankedTensorType>(linalgOp.getDpsInputs()[index].getType())
+//               .getShape()
+//               .size())
+//         return true;
+//     }
+//     for (auto [index, layout] :
+//          llvm::enumerate(opLayout.getSupportedOutputLayouts())) {
+//       // if dimension mismatch, then the op itself is already packed
+//       if (layout.getOuterAxis().size() !=
+//           cast<RankedTensorType>(linalgOp.getDpsInits()[index].getType())
+//               .getShape()
+//               .size())
+//         return true;
+//     }
+//   } else {
+//     assert(op->getNumOperands() == 1 && op->getNumResults() == 1);
+//   }
+//   return false;
+// }
 
 using ControlPackNamedOpsFn =
     std::function<FailureOr<OperatorLayout>(Operation *)>;
@@ -317,11 +317,11 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
       // insert pack
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(op);
-      if (checkPacked(op, *opLayout)) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Op " << op->getName() << " already packed.\n");
-        return WalkResult::advance();
-      }
+      // if (checkPacked(op, *opLayout)) {
+      //   LLVM_DEBUG(llvm::dbgs()
+      //              << "Op " << op->getName() << " already packed.\n");
+      //   return WalkResult::advance();
+      // }
       if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
         if (failed(packLinalgOp(rewriter, linalgOp, *opLayout))) {
           return WalkResult::skip();
@@ -735,12 +735,15 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   mlir::linalg::ControlBlockPackMatmulFn packMatmulControlFn =
       [&](linalg::LinalgOp op) -> mlir::linalg::BlockPackMatmulOptions {
     mlir::linalg::BlockPackMatmulOptions options;
-    auto matmulLayout = *(layoutAnalysisResult.getOpLayout(op));
-    // currently supported combination: plain & blocking & plain OR blocking &
-    // blocking & blocking
-    TensorLayout inputLayout = matmulLayout.getSupportedInputLayouts()[0];
-    TensorLayout weightLayout = matmulLayout.getSupportedInputLayouts()[1];
-    TensorLayout outputLayout = matmulLayout.getSupportedOutputLayouts()[0];
+    FailureOr<OperatorLayout> matmulLayout =
+        layoutAnalysisResult.getOpLayout(op);
+    if (failed(matmulLayout))
+      return options; // return default options to skip packing
+    // currently supported combination: plain & blocking & plain ||
+    // blocking & blocking & blocking
+    TensorLayout inputLayout = matmulLayout->getSupportedInputLayouts()[0];
+    TensorLayout weightLayout = matmulLayout->getSupportedInputLayouts()[1];
+    TensorLayout outputLayout = matmulLayout->getSupportedOutputLayouts()[0];
     if (!inputLayout.isBlocking() && !weightLayout.isBlocking() &&
         !outputLayout.isBlocking())
       return options; // return default options to skip packing

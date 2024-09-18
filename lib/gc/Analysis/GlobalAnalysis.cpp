@@ -572,8 +572,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 namespace utils {
 bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp) {
   return isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
-             linalg::MatmulTransposeBOp, linalg::BatchMatmulOp,
-             linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp>(
+             linalg::MatmulTransposeBOp>(
       linalgOp);
 }
 
