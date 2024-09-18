@@ -1,4 +1,4 @@
-//===-- TileUsingInterfaceX.cpp -  upstream eXtension ---------*- C++ -*-===//
+//===-- TileUsingInterfaceX.cpp - upstream eXtension ------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
