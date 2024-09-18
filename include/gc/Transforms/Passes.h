@@ -115,6 +115,10 @@ std::unique_ptr<Pass> createMergeAllocPass();
 void populateFrontendPasses(mlir::OpPassManager &);
 void populateCPUPipeline(mlir::OpPassManager &);
 
+#ifdef GC_USE_IMEX
+void populateGPUPipeline(mlir::OpPassManager &);
+#endif
+
 #define GEN_PASS_DECL
 #define GEN_PASS_DECL_CONSTANTSUBGRAPHANALYSIS
 #define GEN_PASS_DECL_CONSTANTTENSORFOLDING
