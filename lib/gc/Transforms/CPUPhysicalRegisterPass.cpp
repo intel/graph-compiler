@@ -2747,7 +2747,7 @@ void GroupOperationFusionImpl::scalarOperandFromElements() {
   SmallVector<std::queue<Operation *>, 8> &opGroups =
       getGroupOperationFusion().getOpGroups();
   size_t idx = 0;
-  for (auto grp : opGroups) {
+  for (auto &grp : opGroups) {
     std::queue<Operation *> tmpQueue(grp);
     while (!tmpQueue.empty()) {
       auto op = tmpQueue.front();
