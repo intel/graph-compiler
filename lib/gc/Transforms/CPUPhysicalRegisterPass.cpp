@@ -2744,10 +2744,10 @@ void GroupOperationFusionImpl::broadcastFromElements(Operation *op,
 }
 
 void GroupOperationFusionImpl::scalarOperandFromElements() {
-  auto &opGroups = getGroupOperationFusion().getOpGroups();
-
-  for (auto [idx, grp] : llvm::enumerate(opGroups)) {
-
+  SmallVector<std::queue<Operation *>, 8> &opGroups =
+      getGroupOperationFusion().getOpGroups();
+  size_t idx = 0;
+  for (auto grp : opGroups) {
     std::queue<Operation *> tmpQueue(grp);
     while (!tmpQueue.empty()) {
       auto op = tmpQueue.front();
@@ -2758,6 +2758,7 @@ void GroupOperationFusionImpl::scalarOperandFromElements() {
           })
           .Default([&](Operation *op) { return; });
     }
+    idx++;
   }
 }
 
