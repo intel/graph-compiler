@@ -1,4 +1,4 @@
-//===-- GlobalAnalysis.cpp - Analyze layout on named ops --------*- C++ -*-===//
+//===-- GlobalAnalysis.cpp - Infer layout on packable ops -------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,12 +11,46 @@
 #include "gc/Analysis/GlobalAnalysis.h"
 #include "gc/Analysis/MatmulConfigAnalysis.h"
 #include "llvm/ADT/SetOperations.h"
-#include "llvm/ADT/SetVector.h"
 
 namespace mlir {
 namespace gc {
 
 #define DEBUG_TYPE "global-analysis"
+
+namespace utils {
+// TODO(yifei): extend to batch matmuls, sync with deep tile matmul
+bool isSupportedContractionNamedOp(const linalg::LinalgOp &linalgOp) {
+  return isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
+             linalg::MatmulTransposeBOp>(linalgOp);
+}
+
+bool isPackableOp(Operation *op) {
+  if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+    if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
+        !mlir::linalg::isaConvolutionOpInterface(linalgOp) &&
+        !isSupportedContractionNamedOp(linalgOp)) {
+      return true;
+    }
+  } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::PadOp>(
+                 op))
+    return true;
+  return false;
+}
+
+bool hasAllTensorSemantics(linalg::LinalgOp linalgOp) {
+  SmallVector<OpOperand *> initOperands = llvm::to_vector(llvm::map_range(
+      linalgOp.getDpsInitsMutable(), [](OpOperand &o) { return &o; }));
+  SmallVector<OpOperand *> inputOperands = linalgOp.getDpsInputOperands();
+  return llvm::all_of(inputOperands,
+                      [](OpOperand *opOperand) {
+                        return mlir::isa<TensorType>(
+                            opOperand->get().getType());
+                      }) &&
+         llvm::all_of(initOperands, [](OpOperand *opOperand) {
+           return mlir::isa<TensorType>(opOperand->get().getType());
+         });
+}
+} // namespace utils
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                               const TensorLayout &layout) {
@@ -38,14 +72,14 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
   return ss;
 }
 
-bool TensorLayout::operator==(const TensorLayout &layout) const {
-  return (this->outerAxis == layout.getOuterAxis()) &&
-         (this->innerAxis == layout.getInnerAxis()) &&
-         (this->tileSizes == layout.getTileSizes());
+bool TensorLayout::operator==(const TensorLayout &other) const {
+  return (this->outerAxis == other.getOuterAxis()) &&
+         (this->innerAxis == other.getInnerAxis()) &&
+         (this->tileSizes == other.getTileSizes());
 }
 
-bool TensorLayout::operator!=(const TensorLayout &layout) const {
-  return !(*this == layout);
+bool TensorLayout::operator!=(const TensorLayout &other) const {
+  return !(*this == other);
 }
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
@@ -90,7 +124,6 @@ inferIndexingMapRelation(AffineMap indexingMapBase,
     if (res.find(j) == res.end())
       res[j] = -1;
   }
-  // check res
   DenseSet<int64_t> indexSet;
   for (auto pair : res) {
     if (indexSet.find(pair.second) != indexSet.end()) {
@@ -121,28 +154,30 @@ getReversedIndexMap(const DenseMap<int64_t, int64_t> &indexMap,
   return res;
 }
 
-static TensorLayout
-inferTargetLayout(const TensorLayout &layoutBase,
-                  const DenseMap<int64_t, int64_t> &indexMap) {
+static FailureOr<TensorLayout> inferTargetLayout(const TensorLayout &layoutBase,
+                                                 AffineMap indexingMapBase,
+                                                 AffineMap indexingMapTarget) {
   SmallVector<int64_t> baseOuterAxis = layoutBase.getOuterAxis();
   SmallVector<int64_t> baseInnerAxis = layoutBase.getInnerAxis();
   SmallVector<OpFoldResult> baseTileSizes = layoutBase.getTileSizes();
   SmallVector<int64_t> targetOuterAxis;
   SmallVector<int64_t> targetInnerAxis;
   SmallVector<OpFoldResult> targetTileSizes;
+  FailureOr<DenseMap<int64_t, int64_t>> indexMap =
+      inferIndexingMapRelation(indexingMapBase, indexingMapTarget);
+  if (failed(indexMap))
+    return failure();
   DenseMap<int64_t, int64_t> reverseIndexMap =
-      getReversedIndexMap(indexMap, layoutBase.getRank());
-  for (auto oa : baseOuterAxis) {
-    if (reverseIndexMap[oa] >= 0) {
+      getReversedIndexMap(*indexMap, layoutBase.getRank());
+  for (int64_t oa : baseOuterAxis) {
+    if (reverseIndexMap[oa] >= 0)
       targetOuterAxis.push_back(reverseIndexMap[oa]);
-    }
   }
   // filling up new j axes
   SmallVector<int64_t> newDimAxis;
-  for (auto pair : indexMap) {
-    if (pair.second < 0) {
+  for (const auto &pair : *indexMap) {
+    if (pair.second < 0)
       newDimAxis.push_back(pair.first);
-    }
   }
   // TODO(yifei): double consider the performance
   // whether to push all new axis at the beginning of outer perm
@@ -157,7 +192,8 @@ inferTargetLayout(const TensorLayout &layoutBase,
   return TensorLayout(targetOuterAxis, targetInnerAxis, targetTileSizes);
 }
 
-static size_t getTargetInputIdx(ArrayRef<TensorLayout> curInputLayouts) {
+// TODO(yifei): enhance the logic for choose base input index
+static size_t getBaseInputIdx(ArrayRef<TensorLayout> curInputLayouts) {
   for (size_t i = 0; i < curInputLayouts.size(); ++i) {
     if (!curInputLayouts[i].isPlain()) {
       return i;
@@ -318,9 +354,9 @@ queryMatmulLayout(IRRewriter &rewriter, linalg::LinalgOp matmulOp,
 
 GlobalAnalysis::GlobalAnalysis(Operation *root) {
   IRRewriter rewriter(root);
+  // stage 1: calculate the total number of layout combination
   int64_t totalLayoutPossibilities = 1;
   std::vector<int64_t> possibilities;
-  int64_t numMatmuls = 0;
   root->walk([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
       if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp)) {
@@ -333,20 +369,23 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
             queryMatmulLayout(rewriter, linalgOp, curInputLayouts);
         possibilities.push_back(suggestedLayouts.size());
         totalLayoutPossibilities *= possibilities.back();
-        numMatmuls++;
       }
     }
     return WalkResult::advance();
   });
+  // define cost function
   auto computePackingCost =
       [&](linalg::LinalgOp linalgOp, ArrayRef<TensorLayout> curInputLayouts,
-          ArrayRef<TensorLayout> suggestedLayout) -> int64_t {
+          ArrayRef<TensorLayout> suggestedLayouts = {}) -> int64_t {
     int64_t cost = 0;
-    for (auto [operand, curLayout, suggestedLayout] :
-         llvm::zip(linalgOp.getDpsInputOperands(), curInputLayouts,
-                   suggestedLayout)) {
+    auto inputOperands = linalgOp.getDpsInputOperands();
+    for (auto [index, curLayout] : llvm::enumerate(curInputLayouts)) {
+      TensorLayout suggestedLayout =
+          suggestedLayouts.empty()
+              ? TensorLayout::createPlainLayout(curLayout.getRank())
+              : suggestedLayouts[index];
       if (curLayout != suggestedLayout) {
-        ArrayRef<int64_t> shape = linalgOp.getShape(operand);
+        ArrayRef<int64_t> shape = linalgOp.getShape(inputOperands[index]);
         int64_t inputSize = std::accumulate(
             shape.begin(), shape.end(), (int64_t)1, std::multiplies<int64_t>());
         if (suggestedLayout.isBlocking())
@@ -359,8 +398,9 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
   };
   std::vector<int64_t> curChoice(possibilities.size(), 0);
   int64_t bestCost = std::numeric_limits<int64_t>::max();
+  // stage 2: infer layout for each possibility
   for (int64_t trialIdx = 0; trialIdx < totalLayoutPossibilities; ++trialIdx) {
-    // trialIdx to map
+    // stage 2.1: get the current layout choice
     int64_t tmpIdx = trialIdx;
     for (size_t i = 0; i < possibilities.size(); i++) {
       curChoice[i] = tmpIdx % possibilities[i];
@@ -371,11 +411,22 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
     LLVM_DEBUG(llvm::dbgs() << "].\n");
     int64_t curMatmulIdx = 0;
     int64_t curCost = 0;
+    // stage 2.2: infer the current temp layout for the whole graph
     DenseMap<Operation *, OperatorLayout> tmpLayoutCache;
     root->walk([&](Operation *op) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Try inferring layout for op: " << op->getName() << "\n");
       if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
         auto curInputs = linalgOp.getDpsInputOperands();
         auto curResults = linalgOp.getOperation()->getResults();
+        // if any input/output is not tensor, skip it
+        if (!gc::utils::hasAllTensorSemantics(linalgOp)) {
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "Op " << linalgOp.getOperation()->getName()
+              << " contains non-tensor operand. Skip layout inference.\n");
+          return WalkResult::skip();
+        }
         // get current op's input layouts
         SmallVector<TensorLayout> curInputLayouts;
         for (auto input : curInputs) {
@@ -389,7 +440,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
                 linalgOp.getMatchingIndexingMap(input).getNumResults()));
           }
         }
-        // infer current op's output layout accordingly
+        // start infer current op's layout
         if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp)) {
           auto suggestedLayouts =
               queryMatmulLayout(rewriter, linalgOp, curInputLayouts, false);
@@ -398,36 +449,46 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           curCost += computePackingCost(
               linalgOp, curInputLayouts,
               tmpLayoutCache[linalgOp].getSupportedInputLayouts());
-        } else if (mlir::gc::utils::isPackableNamedOp(op)) {
+        } else if (mlir::gc::utils::isPackableOp(op)) {
           // infer layout for non-contraction/non-convolution linalg named ops
           // and linalg generic ops
           SmallVector<TensorLayout> inputLayouts, outputLayouts;
-          size_t targetIdx = getTargetInputIdx(curInputLayouts);
+          size_t baseIdx = getBaseInputIdx(curInputLayouts);
+          // infer layout for inputs
           for (size_t i = 0; i < curInputs.size(); ++i) {
-            // getMatchingIndexingMap
-            if (i != targetIdx) {
-              auto indexRelation = inferIndexingMapRelation(
-                  linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
+            if (i != baseIdx) {
+              FailureOr<TensorLayout> inferredLayout = inferTargetLayout(
+                  curInputLayouts[baseIdx],
+                  linalgOp.getMatchingIndexingMap(curInputs[baseIdx]),
                   linalgOp.getMatchingIndexingMap(curInputs[i]));
-              if (failed(indexRelation)) {
+              if (failed(inferredLayout)) {
+                LLVM_DEBUG(
+                    llvm::dbgs()
+                    << "Op " << linalgOp.getOperation()->getName()
+                    << "'s input " << i
+                    << "'s layout cannot be inferred. Choose plain layout.\n");
+                curCost += computePackingCost(linalgOp, curInputLayouts);
                 return WalkResult::skip();
               }
-              TensorLayout inputLayout =
-                  inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
-              inputLayouts.push_back(inputLayout);
+              inputLayouts.push_back(*inferredLayout);
             } else {
-              inputLayouts.push_back(curInputLayouts[targetIdx]);
+              inputLayouts.push_back(curInputLayouts[baseIdx]);
             }
           }
-          auto indexRelation = inferIndexingMapRelation(
-              linalgOp.getMatchingIndexingMap(curInputs[targetIdx]),
+          // infer layout for output
+          FailureOr<TensorLayout> inferredOutputLayout = inferTargetLayout(
+              curInputLayouts[baseIdx],
+              linalgOp.getMatchingIndexingMap(curInputs[baseIdx]),
               linalgOp.getIndexingMapMatchingResult(curResults[0]));
-          if (failed(indexRelation)) {
+          if (failed(inferredOutputLayout)) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Op " << linalgOp.getOperation()->getName()
+                       << "'s output layout cannot be inferred. Choose plain "
+                          "layout.\n");
+            curCost += computePackingCost(linalgOp, curInputLayouts);
             return WalkResult::skip();
           }
-          TensorLayout outputLayout =
-              inferTargetLayout(curInputLayouts[targetIdx], *indexRelation);
-          outputLayouts.push_back(outputLayout);
+          outputLayouts.push_back(*inferredOutputLayout);
           OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
           tmpLayoutCache[linalgOp] = suggestedLayout;
           curCost +=
@@ -461,6 +522,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         if (tileSizes) {
           innerTileSizes = *tileSizes;
         } else {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "ExpandShapeOp's layout cannot be penetrated. Skip.\n");
           return WalkResult::skip();
         }
         SmallVector<int64_t> innerPosPos = curInputLayout.getInnerAxis();
@@ -471,6 +534,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 
         if (!isDimsDivisibleByTileSizes(projectedInnerDimsPos,
                                         staticOutputShape, innerTileSizes)) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "ExpandShapeOp's layout cannot be penetrated. Skip.\n");
           return WalkResult::skip();
         }
         SmallVector<int64_t> newOuterDimsPerm;
@@ -504,14 +569,21 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           llvm::SetVector<int64_t> packedDims =
               llvm::set_intersection(innerPosSet, collapseDimPos);
           // only one of the collapsed indices can be packed
-          if (packedDims.size() > 1)
+          if (packedDims.size() > 1) {
+            LLVM_DEBUG(
+                llvm::dbgs()
+                << "CollapseShapeOp's layout cannot be penetrated. Skip.\n");
             return WalkResult::skip();
+          }
           // Only the inner-most expanded dimension should be packed. Otherwise,
           // elements order will be affected after operation reordering.
-          if (!packedDims.empty() && packedDims[0] != indices.back())
+          if (!packedDims.empty() && packedDims[0] != indices.back()) {
+            LLVM_DEBUG(
+                llvm::dbgs()
+                << "CollapseShapeOp's layout cannot be penetrated. Skip.\n");
             return WalkResult::skip();
+          }
         }
-
         // Project pack.inner_dims_pos to positions before shape expansion.
         SmallVector<int64_t> projectedInnerDimsPos;
         for (auto pos : innerPos) {
@@ -537,8 +609,11 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
                   return collapseDim == outerPerm[axisIdx];
                 })) {
               for (auto collapseDim : indices) {
-                if (collapseDim != outerPerm[axisIdx++])
+                if (collapseDim != outerPerm[axisIdx++]) {
+                  LLVM_DEBUG(llvm::dbgs() << "CollapseShapeOp's layout cannot "
+                                             "be penetrated. Skip.\n");
                   return WalkResult::skip();
+                }
               }
               newOuterDimsPerm.push_back(idx);
               break;
@@ -568,26 +643,5 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
     }
   }
 }
-
-namespace utils {
-// TODO(yifei): extend to batch matmuls, sync with deep tile matmul
-bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp) {
-  return isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
-             linalg::MatmulTransposeBOp>(linalgOp);
-}
-
-bool isPackableNamedOp(Operation *op) {
-  if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-    if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
-        !isa<linalg::ConvolutionOpInterface>(linalgOp.getOperation()) &&
-        !isSupportedContractionNamedOp(linalgOp)) {
-      return true;
-    }
-  } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::PadOp>(
-                 op))
-    return true;
-  return false;
-}
-} // namespace utils
 } // namespace gc
 } // namespace mlir

@@ -88,9 +88,9 @@ public:
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
                                        const TensorLayout &layout);
 
-  bool operator==(const TensorLayout &layout) const;
+  bool operator==(const TensorLayout &other) const;
 
-  bool operator!=(const TensorLayout &layout) const;
+  bool operator!=(const TensorLayout &other) const;
 
 private:
   SmallVector<int64_t> outerAxis;
@@ -154,9 +154,11 @@ private:
 };
 
 namespace utils {
-bool isSupportedContractionNamedOp(linalg::LinalgOp &linalgOp);
+bool isSupportedContractionNamedOp(const linalg::LinalgOp &linalgOp);
 
-bool isPackableNamedOp(Operation *op);
+bool isPackableOp(Operation *op);
+
+bool hasAllTensorSemantics(linalg::LinalgOp linalgOp);
 } // namespace utils
 } // namespace gc
 } // namespace mlir

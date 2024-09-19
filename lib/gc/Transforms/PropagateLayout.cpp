@@ -139,8 +139,6 @@ static int64_t applyPermutationAndReindexReassoc(
 // extends linalg::pack(...) for named ops
 LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
                            const OperatorLayout &opLayout) {
-  if (linalgOp.hasPureBufferSemantics())
-    return rewriter.notifyMatchFailure(linalgOp, "require tensor semantics");
   LLVM_DEBUG(llvm::dbgs() << "Try packing named op "
                           << linalgOp.getOperation()->getName() << ".\n");
   Location loc = linalgOp->getLoc();
@@ -154,18 +152,10 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
   SmallVector<TensorLayout> initLayouts = opLayout.getSupportedOutputLayouts();
   // check all inputs and inits are tensor, otherwise no need for layout
   // propagation
-  bool allTensor =
-      llvm::all_of(inputOperands,
-                   [](OpOperand *opOperand) {
-                     return mlir::isa<TensorType>(opOperand->get().getType());
-                   }) &&
-      llvm::all_of(initOperands, [](OpOperand *opOperand) {
-        return mlir::isa<TensorType>(opOperand->get().getType());
-      });
-  if (!allTensor) {
-    LLVM_DEBUG(llvm::dbgs() << "At least one input of named op: "
+  if (!gc::utils::hasAllTensorSemantics(linalgOp)) {
+    LLVM_DEBUG(llvm::dbgs() << "All inputs and outputs of linalg op: "
                             << linalgOp.getOperation()->getName()
-                            << " is not tensor. Skip.\n");
+                            << " shall be tensor. Skip layout packing.\n");
     return failure();
   }
   for (const auto &operandsList : {inputOperands, initOperands}) {
@@ -199,7 +189,7 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
     }
   }
 
-  // Step 3. Build the packed op, use the type of `inits` as result types.
+  // Step 3. Build the packed op
   ValueRange inputs =
       ValueRange{inputsAndInits}.take_front(linalgOp.getNumDpsInputs());
   ValueRange inits =
@@ -250,37 +240,37 @@ LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
   return success();
 }
 
-// check whether the op is already packed or not
-// static bool checkPacked(Operation *op, const OperatorLayout &opLayout) {
-//   // check whether rank match
-//   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-//     assert(linalgOp.getDpsInits().size() ==
-//                opLayout.getSupportedOutputLayouts().size() &&
-//            linalgOp.getDpsInputs().size() ==
-//                opLayout.getSupportedInputLayouts().size());
-//     for (auto [index, layout] :
-//          llvm::enumerate(opLayout.getSupportedInputLayouts())) {
-//       // if dimension mismatch, then the op itself is already packed
-//       if (layout.getOuterAxis().size() !=
-//           cast<RankedTensorType>(linalgOp.getDpsInputs()[index].getType())
-//               .getShape()
-//               .size())
-//         return true;
-//     }
-//     for (auto [index, layout] :
-//          llvm::enumerate(opLayout.getSupportedOutputLayouts())) {
-//       // if dimension mismatch, then the op itself is already packed
-//       if (layout.getOuterAxis().size() !=
-//           cast<RankedTensorType>(linalgOp.getDpsInits()[index].getType())
-//               .getShape()
-//               .size())
-//         return true;
-//     }
-//   } else {
-//     assert(op->getNumOperands() == 1 && op->getNumResults() == 1);
-//   }
-//   return false;
-// }
+// check whether non-contraction packable ops are already packed or not
+static bool checkPacked(Operation *op, const OperatorLayout &opLayout) {
+  // check whether rank match
+  if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+    assert(linalgOp.getDpsInits().size() ==
+               opLayout.getSupportedOutputLayouts().size() &&
+           linalgOp.getDpsInputs().size() ==
+               opLayout.getSupportedInputLayouts().size());
+    for (auto [index, layout] :
+         llvm::enumerate(opLayout.getSupportedInputLayouts())) {
+      // if dimension mismatch, then the op itself is already packed
+      if (layout.getOuterAxis().size() !=
+          cast<RankedTensorType>(linalgOp.getDpsInputs()[index].getType())
+              .getShape()
+              .size())
+        return true;
+    }
+    for (auto [index, layout] :
+         llvm::enumerate(opLayout.getSupportedOutputLayouts())) {
+      // if dimension mismatch, then the op itself is already packed
+      if (layout.getOuterAxis().size() !=
+          cast<RankedTensorType>(linalgOp.getDpsInits()[index].getType())
+              .getShape()
+              .size())
+        return true;
+    }
+  } else {
+    assert(op->getNumOperands() == 1 && op->getNumResults() == 1);
+  }
+  return false;
+}
 
 using ControlPackNamedOpsFn =
     std::function<FailureOr<OperatorLayout>(Operation *)>;
@@ -297,15 +287,15 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
                                        ControlPackNamedOpsFn controlFn) {
   IRRewriter rewriter(ctx);
   graph->walk([&](Operation *op) {
-    if (mlir::gc::utils::isPackableNamedOp(op)) {
+    if (mlir::gc::utils::isPackableOp(op)) {
       LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName() << " visited.\n");
-      FailureOr<OperatorLayout> opLayout = controlFn(op);
-      if (failed(opLayout)) {
+      if (failed(controlFn(op))) {
         LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName()
                                 << " does not have layout information.\n");
         return WalkResult::skip();
       }
-      if ((*opLayout).isPlain()) {
+      OperatorLayout opLayout = *controlFn(op);
+      if (opLayout.isPlain()) {
         LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName()
                                 << " has plain layout, skip packing.\n");
         return WalkResult::advance();
@@ -313,23 +303,23 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
       // pack op into ideal layout
       LLVM_DEBUG(llvm::dbgs()
                  << "Op " << op->getName() << "'s inferred layout:\n"
-                 << *opLayout << "\n");
+                 << opLayout << "\n");
       // insert pack
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(op);
-      // if (checkPacked(op, *opLayout)) {
-      //   LLVM_DEBUG(llvm::dbgs()
-      //              << "Op " << op->getName() << " already packed.\n");
-      //   return WalkResult::advance();
-      // }
+      if (checkPacked(op, opLayout)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Op " << op->getName() << " already packed.\n");
+        return WalkResult::advance();
+      }
       if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-        if (failed(packLinalgOp(rewriter, linalgOp, *opLayout))) {
+        if (failed(packLinalgOp(rewriter, linalgOp, opLayout))) {
           return WalkResult::skip();
         }
       } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
         Location loc = expandShapeOp->getLoc();
-        auto inputLayout = opLayout->getSupportedInputLayouts()[0];
-        auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
+        auto inputLayout = opLayout.getSupportedInputLayouts()[0];
+        auto outputLayout = opLayout.getSupportedOutputLayouts()[0];
         Value curSrc = expandShapeOp.getSrc();
         Value curDst = expandShapeOp.getResult();
         Value dest = tensor::PackOp::createDestinationTensor(
@@ -359,8 +349,8 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
         rewriter.replaceOp(expandShapeOp, newUnPackOp);
       } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
         Location loc = collapseShapeOp->getLoc();
-        auto inputLayout = opLayout->getSupportedInputLayouts()[0];
-        auto outputLayout = opLayout->getSupportedOutputLayouts()[0];
+        auto inputLayout = opLayout.getSupportedInputLayouts()[0];
+        auto outputLayout = opLayout.getSupportedOutputLayouts()[0];
         Value curSrc = collapseShapeOp.getSrc();
         Value curDst = collapseShapeOp.getResult();
         Value dest = tensor::PackOp::createDestinationTensor(
