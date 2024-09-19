@@ -374,14 +374,24 @@ VectorType TypeHelper::getVectorzedType(Operation *op, uint32_t loopStep) {
   return VectorType::get({loopStep}, vectorizedType.getElementType());
 }
 
+int TypeHelper::generateValidSteps(int steps, VectorType type, int shapeDim) {
+  if (shapeDim & 1)
+    return 1;
+  auto typebits = type.getElementTypeBitWidth();
+  if (shapeDim >= steps)
+    return steps * typebits >= 128 ? steps : 1;
+  int evenStep = getNearestVectorStep(shapeDim);
+  return evenStep * typebits >= 128 ? evenStep : 1;
+}
+
 int TypeHelper::generateValidSteps(int steps, VectorType type) {
   // TODO: support odd shape using mask load store
   if (type.getShape().back() & 1)
     return 1;
-  if (type.getShape().back() >= steps)
-    return steps;
-  int evenStep = getNearestVectorStep(type.getShape().back());
   auto typebits = type.getElementTypeBitWidth();
+  if (type.getShape().back() >= steps)
+    return steps * typebits >= 128 ? steps : 1;
+  int evenStep = getNearestVectorStep(type.getShape().back());
   return evenStep * typebits >= 128 ? evenStep : 1;
 }
 

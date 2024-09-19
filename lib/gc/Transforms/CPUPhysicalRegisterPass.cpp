@@ -545,12 +545,6 @@ void updateCurrentArgsStatus(ValueRange loopState, const size_t loopStateIdx,
                              DenseMap<Value, Value> &nextOriginalOperandMap,
                              DenseMap<Value, Value> &nextOperandOriginalMap) {
   Value currentArgs = loopState[loopStateIdx];
-  if (currentArgs.getType() != originalValue.getType()) {
-    llvm::outs() << loopStateIdx << ","
-                 << "\n";
-    currentArgs.dump();
-    llvm::llvm_unreachable_internal("Type not equal.");
-  }
   nextAnchorArgs.emplace_back(currentArgs);
   nextAnchorArgsIdxMap[currentArgs] = nextAnchorArgs.size() - 1;
   nextOriginalOperandMap[originalValue] = currentArgs;
@@ -740,6 +734,36 @@ void updateLoopArgsData(Value val, Value originalVal,
   originalOperandLoopArgsMap[originalVal] = val;
 }
 
+void LoopGeneratorImpl::rectifyParallelIndice(
+    GenerateLoopHelper &loopHelperParam, OpBuilder &b, Location loc) {
+  MultiReductionCanonicalizer rdCanonicalizer =
+      getMultiRdCanonicalizers()[loopHelperParam.groupIdx];
+  auto &multireductionOp = rdCanonicalizer.getCandidateOps()[0];
+  SmallVector<int64_t, 4> &reductionAxis = rdCanonicalizer.getReductionAxis();
+
+  // rectify indice of read from source operand
+  auto sourceReadOp =
+      multireductionOp.getSource().getDefiningOp<vector::TransferReadOp>();
+  if (!sourceReadOp)
+    return;
+
+  AffineExpr outterParallel, innerParallel;
+  bindDims(multireductionOp->getContext(), outterParallel, innerParallel);
+
+  Value op =
+      loopHelperParam.inductionVars[loopHelperParam.inductionVars.size() -
+                                    reductionAxis.size() - 2];
+  Value ip =
+      loopHelperParam.inductionVars[loopHelperParam.inductionVars.size() -
+                                    reductionAxis.size() - 1];
+  Value newIndice = b.createOrFold<affine::AffineApplyOp>(
+      loc, (outterParallel + innerParallel), ValueRange{op, ip});
+  int parallelSize = rdCanonicalizer.getParallelAxis().size();
+  int readIndiceOffset =
+      1 + rdCanonicalizer.getParallelAxis()[parallelSize - 1];
+  sourceReadOp->setOperand(readIndiceOffset, newIndice);
+}
+
 scf::ForOp LoopGeneratorImpl::reductionAxisGenerateForLoop(
     OpBuilder &opBuilder, const size_t reductionIdx,
     GenerateLoopHelper &loopHelperParam) {
@@ -755,18 +779,22 @@ scf::ForOp LoopGeneratorImpl::reductionAxisGenerateForLoop(
 
   const auto loc = multireductionOp->getLoc();
   SmallVector<int64_t, 4> &reductionAxis = rdCanonicalizer.getReductionAxis();
-  bool lastDimReduction = rdCanonicalizer.hasLastDimReduction();
   VectorType vectorType = rdCanonicalizer.getSourceType();
-  const int loopStep =
-      getVectorBasedFusion().getGroupMaxSteps()[loopHelperParam.groupIdx];
+  auto tpHelper = fusionStrategy.getTypeHelper();
+
+  int loopStep = tpHelper.generateValidSteps(
+      fusionStrategy.getTypeHelper().getDataTypeMAXSIMDLength(vectorType),
+      vectorType, vectorType.getShape()[reductionAxis[reductionIdx]]);
+  bool isLastDimReduction = rdCanonicalizer.getHasLastDimReduction();
+  loopStep = (reductionIdx == reductionAxis.size() - 1 && isLastDimReduction)
+                 ? loopStep
+                 : 1;
+
   func::FuncOp func = fusionStrategy.getFunction();
   IRRewriter rewriterOfFunc(func);
 
   Value zero = makeIndexArithConstantOp(opBuilder, loc, 0);
-  Value forSteps = makeIndexArithConstantOp(
-      opBuilder, loc,
-      (reductionIdx == reductionAxis.size() - 1 && lastDimReduction) ? loopStep
-                                                                     : 1);
+  Value forSteps = makeIndexArithConstantOp(opBuilder, loc, loopStep);
   Value numIter = makeIndexArithConstantOp(
       opBuilder, loc, vectorType.getShape()[reductionAxis[reductionIdx]]);
   scf::ForOp forOp = opBuilder.create<scf::ForOp>(
@@ -868,9 +896,12 @@ scf::ForOp LoopGeneratorImpl::reductionAxisGenerateForLoop(
           }
 
           rewriteOperationAsVectorize(b, loopHelperParam.groupIdx,
-                                      &movingOperation);
+                                      &movingOperation,
+                                      isLastDimReduction ? loopStep : 0);
           loopHelperParam.loopIterArgs = loopState;
           moveOperationsToCurrentForBody(b, movingOperation, loopHelperParam);
+          if (isLastDimReduction)
+            rectifyParallelIndice(loopHelperParam, b, loc);
           loopHelperParam.movedOps = &movingOperation;
           loopHelperParam.candidateOps = &opQueue;
 
@@ -1058,11 +1089,16 @@ scf::ForOp LoopGeneratorImpl::parallelAxisGenerateForLoop(
           // get accumualte value
           Attribute initValueAttr;
           getReductionInitAttr(multiReductionOp, initValueAttr);
-
+          SmallVector<int64_t, 4> &reductionAxis =
+              rdCanonicalizer.getReductionAxis();
+          TypeHelper tpHelper = fusionStrategy.getTypeHelper();
+          int loopStep = tpHelper.generateValidSteps(
+              tpHelper.getDataTypeMAXSIMDLength(vectorType), vectorType,
+              vectorType.getShape()[reductionAxis[reductionAxis.size() - 1]]);
           auto accVal = b.create<arith::ConstantOp>(
               loc, DenseElementsAttr::get(
                        fusionStrategy.getTypeHelper().getVectorzedType(
-                           multiReductionOp, dimSize),
+                           multiReductionOp, loopStep),
                        {initValueAttr}));
 
           // put accumulte val at first for loop args
@@ -1247,14 +1283,14 @@ void LoopGeneratorImpl::rearrageMultiReductionIR(
   DenseMap<size_t, size_t> varLoopIdxMap;
   VectorType groupVector =
       getVectorBasedFusion().getGroupBiggestRankVectorType()[grpIdx];
-  for (size_t i = 0; i < parallelAxis.size(); i++) {
+  for (size_t i = 0; i < parallelAxis.size(); i++)
     varLoopIdxMap[parallelAxis[i]] = i;
-  }
+
   size_t offset = rdCanonicalizer.hasLastDimReduction() ? 1 : 0;
   for (size_t i = parallelAxis.size() + offset;
-       i < groupVector.getRank() + offset; i++) {
+       i < groupVector.getRank() + offset; i++)
     varLoopIdxMap[reductionAxis[i - parallelAxis.size() - offset]] = i;
-  }
+
   while (!tmpSourceQ.empty()) {
     auto *curOp = tmpSourceQ.front();
     tmpSourceQ.pop();
@@ -2313,7 +2349,8 @@ void ForLoopGenerator::createNewConstantOp(
 
 /// Rewrite the operations in the group to vectorized form.
 void ForLoopGenerator::rewriteOperationAsVectorize(
-    OpBuilder &rewriter, size_t groupId, const std::queue<Operation *> *queue) {
+    OpBuilder &rewriter, size_t groupId, const std::queue<Operation *> *queue,
+    const size_t vectorizeStep) {
   const std::queue<Operation *> groupOps =
       !queue ? getVectorBasedFusion().getOpGroups()[groupId] : *queue;
 
@@ -2322,7 +2359,9 @@ void ForLoopGenerator::rewriteOperationAsVectorize(
   DenseMap<Operation *, AffineMap> &opPermuationMap =
       getVectorBasedFusion().getOpPermuationMap();
   std::queue<Operation *> transformQueue(groupOps);
-  size_t groupSteps = getVectorBasedFusion().getGroupMaxSteps()[groupId];
+  size_t groupSteps = vectorizeStep == 0
+                          ? getVectorBasedFusion().getGroupMaxSteps()[groupId]
+                          : vectorizeStep;
 
   while (!transformQueue.empty()) {
     Operation *op = transformQueue.front();

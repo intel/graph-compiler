@@ -354,7 +354,8 @@ public:
   /// rewrite operation as vectorize IR in current operation group
   void
   rewriteOperationAsVectorize(OpBuilder &rewriter, size_t groupId,
-                              const std::queue<Operation *> *queue = nullptr);
+                              const std::queue<Operation *> *queue = nullptr,
+                              const size_t vectorizeStep = 0);
   /// Reimplementation of writing a tensor from a constant of denseElementattr.
   void createNewConstantOp(Operation *srcOp,
                            vector::TransferWriteOp *transferWriteOp,
@@ -489,6 +490,8 @@ public:
   scf::ForOp reductionAxisGenerateForLoop(OpBuilder &opBuilder,
                                           const size_t reductionIdx,
                                           GenerateLoopHelper &loopHelperParam);
+  void rectifyParallelIndice(GenerateLoopHelper &loopHelperParam, OpBuilder &b,
+                             Location loc);
   /// reduction operation parallel axis for loop
   scf::ForOp parallelAxisGenerateForLoop(OpBuilder &opBuilder,
                                          GenerateLoopHelper &loopHelperParam);

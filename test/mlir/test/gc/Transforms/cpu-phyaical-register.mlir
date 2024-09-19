@@ -10,6 +10,7 @@
 // CHECK-DAG: #[[map6:.*]] = affine_map<(d0, d1) -> (d0 floordiv 16 + d1 floordiv 16)>
 // CHECK-DAG: #[[map7:.*]] = affine_map<()[s0, s1] -> (s0 * 32 + s1)>
 // CHECK-DAG: #[[map8:.*]] = affine_map<()[s0, s1] -> (s0 * 16 + s1)>
+// CHECK-DAG: #[[map9:.*]] = affine_map<(d0, d1) -> (d0 + d1)>
 
 
 
@@ -619,7 +620,8 @@ func.func @reduce_fuse_test12(%input: tensor<16x32x64xf32>,
 // CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg5:.*]] = %[[READ1]]) -> (vector<16xf32>)
 // CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C32]] step %[[C1]] iter_args(%[[arg7:.*]] = %[[CST]]) -> (vector<16xf32>)
 // CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg9:.*]] = %[[arg7]]) -> (vector<16xf32>)
-// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}[%[[arg2]], %[[arg6]], %[[arg8]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
+// CHECK: %[[APPLY0:.*]] = affine.apply #[[map9]](%[[arg2]], %[[arg4]])
+// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}[%[[APPLY0]], %[[arg6]], %[[arg8]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
 // CHECK: %[[ADD0:.*]] = arith.addf %[[READ2]], %[[arg9]] : vector<16xf32>
 // CHECK: %[[REDUCTION:.*]] = vector.reduction <add>, {{.*}} : vector<16xf32> into f32
 // CHECK: %[[INSERT:.*]] = vector.insert %[[REDUCTION]], %[[arg5]] [%[[arg4]]] : f32 into vector<16xf32>

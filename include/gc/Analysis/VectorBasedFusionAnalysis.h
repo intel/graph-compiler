@@ -48,7 +48,11 @@ public:
   int getDataTypeValidSteps(VectorType type);
   /// get vector \param type an even for loop step
   int generateValidSteps(int steps, VectorType type);
-  /// get vector \param type max simd length according to hardware information
+  /// get vector \param type an even for loop step when shape dimension is
+  /// shapeDim
+  int generateValidSteps(int steps, VectorType type, int shapeDim);
+  /// get vector \param type max simd length according to hardware
+  /// information
   int getDataTypeMAXSIMDLength(VectorType type);
   /// get operation's vector type
   VectorType getVectorzedType(Operation *op, uint32_t loopStep = 0);
