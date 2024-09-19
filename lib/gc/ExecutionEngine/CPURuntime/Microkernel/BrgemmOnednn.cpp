@@ -57,6 +57,14 @@ static std::vector<brgemm_desc_t> g_brgemm_desc_list;
 static std::vector<brgemm_kernel_t *> g_brgemm_kernel_list;
 static std::vector<std::unique_ptr<char[]>> g_brgemm_palette;
 
+struct brgemmInfo {
+  brgemm_desc_t desc;
+  brgemm_kernel_t *kernel;
+  char *palette;
+};
+
+static thread_local std::unordered_map<int64_t, brgemmInfo> tl_cache;
+
 // TODO(haixin): use syscall to determine page size?
 static constexpr size_t SCRATCH_SIZE = 2 * 4096;
 // TODO(haixin): need to use custom thread management for scratch in the future?
@@ -105,21 +113,26 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   g_brgemm_desc_list.push_back(desc);
   g_brgemm_kernel_list.push_back(kernel);
   g_brgemm_palette.emplace_back(palette_buffer);
-
   return g_brgemm_desc_list.size() - 1;
 }
 
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
-  char *palette_buffer = nullptr;
-  {
+  assert(kernel_idx >= 0 && "Invalid kernel handler");
+  auto it = tl_cache.find(kernel_idx);
+  if (it == tl_cache.end()) {
     read_lock_guard_t g(g_brgemm_lock);
-    assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
+    assert(kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
-    brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
-    if (!desc.is_tmm) {
-      return;
-    }
-    palette_buffer = g_brgemm_palette[kernel_idx].get();
+    brgemmInfo tl_content = {g_brgemm_desc_list[kernel_idx],
+                             g_brgemm_kernel_list[kernel_idx],
+                             g_brgemm_palette[kernel_idx].get()};
+    it = tl_cache.insert({kernel_idx, tl_content}).first;
+  }
+  brgemm_desc_t &desc = it->second.desc;
+  char *palette_buffer = it->second.palette;
+
+  if (!desc.is_tmm) {
+    return;
   }
 
   assert(palette_buffer != nullptr && "Invalid palette for BRGEMM kernel");
@@ -137,24 +150,38 @@ void dnnl_brgemm_tilerelease() {
 void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
                          void *B, uint64_t B_offset, void *C, uint64_t C_offset,
                          int num) {
+  auto it = tl_cache.find(kernel_idx);
   brgemm_kernel_t *kernel = nullptr;
-  size_t A_offset_in_bytes;
-  size_t B_offset_in_bytes;
-  size_t C_offset_in_bytes;
-  {
+  brgemm_desc_t *desc_ptr = nullptr;
+
+  if (it != tl_cache.end()) {
+    desc_ptr = &it->second.desc;
+    kernel = it->second.kernel;
+  } else {
     read_lock_guard_t g(g_brgemm_lock);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_brgemm_desc_list.size() &&
            "Invalid kernel handler");
 
-    brgemm_desc_t &desc = g_brgemm_desc_list[kernel_idx];
+    desc_ptr = &g_brgemm_desc_list[kernel_idx];
     kernel = g_brgemm_kernel_list[kernel_idx];
+    char *palette = g_brgemm_palette[kernel_idx].get();
 
-    A_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_a) * A_offset;
-    B_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_b) * B_offset;
-    C_offset_in_bytes = dnnl::impl::types::data_type_size(desc.dt_c) * C_offset;
+    brgemmInfo tl_content = {*desc_ptr, kernel, palette};
+    auto updated_cache =
+        tl_cache.insert(std::make_pair(kernel_idx, tl_content));
+    assert(updated_cache.second && "insert into thread local cache");
   }
 
   assert(kernel && "Invalid brgemm kernel pointer");
+  assert(desc_ptr && "Invalid brgemm descriptor pointer");
+
+  size_t A_offset_in_bytes =
+      dnnl::impl::types::data_type_size(desc_ptr->dt_a) * A_offset;
+  size_t B_offset_in_bytes =
+      dnnl::impl::types::data_type_size(desc_ptr->dt_b) * B_offset;
+  size_t C_offset_in_bytes =
+      dnnl::impl::types::data_type_size(desc_ptr->dt_c) * C_offset;
+
   char *A_arith = (char *)A;
   char *B_arith = (char *)B;
   char *C_arith = (char *)C;
