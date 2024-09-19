@@ -94,6 +94,13 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
   ];
 }
 
+def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
+  let summary = "Add a context argument.";
+  let description = [{
+    Add a new memref argument to the function, that could be used to pass some context.
+  }];
+}
+
 def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
   let summary = "Convert the GPU operations to GpuOclRuntime calls.";
   let description = [{

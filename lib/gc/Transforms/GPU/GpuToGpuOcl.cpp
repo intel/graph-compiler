@@ -316,6 +316,7 @@ private:
           loc, getFuncName,
           LLVM::LLVMFunctionType::get(helper.ptrType, {helper.ptrType}),
           LLVM::Linkage::Internal);
+      function.setAlwaysInline(true);
       rewriter.setInsertionPointToStart(function.addEntryBlock(rewriter));
 
       auto ptr = mod.lookupSymbol<LLVM::GlobalOp>(str("Ptr"));

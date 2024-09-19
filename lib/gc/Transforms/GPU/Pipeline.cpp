@@ -47,8 +47,11 @@ struct GPUPipelineOption : PassPipelineOptions<GPUPipelineOption> {
       llvm::cl::init(true)};
 };
 
-void populateGPUPipeline(mlir::OpPassManager &pm,
+void populateGPUPipeline(OpPassManager &pm,
                          const GPUPipelineOption &pipelineOption) {
+  // Add an argument for the GPU context
+  pm.addNestedPass<func::FuncOp>(createAddContextArg());
+
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
@@ -91,6 +94,7 @@ void populateGPUPipeline(mlir::OpPassManager &pm,
       /*isUsmArgs*/ pipelineOption.isUsmArgs.getValue()};
   pm.addNestedPass<func::FuncOp>(
       imex::createInsertGPUAllocsPass(insertGPUAllocsOption));
+
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(imex::createSetSPIRVCapabilitiesPass());
@@ -109,7 +113,6 @@ void populateGPUPipeline(mlir::OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(LLVM::createRequestCWrappersPass());
   pm.addPass(imex::createSerializeSPIRVPass());
   pm.addPass(createConvertVectorToSCFPass());
-  pm.addPass(imex::createConvertGPUToGPUXPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createConvertVectorToLLVMPass());
@@ -117,7 +120,7 @@ void populateGPUPipeline(mlir::OpPassManager &pm,
   pm.addPass(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(imex::createConvertGPUXToLLVMPass());
+  pm.addPass(createGpuToGpuOcl());
   pm.addPass(createConvertIndexToLLVMPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
   pm.addPass(createLowerAffinePass());
