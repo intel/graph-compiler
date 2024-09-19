@@ -1405,6 +1405,17 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
   auto outputType = cast<ShapedType>(output.getType());
   auto outputShape = outputType.getShape();
 
+  if (outputShape.size() != 2) {
+    return rewriter.notifyMatchFailure(
+        linalgOp, "Memory fill operation expects 2D output");
+  }
+
+  // Otherwise 'xegpu-to-vc' pass will fail to convert it to VC
+  if (outputShape[0] * outputShape[1] < 16) {
+    return rewriter.notifyMatchFailure(
+        linalgOp, "Memory fill operation is to small to be converted to xegpu");
+  }
+
   // Extract SIMD sized sub-tiles
   int maxSizeSIMD = 256;
   int64_t subTileCols = outputShape[1];

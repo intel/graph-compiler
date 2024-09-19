@@ -13,6 +13,7 @@
 #include <iostream>
 #include <unordered_set>
 
+#include "gc/Analysis/DataFlow/ConstantSubgraphAnalyser.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -387,6 +388,9 @@ void getArithConstantOutputs(Block &block, SmallVector<Type> &outputTypes,
                         [](Operation *child) {
                           return !isInConstantSubgraph(child);
                         })) {
+          if (valuesOnTheWay.size() == 1) {
+            continue;
+          }
           if (std::find(outputValues.begin(), outputValues.end(), v) ==
               outputValues.end()) {
             outputTypes.push_back(v.getType());
@@ -723,6 +727,10 @@ void ConstantTensorFolding::runOnOperation() {
   MLIRContext *context = topOp->getContext();
   auto &topFunc =
       topOp->getRegions().front().getBlocks().front().getOperations().front();
+
+  dataflow::RunConstantSubgraphAnalyser runAnalyser;
+  (void)runAnalyser.run(&topFunc);
+
   OpBuilder builder(context);
   Region &region = topFunc.getRegions().front();
   Block &block = region.getBlocks().front();
