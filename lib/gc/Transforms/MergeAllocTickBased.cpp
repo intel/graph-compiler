@@ -75,19 +75,18 @@ static bool isForallLoopBoundStatic(Operation *op) {
   if (!forallOp)
     return false;
 
-  for (auto [lb, ub, step] :
-       llvm::zip(forallOp.getMixedLowerBound(), forallOp.getMixedUpperBound(),
-                 forallOp.getMixedStep())) {
-    std::optional<int64_t> lbConst = getConstantIntValue(lb);
-    std::optional<int64_t> ubConst = getConstantIntValue(ub);
-    std::optional<int64_t> stepConst = getConstantIntValue(step);
-    bool res =
-        lbConst.has_value() && ubConst.has_value() && stepConst.has_value();
-    if (!res)
-      return false;
-  }
+  auto lbs = forallOp.getMixedLowerBound();
+  auto ubs = forallOp.getMixedUpperBound();
+  auto steps = forallOp.getMixedStep();
+  auto allConstantValue = [](SmallVector<OpFoldResult> vals) -> bool {
+    return llvm::all_of(vals, [](OpFoldResult val) {
+      std::optional<int64_t> const_val = getConstantIntValue(val);
+      return const_val.has_value();
+    });
+  };
 
-  return true;
+  return allConstantValue(lbs) && allConstantValue(ubs) &&
+         allConstantValue(steps);
 }
 
 void Tick::update(int64_t tick) {
