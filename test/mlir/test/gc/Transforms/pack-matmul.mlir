@@ -65,7 +65,12 @@ func.func @mlp_f32(%arg0: tensor<128x16xf32>, %arg1: tensor<16x512xf32>, %arg2: 
   %23 = linalg.max ins(%21, %cst_4 : tensor<128x128xf32>, tensor<128x128xf32>) outs(%22 : tensor<128x128xf32>) -> tensor<128x128xf32>
   return %23 : tensor<128x128xf32>
 }
-// CHECK-COUNT-3: tensor.pack
+// CHECK-COUNT-1: tensor.pack
+// CHECK-COUNT-1: linalg.generic
+// CHECK-COUNT-1: tensor.pack
+// CHECK-COUNT-1: linalg.generic
+// CHECK-COUNT-1: tensor.pack
+// CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: tensor.unpack
 
 // -----
@@ -105,5 +110,10 @@ func.func @mlp_bf16(%arg0: tensor<32x4096xbf16>, %arg1: tensor<4096x4096xbf16>, 
   %23 = linalg.max ins(%21, %cst_4 : tensor<32x4096xbf16>, tensor<32x4096xbf16>) outs(%22 : tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
   return %23 : tensor<32x4096xbf16>
 }
-// CHECK-COUNT-6: tensor.pack
+// CHECK-COUNT-2: tensor.pack
+// CHECK-COUNT-1: linalg.generic
+// CHECK-COUNT-2: tensor.pack
+// CHECK-COUNT-1: linalg.generic
+// CHECK-COUNT-2: tensor.pack
+// CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: tensor.unpack
