@@ -66,11 +66,10 @@ public:
     return axisMapping;
   }
 
-  FailureOr<int64_t> getPlainAxis(int64_t idx) {
+  int64_t getPlainAxis(int64_t idx) {
     int64_t totalRank = outerAxis.size() + innerAxis.size();
-    if (idx >= totalRank || idx < 0) {
-      return failure();
-    } else if (idx >= static_cast<int64_t>(outerAxis.size())) {
+    assert(idx >= 0 && idx < totalRank && "Provided plain axis out of bound");
+    if (idx >= static_cast<int64_t>(outerAxis.size())) {
       return innerAxis[idx - outerAxis.size()];
     } else {
       return outerAxis[idx];
@@ -146,7 +145,7 @@ public:
     if (layoutCache.find(op) != layoutCache.end())
       return layoutCache[op];
     else
-      return failure("Current op does not have layout information.");
+      return failure();
   }
 
 private:

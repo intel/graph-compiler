@@ -112,8 +112,7 @@ static SmallVector<int64_t> getPackedPermAxes(ArrayRef<int64_t> plainPermAxes,
   auto axisPlainToPacked = inputLayout.getPlainToPackedAxisMapping();
   for (int64_t i = 0; i < packedRank; ++i) {
     // packedOutput[i] --> originalOutputAxis --> originalInputAxis
-    // TODO: add failed check here
-    int64_t originalOutputAxis = *outputLayout.getPlainAxis(i);
+    int64_t originalOutputAxis = outputLayout.getPlainAxis(i);
     int64_t originalInputAxis = plainPermAxes[originalOutputAxis];
     SmallVector<int64_t> packedInputAxes = axisPlainToPacked[originalInputAxis];
     result[i] = packedInputAxes[inputCount[originalInputAxis]++];
@@ -136,7 +135,6 @@ static int64_t applyPermutationAndReindexReassoc(
   return nextPos;
 }
 
-// extends linalg::pack(...) for named ops
 LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
                            const OperatorLayout &opLayout) {
   LLVM_DEBUG(llvm::dbgs() << "Try packing named op "
@@ -454,13 +452,6 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
   if (matmulOp.hasPureBufferSemantics())
     return rewriter.notifyMatchFailure(matmulOp, "require tensor semantics");
 
-  // isContractionInterfaceImpl checks the following restrictions:
-  // 1. has 2 inputs && 1 outputs
-  // 2. has >=1 reduction loop
-  // 3. all affine maps are projected permutations:
-  //    a. no symbols or zeros in result
-  //    b. result is a non-duplicated subset of input
-  // 4. op body contains both mul&&add
   if (!mlir::linalg::isaContractionOpInterface(matmulOp))
     return rewriter.notifyMatchFailure(matmulOp, "require matmul semantics");
 
@@ -528,15 +519,16 @@ struct PackVNNI<linalg::GenericOp>
   }
 };
 
-static FailureOr<linalgx::PackingType>
-shallRevertToType(linalg::GenericOp matmulOp) {
+static linalgx::PackingType revertToPackingType(linalg::GenericOp matmulOp) {
   if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
                                        linalgx::PackingType::MM4D))
     return linalgx::PackingType::MM2D4D;
   else if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
                                             linalgx::PackingType::VNNI_MM4D))
     return linalgx::PackingType::VNNI_MM2D;
-  return failure();
+  else
+    assert(false &&
+           "Unexpected generic op encountered in matmul reversion stage.");
 }
 
 static bool isPlainActivationMatmul(const OperatorLayout &matmulLayout) {
@@ -549,94 +541,108 @@ static LogicalResult
 revertMatmulPacking(MLIRContext *ctx, mlir::Operation *graph,
                     const std::vector<OperatorLayout> &matmulLayouts) {
   IRRewriter rewriter(ctx);
-  uint64_t layoutOffset = 0;
-  graph->walk([&](Operation *op) {
+  uint64_t layoutIndex = 0;
+  auto result = graph->walk([&](Operation *op) {
     if (auto matmulOp = dyn_cast<linalg::GenericOp>(op)) {
-      FailureOr<linalgx::PackingType> revertType = shallRevertToType(matmulOp);
-      if (succeeded(revertType) &&
-          isPlainActivationMatmul(matmulLayouts[layoutOffset])) {
-        OpBuilder::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPoint(op);
-        // replace VNNI_MM4D with unpack + VNNI_MM2D + pack
-        // get preceding pack and successive unpack
-        auto packInputOp = matmulOp.getDpsInputOperand(0)
-                               ->get()
-                               .getDefiningOp<tensor::PackOp>();
-        auto packInitOp = matmulOp.getDpsInitOperand(0)
-                              ->get()
-                              .getDefiningOp<tensor::PackOp>();
-        if (!packInputOp || !packInitOp)
-          return WalkResult::skip();
-        if (!matmulOp.getResults()[0].hasOneUse())
-          return WalkResult::skip();
-        auto consumer = matmulOp.getResults()[0].getUses().begin();
-        auto unPackOp = dyn_cast<tensor::UnPackOp>(consumer->getOwner());
-        if (!unPackOp)
-          return WalkResult::skip();
-        Location loc = matmulOp.getLoc();
-        // unpack input
-        auto packInputInnerTiles = packInputOp.getMixedTiles();
-        auto packInputInnerDimsPos = packInputOp.getInnerDimsPos();
-        auto packInputOuterDimsPerm = packInputOp.getInnerDimsPos();
-        llvm::SmallVector<int64_t> unpackInputInnerDimsPos(
-            packInputInnerDimsPos);
-        // eliminate the transpose semantic in unpack
-        llvm::SmallDenseMap<int64_t, int64_t> axisMapping;
-        if (!packInputOuterDimsPerm.empty()) {
-          for (auto [index, axis] : llvm::enumerate(packInputOuterDimsPerm)) {
-            axisMapping[axis] = index;
+      if (linalgx::isGenericPackedMatmulOp(matmulOp.getOperation(),
+                                           linalgx::PackingType::MM4D,
+                                           linalgx::PackingType::VNNI_MM4D)) {
+        if (isPlainActivationMatmul(matmulLayouts[layoutIndex])) {
+          linalgx::PackingType revertType = revertToPackingType(matmulOp);
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPoint(op);
+          // replace matmul 4D with unpack + matmul 2D + pack
+          auto packInputOp = matmulOp.getDpsInputOperand(0)
+                                 ->get()
+                                 .getDefiningOp<tensor::PackOp>();
+          auto packInitOp = matmulOp.getDpsInitOperand(0)
+                                ->get()
+                                .getDefiningOp<tensor::PackOp>();
+          if (!packInputOp || !packInitOp)
+            return WalkResult::skip();
+          if (!matmulOp.getResults()[0].hasOneUse())
+            return WalkResult::skip();
+          auto consumer = matmulOp.getResults()[0].getUses().begin();
+          auto unPackOp = dyn_cast<tensor::UnPackOp>(consumer->getOwner());
+          if (!unPackOp)
+            return WalkResult::skip();
+          Location loc = matmulOp.getLoc();
+          // unpack input
+          auto packInputInnerTiles = packInputOp.getMixedTiles();
+          auto packInputInnerDimsPos = packInputOp.getInnerDimsPos();
+          auto packInputOuterDimsPerm = packInputOp.getInnerDimsPos();
+          llvm::SmallVector<int64_t> unpackInputInnerDimsPos(
+              packInputInnerDimsPos);
+          // eliminate the transpose semantic in unpack
+          llvm::SmallDenseMap<int64_t, int64_t> axisMapping;
+          if (!packInputOuterDimsPerm.empty()) {
+            for (auto [index, axis] : llvm::enumerate(packInputOuterDimsPerm)) {
+              axisMapping[axis] = index;
+            }
+            for (size_t i = 0; i < packInputOuterDimsPerm.size(); ++i) {
+              unpackInputInnerDimsPos[i] =
+                  axisMapping[unpackInputInnerDimsPos[i]];
+            }
           }
-          for (size_t i = 0; i < packInputOuterDimsPerm.size(); ++i) {
-            unpackInputInnerDimsPos[i] =
-                axisMapping[unpackInputInnerDimsPos[i]];
+          Value unpackInputDest = tensor::UnPackOp::createDestinationTensor(
+              rewriter, loc, packInputOp, packInputInnerTiles,
+              unpackInputInnerDimsPos, ArrayRef<int64_t>{});
+          Value reUnpackInput = rewriter.create<tensor::UnPackOp>(
+              loc, packInputOp, unpackInputDest, unpackInputInnerDimsPos,
+              packInputInnerTiles);
+          // unpack init
+          auto packInitInnerTiles = packInitOp.getMixedTiles();
+          auto packInitInnerDimsPos = packInitOp.getInnerDimsPos();
+          auto packInitOuterDimsPerm = packInitOp.getInnerDimsPos();
+          // assert packInitOuterDimsPerm is not permuted
+          if (!packInitOuterDimsPerm.empty()) {
+            for (auto [index, dim] : llvm::enumerate(packInitOuterDimsPerm)) {
+              if (static_cast<int64_t>(index) != dim)
+                assert(false && "Packed matmul's init pack shall not contain "
+                                "permutation semantics.");
+            }
           }
+          Value unpackInitDest = tensor::UnPackOp::createDestinationTensor(
+              rewriter, loc, packInitOp, packInitInnerTiles,
+              packInitInnerDimsPos, packInitOuterDimsPerm);
+          Value reUnpackInit = rewriter.create<tensor::UnPackOp>(
+              loc, packInitOp, unpackInitDest, packInitInnerDimsPos,
+              packInitInnerTiles, packInitOuterDimsPerm);
+          // replace matmul 4D with matmul 2D
+          auto matmul2D = linalgx::makeGenericPackedMatmulOp(
+              rewriter, loc, revertType,
+              ValueRange{reUnpackInput, matmulOp.getDpsInputOperand(1)->get()},
+              ValueRange{reUnpackInit});
+          if (failed(matmul2D))
+            return WalkResult::interrupt();
+          // insert pack before unpack
+          auto unPackInnerTiles = unPackOp.getMixedTiles();
+          auto unPackInnerDimsPos = unPackOp.getInnerDimsPos();
+          auto unPackOuterDimsPerm = unPackOp.getInnerDimsPos();
+          Value packDest = tensor::PackOp::createDestinationTensor(
+              rewriter, loc, (*matmul2D)->getResult(0), unPackInnerTiles,
+              unPackInnerDimsPos, unPackOuterDimsPerm);
+          auto zeroAttr =
+              rewriter.getZeroAttr(getElementTypeOrSelf(packDest.getType()));
+          Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+          Value rePack = rewriter.create<tensor::PackOp>(
+              loc, (*matmul2D)->getResult(0), packDest, unPackInnerDimsPos,
+              unPackInnerTiles, zero, unPackOuterDimsPerm);
+          rewriter.replaceOp(op, rePack);
         }
-        Value unpackInputDest = tensor::UnPackOp::createDestinationTensor(
-            rewriter, loc, packInputOp, packInputInnerTiles,
-            unpackInputInnerDimsPos, ArrayRef<int64_t>{});
-        Value reUnpackInput = rewriter.create<tensor::UnPackOp>(
-            loc, packInputOp, unpackInputDest, unpackInputInnerDimsPos,
-            packInputInnerTiles);
-        // unpack init
-        auto packInitInnerTiles = packInitOp.getMixedTiles();
-        auto packInitInnerDimsPos = packInitOp.getInnerDimsPos();
-        auto packInitOuterDimsPerm = packInitOp.getInnerDimsPos();
-        Value unpackInitDest = tensor::UnPackOp::createDestinationTensor(
-            rewriter, loc, packInitOp, packInitInnerTiles, packInitInnerDimsPos,
-            packInitOuterDimsPerm);
-        Value reUnpackInit = rewriter.create<tensor::UnPackOp>(
-            loc, packInitOp, unpackInitDest, packInitInnerDimsPos,
-            packInitInnerTiles, packInitOuterDimsPerm);
-        // replace vnni_4D with vnni_2D
-        auto VNNI2D = linalgx::makeGenericPackedMatmulOp(
-            rewriter, loc, *revertType,
-            ValueRange{reUnpackInput, matmulOp.getDpsInputOperand(1)->get()},
-            ValueRange{reUnpackInit});
-        if (failed(VNNI2D))
-          return WalkResult::interrupt();
-        // insert pack before unpack
-        auto unPackInnerTiles = unPackOp.getMixedTiles();
-        auto unPackInnerDimsPos = unPackOp.getInnerDimsPos();
-        auto unPackOuterDimsPerm = unPackOp.getInnerDimsPos();
-        Value packDest = tensor::PackOp::createDestinationTensor(
-            rewriter, loc, (*VNNI2D)->getResult(0), unPackInnerTiles,
-            unPackInnerDimsPos, unPackOuterDimsPerm);
-        auto zeroAttr =
-            rewriter.getZeroAttr(getElementTypeOrSelf(packDest.getType()));
-        Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
-        Value rePack = rewriter.create<tensor::PackOp>(
-            loc, (*VNNI2D)->getResult(0), packDest, unPackInnerDimsPos,
-            unPackInnerTiles, zero, unPackOuterDimsPerm);
-        rewriter.replaceOp(op, rePack);
-        layoutOffset++;
+        layoutIndex++;
       }
     } else if (auto matmulOp = dyn_cast<linalg::LinalgOp>(op)) {
       if (mlir::gc::utils::isSupportedContractionNamedOp(matmulOp)) {
-        layoutOffset++;
+        layoutIndex++;
       }
     }
     return WalkResult::advance();
   });
+  if (result.wasInterrupted() || result.wasSkipped())
+    return failure(); // reversion not performed as expected
+  if (layoutIndex != matmulLayouts.size())
+    return failure(); // layout index mismatch, reversion failed
   return success();
 }
 
@@ -720,8 +726,9 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   MLIRContext *ctx = &getContext();
   IRRewriter rewriter(ctx);
   mlir::Operation *graph = getOperation();
-  // pre-collect matmul layouts in topological order
   auto &layoutAnalysisResult = getAnalysis<GlobalAnalysis>();
+
+  // pre-collect matmul layouts
   std::vector<OperatorLayout> matmulLayouts;
   graph->walk([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
@@ -731,9 +738,9 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     }
     return WalkResult::advance();
   });
-  // stage 1.1: pack matmul with `BlockPackMatmulPatterns` if any side of it
-  // requires packing; do nothing if the matmul is computed on plain format
-  // TODO(yifei): deal with transposed plain matmul...
+
+  // stage 1.1: pack matmul with `BlockPackMatmulPatterns` if any side of the
+  // matmul op requires packing
   RewritePatternSet packMatmulPatterns(&getContext());
   mlir::linalg::ControlBlockPackMatmulFn packMatmulControlFn =
       [&](linalg::LinalgOp op) -> mlir::linalg::BlockPackMatmulOptions {
@@ -742,8 +749,6 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
         layoutAnalysisResult.getOpLayout(op);
     if (failed(matmulLayout))
       return options; // return default options to skip packing
-    // currently supported combination: plain & blocking & plain ||
-    // blocking & blocking & blocking
     TensorLayout inputLayout = matmulLayout->getSupportedInputLayouts()[0];
     TensorLayout weightLayout = matmulLayout->getSupportedInputLayouts()[1];
     TensorLayout outputLayout = matmulLayout->getSupportedOutputLayouts()[0];
@@ -758,21 +763,9 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
     OpFoldResult MBlock = rewriter.getIndexAttr(matmulCfg.innerMostMBlock),
                  KBlock = rewriter.getIndexAttr(matmulCfg.innerMostKBlock),
                  NBlock = rewriter.getIndexAttr(matmulCfg.innerMostNBlock);
-    if (!inputLayout.getTileSizes().empty())
-      assert(inputLayout.getTileSizes()[0] == MBlock &&
-             inputLayout.getTileSizes()[1] == KBlock &&
-             "Layout tile size and matmul block size mismatch.");
-    if (!weightLayout.getTileSizes().empty())
-      assert(weightLayout.getTileSizes()[0] == KBlock &&
-             weightLayout.getTileSizes()[1] == NBlock &&
-             "Layout tile size and matmul block size mismatch.");
-    if (!outputLayout.getTileSizes().empty())
-      assert(outputLayout.getTileSizes()[0] == MBlock &&
-             outputLayout.getTileSizes()[1] == NBlock &&
-             "Layout tile size and matmul block size mismatch.");
-    options.blockFactors.push_back(*getConstantIntValue(MBlock));
-    options.blockFactors.push_back(*getConstantIntValue(NBlock));
-    options.blockFactors.push_back(*getConstantIntValue(KBlock));
+    options.blockFactors = SmallVector<int64_t, 3>{
+        *getConstantIntValue(MBlock), *getConstantIntValue(NBlock),
+        *getConstantIntValue(KBlock)};
     return options;
   };
   linalg::populateBlockPackMatmulPatterns(packMatmulPatterns,
@@ -788,24 +781,8 @@ void PropagateLayoutOnNamedOps::runOnOperation() {
   if (failed(applyPatternsAndFoldGreedily(graph, std::move(packVNNIPatterns))))
     return signalPassFailure();
 
-  // stage 1.3: revert necessary blocking on matmul op
-  // RevertMatmulPacking
-  // double confirm the number of identifiable matmuls
-  // collect matmul layouts in topological order
-  uint64_t numMatmuls = 0;
-  graph->walk([&](Operation *op) {
-    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-      if (mlir::gc::utils::isSupportedContractionNamedOp(linalgOp) ||
-          linalgx::isGenericPackedMatmulOp(linalgOp.getOperation(),
-                                           linalgx::PackingType::MM4D,
-                                           linalgx::PackingType::VNNI_MM4D)) {
-        numMatmuls += 1;
-      }
-    }
-    return WalkResult::advance();
-  });
-  assert(matmulLayouts.size() == numMatmuls &&
-         "One to one matmul mapping failed.");
+  // stage 1.3: revert packed matmul from blocking activation to plain
+  // activation
   if (failed(revertMatmulPacking(ctx, graph, matmulLayouts)))
     return signalPassFailure();
 

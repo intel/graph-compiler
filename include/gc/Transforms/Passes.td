@@ -179,11 +179,6 @@ def PropagateLayoutOnNamedOps : Pass<"propagate-layout-on-named-ops"> {
       "mlir::linalg::LinalgDialect",
       "mlir::linalgx::LinalgxDialect"
       ];
-  let options = [
-    Option<"forceBlocking", "force-blocking", "bool",
-           /*default=*/"false",
-           "Choose blocking layout for all matmul op, override the default matmul layout heuristic.">,
-    ];
 }
 
 def PostProcessPackUnpack : Pass<"post-process-pack-unpack"> {

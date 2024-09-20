@@ -375,17 +375,20 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
   });
   // define cost function
   auto computePackingCost =
-      [&](linalg::LinalgOp linalgOp, ArrayRef<TensorLayout> curInputLayouts,
+      [&](Operation *op, ArrayRef<TensorLayout> curInputLayouts,
           ArrayRef<TensorLayout> suggestedLayouts = {}) -> int64_t {
     int64_t cost = 0;
-    auto inputOperands = linalgOp.getDpsInputOperands();
+    assert(op->getOperands().size() >= curInputLayouts.size() &&
+           "curInputLayouts size out of range.");
     for (auto [index, curLayout] : llvm::enumerate(curInputLayouts)) {
       TensorLayout suggestedLayout =
           suggestedLayouts.empty()
               ? TensorLayout::createPlainLayout(curLayout.getRank())
               : suggestedLayouts[index];
       if (curLayout != suggestedLayout) {
-        ArrayRef<int64_t> shape = linalgOp.getShape(inputOperands[index]);
+        ArrayRef<int64_t> shape =
+            cast<RankedTensorType>(op->getOperands()[index].getType())
+                .getShape();
         int64_t inputSize = std::accumulate(
             shape.begin(), shape.end(), (int64_t)1, std::multiplies<int64_t>());
         if (suggestedLayout.isBlocking())
@@ -447,7 +450,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
           tmpLayoutCache[linalgOp] =
               suggestedLayouts[curChoice[curMatmulIdx++]];
           curCost += computePackingCost(
-              linalgOp, curInputLayouts,
+              op, curInputLayouts,
               tmpLayoutCache[linalgOp].getSupportedInputLayouts());
         } else if (mlir::gc::utils::isPackableOp(op)) {
           // infer layout for non-contraction/non-convolution linalg named ops
@@ -467,7 +470,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
                     << "Op " << linalgOp.getOperation()->getName()
                     << "'s input " << i
                     << "'s layout cannot be inferred. Choose plain layout.\n");
-                curCost += computePackingCost(linalgOp, curInputLayouts);
+                curCost += computePackingCost(op, curInputLayouts);
                 return WalkResult::skip();
               }
               inputLayouts.push_back(*inferredLayout);
@@ -485,14 +488,13 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
                        << "Op " << linalgOp.getOperation()->getName()
                        << "'s output layout cannot be inferred. Choose plain "
                           "layout.\n");
-            curCost += computePackingCost(linalgOp, curInputLayouts);
+            curCost += computePackingCost(op, curInputLayouts);
             return WalkResult::skip();
           }
           outputLayouts.push_back(*inferredOutputLayout);
           OperatorLayout suggestedLayout(inputLayouts, outputLayouts);
           tmpLayoutCache[linalgOp] = suggestedLayout;
-          curCost +=
-              computePackingCost(linalgOp, curInputLayouts, inputLayouts);
+          curCost += computePackingCost(op, curInputLayouts, inputLayouts);
         }
       } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
         auto inputOperand = padOp.getSource();
@@ -524,6 +526,8 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         } else {
           LLVM_DEBUG(llvm::dbgs()
                      << "ExpandShapeOp's layout cannot be penetrated. Skip.\n");
+          curCost +=
+              computePackingCost(op, SmallVector<TensorLayout>{curInputLayout});
           return WalkResult::skip();
         }
         SmallVector<int64_t> innerPosPos = curInputLayout.getInnerAxis();
