@@ -13,8 +13,8 @@ gc_add_mlir_library(GcPasses
   MemRefToCPURuntime.cpp
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
+  TileUsingInterfaceX.cpp
   IterativeTilingAndFusion.cpp
-  TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
   DecomposeAggregatedOps.cpp
   DeepTileContractionOp.cpp
