@@ -44,21 +44,20 @@ static inline bool isReadOrWriteOperation(Operation *op) {
 }
 
 ///  which axis do the shape cast in source shape a
-void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
+void shapeCastSourceAxis(ArrayRef<int64_t> a, ArrayRef<int64_t> b,
                          SmallVector<int64_t> &res) {
   unsigned rankA = a.size();
   unsigned rankB = b.size();
   if (rankA >= rankB)
-    llvm::llvm_unreachable_internal("May be invalid shape cast operation.");
+    llvm_unreachable("May be invalid shape cast operation.");
 
   auto isOne = [](int64_t v) { return v == 1; };
 
   // Special-case for n-D to 0-d shape cast. 'b' must be all ones to be shape
   // casted to a 0-d vector.
   if (rankA == 0 && all_of(b, isOne)) {
-    for (size_t i = 0; i < a.size(); i++) {
+    for (size_t i = 0; i < a.size(); i++)
       res.emplace_back(i);
-    }
     return;
   }
 
@@ -71,7 +70,7 @@ void shapeCastSourceAxis(const ArrayRef<int64_t> &a, const ArrayRef<int64_t> &b,
     while (dimB < dimA && j < rankB)
       dimB *= b[j++];
     if (dimA != dimB) {
-      llvm::llvm_unreachable_internal(" Invalid shape cast operation.");
+      llvm_unreachable(" Invalid shape cast operation.");
       break;
     }
     if (bAxisBegin != j) {
@@ -134,11 +133,11 @@ void getOperationDataAxis(Operation *op, SmallVector<int64_t> &dataAxis) {
         auto dstType = shapeCastOp.getResultVectorType();
         auto srcShape = srcType.getShape();
         auto dstShape = dstType.getShape();
-        if (srcShape.size() < dstShape.size()) {
+        if (srcShape.size() < dstShape.size())
           shapeCastSourceAxis(srcShape, dstShape, dataAxis);
-        } else {
+        else
           shapeCastSourceAxis(dstShape, srcShape, dataAxis);
-        }
+
         return;
       })
       .Case<vector::BroadcastOp>([&](vector::BroadcastOp broadcastOp) {
