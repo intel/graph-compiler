@@ -78,12 +78,16 @@ static bool isForallLoopBoundStatic(Operation *op) {
   for (auto [lb, ub, step] :
        llvm::zip(forallOp.getMixedLowerBound(), forallOp.getMixedUpperBound(),
                  forallOp.getMixedStep())) {
+    std::optional<int64_t> lbConst = getConstantIntValue(lb);
     std::optional<int64_t> ubConst = getConstantIntValue(ub);
-    return ubConst.has_value() && isConstantIntValue(lb, 0) &&
-           isConstantIntValue(step, 1);
+    std::optional<int64_t> stepConst = getConstantIntValue(step);
+    bool res =
+        lbConst.has_value() && ubConst.has_value() && stepConst.has_value();
+    if (!res)
+      return false;
   }
 
-  return false;
+  return true;
 }
 
 void Tick::update(int64_t tick) {
@@ -271,10 +275,12 @@ FailureOr<size_t> TickCollecter::getAllocSize(TickCollecterStates *s,
         break;
 
       OpBuilder builder{forallOp->getContext()};
-      SmallVector<Value> ubs = forallOp.getUpperBound(builder);
-      if (std::optional<int64_t> ubs0_int = getConstantIntValue(ubs[0])) {
-        int64_t innerLoopUpperBound = ubs0_int.value();
-        numThreads *= innerLoopUpperBound;
+      std::optional<int64_t> numIterations = constantTripCount(
+          forallOp.getLowerBound(builder)[0],
+          forallOp.getUpperBound(builder)[0], forallOp.getStep(builder)[0]);
+
+      if (numIterations.has_value()) {
+        numThreads *= numIterations.value();
       } else {
         op->emitError("Expecting static loop range!");
       }
