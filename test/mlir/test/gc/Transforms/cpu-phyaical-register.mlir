@@ -577,7 +577,8 @@ func.func @reduce_fusePostOp_test11(%input: tensor<16x32x64xf32>,
 // CHECK: %[[READ0:.*]] = vector.transfer_read %[[arg5]][%[[arg2]], %[[arg4]]], %[[CST_0]] {in_bounds = [true]} : tensor<16x32xf32>, vector<16xf32> 
 // CHECK: scf.for %[[arg6:.*]] = %[[C0]] to %[[C16]] step %[[C1]] iter_args(%[[arg7:.*]] = %[[READ0]]) -> (vector<16xf32>)
 // CHECK: scf.for %[[arg8:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg9:.*]] = %[[CST]]) -> (vector<16xf32>)
-// CHECK: %[[READ1:.*]] = vector.transfer_read %arg0[%[[arg2]], %[[arg4]], %[[arg8]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
+// CHECK: %[[APPLY0:.*]] = affine.apply #[[map9]](%[[arg4]], %[[arg6]])
+// CHECK: %[[READ1:.*]] = vector.transfer_read %arg0[%[[arg2]], %[[APPLY0]], %[[arg8]]], {{.*}} {in_bounds = [true]} : tensor<16x32x64xf32>, vector<16xf32>
 // CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ1]] : vector<16xf32>
 // CHECK: %[[ADD1:.*]] = arith.addf %[[ADD0]], %[[arg9]] : vector<16xf32>
 // CHECK: %[[REDUCTION:.*]] = vector.reduction <add>, {{.*}} : vector<16xf32> into f32

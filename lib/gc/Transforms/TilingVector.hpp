@@ -490,8 +490,7 @@ public:
   scf::ForOp reductionAxisGenerateForLoop(OpBuilder &opBuilder,
                                           const size_t reductionIdx,
                                           GenerateLoopHelper &loopHelperParam);
-  void rectifyParallelIndice(GenerateLoopHelper &loopHelperParam, OpBuilder &b,
-                             Location loc);
+  void rectifyParallelIndice(GenerateLoopHelper &loopHelperParam, Location loc);
   /// reduction operation parallel axis for loop
   scf::ForOp parallelAxisGenerateForLoop(OpBuilder &opBuilder,
                                          GenerateLoopHelper &loopHelperParam);

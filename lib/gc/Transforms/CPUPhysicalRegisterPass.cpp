@@ -735,33 +735,37 @@ void updateLoopArgsData(Value val, Value originalVal,
 }
 
 void LoopGeneratorImpl::rectifyParallelIndice(
-    GenerateLoopHelper &loopHelperParam, OpBuilder &b, Location loc) {
+    GenerateLoopHelper &loopHelperParam, Location loc) {
   MultiReductionCanonicalizer rdCanonicalizer =
       getMultiRdCanonicalizers()[loopHelperParam.groupIdx];
   auto &multireductionOp = rdCanonicalizer.getCandidateOps()[0];
   SmallVector<int64_t, 4> &reductionAxis = rdCanonicalizer.getReductionAxis();
 
   // rectify indice of read from source operand
-  auto sourceReadOp =
-      multireductionOp.getSource().getDefiningOp<vector::TransferReadOp>();
-  if (!sourceReadOp)
-    return;
+  std::queue<Operation *> candidateOps;
+  getSameBlockTargetOp<vector::TransferReadOp>(
+      multireductionOp.getSource().getDefiningOp(), candidateOps);
+  while (not candidateOps.empty()) {
+    auto sourceReadOp = candidateOps.front();
+    candidateOps.pop();
+    IRRewriter rewriter(sourceReadOp);
+    rewriter.setInsertionPoint(sourceReadOp);
+    AffineExpr outterParallel, innerParallel;
+    bindDims(multireductionOp->getContext(), outterParallel, innerParallel);
 
-  AffineExpr outterParallel, innerParallel;
-  bindDims(multireductionOp->getContext(), outterParallel, innerParallel);
-
-  Value op =
-      loopHelperParam.inductionVars[loopHelperParam.inductionVars.size() -
-                                    reductionAxis.size() - 2];
-  Value ip =
-      loopHelperParam.inductionVars[loopHelperParam.inductionVars.size() -
-                                    reductionAxis.size() - 1];
-  Value newIndice = b.createOrFold<affine::AffineApplyOp>(
-      loc, (outterParallel + innerParallel), ValueRange{op, ip});
-  int parallelSize = rdCanonicalizer.getParallelAxis().size();
-  int readIndiceOffset =
-      1 + rdCanonicalizer.getParallelAxis()[parallelSize - 1];
-  sourceReadOp->setOperand(readIndiceOffset, newIndice);
+    Value op =
+        loopHelperParam.inductionVars[loopHelperParam.inductionVars.size() -
+                                      reductionAxis.size() - 2];
+    Value ip =
+        loopHelperParam.inductionVars[loopHelperParam.inductionVars.size() -
+                                      reductionAxis.size() - 1];
+    Value newIndice = rewriter.createOrFold<affine::AffineApplyOp>(
+        loc, (outterParallel + innerParallel), ValueRange{op, ip});
+    int parallelSize = rdCanonicalizer.getParallelAxis().size();
+    int readIndiceOffset =
+        1 + rdCanonicalizer.getParallelAxis()[parallelSize - 1];
+    sourceReadOp->setOperand(readIndiceOffset, newIndice);
+  }
 }
 
 scf::ForOp LoopGeneratorImpl::reductionAxisGenerateForLoop(
@@ -901,7 +905,7 @@ scf::ForOp LoopGeneratorImpl::reductionAxisGenerateForLoop(
           loopHelperParam.loopIterArgs = loopState;
           moveOperationsToCurrentForBody(b, movingOperation, loopHelperParam);
           if (isLastDimReduction)
-            rectifyParallelIndice(loopHelperParam, b, loc);
+            rectifyParallelIndice(loopHelperParam, loc);
           loopHelperParam.movedOps = &movingOperation;
           loopHelperParam.candidateOps = &opQueue;
 
@@ -2768,7 +2772,7 @@ void GroupOperationFusionImpl::broadcastFromElements(Operation *op,
           DenseElementsAttr::get(dataType, constantOp.getValue()),
           newOperandType);
       if (failed(res))
-        llvm::llvm_unreachable_internal("Wrong to create constant op.");
+        llvm_unreachable("Wrong to create constant op.");
       removeOpInCurrentGroups(grpIdx, op, res.value().getDefiningOp());
 
     } else {

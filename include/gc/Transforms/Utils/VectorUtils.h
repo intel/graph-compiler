@@ -18,6 +18,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include <limits>
+#include <queue>
 #include <stdint.h>
 #include <variant>
 
@@ -149,6 +150,36 @@ T getInitValForReduce(vector::CombiningKind kind, Type t) {
     llvm_unreachable("unsupported reduction kind");
   };
   return result;
+}
+
+template <typename TARGETOP>
+void getSameBlockTargetOp(Operation *op,
+                          std::queue<Operation *> &candidateOps) {
+  if (isa<TARGETOP>(op)) {
+    candidateOps.push(op);
+    return;
+  }
+  auto getSameBlockSrcOp = [](Operation *trackSrcOp,
+                              std::queue<Operation *> &trackOps,
+                              std::queue<Operation *> &candidateOps) {
+    for (Value opd : trackSrcOp->getOperands()) {
+      if (isa<BlockArgument>(opd) or
+          opd.getDefiningOp()->getBlock() != trackSrcOp->getBlock())
+        continue;
+      if (isa<TARGETOP>(opd.getDefiningOp()))
+        candidateOps.push(opd.getDefiningOp());
+      else
+        trackOps.push(opd.getDefiningOp());
+    }
+  };
+
+  std::queue<Operation *> trackOps;
+  getSameBlockSrcOp(op, trackOps, candidateOps);
+  while (not trackOps.empty()) {
+    Operation *cadidateOp = trackOps.front();
+    trackOps.pop();
+    getSameBlockSrcOp(cadidateOp, trackOps, candidateOps);
+  }
 }
 
 } // namespace gc
