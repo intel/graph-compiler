@@ -507,12 +507,11 @@ Value MergeAllocDefaultMutator::buildView(OpBuilder &builder, Block *scope,
 
         auto getCurrentVar = [&loc, &builder](Value var, Value lb,
                                               Value step) -> Value {
-          if (!isConstantIntValue(lb, 0)) {
+          if (!isConstantIntValue(lb, 0))
             var = builder.create<arith::SubIOp>(loc, var, lb);
-          }
-          if (!isConstantIntValue(step, 1)) {
+
+          if (!isConstantIntValue(step, 1))
             var = builder.create<arith::DivSIOp>(loc, var, step);
-          }
           return var;
         };
 
@@ -561,7 +560,6 @@ Value MergeAllocDefaultMutator::buildView(OpBuilder &builder, Block *scope,
               builder.create<arith::AddIOp>(loc, inductVar, intermediateVal);
         }
         // get aggregated loop bound
-        int64_t innerLoopUpperBound = 1;
         for (auto [lb, ub, step] : llvm::zip(lbs, ubs, steps)) {
           std::optional<int64_t> cur_bound = constantTripCount(lb, ub, step);
           assert(cur_bound.has_value());
