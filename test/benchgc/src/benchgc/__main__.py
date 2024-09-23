@@ -31,9 +31,15 @@ from benchgc.arg import (
     set_default_fill,
 )
 from benchgc.arg.arg import Arg
-from benchgc.bench import mlir_wrapper_bench, py_timeit_bench
+from benchgc.bench import (
+    batch_mlir_wrapper_bench,
+    batch_py_timeit_bench,
+    mlir_wrapper_bench,
+    py_timeit_bench,
+)
 from benchgc.mlir.arg import get_mlir_args
 from benchgc.pattern import get_pattern_clz
+from benchgc.tuner.tuner import GATuner, GridTuner, Tuner, TuningSpace
 from gc_mlir import ir
 from gc_mlir.graph_compiler import GraphCompiler
 
@@ -44,7 +50,7 @@ def add_common_options(parser: argparse.ArgumentParser):
         "--mode",
         required=False,
         help="specify the test mode, C for correctness testing, P for performance testing",
-        choices=["C", "P"],
+        choices=["C", "P", "T"],
         default="C",
         type=str,
     )
@@ -198,7 +204,7 @@ def add_common_options(parser: argparse.ArgumentParser):
 
 def add_bench_options(parser: argparse.ArgumentParser):
     """add options for bench mode"""
-    if parser.parse_known_args()[0].mode == "P":
+    if parser.parse_known_args()[0].mode in ("P", "T"):
         parser.add_argument(
             "--bench_kind", type=str, choices=["py", "wrapper"], default="py"
         )
@@ -213,6 +219,40 @@ def add_pattern_options(parser: argparse.ArgumentParser):
         pattern_name = parser.parse_known_args()[0].case
         get_pattern_clz(pattern_name).add_args(parser)
 
+def add_tuner_options(parser: argparse.ArgumentParser):
+    """add options for the mode T"""
+    if parser.parse_known_args()[0].mode == "T":
+        parser.add_argument(
+            "--search_alg", type=str, choices=["grid", "ga"], default="grid"
+        )
+        parser.add_argument(
+            "--tuning_batch", type=int, default=Tuner.DEFAULT_BATCH_SIZE
+        )
+        parser.add_argument("--early_stop", type=int, default=Tuner.DEFAULT_EARLY_STOP)
+        parser.add_argument(
+            "--max_tuning_iters", type=int, default=Tuner.DEFAULT_MAX_ITERS
+        )
+        parser.add_argument("--timeout", type=int, default=Tuner.DEFAULT_TIMEOUT)
+        parser.add_argument(
+            "--space_percent", type=float, default=TuningSpace.DEFAULT_SPACE_PERCENT
+        )
+        parser.add_argument("--checkpoint_path", type=str, default="")
+
+        if parser.parse_known_args()[0].search_alg == "ga":
+            parser.add_argument(
+                "--random_seed", type=int, default=GATuner.DEFAULT_RANDOM_SEED
+            )
+            parser.add_argument(
+                "--elite_num", type=int, default=GATuner.DEFAULT_ELITE_NUM
+            )
+            parser.add_argument(
+                "--mutation_prob", type=float, default=GATuner.DEFAULT_MUTATION_PROB
+            )
+            parser.add_argument(
+                "--expected_tune_num",
+                type=int,
+                default=GATuner.DEFAULT_EXPECTED_TUNE_NUM,
+            )
 
 def get_module_and_args(flags: argparse.Namespace):
     args: List[Arg] = []
@@ -391,11 +431,68 @@ def performance_testing(flags: argparse.Namespace, module: ir.Module, args: List
         print(json_res)
 
 
+def performance_tuning(flags: argparse.Namespace, module: ir.Module, args: List[Arg]):
+    gc_args: List[torch.Tensor | int] = []
+    gc_tensors: Dict[str, torch.Tensor] = {}
+    for i in range(len(args)):
+        tensor = fill_tensor(flags, args[i], i)
+        gc_tensors["%arg" + str(i)] = tensor
+        if args[i].scalar:
+            gc_args.append(tensor.data_ptr())
+        else:
+            gc_args.append(tensor)
+
+    mlir_args = get_mlir_args(gc_args)
+    with module.context as ctx, ir.Location.unknown():
+        if flags.ir_printing:
+            ctx.enable_multithreading(False)
+        batch_bench = (
+            batch_py_timeit_bench
+            if flags.bench_kind == "py"
+            else batch_mlir_wrapper_bench
+        )
+
+        def tuner_batch_bench(ir_moudles):
+            return batch_bench(
+                ir_moudles,
+                flags.entry,
+                "any(gc-cpu-pipeline)",
+                mlir_args,
+                flags.ir_printing,
+                flags.repeat,
+                flags.warm_up,
+            )
+
+        assert flags.space_percent > 0 and flags.space_percent <= 1.0
+        space = TuningSpace(module, flags.space_percent)
+        print("flags.search_alg", flags.search_alg)
+        if flags.search_alg == "grid":
+            tuner = GridTuner(
+                tuner_batch_bench,
+                space,
+                flags.tuning_batch,
+                flags.early_stop,
+                flags.checkpoint_path,
+            )
+        else:
+            tuner = GATuner(
+                tuner_batch_bench,
+                space,
+                flags.tuning_batch,
+                flags.early_stop,
+                flags.checkpoint_path,
+                random_seed=flags.random_seed,
+                expected_tune_num=flags.expected_tune_num,
+            )
+        tuner.run(flags.max_tuning_iters, flags.timeout)
+
+
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(prog="benchmark tool for graph compiler")
     add_common_options(arg_parser)
     add_bench_options(arg_parser)
     add_pattern_options(arg_parser)
+    add_tuner_options(arg_parser)
     flags = arg_parser.parse_args()
     benchgc.util.set_seed(flags.seed)
     ir_module, module_args = get_module_and_args(flags)
@@ -403,5 +500,7 @@ if __name__ == "__main__":
         correctness_testing(flags, ir_module, module_args)
     elif flags.mode == "P":
         performance_testing(flags, ir_module, module_args)
+    elif flags.mode == "T":
+        performance_tuning(flags, ir_module, module_args)
     else:
         pass
