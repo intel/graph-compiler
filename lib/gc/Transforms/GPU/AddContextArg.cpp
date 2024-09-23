@@ -20,6 +20,10 @@ namespace {
 struct AddContextArg final : gc::impl::AddContextArgBase<AddContextArg> {
   void runOnOperation() override {
     auto func = getOperation();
+    if (func.isExternal()) {
+      return;
+    }
+
     auto funcType = func.getFunctionType();
     auto argTypes = llvm::to_vector<8>(funcType.getInputs());
     auto resultTypes = llvm::to_vector<1>(funcType.getResults());
@@ -28,14 +32,19 @@ struct AddContextArg final : gc::impl::AddContextArgBase<AddContextArg> {
     argTypes.emplace_back(newArgType);
     auto newFuncType = FunctionType::get(ctx, argTypes, resultTypes);
     func.setType(newFuncType);
-
-    if (func.getBody().hasOneBlock()) {
-      func.getBody().front().addArgument(newArgType, func.getLoc());
-    }
+    func.getBody().front().addArgument(newArgType, func.getLoc());
 
     // Find all function calls and append the last argument of the current
     // function to the call.
+    auto module = func->getParentOfType<ModuleOp>();
     func.walk([&](func::CallOp call) {
+      // If the function to be called is defined in the current module, then the
+      // context arg will be added to this function signature either and, thus,
+      // wee need add the context arg to the function call.
+      if (auto callee = module.lookupSymbol<func::FuncOp>(call.getCallee());
+          !callee || callee.isExternal()) {
+        return;
+      }
       auto args = llvm::to_vector<8>(call.getOperands());
       args.emplace_back(func.getArgument(func.getNumArguments() - 1));
       call->setOperands(args);

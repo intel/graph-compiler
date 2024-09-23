@@ -680,7 +680,7 @@ defaultTilingOfType(RewriterBase &rewriter, Operation *op,
   } else {
     defaultTileSize.resize(iteratorTypes.size(), rewriter.getIndexAttr(0));
     // Try tileSize from `32` to `16`.
-    SmallVector<int64_t> tsOrder = {16, 32};
+    SmallVector<int64_t> tsOrder = {32, 16};
     // Record how many dims have been tiled, including fully tiled, i.e.
     // tileSize == dimSize.
     unsigned nonOneTileDims =

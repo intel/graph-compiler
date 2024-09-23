@@ -69,6 +69,30 @@ struct Helper final {
         rewriter.getIntegerAttr(idxType, static_cast<int64_t>(value)));
   }
 
+  Value calculateStaticSize(OpBuilder &rewriter, const Location loc,
+                            const MemRefType type) const {
+    if (type.getRank() == 0) {
+      return idxConstant(rewriter, loc, 0);
+    }
+
+    auto elementType = type.getElementType();
+    if (!elementType.isIntOrIndexOrFloat()) {
+      return nullptr;
+    }
+
+    int64_t numElements = 1;
+    for (auto dim : type.getShape()) {
+      if (dim == ShapedType::kDynamic) {
+        return nullptr;
+      }
+      numElements = numElements * dim;
+    }
+    auto elementSize = elementType.isIndex()
+                           ? idxType.getIntOrFloatBitWidth()
+                           : elementType.getIntOrFloatBitWidth();
+    return idxConstant(rewriter, loc, elementSize * numElements / 8);
+  }
+
   void destroyKernels(OpBuilder &rewriter, Location loc,
                       ArrayRef<Value> kernelPtrs) const {
     auto size = idxConstant(rewriter, loc, kernelPtrs.size());
@@ -102,24 +126,11 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = allocOp.getLoc();
     MemRefType type = allocOp.getType();
-    auto shape = type.getShape();
-    auto dynamics = adaptor.getDynamicSizes();
 
-    if (shape.empty() || dynamics.empty()) {
-      int64_t staticSize;
-      if (shape.empty()) {
-        staticSize = 0;
-      } else {
-        staticSize = type.getElementType().getIntOrFloatBitWidth() / 8;
-        for (auto dim : shape) {
-          assert(dim != ShapedType::kDynamic);
-          staticSize *= dim;
-        }
-      }
-      auto size = helper.idxConstant(rewriter, loc, staticSize);
+    if (auto staticSize = helper.calculateStaticSize(rewriter, loc, type)) {
       auto ptr = funcCall(rewriter, GPU_OCL_MALLOC, helper.ptrType,
                           {helper.ptrType, helper.idxType}, loc,
-                          {getCtxPtr(rewriter), size})
+                          {getCtxPtr(rewriter), staticSize})
                      .getResult();
       Value replacement = MemRefDescriptor::fromStaticShape(
           rewriter, loc, helper.converter, type, ptr, ptr);
@@ -127,57 +138,32 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
       return success();
     }
 
-    auto ndims = shape.size();
-    SmallVector<Value> newShape;
-    SmallVector<Value> newStrides(ndims);
-    auto staticSize = type.getElementType().getIntOrFloatBitWidth() / 8;
-    auto size = dynamics[0];
-
-    auto idxMul = [&](Value x, Value y) -> Value {
-      if (auto xConst = getConstantIntValue(x)) {
-        if (auto yConst = getConstantIntValue(y)) {
-          return helper.idxConstant(rewriter, loc,
-                                    xConst.value() * yConst.value());
-        }
-      }
-      return rewriter.create<LLVM::MulOp>(loc, x, y);
-    };
-
-    for (size_t i = 0, j = 0; i < ndims; i++) {
-      auto dim = shape[i];
-      if (dim == ShapedType::kDynamic) {
-        auto dynSize = dynamics[j++];
-        newShape.emplace_back(dynSize);
-        if (j != 1) {
-          size = idxMul(size, dynSize);
-        }
-      } else {
-        staticSize *= dim;
-        newShape.emplace_back(helper.idxConstant(rewriter, loc, dim));
-      }
+    auto dstType = helper.converter.convertType(type);
+    if (!dstType) {
+      allocOp.emitError() << "Failed to convert the MemRefType";
+      return failure();
     }
 
-    size = idxMul(size, helper.idxConstant(rewriter, loc, staticSize));
+    SmallVector<Value> shape;
+    SmallVector<Value> strides;
+    Value size;
+    getMemRefDescriptorSizes(loc, type, adaptor.getDynamicSizes(), rewriter,
+                             shape, strides, size);
+    assert(shape.size() == strides.size());
+
     auto ptr = funcCall(rewriter, GPU_OCL_MALLOC, helper.ptrType,
                         {helper.ptrType, helper.idxType}, loc,
                         {getCtxPtr(rewriter), size})
                    .getResult();
 
-    newStrides[ndims - 1] = helper.idxConstant(rewriter, loc, 1);
-    for (int i = static_cast<int>(ndims) - 2; i >= 0; i--) {
-      newStrides[i] = idxMul(newStrides[i + 1], newShape[i]);
-      ;
-    }
-
-    auto dsc = MemRefDescriptor::undef(rewriter, loc,
-                                       helper.converter.convertType(type));
+    auto dsc = MemRefDescriptor::undef(rewriter, loc, dstType);
     dsc.setAllocatedPtr(rewriter, loc, ptr);
     dsc.setAlignedPtr(rewriter, loc, ptr);
     dsc.setOffset(rewriter, loc, helper.idxConstant(rewriter, loc, 0));
 
-    for (unsigned i = 0, n = static_cast<unsigned>(ndims); i < n; i++) {
-      dsc.setSize(rewriter, loc, i, newShape[i]);
-      dsc.setStride(rewriter, loc, i, newStrides[i]);
+    for (unsigned i = 0, n = static_cast<unsigned>(shape.size()); i < n; i++) {
+      dsc.setSize(rewriter, loc, i, shape[i]);
+      dsc.setStride(rewriter, loc, i, strides[i]);
     }
 
     rewriter.replaceOp(allocOp, static_cast<Value>(dsc));
@@ -209,23 +195,24 @@ struct ConvertMemcpy final : ConvertOpPattern<gpu::MemcpyOp> {
   matchAndRewrite(gpu::MemcpyOp gpuMemcpy, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = gpuMemcpy.getLoc();
-    auto srcType = gpuMemcpy.getSrc().getType();
-    auto elementSize = srcType.getElementType().getIntOrFloatBitWidth() / 8;
-    uint64_t numElements = 0;
-    for (auto dim : srcType.getShape()) {
-      if (dim == ShapedType::kDynamic) {
-        gpuMemcpy.emitOpError()
-            << "dynamic shapes are not currently not supported";
-        return failure();
-      }
-      numElements = numElements ? numElements * dim : dim;
-    }
-
     MemRefDescriptor srcDsc(adaptor.getSrc());
     MemRefDescriptor dstDsc(adaptor.getDst());
+    auto srcType = gpuMemcpy.getSrc().getType();
+    Value size = helper.calculateStaticSize(rewriter, loc, srcType);
+
+    if (!size) {
+      auto numElements = helper.idxConstant(rewriter, loc, 1);
+      for (unsigned i = 0, n = srcType.getRank(); i < n; i++) {
+        numElements = rewriter.create<LLVM::MulOp>(
+            loc, numElements, srcDsc.size(rewriter, loc, i));
+      }
+      size = rewriter.create<mlir::LLVM::MulOp>(
+          loc, numElements,
+          getSizeInBytes(loc, srcType.getElementType(), rewriter));
+    }
+
     auto srcPtr = srcDsc.alignedPtr(rewriter, loc);
     auto dstPtr = dstDsc.alignedPtr(rewriter, loc);
-    auto size = helper.idxConstant(rewriter, loc, elementSize * numElements);
     auto oclMemcpy = funcCall(
         rewriter, GPU_OCL_MEMCPY, helper.voidType,
         {helper.ptrType, helper.ptrType, helper.ptrType, helper.idxType}, loc,
