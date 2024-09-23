@@ -274,14 +274,16 @@ FailureOr<size_t> TickCollecter::getAllocSize(TickCollecterStates *s,
         break;
 
       OpBuilder builder{forallOp->getContext()};
-      std::optional<int64_t> numIterations = constantTripCount(
-          forallOp.getLowerBound(builder)[0],
-          forallOp.getUpperBound(builder)[0], forallOp.getStep(builder)[0]);
-
-      if (numIterations.has_value()) {
-        numThreads *= numIterations.value();
-      } else {
-        op->emitError("Expecting static loop range!");
+      std::optional<int64_t> numIterations;
+      for (auto [lb, ub, step] : llvm::zip(forallOp.getLowerBound(builder),
+                                           forallOp.getUpperBound(builder),
+                                           forallOp.getStep(builder))) {
+        numIterations = constantTripCount(lb, ub, step);
+        if (numIterations.has_value()) {
+          numThreads *= numIterations.value();
+        } else {
+          return op->emitError("Expecting static loop range!");
+        }
       }
 
       parent = parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
@@ -498,21 +500,72 @@ Value MergeAllocDefaultMutator::buildView(OpBuilder &builder, Block *scope,
   while (parent) {
     if (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
       if (isForallLoopBoundStatic(forallOp)) {
-        SmallVector<Value> upperBounds = forallOp.getUpperBound(builder);
-        if (std::optional<int64_t> ubs0_int =
-                getConstantIntValue(upperBounds[0])) {
-          if (isOuterMostLoop) {
-            inductVar = forallOp.getInductionVar(0);
-            isOuterMostLoop = false;
-          } else {
-            Value innerLoopBoundVal = builder.create<arith::ConstantIndexOp>(
-                loc, innerLoopUpperBound);
-            Value intermediateVal = builder.create<arith::MulIOp>(
-                loc, forallOp.getInductionVar(0), innerLoopBoundVal);
-            inductVar =
-                builder.create<arith::AddIOp>(loc, inductVar, intermediateVal);
+        SmallVector<Value> ubs = forallOp.getUpperBound(builder);
+        SmallVector<Value> lbs = forallOp.getLowerBound(builder);
+        SmallVector<Value> steps = forallOp.getStep(builder);
+        SmallVector<Value> inductionVars = forallOp.getInductionVars();
+
+        auto getCurrentVar = [&loc, &builder](Value var, Value lb,
+                                              Value step) -> Value {
+          if (!isConstantIntValue(lb, 0)) {
+            var = builder.create<arith::SubIOp>(loc, var, lb);
           }
-          innerLoopUpperBound = ubs0_int.value();
+          if (!isConstantIntValue(step, 1)) {
+            var = builder.create<arith::DivSIOp>(loc, var, step);
+          }
+          return var;
+        };
+
+        auto getAggregatedVar =
+            [&loc, &builder, &getCurrentVar](
+                const SmallVector<Value> &_lbs, const SmallVector<Value> &_ubs,
+                const SmallVector<Value> &_steps,
+                const SmallVector<Value> &_inductVars) -> Value {
+          Value var;
+          if (_ubs.size() == 1) {
+            var = getCurrentVar(_inductVars[0], _lbs[0], _steps[0]);
+            return var;
+          } else {
+            bool isFirstLoop = true;
+            for (auto [lb, ub, step, inductVar] :
+                 llvm::zip(_lbs, _ubs, _steps, _inductVars)) {
+              if (isFirstLoop) {
+                var = getCurrentVar(inductVar, lb, step);
+                isFirstLoop = false;
+              } else {
+                Value cur_var = getCurrentVar(inductVar, lb, step);
+                std::optional<int64_t> bound = constantTripCount(lb, ub, step);
+                assert(bound.has_value());
+                Value boundVal =
+                    builder.create<arith::ConstantIndexOp>(loc, bound.value());
+                Value tmpVal =
+                    builder.create<arith::MulIOp>(loc, var, boundVal);
+                var = builder.create<arith::AddIOp>(loc, tmpVal, cur_var);
+              }
+            }
+            return var;
+          }
+        };
+
+        if (isOuterMostLoop) {
+          inductVar = getAggregatedVar(lbs, ubs, steps, inductionVars);
+          isOuterMostLoop = false;
+        } else {
+          Value currentVar = getAggregatedVar(lbs, ubs, steps, inductionVars);
+
+          Value innerLoopBoundVal =
+              builder.create<arith::ConstantIndexOp>(loc, innerLoopUpperBound);
+          Value intermediateVal =
+              builder.create<arith::MulIOp>(loc, currentVar, innerLoopBoundVal);
+          inductVar =
+              builder.create<arith::AddIOp>(loc, inductVar, intermediateVal);
+        }
+        // get aggregated loop bound
+        int64_t innerLoopUpperBound = 1;
+        for (auto [lb, ub, step] : llvm::zip(lbs, ubs, steps)) {
+          std::optional<int64_t> cur_bound = constantTripCount(lb, ub, step);
+          assert(cur_bound.has_value());
+          innerLoopUpperBound *= cur_bound.value();
         }
       }
     }

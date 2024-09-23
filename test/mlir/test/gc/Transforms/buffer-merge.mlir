@@ -211,6 +211,40 @@ func.func @nested_forall(%arg0: memref<2xf32>) {
 //  CHECK-NEXT:     %[[ALLOC2:.*]] = memref.alloc() {alignment = 64 : i64} : memref<64xi8>
 //       CHECK:     %[[VIEW3:.*]] = memref.view %[[ALLOC2]][%{{.*}}][] : memref<64xi8> to memref<16xf32>
 
+func.func @nested_forall_multi_var(%arg0: memref<2xf32>) {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
+    %c4 = arith.constant 4 : index
+    %c16 = arith.constant 16 : index
+    %alloc = memref.alloc() : memref<2xf32>
+    memref.copy %arg0, %alloc : memref<2xf32> to memref<2xf32>
+    scf.forall (%i, %j) = (%c0, %c0) to (%c16, %c4) step (%c4, %c1) {
+      %alloc_0 = memref.alloc() : memref<4xf32>
+      %alloc_1 = memref.alloc() : memref<8xf32> // hoist to outermost
+      scf.forall (%k) in (%c4) {
+        "test.source"(%alloc) : (memref<2xf32>) -> ()
+        "test.source"(%alloc_1) : (memref<8xf32>) -> ()
+        %alloc_2 = memref.alloc() : memref<16xf32>
+        "test.source"(%alloc_2) : (memref<16xf32>) -> ()
+      }
+      "test.source"(%alloc) : (memref<2xf32>) -> ()
+      "test.source"(%alloc_0) : (memref<4xf32>) -> ()
+    }
+    return
+}
+// CHECK-LABEL: func @nested_forall_multi_var
+//       CHECK: %[[ALLOC0:.*]] = memref.alloc() {alignment = 64 : i64} : memref<576xi8>
+//       CHECK: %[[VIEW0:.*]] = memref.view %[[ALLOC0]][%{{.*}}][] : memref<576xi8> to memref<2xf32>
+//  CHECK-NEXT: memref.copy %arg0, %[[VIEW0]]
+//  CHECK-NEXT: scf.forall
+//       CHECK:   %[[ALLOC1:.*]] = memref.alloc() {alignment = 64 : i64} : memref<64xi8>
+//       CHECK:   %[[VIEW1:.*]] = memref.view %[[ALLOC1]][%{{.*}}][] : memref<64xi8> to memref<4xf32>
+//       CHECK:   %[[VIEW2:.*]] = memref.view %[[ALLOC0]][%{{.*}}][] : memref<576xi8> to memref<8xf32>
+//  CHECK-NEXT:   scf.forall
+//  CHECK-NEXT:     %[[ALLOC2:.*]] = memref.alloc() {alignment = 64 : i64} : memref<64xi8>
+//       CHECK:     %[[VIEW3:.*]] = memref.view %[[ALLOC2]][%{{.*}}][] : memref<64xi8> to memref<16xf32>
+
 func.func @mixed_forall_and_for(
     %lb: index,
     %ub: index,
