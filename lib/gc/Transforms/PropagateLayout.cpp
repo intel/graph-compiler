@@ -281,6 +281,44 @@ public:
   void runOnOperation() final;
 };
 
+template <typename T>
+static void packReshapeOp(T reshapeOp, IRRewriter &rewriter,
+                          const OperatorLayout &opLayout) {
+  Location loc = reshapeOp->getLoc();
+  TensorLayout inputLayout = opLayout.getSupportedInputLayouts()[0];
+  TensorLayout outputLayout = opLayout.getSupportedOutputLayouts()[0];
+  Value curSrc = reshapeOp.getSrc();
+  Value curDst = reshapeOp.getResult();
+  Value dest = tensor::PackOp::createDestinationTensor(
+      rewriter, loc, curSrc, inputLayout.getTileSizes(),
+      inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
+  Value packedSource =
+      insertLayoutPack(rewriter, loc, curSrc, dest, inputLayout.getInnerAxis(),
+                       inputLayout.getTileSizes(), inputLayout.getOuterAxis());
+  SmallVector<ReassociationIndices> newReassocIndices =
+      reshapeOp.getReassociationIndices();
+  TensorLayout shorterSide = inputLayout.getRank() > outputLayout.getRank()
+                                 ? outputLayout
+                                 : inputLayout;
+  int64_t nextPos = applyPermutationAndReindexReassoc(
+      newReassocIndices, shorterSide.getOuterAxis());
+  // Then add direct mapping for the inner tile dims.
+  for (size_t i = 0; i < inputLayout.getInnerAxis().size(); ++i) {
+    newReassocIndices.push_back({nextPos});
+    nextPos += 1;
+  }
+  RankedTensorType newExpandType = tensor::PackOp::inferPackedType(
+      dyn_cast<RankedTensorType>(curDst.getType()),
+      *getConstantIntValues(outputLayout.getTileSizes()),
+      outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
+  Value packedExpandShape =
+      rewriter.create<T>(loc, newExpandType, packedSource, newReassocIndices);
+  Value newUnPackOp = insertLayoutUnpack(
+      rewriter, loc, packedExpandShape, outputLayout.getInnerAxis(),
+      outputLayout.getTileSizes(), outputLayout.getOuterAxis());
+  rewriter.replaceOp(reshapeOp, newUnPackOp);
+}
+
 LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
                                        ControlPackNamedOpsFn controlFn) {
   IRRewriter rewriter(ctx);
@@ -298,84 +336,55 @@ LogicalResult namedOpLayoutPropagation(MLIRContext *ctx, mlir::Operation *graph,
                                 << " has plain layout, skip packing.\n");
         return WalkResult::advance();
       }
+      if (checkPacked(op, opLayout)) {
+        LLVM_DEBUG(llvm::dbgs() << "Op " << op->getName()
+                                << " is already packed, skip packing.\n");
+        return WalkResult::advance();
+      }
       // pack op into ideal layout
       LLVM_DEBUG(llvm::dbgs()
-                 << "Op " << op->getName() << "'s inferred layout:\n"
+                 << "Packing op " << op->getName() << " into inferred layout:\n"
                  << opLayout << "\n");
       // insert pack
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(op);
-      if (checkPacked(op, opLayout)) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Op " << op->getName() << " already packed.\n");
-        return WalkResult::advance();
-      }
       if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
         if (failed(packLinalgOp(rewriter, linalgOp, opLayout))) {
           return WalkResult::skip();
         }
       } else if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
-        Location loc = expandShapeOp->getLoc();
-        auto inputLayout = opLayout.getSupportedInputLayouts()[0];
-        auto outputLayout = opLayout.getSupportedOutputLayouts()[0];
-        Value curSrc = expandShapeOp.getSrc();
-        Value curDst = expandShapeOp.getResult();
-        Value dest = tensor::PackOp::createDestinationTensor(
-            rewriter, loc, curSrc, inputLayout.getTileSizes(),
-            inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
-        Value packedSource = insertLayoutPack(
-            rewriter, loc, curSrc, dest, inputLayout.getInnerAxis(),
-            inputLayout.getTileSizes(), inputLayout.getOuterAxis());
-        SmallVector<ReassociationIndices> newReassocIndices =
-            expandShapeOp.getReassociationIndices();
-        int64_t nextPos = applyPermutationAndReindexReassoc(
-            newReassocIndices, inputLayout.getOuterAxis());
-        // Then add direct mapping for the inner tile dims.
-        for (size_t i = 0; i < inputLayout.getInnerAxis().size(); ++i) {
-          newReassocIndices.push_back({nextPos});
-          nextPos += 1;
-        }
-        RankedTensorType newExpandType = tensor::PackOp::inferPackedType(
-            dyn_cast<RankedTensorType>(curDst.getType()),
-            *getConstantIntValues(outputLayout.getTileSizes()),
-            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
-        Value packedExpandShape = rewriter.create<tensor::ExpandShapeOp>(
-            loc, newExpandType, packedSource, newReassocIndices);
-        Value newUnPackOp = insertLayoutUnpack(
-            rewriter, loc, packedExpandShape, outputLayout.getInnerAxis(),
-            outputLayout.getTileSizes(), outputLayout.getOuterAxis());
-        rewriter.replaceOp(expandShapeOp, newUnPackOp);
+        packReshapeOp<tensor::ExpandShapeOp>(expandShapeOp, rewriter, opLayout);
       } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
-        Location loc = collapseShapeOp->getLoc();
-        auto inputLayout = opLayout.getSupportedInputLayouts()[0];
-        auto outputLayout = opLayout.getSupportedOutputLayouts()[0];
-        Value curSrc = collapseShapeOp.getSrc();
-        Value curDst = collapseShapeOp.getResult();
+        packReshapeOp<tensor::CollapseShapeOp>(collapseShapeOp, rewriter,
+                                               opLayout);
+      } else if (auto padOp = dyn_cast<tensor::PadOp>(op)) {
+        Location loc = padOp->getLoc();
+        TensorLayout inputLayout = opLayout.getSupportedInputLayouts()[0];
+        Value curSrc = padOp.getSource();
+        SmallVector<int64_t> outerDimsPerm = inputLayout.getOuterAxis();
+        SmallVector<int64_t> innerDimsPos = inputLayout.getInnerAxis();
+        SmallVector<OpFoldResult> tileSizes = inputLayout.getTileSizes();
         Value dest = tensor::PackOp::createDestinationTensor(
-            rewriter, loc, curSrc, inputLayout.getTileSizes(),
-            inputLayout.getInnerAxis(), inputLayout.getOuterAxis());
-        Value packedSource = insertLayoutPack(
-            rewriter, loc, curSrc, dest, inputLayout.getInnerAxis(),
-            inputLayout.getTileSizes(), inputLayout.getOuterAxis());
-        SmallVector<ReassociationIndices> newReassocIndices =
-            collapseShapeOp.getReassociationIndices();
-        int64_t nextPos = applyPermutationAndReindexReassoc(
-            newReassocIndices, outputLayout.getOuterAxis());
-        // Then add direct mapping for the inner tile dims.
-        for (size_t i = 0; i < inputLayout.getInnerAxis().size(); ++i) {
-          newReassocIndices.push_back({nextPos});
-          nextPos += 1;
-        }
-        RankedTensorType newCollapseType = tensor::PackOp::inferPackedType(
-            dyn_cast<RankedTensorType>(curDst.getType()),
-            *getConstantIntValues(outputLayout.getTileSizes()),
-            outputLayout.getInnerAxis(), outputLayout.getOuterAxis());
-        Value packedCollapseShape = rewriter.create<tensor::CollapseShapeOp>(
-            loc, newCollapseType, packedSource, newReassocIndices);
-        Value newUnPackOp = insertLayoutUnpack(
-            rewriter, loc, packedCollapseShape, outputLayout.getInnerAxis(),
-            outputLayout.getTileSizes(), outputLayout.getOuterAxis());
-        rewriter.replaceOp(collapseShapeOp, newUnPackOp);
+            rewriter, loc, curSrc, tileSizes, innerDimsPos, outerDimsPerm);
+        Value packedSource =
+            insertLayoutPack(rewriter, loc, curSrc, dest, innerDimsPos,
+                             tileSizes, outerDimsPerm);
+        // update lowPad and highPad
+        SmallVector<OpFoldResult> lowPad = padOp.getMixedLowPad();
+        SmallVector<OpFoldResult> highPad = padOp.getMixedHighPad();
+        applyPermutationToVector<OpFoldResult>(lowPad, outerDimsPerm);
+        applyPermutationToVector<OpFoldResult>(highPad, outerDimsPerm);
+        lowPad.append(innerDimsPos.size(), rewriter.getIndexAttr(0));
+        highPad.append(innerDimsPos.size(), rewriter.getIndexAttr(0));
+        auto packedPadOp = rewriter.create<tensor::PadOp>(
+            loc, /*result=*/Type(), packedSource, lowPad, highPad,
+            padOp.getConstantPaddingValue(), padOp.getNofold());
+        auto unpackEmpty = tensor::UnPackOp::createDestinationTensor(
+            rewriter, loc, packedPadOp, tileSizes, innerDimsPos, outerDimsPerm);
+        Value unpackedPad = rewriter.create<tensor::UnPackOp>(
+            loc, packedPadOp, unpackEmpty, innerDimsPos, tileSizes,
+            outerDimsPerm);
+        rewriter.replaceOp(padOp, unpackedPad);
       }
     }
     return WalkResult::advance();
