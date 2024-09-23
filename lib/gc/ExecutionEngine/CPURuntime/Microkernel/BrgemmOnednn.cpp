@@ -60,12 +60,16 @@ struct brgemm_cache_info_t {
 };
 
 static std::vector<brgemm_cache_info_t> g_cache;
-static thread_local std::unordered_map<int64_t, brgemm_cache_info_t> tl_cache;
 
 // TODO(haixin): use syscall to determine page size?
 static constexpr size_t SCRATCH_SIZE = 2 * 4096;
 // TODO(haixin): need to use custom thread management for scratch in the future?
 static thread_local char scratch[SCRATCH_SIZE] = {0};
+
+static std::unordered_map<int64_t, brgemm_cache_info_t> &get_tl_cache() {
+  thread_local std::unordered_map<int64_t, brgemm_cache_info_t> tl_cache;
+  return tl_cache;
+}
 
 extern "C" {
 
@@ -113,15 +117,12 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
   assert(kernel_idx >= 0 && "Invalid kernel handler");
+  auto &tl_cache = get_tl_cache();
   auto it = tl_cache.find(kernel_idx);
   if (it == tl_cache.end()) {
     read_lock_guard_t g(g_brgemm_lock);
     assert(kernel_idx < (int64_t)g_cache.size() && "Invalid kernel handler");
-
-    brgemm_cache_info_t tl_content = {g_cache[kernel_idx].desc,
-                                      g_cache[kernel_idx].kernel,
-                                      g_cache[kernel_idx].palette};
-    it = tl_cache.insert({kernel_idx, tl_content}).first;
+    it = tl_cache.insert({kernel_idx, g_cache[kernel_idx]}).first;
   }
   brgemm_desc_t &desc = it->second.desc;
   char *palette_buffer = it->second.palette.get();
@@ -145,16 +146,13 @@ void dnnl_brgemm_tilerelease() {
 void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
                          void *B, uint64_t B_offset, void *C, uint64_t C_offset,
                          int num) {
+  auto &tl_cache = get_tl_cache();
   if (tl_cache.find(kernel_idx) == tl_cache.end()) {
     read_lock_guard_t g(g_brgemm_lock);
     assert(kernel_idx >= 0 && kernel_idx < (int64_t)g_cache.size() &&
            "Invalid kernel handler");
-
-    brgemm_cache_info_t tl_content = {g_cache[kernel_idx].desc,
-                                      g_cache[kernel_idx].kernel,
-                                      g_cache[kernel_idx].palette};
     auto updated_cache =
-        tl_cache.insert(std::make_pair(kernel_idx, tl_content));
+        tl_cache.insert(std::make_pair(kernel_idx, g_cache[kernel_idx]));
     assert(updated_cache.second && "insert into thread local cache");
   }
   auto it = tl_cache.find(kernel_idx);
