@@ -22,6 +22,7 @@
 
 #include "JsonParser.h"
 #include "gc/ExecutionEngine/Driver/Driver.h"
+#include "gc/Utils.h"
 #include "gc_version.h"
 
 #include "mlir/ExecutionEngine/MemRefUtils.h"
@@ -32,12 +33,6 @@
 #include "llvm/Support/Threading.h"
 
 #include "graph/backend/elyzor/include/dnnl_graph_compiler.h"
-
-#if defined _WIN32 || defined __CYGWIN__
-#define GC_DLL_EXPORT __declspec(dllexport)
-#else
-#define GC_DLL_EXPORT __attribute__((visibility("default")))
-#endif
 
 // dnnl_graph_compiler.h interface implementation.
 

@@ -4,6 +4,9 @@ gc_add_mlir_library(GcOpenclRuntime
     SHARED
     OpenCLRuntimeWrappers.cpp
 
+    LINK_LIBS PUBLIC
+    GcInterface
+
     EXCLUDE_FROM_LIBMLIR
   )
 

@@ -1,5 +1,6 @@
 gc_add_mlir_library(GcGpuPasses
   LinalgToXeGPU.cpp
+  Pipeline.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
@@ -17,4 +18,8 @@ gc_add_mlir_library(GcGpuPasses
     GcInterface
     GcUtilsIR
 )
+
+include(imex)
+get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
+target_include_directories(GcGpuPasses PRIVATE ${IMEX_INCLUDES})
 
