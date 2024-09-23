@@ -102,9 +102,9 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   brgemm_desc_set_attr(&desc, dnnl_attrs);
 
   // TODO(haixin): Reuse identical palettes across kernels
-  std::shared_ptr<char[]> palette_buffer(new char[PALETTE_SIZE],
-                                         std::default_delete<char[]>());
+  std::shared_ptr<char[]> palette_buffer;
   if (desc.is_tmm) {
+    palette_buffer.reset(new char[PALETTE_SIZE]);
     dnnl::impl::status_t status = brgemm_init_tiles(desc, palette_buffer.get());
     assert(status == dnnl::impl::status::success &&
            "Failed to initialize palette for BRGEMM");
