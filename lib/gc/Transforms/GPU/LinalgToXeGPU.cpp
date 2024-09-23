@@ -904,9 +904,8 @@ static FailureOr<Value> findAndReplaceTranspose(const Value &matmulOperand,
                 trUser,
                 "Transpose result is used by more than one matmul operation");
           }
-        } else if (isa<memref::DeallocOp>(trUser) ||
-                   isa<memref::AllocaOp>(trUser)) {
-          // allow allocs and deallocs as users
+        } else if (isa<memref::DeallocOp>(trUser)) {
+          // allow deallocs as users
           continue;
         } else if (isa<linalg::TransposeOp>(trUser)) {
           // check if it's the same transpose as we're processing
