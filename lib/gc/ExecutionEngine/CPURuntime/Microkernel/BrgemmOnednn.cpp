@@ -54,7 +54,7 @@ using write_lock_guard_t = std::unique_lock<std::shared_mutex>;
 static std::shared_mutex g_brgemm_lock;
 
 struct brgemm_cache_info_t {
-  brgemm_desc_t *desc;
+  std::shared_ptr<brgemm_desc_t> desc;
   brgemm_kernel_t *kernel;
   std::shared_ptr<char[]> palette;
 };
@@ -70,7 +70,6 @@ static std::vector<brgemm_cache_info_t> &get_tl_cache() {
   thread_local std::vector<brgemm_cache_info_t> tl_cache;
   return tl_cache;
 }
-brgemm_desc_t desc;
 
 extern "C" {
 
@@ -78,6 +77,8 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
                              int64_t LDB, int64_t LDC, int64_t stride_a,
                              int64_t stride_b, float beta, int64_t dtypeA,
                              int64_t dtypeB) {
+  std::shared_ptr<brgemm_desc_t> desc_ptr = std::make_shared<brgemm_desc_t>();
+  brgemm_desc_t *desc = desc_ptr.get();
   brgemm_kernel_t *kernel;
   auto dnnl_dtypeA = static_cast<dnnl_data_type_t>(dtypeA);
   auto dnnl_dtypeB = static_cast<dnnl_data_type_t>(dtypeB);
@@ -86,31 +87,32 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   brgemm_strides_t stride_info{stride_a * dtypeA_size, stride_b * dtypeB_size};
 
   dnnl::impl::status_t status = brgemm_desc_init(
-      &desc, cpu_isa_t::isa_undef, brgemm_batch_kind_t::brgemm_strd,
-      dnnl_dtypeA, dnnl_dtypeB, /*transA=*/false, /*transB=*/false,
+      desc, cpu_isa_t::isa_undef, brgemm_batch_kind_t::brgemm_strd, dnnl_dtypeA,
+      dnnl_dtypeB, /*transA=*/false, /*transB=*/false,
       brgemm_layout_t::brgemm_row_major, 1.0f, beta, LDA, LDB, LDC, M, N, K,
       &stride_info);
   assert(status == dnnl::impl::status::success &&
          "Failed to initialize BRGEMM descriptor");
 
-  status = brgemm_kernel_create(&kernel, desc);
+  status = brgemm_kernel_create(&kernel, *desc);
   assert(status == dnnl::impl::status::success &&
          "Failed to JIT BRGEMM kernel");
 
   brgemm_attr_t dnnl_attrs;
-  brgemm_desc_set_attr(&desc, dnnl_attrs);
+  brgemm_desc_set_attr(desc, dnnl_attrs);
 
   // TODO(haixin): Reuse identical palettes across kernels
   std::shared_ptr<char[]> palette_buffer;
-  if (desc.is_tmm) {
+  if (desc->is_tmm) {
     palette_buffer.reset(new char[PALETTE_SIZE]);
-    dnnl::impl::status_t status = brgemm_init_tiles(desc, palette_buffer.get());
+    dnnl::impl::status_t status =
+        brgemm_init_tiles(*desc, palette_buffer.get());
     assert(status == dnnl::impl::status::success &&
            "Failed to initialize palette for BRGEMM");
   }
 
   write_lock_guard_t g(g_brgemm_lock);
-  g_cache.push_back(brgemm_cache_info_t{&desc, kernel, palette_buffer});
+  g_cache.push_back(brgemm_cache_info_t{desc_ptr, kernel, palette_buffer});
   return g_cache.size() - 1;
 }
 
@@ -126,10 +128,10 @@ void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
     }
     tl_cache[kernel_idx] = g_cache[kernel_idx];
   }
-  brgemm_desc_t &desc = *tl_cache[kernel_idx].desc;
+  brgemm_desc_t *desc = tl_cache[kernel_idx].desc.get();
   char *palette_buffer = tl_cache[kernel_idx].palette.get();
 
-  if (!desc.is_tmm) {
+  if (!desc->is_tmm) {
     return;
   }
 
@@ -159,7 +161,7 @@ void dnnl_brgemm_execute(int64_t kernel_idx, void *A, uint64_t A_offset,
     tl_cache[kernel_idx] = g_cache[kernel_idx];
   }
   brgemm_kernel_t *kernel = tl_cache[kernel_idx].kernel;
-  brgemm_desc_t *desc_ptr = tl_cache[kernel_idx].desc;
+  brgemm_desc_t *desc_ptr = tl_cache[kernel_idx].desc.get();
 
   assert(kernel && "Invalid brgemm kernel pointer");
   assert(desc_ptr && "Invalid brgemm descriptor pointer");
