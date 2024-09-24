@@ -52,7 +52,7 @@ def find_factors(num):
 class MatMulConfig(Config):
     def __init__(
         self,
-        op: OpView = None,
+        op: OpView,
         M_threads: int = 1,
         K_threads: int = 1,
         N_threads: int = 1,
