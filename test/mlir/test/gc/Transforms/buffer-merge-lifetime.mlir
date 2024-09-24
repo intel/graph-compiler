@@ -113,7 +113,7 @@ func.func @alias_ref(%pred : i1) {
 // CHECK-DAG: func.func @escape_from_if()  attributes {__mergealloc_scope = [[TOPSCOPE5:[0-9]+]]
 func.func @escape_from_if() {
   %ctrue = arith.constant 1 : i1
-  // check that f lives at the whole range of the following scf.if 
+  // check that f lives at the whole range of the following scf.if
   // CHECK-DAG: %[[F:.*]] = memref.alloc() {__mergealloc_lifetime = array<i64: [[TOPSCOPE5]], 4, 13>}
   %f = memref.alloc() : memref<8x64xf32>
   // tick of the scf.if starts from 4 and ends at 14
