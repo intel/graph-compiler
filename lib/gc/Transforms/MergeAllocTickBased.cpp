@@ -30,6 +30,65 @@ using namespace special_ticks;
 /// and default memory space.
 static bool isMemRefTypeOk(MemRefType type) { return type.hasStaticShape(); }
 
+static inline int64_t getSizeInBytes(MemRefType &memType) {
+  // treat bool (i1) as 1 byte. It may not be true for all targets, but we at
+  // least have a large enough size for i1
+  int64_t size = memType.getElementTypeBitWidth() / 8;
+  size = (size > 0) ? size : 1;
+  for (auto v : memType.getShape()) {
+    size *= v;
+  }
+  return size;
+}
+
+static bool needsHoistOutOfParallelLoop(Operation *op) {
+  Operation *parent =
+      op->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+  if (isa_and_nonnull<scf::ForallOp>(parent)) {
+    // check if the current allocation is between the nested pfor, and use
+    // inside the inner parallel loop
+    SmallVector<Operation *, 4> parallelOpInCurBlock;
+    Block *curBlock = op->getBlock();
+    for (auto &curOp : curBlock->getOperations()) {
+      if (isa<scf::ForallOp>(curOp)) {
+        parallelOpInCurBlock.push_back(&curOp);
+      }
+    }
+
+    if (parallelOpInCurBlock.empty())
+      return false;
+
+    for (auto *use : op->getUsers()) {
+      for (auto *parallelOp : parallelOpInCurBlock) {
+        if (parallelOp->isAncestor(use)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+static bool isForallLoopBoundStatic(Operation *op) {
+  auto forallOp = dyn_cast<scf::ForallOp>(op);
+  if (!forallOp)
+    return false;
+
+  auto lbs = forallOp.getMixedLowerBound();
+  auto ubs = forallOp.getMixedUpperBound();
+  auto steps = forallOp.getMixedStep();
+  auto allConstantValue = [](SmallVector<OpFoldResult> vals) -> bool {
+    return llvm::all_of(vals, [](OpFoldResult val) {
+      std::optional<int64_t> const_val = getConstantIntValue(val);
+      return const_val.has_value();
+    });
+  };
+
+  return allConstantValue(lbs) && allConstantValue(ubs) &&
+         allConstantValue(steps);
+}
+
 void Tick::update(int64_t tick) {
   if (tick == UNTRACEABLE_ACCESS) {
     firstAccess = UNTRACEABLE_ACCESS;
@@ -180,28 +239,60 @@ bool TickCollecter::isMergeableAlloc(TickCollecterStates *s, Operation *op,
 // trait, and is not scf.for
 Operation *TickCollecter::getAllocScope(TickCollecterStates *s,
                                         Operation *op) const {
-  auto parent = op;
+  Operation *parent = op;
+  bool moveToUpperParellelLoop = needsHoistOutOfParallelLoop(op);
+
   for (;;) {
     parent = parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
     if (!parent) {
       return nullptr;
     }
-    if (!isa<scf::ForOp>(parent)) {
-      return parent;
-    }
+
+    if (isa<scf::ForOp>(parent))
+      continue;
+
+    if (isa<scf::ForallOp>(parent) &&
+        (moveToUpperParellelLoop && isForallLoopBoundStatic(parent)))
+      continue;
+
+    return parent;
   }
 }
 
 FailureOr<size_t> TickCollecter::getAllocSize(TickCollecterStates *s,
                                               Operation *op) const {
   auto refType = cast<MemRefType>(op->getResultTypes().front());
-  int64_t size = refType.getElementTypeBitWidth() / 8;
-  // treat bool (i1) as 1 byte. It may not be true for all targets, but we at
-  // least have a large enough size for i1
-  size = (size != 0) ? size : 1;
-  for (auto v : refType.getShape()) {
-    size *= v;
+
+  // Get the total number of threads from the outermost to the current level of
+  // the parallel loop that the allocation located in.
+  int64_t numThreads = 1;
+  if (needsHoistOutOfParallelLoop(op)) {
+    Operation *parent =
+        op->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+    while (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
+      if (!isForallLoopBoundStatic(forallOp))
+        break;
+
+      OpBuilder builder{forallOp->getContext()};
+      std::optional<int64_t> numIterations;
+      for (auto [lb, ub, step] : llvm::zip(forallOp.getLowerBound(builder),
+                                           forallOp.getUpperBound(builder),
+                                           forallOp.getStep(builder))) {
+        numIterations = constantTripCount(lb, ub, step);
+        if (numIterations.has_value()) {
+          numThreads *= numIterations.value();
+        } else {
+          return op->emitError("Expecting static loop range!");
+        }
+      }
+
+      parent = parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+    }
   }
+  assert(numThreads > 0);
+
+  int64_t size = getSizeInBytes(refType);
+  size *= numThreads;
   if (size > 0) {
     return static_cast<size_t>(size);
   }
@@ -391,11 +482,113 @@ Value MergeAllocDefaultMutator::buildView(OpBuilder &builder, Block *scope,
                                           Value mergedAlloc,
                                           int64_t byteOffset) const {
   builder.setInsertionPoint(origAllocOp);
-  auto byteShift =
-      builder.create<arith::ConstantIndexOp>(origAllocOp->getLoc(), byteOffset);
-  return builder.create<memref::ViewOp>(origAllocOp->getLoc(),
-                                        origAllocOp->getResultTypes().front(),
-                                        mergedAlloc, byteShift, ValueRange{});
+  auto loc = origAllocOp->getLoc();
+  auto byteShift = builder.create<arith::ConstantIndexOp>(loc, byteOffset);
+
+  bool moveToUpperParellelLoop = needsHoistOutOfParallelLoop(origAllocOp);
+  Operation *parent =
+      origAllocOp->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+  if (!moveToUpperParellelLoop || !parent || !isa<scf::ForallOp>(parent))
+    return builder.create<memref::ViewOp>(loc,
+                                          origAllocOp->getResultTypes().front(),
+                                          mergedAlloc, byteShift, ValueRange{});
+
+  // get the aggregated inductorVar
+  Value inductVar;
+  bool isOuterMostLoop = true;
+  int64_t innerLoopUpperBound = 1;
+  while (parent) {
+    if (auto forallOp = dyn_cast<scf::ForallOp>(parent)) {
+      if (isForallLoopBoundStatic(forallOp)) {
+        SmallVector<Value> ubs = forallOp.getUpperBound(builder);
+        SmallVector<Value> lbs = forallOp.getLowerBound(builder);
+        SmallVector<Value> steps = forallOp.getStep(builder);
+        SmallVector<Value> inductionVars = forallOp.getInductionVars();
+
+        auto getCurrentVar = [&loc, &builder](Value var, Value lb,
+                                              Value step) -> Value {
+          if (!isConstantIntValue(lb, 0))
+            var = builder.create<arith::SubIOp>(loc, var, lb);
+
+          if (!isConstantIntValue(step, 1))
+            var = builder.create<arith::DivSIOp>(loc, var, step);
+          return var;
+        };
+
+        auto getAggregatedVar =
+            [&loc, &builder, &getCurrentVar](
+                const SmallVector<Value> &_lbs, const SmallVector<Value> &_ubs,
+                const SmallVector<Value> &_steps,
+                const SmallVector<Value> &_inductVars) -> Value {
+          Value var;
+          if (_ubs.size() == 1) {
+            var = getCurrentVar(_inductVars[0], _lbs[0], _steps[0]);
+            return var;
+          } else {
+            bool isFirstLoop = true;
+            for (auto [lb, ub, step, inductVar] :
+                 llvm::zip(_lbs, _ubs, _steps, _inductVars)) {
+              if (isFirstLoop) {
+                var = getCurrentVar(inductVar, lb, step);
+                isFirstLoop = false;
+              } else {
+                Value cur_var = getCurrentVar(inductVar, lb, step);
+                std::optional<int64_t> bound = constantTripCount(lb, ub, step);
+                assert(bound.has_value());
+                Value boundVal =
+                    builder.create<arith::ConstantIndexOp>(loc, bound.value());
+                Value tmpVal =
+                    builder.create<arith::MulIOp>(loc, var, boundVal);
+                var = builder.create<arith::AddIOp>(loc, tmpVal, cur_var);
+              }
+            }
+            return var;
+          }
+        };
+
+        if (isOuterMostLoop) {
+          inductVar = getAggregatedVar(lbs, ubs, steps, inductionVars);
+          isOuterMostLoop = false;
+        } else {
+          Value currentVar = getAggregatedVar(lbs, ubs, steps, inductionVars);
+
+          Value innerLoopBoundVal =
+              builder.create<arith::ConstantIndexOp>(loc, innerLoopUpperBound);
+          Value intermediateVal =
+              builder.create<arith::MulIOp>(loc, currentVar, innerLoopBoundVal);
+          inductVar =
+              builder.create<arith::AddIOp>(loc, inductVar, intermediateVal);
+        }
+        // get aggregated loop bound
+        for (auto [lb, ub, step] : llvm::zip(lbs, ubs, steps)) {
+          std::optional<int64_t> cur_bound = constantTripCount(lb, ub, step);
+          assert(cur_bound.has_value());
+          innerLoopUpperBound *= cur_bound.value();
+        }
+      }
+    }
+
+    parent = parent->getParentWithTrait<OpTrait::AutomaticAllocationScope>();
+  }
+
+  if (!isOuterMostLoop) {
+    // get original shape size
+    auto memType = cast<MemRefType>(origAllocOp->getResultTypes().front());
+    int64_t size = getSizeInBytes(memType);
+    Value origSize = builder.create<arith::ConstantIndexOp>(loc, size);
+    Value offsetPerThread =
+        builder.create<arith::MulIOp>(loc, inductVar, origSize);
+    Value byteShiftPerThread =
+        builder.create<arith::AddIOp>(loc, byteShift, offsetPerThread);
+
+    return builder.create<memref::ViewOp>(
+        loc, origAllocOp->getResultTypes().front(), mergedAlloc,
+        byteShiftPerThread, ValueRange{});
+  } else {
+    return builder.create<memref::ViewOp>(loc,
+                                          origAllocOp->getResultTypes().front(),
+                                          mergedAlloc, byteShift, ValueRange{});
+  }
 }
 
 LogicalResult
