@@ -54,9 +54,8 @@ namespace gc {
 /// block.
 /// insert_slice just move them to the privious of the first operation which
 /// use it.
-void moveSomeInterferenceOperation(
-    func::FuncOp *func, MLIRContext *ctx,
-    std::function<bool(Operation *)> &conditionalFunc);
+void moveOpsFrontOrBack(func::FuncOp *func, MLIRContext *ctx,
+                        std::function<bool(Operation *)> &conditionalFunc);
 
 /// build a constant operation of index type
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,

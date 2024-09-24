@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/IR/Visitors.h"
@@ -120,9 +121,30 @@ struct GenerateLoopHelper {
 //===----------------------------------------------------------------------===//
 // vectorize operation class
 //===----------------------------------------------------------------------===//
+class MultiReductionCanonicalizer;
+class BroadcastCanonicalizer;
+class TransposeCanonicalizer;
+class ShapeCastCanonicalizer;
+
+// fixed extraction trait
+template <typename T> struct SpecialOpTraits;
+template <> struct SpecialOpTraits<vector::MultiDimReductionOp> {
+  using DerivedSpecialT = MultiReductionCanonicalizer;
+};
+template <> struct SpecialOpTraits<vector::BroadcastOp> {
+  using DerivedSpecialT = BroadcastCanonicalizer;
+};
+template <> struct SpecialOpTraits<vector::TransposeOp> {
+  using DerivedSpecialT = TransposeCanonicalizer;
+};
+template <> struct SpecialOpTraits<vector::ShapeCastOp> {
+  using DerivedSpecialT = ShapeCastCanonicalizer;
+};
 
 /// base class of special operation
 template <class T> class SpecialOperationCanonicalizer {
+  using DerivedT = typename SpecialOpTraits<T>::DerivedSpecialT;
+
 private:
   /// store current special operation
   SmallVector<T, 4> candidateRdOps;
@@ -148,9 +170,12 @@ public:
   SpecialOperationCanonicalizer(const SmallVector<T, 4> &candidateRdOps,
                                 SpecialOperationKind kind, size_t step)
       : candidateRdOps(candidateRdOps), vectorStep(step), kind(kind) {}
-  llvm::SmallVector<T, 4> &getCandidateOps();
+  SmallVector<T, 4> &getCandidateOps();
   virtual ~SpecialOperationCanonicalizer() {}
-  virtual void prepareSpecialOperationInfo() = 0;
+  /// call derived speical operation init information methods
+  void prepareSpecialOperationInfo() {
+    static_cast<DerivedT *>(this)->prepareSpecialInfo();
+  }
   /// get kind of speical operation
   SpecialOperationKind getKind() noexcept { return kind; }
   /// set current operation group vectorize step
@@ -241,7 +266,7 @@ public:
 
   /// initalize parallel, reduction axis, reduction operation type and whether
   /// last dim is reduction axis
-  void prepareSpecialOperationInfo() override;
+  void prepareSpecialInfo();
 
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() ==
@@ -259,7 +284,7 @@ public:
       : SpecialOperationCanonicalizer<vector::BroadcastOp>(
             candidateBcOps, SpecialOperationKind::OP_Broadcast, steps){};
   virtual ~BroadcastCanonicalizer() noexcept {}
-  void prepareSpecialOperationInfo() override {}
+  void prepareSpecialInfo(){};
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_Broadcast;
   }
@@ -278,7 +303,7 @@ public:
       : SpecialOperationCanonicalizer<vector::TransposeOp>(
             candidateTpOps, SpecialOperationKind::OP_Transpose, steps){};
   virtual ~TransposeCanonicalizer() noexcept {}
-  void prepareSpecialOperationInfo() override{};
+  void prepareSpecialInfo(){};
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_Transpose;
   }
@@ -306,7 +331,7 @@ public:
       : SpecialOperationCanonicalizer<vector::ShapeCastOp>(
             candidateScOps, SpecialOperationKind::OP_ShapeCast, steps){};
   virtual ~ShapeCastCanonicalizer() {}
-  void prepareSpecialOperationInfo() override {}
+  void prepareSpecialInfo() {}
   static bool classof(SpecialOperationCanonicalizer *canonicalizer) {
     return canonicalizer->getKind() == SpecialOperationKind::OP_ShapeCast;
   }

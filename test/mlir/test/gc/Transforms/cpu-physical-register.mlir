@@ -664,3 +664,47 @@ func.func @add_small_tensor_test14(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -
   %2 = linalg.max ins(%1, %cst : tensor<2xf32>, tensor<2xf32>) outs(%0: tensor<2xf32>) -> tensor<2xf32>
   return %2 : tensor<2xf32>
 }
+
+// CHECK-LABEL: func @broadcast_add_test15
+// CHECK: %[[CST:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[C64:.*]] = arith.constant 64 : index
+// CHECK: %[[C16:.*]] = arith.constant 16 : index
+// CHECK: scf.for %[[arg2:.*]] = %[[C0]] to %[[C64]] step %[[C1]] iter_args(%[[arg3:.*]] = {{.*}}) -> (tensor<64x64xf32>)
+// CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<64x64xf32>)
+// CHECK: %[[READ0:.*]] = vector.transfer_read %[[arg5]][%[[arg2]], %[[arg4]]], %[[CST]] {in_bounds = [true]} : tensor<64x64xf32>, vector<16xf32>
+// CHECK: %[[READ1:.*]] = vector.transfer_read %arg0[%[[arg4]]], %[[CST]] {in_bounds = [true]} : tensor<64xf32>, vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<16xf32>
+// CHECK: %[[WRITE:.*]] = vector.transfer_write %[[ADD0]], %[[arg5]][%[[arg2]], %[[arg4]]] {in_bounds = [true]} : vector<16xf32>, tensor<64x64xf32>
+func.func @broadcast_add_test15(%arg0: tensor<64xf32>, %arg1: tensor<64x64xf32>) -> tensor<64x64xf32> {
+  %0 = tensor.empty() : tensor<64x64xf32>
+  %bcast = linalg.broadcast
+      ins(%arg0:tensor<64xf32>)
+      outs(%0:tensor<64x64xf32>)
+      dimensions = [0]
+  %out3 = linalg.add ins(%bcast, %arg1: tensor<64x64xf32>, tensor<64x64xf32>) 
+  outs(%arg1: tensor<64x64xf32>) -> tensor<64x64xf32>
+  return %out3: tensor<64x64xf32>
+}
+
+// CHECK-LABEL: func @broadcast_single_test16
+// CHECK: %[[C16:.*]] = arith.constant 16 : index
+// CHECK: %[[C64:.*]] = arith.constant 64 : index
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[CST:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK: %[[EMPTY0:.*]] = tensor.empty() : tensor<64x64xf32>
+// CHECK: scf.for %[[arg1:.*]] = %[[C0]] to %[[C64]] step %[[C1]] iter_args(%[[arg2:.*]] = %[[EMPTY0]]) -> (tensor<64x64xf32>)
+// CHECK: scf.for %[[arg3:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg4:.*]] = %[[arg2]]) -> (tensor<64x64xf32>)
+// CHECK: %[[READ0:.*]] = vector.transfer_read %arg0[%[[arg3]]], %[[CST]] {in_bounds = [true]} : tensor<64xf32>, vector<16xf32>
+// CHECK: %[[WRITE0:.*]] = vector.transfer_write %[[READ0]], %[[arg4]][%[[arg1]], %[[arg3]]] {in_bounds = [true]} : vector<16xf32>, tensor<64x64xf32> 
+func.func @broadcast_single_test16(%arg0: tensor<64xf32>) -> tensor<64x64xf32> {
+  %0 = tensor.empty() : tensor<64x64xf32>
+  %bcast = linalg.broadcast
+      ins(%arg0: tensor<64xf32>)
+      outs(%0:tensor<64x64xf32>)
+      dimensions = [0]
+  return %bcast: tensor<64x64xf32>
+}
+

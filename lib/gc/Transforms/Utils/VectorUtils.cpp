@@ -154,9 +154,8 @@ void moveCandidateOperation(
 // block.
 // insert_slice just move them to the privious of the first operation which
 // use it.
-void moveSomeInterferenceOperation(
-    func::FuncOp *func, MLIRContext *ctx,
-    std::function<bool(Operation *)> &conditionalFunc) {
+void moveOpsFrontOrBack(func::FuncOp *func, MLIRContext *ctx,
+                        std::function<bool(Operation *)> &conditionalFunc) {
   // Pre-order traversal of each op
   // Record each operation position. Inorder to we can kown current operation
   // should move after which operation.

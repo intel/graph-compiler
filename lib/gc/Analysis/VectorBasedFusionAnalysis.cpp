@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "gc/Analysis/VectorBasedFusionAnalysis.h"
-#include "gc/Dialect/Linalgx/Utils.h"
 
 namespace mlir {
 namespace gc {
@@ -397,17 +396,7 @@ int TypeHelper::generateValidSteps(int steps, VectorType type) {
 // Get the maximum number of current data types that a register can hold
 [[nodiscard]] int TypeHelper::getDataTypeMAXSIMDLength(VectorType type) {
   auto typebits = type.getElementTypeBitWidth();
-  const int favx512bits = 512;
-  const int favx2bits = 256;
-  if (info.favx512f)
-    return favx512bits / typebits;
-
-  if (info.favx2)
-    return favx2bits / typebits;
-
-  // invalid hardware
-  llvm_unreachable("Invalid hardware.");
-  return -1;
+  return info.vectorWidth / typebits;
 }
 
 /// Get a appropriate for loop step for current vector type

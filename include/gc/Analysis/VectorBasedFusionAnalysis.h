@@ -10,6 +10,7 @@
 #define MLIR_ANALYSIS_VECTORBASEDFUSIONANALYSIS_H
 
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Dialect/Linalgx/Utils.h"
 #include "gc/Dialect/Microkernel/MicrokernelOps.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Transforms/Utils/VectorUtils.h"
@@ -28,8 +29,7 @@ namespace gc {
 
 /// record hardware information
 struct HardWareInfo {
-  bool favx512f = true;
-  bool favx2 = true;
+  size_t vectorWidth = 0;
 };
 
 /// Vector type conversion helper class
@@ -66,6 +66,7 @@ enum class ReturnTypeKind {
   RT_InGroup,
 };
 
+/// Base class of vector-based fusion.
 class VectorFusionBase {
 
 private:
@@ -257,16 +258,19 @@ Operation *GroupOperationFusion::getNextTargetOperationInCurrentGroup(
 
   while (!tmpOpQueue.empty()) {
     auto frontOp = tmpOpQueue.front();
-    if (isa<Target>(frontOp)) {
-      for (auto x : frontOp->getOperands())
-        if (x.getDefiningOp() == curOp)
-          return frontOp;
-    }
     tmpOpQueue.pop();
+    if (not isa<Target>(frontOp))
+      continue;
+    for (auto x : frontOp->getOperands())
+      if (x.getDefiningOp() == curOp)
+        return frontOp;
   }
   return nullptr;
 }
 
+/// Analysis each operation group class.
+/// Currently it will run vector-base fusion, analysis empty group and each
+/// operation group's max vectorized step.
 class GroupOperationAnalysis {
 private:
   /// vector-based fusion related data
@@ -282,7 +286,7 @@ public:
   void analysisGroupMaxSteps();
   /// get fusion strategy
   GroupOperationFusion &getGroupOperationFusion() { return fusionStrategy; }
-
+  /// running the vector-based fusion
   void run() { fusionStrategy.run(); }
 };
 } // namespace gc

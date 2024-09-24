@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-#include "TilingVector.hpp"
+#include "gc/Transforms/TilingVector.h"
 
 namespace mlir {
 namespace gc {
@@ -1802,7 +1802,7 @@ bool MultiReductionCanonicalizer::hasLastDimReduction() {
   return res;
 }
 
-void MultiReductionCanonicalizer::prepareSpecialOperationInfo() {
+void MultiReductionCanonicalizer::prepareSpecialInfo() {
   if (getCandidateOps().empty())
     return;
 
@@ -2110,9 +2110,8 @@ void ForLoopGenerator::setOperationCorrectOperand(
         loopHelperParam
             .loopIterArgs[loopHelperParam.currentLoopStateIdxMap.at(loopArg)]);
   }
-  int offset = isa<vector::TransferWriteOp>(op) ? 2 : 1;
-  if (dyn_cast<vector::TransferWriteOp>(op) ||
-      dyn_cast<vector::TransferReadOp>(op)) {
+  int operandOffset = isa<vector::TransferWriteOp>(op) ? 2 : 1;
+  if (isReadOrWriteOperation(op)) {
     if (not opPermuationMap.contains(op))
       llvm_unreachable("Map must contains operation.");
 
@@ -2133,7 +2132,7 @@ void ForLoopGenerator::setOperationCorrectOperand(
       }
 
       ShapedType tensorType =
-          cast<ShapedType>(op->getOperandTypes()[offset - 1]);
+          cast<ShapedType>(op->getOperandTypes()[operandOffset - 1]);
       int64_t varIdx = dim;
       if (tensorType.getRank() >
           (int64_t)loopHelperParam.inductionVars.size()) {
@@ -2146,11 +2145,12 @@ void ForLoopGenerator::setOperationCorrectOperand(
       }
       if (loopHelperParam.indiceLoopMap.contains(op))
         op->setOperand(
-            dim + offset,
+            dim + operandOffset,
             loopHelperParam
                 .inductionVars[loopHelperParam.indiceLoopMap[op][varIdx]]);
       else
-        op->setOperand(dim + offset, loopHelperParam.inductionVars[varIdx]);
+        op->setOperand(dim + operandOffset,
+                       loopHelperParam.inductionVars[varIdx]);
     }
     if (auto readOp = dyn_cast<vector::TransferReadOp>(op)) {
       size_t grpIdx = getVectorBasedFusion().getOpGroupIndexMap()[op];
@@ -2780,8 +2780,8 @@ void GroupOperationFusionImpl::broadcastFromElements(Operation *op,
           op->getLoc(), newOperandType, op->getOperands()[0]);
       removeOpInCurrentGroups(grpIdx, op, bcastOp);
       std::function<bool(Operation *)> candidateFunc = isBroadcastOp;
-      moveSomeInterferenceOperation(&getGroupOperationFusion().getFunction(),
-                                    op->getContext(), candidateFunc);
+      moveOpsFrontOrBack(&getGroupOperationFusion().getFunction(),
+                         op->getContext(), candidateFunc);
     }
   }
 }
@@ -2946,22 +2946,21 @@ struct CPUPhysicalRegisterPass
     }
     // affineApply operation is always used by other operations.
     std::function<bool(Operation *)> candidateFunc = isProducerOp;
-    moveSomeInterferenceOperation(&func, ctx, candidateFunc);
+    moveOpsFrontOrBack(&func, ctx, candidateFunc);
     candidateFunc = isCandidateMoveOperations;
-    moveSomeInterferenceOperation(&func, ctx, candidateFunc);
+    moveOpsFrontOrBack(&func, ctx, candidateFunc);
     // canonicalize vector operation, default use vector-based fusion
     // strategy.
     HardWareInfo hwInfo;
     CPUTargetDescriptionAnalysis sysDesc =
         getAnalysis<CPUTargetDescriptionAnalysis>();
-    hwInfo.favx512f = sysDesc.getMaxVectorWidth() >= 512;
-    hwInfo.favx2 = sysDesc.getMaxVectorWidth() >= 256;
+    hwInfo.vectorWidth = sysDesc.getMaxVectorWidth();
     VectorOperationCanonicalizer canonicalizer(
         func, hwInfo, CanonicalizerKind::GroupOperations);
     canonicalizer.run();
 
     candidateFunc = isReadOrWriteOperation;
-    moveSomeInterferenceOperation(&func, ctx, candidateFunc);
+    moveOpsFrontOrBack(&func, ctx, candidateFunc);
 
     // transpose kernel
     vector::VectorTransformsOptions transposeOptions =
