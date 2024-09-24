@@ -3,7 +3,6 @@ add_subdirectory(Utils)
 gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
   MLIRIR
   MLIRSupport
-  MLIRMicrokernelTransforms
   MLIRBufferizationToMemRef
   MLIRBufferizationPipelines)
 
@@ -14,9 +13,9 @@ gc_add_mlir_library(GcPasses
   MemRefToCPURuntime.cpp
   OneDNNGraphToLinalg.cpp
   Pipeline.cpp
+  TileUsingInterfaceX.cpp
   IterativeTilingAndFusion.cpp
   EliminateConstantWeightPack.cpp
-  TilingUsingInterfaceX.cpp
   VerifyTargetDescription.cpp
   PropagateLayout.cpp
   PostProcessPackUnpack.cpp
@@ -43,6 +42,7 @@ gc_add_mlir_library(GcPasses
     ${MLIR_LINK_COMPONENTS}
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
+    MLIRMicrokernelTransforms
   )
 
 if(GC_ENABLE_IMEX)

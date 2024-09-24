@@ -97,3 +97,23 @@ def mlir_copy(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
             )
         ],
     )
+
+
+def ref_transpose(
+    cache: MLIRCache, op: ir.OpView, var: Dict[str, torch.Tensor]
+) -> Tuple[torch.Tensor, ...]:
+    permutation: List[int] = [int(d) for d in op.attributes["permutation"]]
+    return (var[cache.opr[0]].permute(permutation).contiguous(),)
+
+
+def mlir_transpose(flags: argparse.Namespace, args: List[Arg]) -> ir.Module:
+    return init_module(
+        flags.entry,
+        (args[0],),
+        (args[1],),
+        lambda ctx, arg0: [
+            linalg.transpose(
+                arg0, outs=[args[1].get_zero_op(ctx)], permutation=flags.permutation
+            )
+        ],
+    )

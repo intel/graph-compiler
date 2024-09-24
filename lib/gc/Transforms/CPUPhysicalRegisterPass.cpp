@@ -24,8 +24,7 @@ namespace {
       arith::TruncFOp, arith::TruncIOp
 
 #define NOT_NEED_TO_PROCESS_OP                                                 \
-  linalgx::BatchReduceMatmulVnniOp, linalgx::MultiBatchMatmulOp,               \
-      linalg::BatchReduceMatmulOp, linalgx::Mm2DVnniOp, linalgx::Mm4DVnniOp,   \
+      linalg::BatchReduceMatmulOp,  \
       linalg::MatmulOp, linalg::BatchMatmulOp,                                 \
       linalg::BatchMatmulTransposeAOp, linalg::BatchMatmulTransposeBOp,        \
       linalg::MatmulTransposeAOp, linalg::MatmulTransposeBOp,                  \

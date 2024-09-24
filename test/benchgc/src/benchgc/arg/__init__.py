@@ -23,6 +23,7 @@ import benchgc.arg.conv as conv
 import benchgc.arg.eltwise as eltwise
 import benchgc.arg.matmul as matmul
 import benchgc.arg.pool as pool
+import benchgc.arg.reduce as reduce
 import benchgc.arg.softmax as softmax
 import benchgc.util
 import torch
@@ -36,6 +37,7 @@ onednn_module = {
     "softmax": softmax,
     "conv": conv,
     "pool": pool,
+    "reduce": reduce,
 }
 
 

@@ -18,32 +18,24 @@ import argparse
 import importlib
 from typing import Callable, Dict, List, Tuple
 
+import gc_mlir.ir
 import torch
 from benchgc.arg import Arg
 from benchgc.mlir.util import MLIRCache
-from gc_mlir import ir
 
 ref_op: Dict[
     str,
     Callable[
-        [MLIRCache, ir.OpView, Dict[str, torch.Tensor]],
+        [MLIRCache, gc_mlir.ir.OpView, Dict[str, torch.Tensor]],
         Tuple[torch.Tensor, ...],
     ],
 ] = {}
-mlir_op: Dict[str, Callable[[argparse.Namespace, List[Arg]], ir.Module]] = {}
+mlir_op: Dict[
+    str, Callable[[argparse.Namespace, List[Arg], List[Arg]], gc_mlir.ir.Module]
+] = {}
 
-for dri in [
-    "binary",
-    "matmul",
-    "eltwise",
-    "misc",
-    "generic",
-    "softmax",
-    "conv",
-    "pool",
-    "reduce",
-]:
-    mod = importlib.import_module(f"benchgc.linalg.{dri}")
+for dri in ["piecewise"]:
+    mod = importlib.import_module(f"benchgc.math.{dri}")
     for key in mod.__dict__:
         if key.startswith("ref_"):
             op: str = key.removeprefix("ref_")

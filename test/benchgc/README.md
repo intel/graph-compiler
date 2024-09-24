@@ -109,6 +109,12 @@ module {
 | Pytorch tensor dump | F | dump filename |
 | Benchdnn driver | D | driver_name[:driver filling parameter]* |
 
+### --cpu_cache_sizes, --max_vector_width
+* BenchGC will automatically obtain target info and add the DLTI attr to the IR
+* In some cases, if the system info obtained by BenchGC is not accurate, you can specify the relevant attributes for BenchGC through these options.
+* --cpu_cache_sizes: cpu cache sizes in bytes, format: L1:L2:L3, example: `--cpu_cache_sizes 49152:2097152:110100480`
+* --max_vector_width: the maximum width of vector registers available in a CPU, example `--max_vector_width `
+
 #### Benchdnn driver filling
 
 | driver_name | driver filling parameter |

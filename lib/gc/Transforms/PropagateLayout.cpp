@@ -478,33 +478,12 @@ static LogicalResult packVNNIMMT4D(RewriterBase &rewriter, OpTy mmt4dOp,
                             : 0;
   assert(!paddingSize && "Padding shall not be introduced by VNNI pack.");
   SmallVector<Value> inputsValues{mmt4dOp.getInputs()[0], VNNIPack};
-  // if (paddingSize) {
-  //   // insert padOp
-  //   auto inputShape =
-  //       cast<ShapedType>(mmt4dOp.getInputs()[0].getType()).getShape();
-  //   SmallVector<OpFoldResult> lowPad(inputShape.size(),
-  //                                    rewriter.getIndexAttr(0));
-  //   SmallVector<OpFoldResult> highPad(inputShape.size(),
-  //                                     rewriter.getIndexAttr(0));
-  //   highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
-  //   auto padOp = rewriter.create<tensor::PadOp>(
-  //       loc, /*result=*/Type(), mmt4dOp.getInputs()[0], lowPad, highPad,
-  //       zero);
-  //   inputsValues[0] = padOp;
-  // }
-  if (useNamedOp) {
-    auto vnniOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
-        loc, mmt4dOp.getDpsInits().getTypes(), inputsValues,
-        mmt4dOp.getDpsInits());
-    rewriter.replaceOp(mmt4dOp, vnniOp);
-  } else {
-    FailureOr<linalg::GenericOp> op = linalgx::makeGenericPackedMatmulOp(
-        rewriter, loc, linalgx::PackingType::VNNI_MM4D, inputsValues,
-        mmt4dOp.getDpsInits());
-    if (failed(op))
-      return failure();
-    rewriter.replaceOp(mmt4dOp, *op);
-  }
+  FailureOr<linalg::GenericOp> op = linalgx::makeGenericPackedMatmulOp(
+      rewriter, loc, linalgx::PackingType::VNNI_MM4D, inputsValues,
+      mmt4dOp.getDpsInits());
+  if (failed(op))
+    return failure();
+  rewriter.replaceOp(mmt4dOp, *op);
   return success();
 }
 
@@ -596,33 +575,12 @@ static LogicalResult packVNNIGeneric(RewriterBase &rewriter,
                             ? (blockingFactor - innermostKDim % blockingFactor)
                             : 0;
   assert(!paddingSize && "Padding shall not be introduced by VNNI pack.");
-  // if (paddingSize) {
-  //   // insert padOp
-  //   auto inputShape =
-  //       cast<ShapedType>(matmulOp.getInputs()[0].getType()).getShape();
-  //   SmallVector<OpFoldResult> lowPad(inputShape.size(),
-  //                                    rewriter.getIndexAttr(0));
-  //   SmallVector<OpFoldResult> highPad(inputShape.size(),
-  //                                     rewriter.getIndexAttr(0));
-  //   highPad[inputShape.size() - 1] = rewriter.getIndexAttr(paddingSize);
-  //   auto padOp = rewriter.create<tensor::PadOp>(
-  //       loc, /*result=*/Type(), matmulOp.getInputs()[0], lowPad, highPad,
-  //       zero);
-  //   inputsValues[0] = padOp;
-  // }
-  if (useNamedOp) {
-    Value operandC = matmulOp.getDpsInits()[0];
-    auto VNNIMatmulOp = rewriter.create<mlir::linalgx::Mm4DVnniOp>(
-        loc, operandC.getType(), inputsValues, ValueRange{operandC});
-    rewriter.replaceOp(matmulOp, VNNIMatmulOp);
-  } else {
-    FailureOr<linalg::GenericOp> op = linalgx::makeGenericPackedMatmulOp(
-        rewriter, loc, linalgx::PackingType::VNNI_MM4D, inputsValues,
-        matmulOp.getDpsInits());
-    if (failed(op))
-      return failure();
-    rewriter.replaceOp(matmulOp, *op);
-  }
+  FailureOr<linalg::GenericOp> op = linalgx::makeGenericPackedMatmulOp(
+      rewriter, loc, linalgx::PackingType::VNNI_MM4D, inputsValues,
+      matmulOp.getDpsInits());
+  if (failed(op))
+    return failure();
+  rewriter.replaceOp(matmulOp, *op);
   return success();
 }
 

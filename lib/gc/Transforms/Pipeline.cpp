@@ -62,9 +62,9 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
 
-  // Fine-grain fusion pass
+  // fine-grain fusion pass
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
-  // todo: fine-grain fusion pass
+
   pm.addNestedPass<func::FuncOp>(
       mlir::microkernel::createConvertLinalgToMicrokernel());
   // todo: lower linalg to arith/math on virtual vector pass

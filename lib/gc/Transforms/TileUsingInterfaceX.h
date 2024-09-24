@@ -1,4 +1,4 @@
-//===-- TilingUsingInterfaceX.h -  upstream eXtension -----------*- C++ -*-===//
+//===-- TileUsingInterfaceX.h - upstream eXtension --------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TEMPORARY_TILEUSINGINTERFACE_X_H
-#define TEMPORARY_TILEUSINGINTERFACE_X_H
+#ifndef TILE_USING_INTERFACE_X_H
+#define TILE_USING_INTERFACE_X_H
 
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 
@@ -18,7 +18,7 @@ SmallVector<LoopLikeOpInterface> getOuterNestLoopsWhile(
     LoopLikeOpInterface loop,
     const std::function<LogicalResult(LoopLikeOpInterface)> &pred);
 
-FailureOr<OpResult> getRealProducerOfExtractSliceOp(
+FailureOr<OpResult> getRealProducerFromExtractSliceOp(
     Operation *candidateSliceOp,
     SmallVector<tensor::ExtractSliceOp> &backwardSlice, unsigned curDepth = 0,
     unsigned maxDepth = 5);
