@@ -38,7 +38,17 @@
 
 namespace mlir::gc {
 
-void populateGPUPipeline(mlir::OpPassManager &pm) {
+struct GPUPipelineOption : PassPipelineOptions<GPUPipelineOption> {
+  PassOptions::Option<bool> isUsmArgs{
+      *this, "is-usm-args",
+      llvm::cl::desc("Whether to use USM(unified shared memory) func args, in "
+                     "which the host and device could access the same buffer "
+                     "and there is no need to add memcpy explicitly"),
+      llvm::cl::init(true)};
+};
+
+void populateGPUPipeline(mlir::OpPassManager &pm,
+                         const GPUPipelineOption &pipelineOption) {
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
@@ -76,7 +86,11 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createGpuMapParallelLoopsPass());
   pm.addNestedPass<func::FuncOp>(createParallelLoopToGpuPass());
 
-  pm.addNestedPass<func::FuncOp>(imex::createInsertGPUAllocsPass("opencl"));
+  imex::InsertGPUAllocsOptions insertGPUAllocsOption{
+      /*clientAPI*/ "opencl", /*inRegions*/ false,
+      /*isUsmArgs*/ pipelineOption.isUsmArgs.getValue()};
+  pm.addNestedPass<func::FuncOp>(
+      imex::createInsertGPUAllocsPass(insertGPUAllocsOption));
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(imex::createSetSPIRVCapabilitiesPass());
@@ -112,9 +126,9 @@ void populateGPUPipeline(mlir::OpPassManager &pm) {
 }
 
 void registerGPUPipeline() {
-  PassPipelineRegistration<>("gc-gpu-pipeline",
-                             "The GPU pipeline for Graph Compiler with IMEX",
-                             populateGPUPipeline);
+  PassPipelineRegistration<GPUPipelineOption>(
+      "gc-gpu-pipeline", "The GPU pipeline for Graph Compiler with IMEX",
+      populateGPUPipeline);
 }
 
 } // namespace mlir::gc
