@@ -29,6 +29,7 @@ from benchgc.tuner.op_config import *
 from benchgc.tuner.utils import attach_configs_to_ir, gen_configs_from_ir
 from gc_mlir import ir
 
+
 class TuningSpace:
     """
     The class works as a bridge between the tuner and the configs in MLIR module.
