@@ -24,11 +24,10 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import List
 
-from gc_mlir import ir
-
 from benchgc.tuner.config_filter import BloomFilter, HashSetFilter
 from benchgc.tuner.op_config import *
 from benchgc.tuner.utils import attach_configs_to_ir, gen_configs_from_ir
+from gc_mlir import ir
 
 class TuningSpace:
     """
