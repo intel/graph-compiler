@@ -44,6 +44,7 @@ python -m benchgc [OPTIONS] --mode [MODE] --driver [DRIVER] --case [CASE]
 ### --mode [str]
 * C : correctness testing (by default)
 * P : performance testing
+* T : performance tuning, see tuner [`README.md`](src/benchgc/tuner/README.md)
 
 ###  --driver [str]
 * linalg: test the single op in linalg dialect
