@@ -6,42 +6,49 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/Transforms/Passes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/DialectRegistry.h"
+#include "mlir/InitAllPasses.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/Passes.h"
+#include <iostream>
+
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/SPIRV/Transforms/Passes.h"
+
+#include <imex/Conversion/Passes.h>
+#include <imex/Transforms/Passes.h>
+
 #include <string>
 
 #include "gc/Transforms/Passes.h"
 
-#include "imex/Conversion/Passes.h"
-#include "imex/Transforms/Passes.h"
-
-#include "mlir/Conversion/Passes.h"
-#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
-#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/GPU/Transforms/Passes.h"
-#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
-#include "mlir/Dialect/Linalg/Passes.h"
-#include "mlir/Dialect/MemRef/Transforms/Passes.h"
-#include "mlir/Dialect/SPIRV/Transforms/Passes.h"
-#include "mlir/InitAllPasses.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Transforms/Passes.h"
-
 namespace mlir::gc {
 
 struct GPUPipelineOption : PassPipelineOptions<GPUPipelineOption> {
-  Option<bool> isUsmArgs{
+  PassOptions::Option<bool> isUsmArgs{
       *this, "is-usm-args",
-      desc("Whether to use USM(unified shared memory) func args, in "
-           "which the host and device could access the same buffer "
-           "and there is no need to add memcpy explicitly"),
-      init(true)};
+      llvm::cl::desc("Whether to use USM(unified shared memory) func args, in "
+                     "which the host and device could access the same buffer "
+                     "and there is no need to add memcpy explicitly"),
+      llvm::cl::init(true)};
 };
 
-void populateGPUPipeline(OpPassManager &pm,
+void populateGPUPipeline(mlir::OpPassManager &pm,
                          const GPUPipelineOption &pipelineOption) {
-  // Add an argument for the GPU context
-  pm.addNestedPass<func::FuncOp>(createAddContextArg());
-
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
@@ -84,7 +91,6 @@ void populateGPUPipeline(OpPassManager &pm,
       /*isUsmArgs*/ pipelineOption.isUsmArgs.getValue()};
   pm.addNestedPass<func::FuncOp>(
       imex::createInsertGPUAllocsPass(insertGPUAllocsOption));
-
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(imex::createSetSPIRVCapabilitiesPass());
@@ -103,6 +109,7 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(LLVM::createRequestCWrappersPass());
   pm.addPass(imex::createSerializeSPIRVPass());
   pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(imex::createConvertGPUToGPUXPass());
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createConvertVectorToLLVMPass());
@@ -110,7 +117,7 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(createGpuToGpuOcl());
+  pm.addPass(imex::createConvertGPUXToLLVMPass());
   pm.addPass(createConvertIndexToLLVMPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
   pm.addPass(createLowerAffinePass());
