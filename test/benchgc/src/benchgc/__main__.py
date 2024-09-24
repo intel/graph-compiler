@@ -208,9 +208,16 @@ def add_bench_options(parser: argparse.ArgumentParser):
         parser.add_argument(
             "--bench_kind", type=str, choices=["py", "wrapper"], default="py"
         )
-        parser.add_argument("--warm_up", type=int, default=100)
-        parser.add_argument("--repeat", type=int, default=100)
-
+        parser.add_argument(
+            "--warm_up",
+            type=int,
+            default=100 if parser.parse_known_args()[0].mode == "P" else 2,
+        )
+        parser.add_argument(
+            "--repeat",
+            type=int,
+            default=100 if parser.parse_known_args()[0].mode == "P" else 4,
+        )
 
 
 def add_pattern_options(parser: argparse.ArgumentParser):
@@ -236,20 +243,25 @@ def add_tuner_options(parser: argparse.ArgumentParser):
         parser.add_argument(
             "--space_percent", type=float, default=TuningSpace.DEFAULT_SPACE_PERCENT
         )
+        parser.add_argument(
+            "--tuner_verbose",
+            action="store_true",
+            help="if we need print the tuner log",
+        )
         parser.add_argument("--checkpoint_path", type=str, default="")
 
         if parser.parse_known_args()[0].search_alg == "ga":
             parser.add_argument(
-                "--random_seed", type=int, default=GATuner.DEFAULT_RANDOM_SEED
+                "--ga_random_seed", type=int, default=GATuner.DEFAULT_RANDOM_SEED
             )
             parser.add_argument(
-                "--elite_num", type=int, default=GATuner.DEFAULT_ELITE_NUM
+                "--ga_elite_num", type=int, default=GATuner.DEFAULT_ELITE_NUM
             )
             parser.add_argument(
-                "--mutation_prob", type=float, default=GATuner.DEFAULT_MUTATION_PROB
+                "--ga_mutation_prob", type=float, default=GATuner.DEFAULT_MUTATION_PROB
             )
             parser.add_argument(
-                "--expected_tune_num",
+                "--ga_expected_tune_num",
                 type=int,
                 default=GATuner.DEFAULT_EXPECTED_TUNE_NUM,
             )
@@ -465,7 +477,6 @@ def performance_tuning(flags: argparse.Namespace, module: ir.Module, args: List[
 
         assert flags.space_percent > 0 and flags.space_percent <= 1.0
         space = TuningSpace(module, flags.space_percent)
-        print("flags.search_alg", flags.search_alg)
         if flags.search_alg == "grid":
             tuner = GridTuner(
                 tuner_batch_bench,
@@ -473,6 +484,7 @@ def performance_tuning(flags: argparse.Namespace, module: ir.Module, args: List[
                 flags.tuning_batch,
                 flags.early_stop,
                 flags.checkpoint_path,
+                flags.tuner_verbose,
             )
         else:
             tuner = GATuner(
@@ -481,6 +493,7 @@ def performance_tuning(flags: argparse.Namespace, module: ir.Module, args: List[
                 flags.tuning_batch,
                 flags.early_stop,
                 flags.checkpoint_path,
+                flags.tuner_verbose,
                 random_seed=flags.random_seed,
                 expected_tune_num=flags.expected_tune_num,
             )

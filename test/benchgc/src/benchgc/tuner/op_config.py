@@ -81,7 +81,8 @@ class MatMulConfig(Config):
         super().__init__()
 
     def init_candidates(self):
-        default_blocks = [16, 32, 64]
+        default_blocks = [16, 32, 64, 128, 256, 512]
+        default_innermost_blocks = [16, 32]
         self.field_candidates["M_threads"] = find_factors(self.num_threads)
         self.field_candidates["K_threads"] = find_factors(self.num_threads)
         self.field_candidates["N_threads"] = find_factors(self.num_threads)
@@ -95,13 +96,13 @@ class MatMulConfig(Config):
             block for block in default_blocks if self.N >= block
         ]
         self.field_candidates["innermostM_block"] = [
-            block for block in default_blocks if self.M >= block
+            block for block in default_innermost_blocks if self.M >= block
         ]
         self.field_candidates["innermostK_block"] = [
-            block for block in default_blocks if self.K >= block
+            block for block in default_innermost_blocks if self.K >= block
         ]
         self.field_candidates["innermostN_block"] = [
-            block for block in default_blocks if self.N >= block
+            block for block in default_innermost_blocks if self.N >= block
         ]
 
     def init_constraints(self):

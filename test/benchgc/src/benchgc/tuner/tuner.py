@@ -30,9 +30,6 @@ from benchgc.tuner.config_filter import BloomFilter, HashSetFilter
 from benchgc.tuner.op_config import *
 from benchgc.tuner.utils import attach_configs_to_ir, gen_configs_from_ir
 
-tuner_verbose = False
-
-
 class TuningSpace:
     """
     The class works as a bridge between the tuner and the configs in MLIR module.
@@ -134,6 +131,7 @@ class Tuner(ABC):
         batch_size=DEFAULT_BATCH_SIZE,
         early_stop=DEFAULT_EARLY_STOP,
         checkpoint="",
+        tuner_verbose=False,
     ):
         self.batch_executor = batch_executor
         self.batch_size = batch_size
@@ -147,6 +145,7 @@ class Tuner(ABC):
         self.checkpoint = checkpoint
         if self.checkpoint:
             os.makedirs(os.path.dirname(self.checkpoint), exist_ok=True)
+        self.tuner_verbose = tuner_verbose
         assert len(tunning_space.graph_config), "There are no tunable ops"
 
     def tuner_update(self, config_indices_batch: List[List[int]], costs: List[float]):
@@ -219,7 +218,7 @@ class Tuner(ABC):
 
             old_iter = self.iter
             self.iter += len(config_indices_batch)
-            if tuner_verbose:
+            if self.tuner_verbose:
                 print("config_indices_batch:", config_indices_batch)
             perf_result = []
             ir_modules = []
@@ -276,9 +275,15 @@ class GridTuner(Tuner):
         batch_size=Tuner.DEFAULT_BATCH_SIZE,
         early_stop=Tuner.DEFAULT_EARLY_STOP,
         checkpoint="",
+        tuner_verbose=False,
     ):
         super().__init__(
-            batch_executor, tunning_space, batch_size, early_stop, checkpoint
+            batch_executor,
+            tunning_space,
+            batch_size,
+            early_stop,
+            checkpoint,
+            tuner_verbose,
         )
         self.current_idx = 0
         self.cumulative_size = [1] * len(self.tunning_space.flatten_candidates)
@@ -307,12 +312,12 @@ class GridTuner(Tuner):
             self.current_idx = self.current_idx + 1
             if valid_config_idx:
                 config_indices_batch.append(config_ids)
-                if tuner_verbose:
+                if self.tuner_verbose:
                     print(self.tunning_space.make_config_from_indexes(config_ids))
             else:
                 self.skipped_num += 1
-                if tuner_verbose:
-                    print("bad config, skip")
+                if self.tuner_verbose:
+                    print("bad config, skip...")
         return config_indices_batch
 
     def save_status(self):
@@ -370,6 +375,7 @@ class GATuner(Tuner):
         pop_size=Tuner.DEFAULT_BATCH_SIZE,
         early_stop=Tuner.DEFAULT_EARLY_STOP,
         checkpoint="",
+        tuner_verbose=False,
         elite_num: int = DEFAULT_ELITE_NUM,
         mutation_prob: float = DEFAULT_MUTATION_PROB,
         random_seed: int = DEFAULT_RANDOM_SEED,
@@ -497,7 +503,7 @@ class GATuner(Tuner):
         for i in range(self.pop_size):
             self.get_next_config(prob_range, to_tune)
 
-        if tuner_verbose:
+        if self.tuner_verbose:
             print("to_tune", to_tune)
             for to_tune_config in to_tune:
                 print(self.tunning_space.make_config_from_indexes(to_tune_config))

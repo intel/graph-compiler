@@ -138,12 +138,15 @@ module {
 ### --bench_kind [str]
 * py : use the MLIR Python API to invoke the kernel and use Python to calculate the time cost
 * wrapper : modify MLIR by wrapping the kernel into a new method and calling the `nanoTime()` method before and after calling the kernel. Finally, calculate the difference as the time cost
+* default: `py`
 
 ### --warm_up [int]
 * warm-up times of the execution
+* default: 100
 
 ### --repeat [int]
 * repeat times of the execution
+* default: 100
 
 ## Pattern Options
 Each pattern has its own unique options.
