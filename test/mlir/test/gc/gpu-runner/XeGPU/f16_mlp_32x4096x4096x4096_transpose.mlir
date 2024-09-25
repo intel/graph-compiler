@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --gc-gpu-pipeline \
+// RUN: gc-opt %s --gc-gpu-pipeline="is-usm-args=false" \
 // RUN: | gc-cpu-runner -e main --entry-point-result=void \
 // RUN:   --shared-libs=%mlir_runner_utils,%mlir_c_runner_utils,%opencl_runtime | FileCheck %s
 
