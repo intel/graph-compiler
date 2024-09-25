@@ -29,38 +29,8 @@ if(GC_DEV_LINK_LLVM_DYLIB)
     MLIRExecutionEngineShared
     MLIRJitRunner
   )
-else()
-  # the dependency list copied from mlir/tools/mlir-cpu-runner/CMakeLists.txt of upstream
-  set(LLVM_LINK_COMPONENTS
-    Core
-    Support
-    nativecodegen
-    native
-  )
-  set(MLIR_LINK_COMPONENTS
-    MLIRAnalysis
-    MLIRBuiltinToLLVMIRTranslation
-    MLIRExecutionEngine
-    MLIRIR
-    MLIRJitRunner
-    MLIRLLVMDialect
-    MLIRLLVMToLLVMIRTranslation
-    MLIRToLLVMIRTranslationRegistration
-    MLIRParser
-    MLIRTargetLLVMIRExport
-    MLIRSupport
-  )
 endif()
 
-#LLVM_LINK_COMPONENTS is processed by LLVM cmake in add_llvm_executable
-set(gc_cpu_runner_libs
-        ${MLIR_LINK_COMPONENTS}
-        GcCpuRuntime)
-add_mlir_tool(gc-cpu-runner
-        gc-cpu-runner.cpp
-
-)
-llvm_update_compile_flags(gc-cpu-runner)
-
-target_link_libraries(gc-cpu-runner PRIVATE GcInterface ${gc_cpu_runner_libs})
+gc_add_mlir_tool(gc-cpu-runner gc-cpu-runner.cpp)
+target_link_libraries(gc-cpu-runner PRIVATE GcCpuRuntime)
 mlir_check_all_link_libraries(gc-cpu-runner)
