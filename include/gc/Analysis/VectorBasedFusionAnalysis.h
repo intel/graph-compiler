@@ -74,19 +74,25 @@ private:
   func::FuncOp func;
   /// Type helper class, can help us to get operation type
   TypeHelper typehelper;
+  /// IR rewriter
+  IRRewriter *rewriter;
 
 public:
-  VectorFusionBase() = default;
-  VectorFusionBase(func::FuncOp &func, HardWareInfo &info)
-      : func(func), typehelper(info) {}
-  VectorFusionBase(VectorFusionBase &base)
-      : func(base.getFunction()), typehelper(base.getHardwareInfo()) {}
+  VectorFusionBase(func::FuncOp &func, HardWareInfo &info, IRRewriter *rewriter)
+      : func(func), typehelper(info), rewriter(rewriter) {}
+  VectorFusionBase(VectorFusionBase &base, IRRewriter *rewriter)
+      : func(base.getFunction()), typehelper(base.getHardwareInfo()),
+        rewriter(rewriter) {}
 
   /// get current function IR
   func::FuncOp &getFunction() { return func; }
   /// get current hardware info
-  HardWareInfo &getHardwareInfo() { return typehelper.getHardwareInfo(); }
-  TypeHelper &getTypeHelper() { return typehelper; }
+  HardWareInfo &getHardwareInfo() noexcept {
+    return typehelper.getHardwareInfo();
+  }
+  TypeHelper &getTypeHelper() noexcept { return typehelper; }
+  IRRewriter *getRewriter() noexcept { return rewriter; }
+  void setRewriter(IRRewriter *rewriter) noexcept { this->rewriter = rewriter; }
 };
 
 /// Group operation fusion strategy class.
@@ -132,17 +138,20 @@ private:
   DenseMap<Value, Value> operandOriginalValue;
 
 public:
-  GroupOperationFusion(func::FuncOp &func, HardWareInfo &info)
-      : VectorFusionBase(func, info) {}
+  GroupOperationFusion(func::FuncOp &func, HardWareInfo &info,
+                       IRRewriter *rewriter)
+      : VectorFusionBase(func, info, rewriter) {}
 
-  GroupOperationFusion(GroupOperationFusion &strategy)
-      : VectorFusionBase(strategy.getFunction(), strategy.getHardwareInfo()),
+  GroupOperationFusion(GroupOperationFusion &strategy, IRRewriter *rewriter)
+      : VectorFusionBase(strategy.getFunction(), strategy.getHardwareInfo(),
+                         rewriter),
         opGroups(strategy.opGroups), groupMaxSteps(strategy.groupMaxSteps),
         opGroupIndexMap(strategy.opGroupIndexMap),
         opAnchorPos(strategy.opAnchorPos){};
 
-  GroupOperationFusion(GroupOperationFusion &&strategy)
-      : VectorFusionBase(strategy.getFunction(), strategy.getHardwareInfo()),
+  GroupOperationFusion(GroupOperationFusion &&strategy, IRRewriter *rewriter)
+      : VectorFusionBase(strategy.getFunction(), strategy.getHardwareInfo(),
+                         rewriter),
         opGroups(std::move(strategy.opGroups)),
         groupMaxSteps(std::move(strategy.groupMaxSteps)),
         groupBigestRankVectorType(
@@ -165,9 +174,9 @@ public:
     this->getFunction() = fusion.getFunction();
     this->getHardwareInfo() = fusion.getHardwareInfo();
     this->getTypeHelper() = fusion.getTypeHelper();
+    this->setRewriter(fusion.getRewriter());
     return *this;
   };
-  GroupOperationFusion &operator=(GroupOperationFusion &&) = default;
 
   /// Get the map which contains each group vector type which has biggest
   /// rank.
@@ -275,10 +284,12 @@ class GroupOperationAnalysis {
 private:
   /// vector-based fusion related data
   GroupOperationFusion fusionStrategy;
+  IRRewriter *rewriter;
 
 public:
-  GroupOperationAnalysis(func::FuncOp &func, HardWareInfo &info)
-      : fusionStrategy(func, info) {}
+  GroupOperationAnalysis(func::FuncOp &func, HardWareInfo &info,
+                         IRRewriter *rewriter)
+      : fusionStrategy(func, info, rewriter), rewriter(rewriter) {}
   /// remove the useless operation, due to it result is not require by other
   /// operation
   void analysisEmptyGroup();
@@ -288,6 +299,8 @@ public:
   GroupOperationFusion &getGroupOperationFusion() { return fusionStrategy; }
   /// running the vector-based fusion
   void run() { fusionStrategy.run(); }
+  /// get current function rewriter
+  IRRewriter *getRewriter() { return rewriter; }
 };
 } // namespace gc
 } // namespace mlir

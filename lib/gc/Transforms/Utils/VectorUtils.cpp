@@ -17,22 +17,25 @@ namespace gc {
 #define SAFE_EXPAND(X) X
 #define LDBG(X) LLVM_DEBUG(DBGS() << SAFE_EXPAND(X) << "\n")
 
-static inline void moveOpBeginingOfBlock(Operation *op) {
+static inline void moveOpBeginingOfBlock(Operation *op, IRRewriter &rewriter) {
   Block *block = op->getBlock();
   if (block->getOperations().empty())
     llvm_unreachable("Emtpy block.");
 
   if (&block->front() == op)
     return;
-  op->moveBefore(&block->front());
+  rewriter.moveOpAfter(op, op->getBlock(), op->getBlock()->begin());
 }
 
-LogicalResult
-moveFront(Operation *op,
-          llvm::DenseMap<Operation *, size_t> &operationPosition) {
-  IRRewriter rewriter(op);
-  Operation *backOperation;
-  size_t pos = 0;
+// Special behavior for ++OPPRIORITY
+OPPRIORITY operator++(OPPRIORITY &c) {
+  using IntType = typename std::underlying_type<OPPRIORITY>::type;
+  c = static_cast<OPPRIORITY>(static_cast<IntType>(c) + 1);
+  return c;
+}
+
+LogicalResult moveFront(Operation *op, IRRewriter &rewriter) {
+  Operation *backOperation = nullptr;
   // check all the operand is block argument
   bool allBlockArgs = true;
   for (auto operand : op->getOperands()) {
@@ -42,7 +45,7 @@ moveFront(Operation *op,
     }
   }
   if (allBlockArgs) {
-    moveOpBeginingOfBlock(op);
+    moveOpBeginingOfBlock(op, rewriter);
     return success();
   }
   for (auto operand : op->getOperands()) {
@@ -50,83 +53,136 @@ moveFront(Operation *op,
       continue;
 
     Operation *sourceOp = operand.getDefiningOp();
-    if (operationPosition[sourceOp] > pos and
-        sourceOp->getBlock() == op->getBlock()) {
+    if (sourceOp->getBlock() != op->getBlock())
+      continue;
+    if (not backOperation) {
       backOperation = sourceOp;
-      pos = operationPosition[sourceOp];
+      continue;
     }
+
+    if (backOperation->isBeforeInBlock(sourceOp))
+      backOperation = sourceOp;
   }
-  if (pos == 0) {
+  if (not backOperation) {
     // extract operand operation all in previous block
-    moveOpBeginingOfBlock(op);
+    moveOpBeginingOfBlock(op, rewriter);
     return success();
   }
-  if (backOperation) {
-    rewriter.moveOpAfter(op, backOperation);
-    return success();
-  }
-  return failure();
+  rewriter.moveOpAfter(op, backOperation);
+  return success();
 }
 
-LogicalResult moveBack(Operation *op,
-                       llvm::DenseMap<Operation *, size_t> &operationPosition) {
-  IRRewriter rewriter(op);
-  Operation *firstOperation;
-  size_t pos = std::numeric_limits<size_t>::max();
+LogicalResult moveBack(Operation *op, IRRewriter &rewriter) {
+  Operation *firstOperation = nullptr;
   for (auto user : op->getUsers()) {
-    if (operationPosition[user] < pos and user->getBlock() == op->getBlock()) {
+    if (user->getBlock() != op->getBlock())
+      continue;
+    if (not firstOperation) {
       firstOperation = user;
-      pos = operationPosition[user];
+      continue;
     }
+    if (user->isBeforeInBlock(firstOperation))
+      firstOperation = user;
   }
-  if (pos == std::numeric_limits<size_t>::max()) {
+  if (not firstOperation) {
     // Don't move.
     // TODO: need to consider move before the block which use it.
     return success();
   }
-  if (firstOperation) {
-    rewriter.moveOpBefore(op, firstOperation);
-    return success();
-  }
-  return failure();
+  rewriter.moveOpBefore(op, firstOperation);
+  return success();
 }
 
 void moveCandidateOperation(
-    llvm::DenseMap<Operation *, size_t> &operationPosition,
-    ArrayRef<Operation *> candidateOps) {
+    std::queue<std::pair<Operation *, OPPRIORITY>> &candidateOps,
+    IRRewriter &rewriter, OPPRIORITY start, OPPRIORITY end) {
+  std::queue<std::pair<Operation *, OPPRIORITY>> remainOps;
+  OPPRIORITY itrBegin = start;
+  while (not remainOps.empty() or not candidateOps.empty()) {
+    while (not candidateOps.empty()) {
+      std::pair<Operation *, OPPRIORITY> cur = candidateOps.front();
+      candidateOps.pop();
+      if (cur.second < start or cur.second > end)
+        continue;
+      if (cur.second != itrBegin) {
+        remainOps.push(cur);
+        continue;
+      }
 
-  for (Operation *op : candidateOps) {
-    auto ret =
-        TypeSwitch<Operation *, LogicalResult>(op)
-            .Case<affine::AffineApplyOp>([&](affine::AffineApplyOp affineOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Case<tensor::ExtractSliceOp>(
-                [&](tensor::ExtractSliceOp extractOp) {
-                  return moveFront(op, operationPosition);
-                })
-            .Case<tensor::EmptyOp>([&](tensor::EmptyOp emptyOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Case<tensor::InsertSliceOp>([&](tensor::InsertSliceOp insertOp) {
-              return moveBack(op, operationPosition);
-            })
-            .Case<vector::TransferReadOp>([&](vector::TransferReadOp readOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Case<vector::TransferWriteOp>(
-                [&](vector::TransferWriteOp writeOp) {
-                  return moveBack(op, operationPosition);
-                })
-            .Case<vector::BroadcastOp>([&](vector::BroadcastOp bcOp) {
-              return moveFront(op, operationPosition);
-            })
-            .Default([&](Operation *op) { return success(); });
-    if (failed(ret)) {
-      LDBG("Wrong to move operation:" << *op << "\n");
-      return;
+      Operation *op = cur.first;
+      auto ret =
+          TypeSwitch<Operation *, LogicalResult>(op)
+              .Case<affine::AffineApplyOp>([&](affine::AffineApplyOp affineOp) {
+                return moveFront(op, rewriter);
+              })
+              .Case<tensor::ExtractSliceOp>(
+                  [&](tensor::ExtractSliceOp extractOp) {
+                    return moveFront(op, rewriter);
+                  })
+              .Case<tensor::EmptyOp>([&](tensor::EmptyOp emptyOp) {
+                return moveFront(op, rewriter);
+              })
+              .Case<tensor::InsertSliceOp>([&](tensor::InsertSliceOp insertOp) {
+                return moveBack(op, rewriter);
+              })
+              .Case<vector::TransferReadOp>([&](vector::TransferReadOp readOp) {
+                return moveFront(op, rewriter);
+              })
+              .Case<vector::TransferWriteOp>(
+                  [&](vector::TransferWriteOp writeOp) {
+                    return moveBack(op, rewriter);
+                  })
+              .Case<vector::BroadcastOp>([&](vector::BroadcastOp bcOp) {
+                return moveFront(op, rewriter);
+              })
+              .Default([&](Operation *op) { return success(); });
+      if (failed(ret)) {
+        LDBG("Wrong to move operation:" << *op << "\n");
+        return;
+      }
     }
+    candidateOps.swap(remainOps);
+    ++itrBegin;
   }
+}
+
+// Get operation priority
+void getOperationPriority(
+    func::FuncOp *func,
+    std::queue<std::pair<Operation *, OPPRIORITY>> &candidateOps) {
+  // get the position of each operation
+  func->walk<WalkOrder::PreOrder>([&](Operation *op) {
+    TypeSwitch<Operation *, void>(op)
+        .Case<affine::AffineApplyOp>([&](affine::AffineApplyOp affineOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::FIRST));
+          return;
+        })
+        .Case<tensor::ExtractSliceOp>([&](tensor::ExtractSliceOp extractOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::SECOND));
+          return;
+        })
+        .Case<tensor::EmptyOp>([&](tensor::EmptyOp emptyOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::SECOND));
+          return;
+        })
+        .Case<tensor::InsertSliceOp>([&](tensor::InsertSliceOp insertOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::SECOND));
+          return;
+        })
+        .Case<vector::TransferReadOp>([&](vector::TransferReadOp readOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::LAST));
+          return;
+        })
+        .Case<vector::TransferWriteOp>([&](vector::TransferWriteOp writeOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::LAST));
+          return;
+        })
+        .Case<vector::BroadcastOp>([&](vector::BroadcastOp bcOp) {
+          candidateOps.push(std::make_pair(op, OPPRIORITY::THIRD));
+          return;
+        })
+        .Default([&](Operation *op) { return; });
+  });
 }
 
 // Need to move some operations like extract_slice or insert_slice.
@@ -154,24 +210,14 @@ void moveCandidateOperation(
 // block.
 // insert_slice just move them to the privious of the first operation which
 // use it.
-void moveOpsFrontOrBack(func::FuncOp *func, MLIRContext *ctx,
-                        std::function<bool(Operation *)> &conditionalFunc) {
+void moveOpsFrontOrBack(func::FuncOp *func, IRRewriter &rewriter,
+                        OPPRIORITY start, OPPRIORITY end) {
   // Pre-order traversal of each op
-  // Record each operation position. Inorder to we can kown current operation
-  // should move after which operation.
-  DenseMap<Operation *, size_t> operationPosition;
-  SmallVector<Operation *, 8> candidateOps;
-  size_t opCounter = 0;
-
-  // get the position of each operation
-  func->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    operationPosition[op] = opCounter++;
-    if (conditionalFunc(op))
-      candidateOps.emplace_back(op);
-  });
-  moveCandidateOperation(operationPosition, candidateOps);
+  std::queue<std::pair<Operation *, OPPRIORITY>> candidateOps;
+  getOperationPriority(func, candidateOps);
+  moveCandidateOperation(candidateOps, rewriter, start, end);
   // eliminate some useless operation
-  RewritePatternSet patterns(ctx);
+  RewritePatternSet patterns(rewriter.getContext());
   (void)applyPatternsAndFoldGreedily(*func, std::move(patterns));
 }
 

@@ -26,8 +26,8 @@
 // CHECK: scf.for
 // CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<11008x4096xf32>, vector<16xf32>
 // CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<11008x4096xf32>, vector<16xf32>
-// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<16xf32>
-// CHECK: %[[ADD1:.*]] = arith.addf %[[ADD0]], %[[READ0]] : vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ1]] : vector<16xf32>
+// CHECK: %[[ADD1:.*]] = arith.addf %[[ADD0]], %[[READ1]] : vector<16xf32>
 // CHECK: %[[WRITE:.*]] = vector.transfer_write {{.*}}, {{.*}} : vector<16xf32>, tensor<11008x4096xf32>
 func.func @add_tensor_test0(%arg0: tensor<11008x4096xf32>, %arg1: tensor<11008x4096xf32>) -> tensor<11008x4096xf32> {
   %0 = tensor.empty() : tensor<11008x4096xf32>
@@ -80,7 +80,7 @@ func.func @reduce_keepdimtest1(%arg0: tensor<16x32x64xf32>) -> tensor<16x1x64xf3
 // CHECK: scf.for
 // CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<512x512xf32>, vector<16xf32>
 // CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<512x512xf32>, vector<16xf32>
-// CHECK:  %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<16xf32>
+// CHECK:  %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ1]] : vector<16xf32>
 // CHECK:  %[[ADD1:.*]] = arith.maximumf %[[ADD0]], {{.*}} : vector<16xf32>
 // CHECK: %[[WRITE:.*]] = vector.transfer_write {{.*}}, {{.*}} : vector<16xf32>, tensor<512x512xf32>
 func.func @fc_relu_test2(%lhs: tensor<512x512xf32>, %rhs: tensor<512x512xf32>,
@@ -108,7 +108,7 @@ func.func @fc_relu_test2(%lhs: tensor<512x512xf32>, %rhs: tensor<512x512xf32>,
 // CHECK: scf.for
 // CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x32xf32>, vector<16xf32>
 // CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x32xf32>, vector<16xf32>
-// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ1]] : vector<16xf32>
 // CHECK: %[[WRITE1:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<16xf32>, tensor<32x32xf32>
 // CHECK: scf.yield
 // CHECK: scf.yield
@@ -243,14 +243,14 @@ func.func @fuse_mlp_test4(%arg0: tensor<128x512xbf16>, %arg1: tensor<32x8x16x32x
 // CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x512xbf16>, vector<32xbf16> 
 // CHECK: %[[WRITE1:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<32xbf16>, tensor<1x32x512xbf16>
 // CHECK-COUNT-4: scf.for
-// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x16x1x32xbf16>, vector<32xbf16>
 // CHECK: %[[APPLY1:.*]] = affine.apply
+// CHECK: %[[READ2:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x16x1x32xbf16>, vector<32xbf16>
 // CHECK: %[[WRITE2:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<32xbf16>, tensor<1x512x32xbf16>
 // CHECK: %[[MATMUL0:.*]] = linalg.batch_reduce_matmul
 // CHECK-COUNT-2: scf.for
-// CHECK: %[[READ3:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x32xbf16>, vector<32xbf16>
-// CHECK: %[[READ4:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32xbf16>, vector<32xbf16>
-// CHECK: %[[ADD0:.*]] = arith.addf %[[READ3]], %[[READ4]] : vector<32xbf16> 
+// CHECK: %[[READ3:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32xbf16>, vector<32xbf16>
+// CHECK: %[[READ4:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<32x32xbf16>, vector<32xbf16>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ4]], %[[READ3]] : vector<32xbf16> 
 // CHECK: %[[EXP0:.*]] = math.exp %[[ADD0]] : vector<32xbf16>
 // CHECK: %[[WRITE3:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<32xbf16>, tensor<32x32xbf16>
 // CHECK: %[[WRITE4:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<32xbf16>, tensor<32x32xbf16>
@@ -490,9 +490,9 @@ func.func @elem_pack_transpose_inner_and_outer_dims2_test8(%arg0: tensor<64xf32>
 // CHECK: %[[C16:.*]] = arith.constant 16 : index
 // CHECK: scf.for
 // CHECK: scf.for
-// CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<2x16xf32>, vector<16xf32>
-// CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
-// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<16xf32>
+// CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
+// CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}} {in_bounds = [true]} : tensor<2x16xf32>, vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ1]] : vector<16xf32>
 // CHECK: %[[WRITE0:.*]] = vector.transfer_write {{.*}}, {{.*}} {in_bounds = [true]} : vector<16xf32>, tensor<2x16xf32>
 func.func @broadcast_same_shape_test9(%input: tensor<16xf32>, %init: tensor<2x16xf32>) -> tensor<2x16xf32> {
   %empty = tensor.empty() : tensor<2x16xf32>
@@ -654,7 +654,7 @@ func.func @reduce_fuse_test13(%input: tensor<16x32x64xf32>,
 // CHECK: scf.for
 // CHECK: %[[READ0:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<2xf32>, vector<1xf32>
 // CHECK: %[[READ1:.*]] = vector.transfer_read {{.*}}, {{.*}}: tensor<2xf32>, vector<1xf32>
-// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<1xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ1]] : vector<1xf32>
 // CHECK: %[[ADD1:.*]] = arith.maximumf %[[ADD0]], %[[CST]] : vector<1xf32>
 // CHECK: %[[WRITE:.*]] = vector.transfer_write {{.*}}, {{.*}} : vector<1xf32>, tensor<2xf32>
 func.func @add_small_tensor_test14(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -> tensor<2xf32> {
@@ -673,9 +673,9 @@ func.func @add_small_tensor_test14(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -
 // CHECK: %[[C16:.*]] = arith.constant 16 : index
 // CHECK: scf.for %[[arg2:.*]] = %[[C0]] to %[[C64]] step %[[C1]] iter_args(%[[arg3:.*]] = {{.*}}) -> (tensor<64x64xf32>)
 // CHECK: scf.for %[[arg4:.*]] = %[[C0]] to %[[C64]] step %[[C16]] iter_args(%[[arg5:.*]] = %[[arg3]]) -> (tensor<64x64xf32>)
-// CHECK: %[[READ0:.*]] = vector.transfer_read %[[arg5]][%[[arg2]], %[[arg4]]], %[[CST]] {in_bounds = [true]} : tensor<64x64xf32>, vector<16xf32>
-// CHECK: %[[READ1:.*]] = vector.transfer_read %arg0[%[[arg4]]], %[[CST]] {in_bounds = [true]} : tensor<64xf32>, vector<16xf32>
-// CHECK: %[[ADD0:.*]] = arith.addf %[[READ1]], %[[READ0]] : vector<16xf32>
+// CHECK: %[[READ0:.*]] = vector.transfer_read %arg0[%[[arg4]]], %[[CST]] {in_bounds = [true]} : tensor<64xf32>, vector<16xf32>
+// CHECK: %[[READ1:.*]] = vector.transfer_read %[[arg5]][%[[arg2]], %[[arg4]]], %[[CST]] {in_bounds = [true]} : tensor<64x64xf32>, vector<16xf32>
+// CHECK: %[[ADD0:.*]] = arith.addf %[[READ0]], %[[READ1]] : vector<16xf32>
 // CHECK: %[[WRITE:.*]] = vector.transfer_write %[[ADD0]], %[[arg5]][%[[arg2]], %[[arg4]]] {in_bounds = [true]} : vector<16xf32>, tensor<64x64xf32>
 func.func @broadcast_add_test15(%arg0: tensor<64xf32>, %arg1: tensor<64x64xf32>) -> tensor<64x64xf32> {
   %0 = tensor.empty() : tensor<64x64xf32>

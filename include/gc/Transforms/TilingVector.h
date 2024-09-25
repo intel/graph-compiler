@@ -1,4 +1,4 @@
-//===- TilingVector.hpp - Tiling large vector to small vector ---*- C++ -*-===//
+//===- TilingVector.h - Tiling large vector to small vector -----*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -343,11 +343,15 @@ public:
 class ForLoopGenerator {
 private:
   GroupOperationFusion vectorBasedFusion;
+  IRRewriter *rewriter;
 
 public:
-  ForLoopGenerator(GroupOperationFusion &fusion) : vectorBasedFusion(fusion) {}
+  ForLoopGenerator(GroupOperationFusion &fusion, IRRewriter *rewriter)
+      : vectorBasedFusion(fusion, rewriter), rewriter(rewriter) {}
 
   virtual ~ForLoopGenerator() noexcept {}
+
+  IRRewriter *getRewriter() noexcept { return rewriter; }
 
   void setVectorBaseFusion(GroupOperationFusion &vectorBasedFusion) {
     this->vectorBasedFusion = vectorBasedFusion;
@@ -466,7 +470,8 @@ private:
   SmallVector<ShapeCastCanonicalizer, 8> shapeCastCanonicalizers;
 
 public:
-  LoopGeneratorImpl(GroupOperationFusion &fusion) : ForLoopGenerator(fusion){};
+  LoopGeneratorImpl(GroupOperationFusion &fusion, IRRewriter *rewriter)
+      : ForLoopGenerator(fusion, rewriter){};
 
   virtual ~LoopGeneratorImpl() noexcept {};
 
@@ -569,8 +574,9 @@ private:
 
 public:
   virtual ~GroupOperationFusionImpl() = default;
-  GroupOperationFusionImpl(func::FuncOp &func, HardWareInfo &info)
-      : GroupOperationAnalysis(func, info) {}
+  GroupOperationFusionImpl(func::FuncOp &func, HardWareInfo &info,
+                           IRRewriter *rewriter)
+      : GroupOperationAnalysis(func, info, rewriter) {}
 
   void broadcastFromElements(Operation *op, size_t grpIdx);
   void scalarOperandFromElements();
@@ -632,17 +638,20 @@ private:
   LoopGeneratorImpl loopGenerator;
   CanonicalizerKind kind;
   func::FuncOp func;
-  IRRewriter rewriter;
+  IRRewriter *rewriter;
 
 public:
   VectorOperationCanonicalizer(
-      func::FuncOp &func, HardWareInfo &info,
+      func::FuncOp &func, HardWareInfo &info, IRRewriter *rewriter,
       CanonicalizerKind kind = CanonicalizerKind::GroupOperations)
-      : fusion(func, info), loopGenerator(fusion.getGroupOperationFusion()),
-        kind(kind), rewriter(func) {}
+      : fusion(func, info, rewriter),
+        loopGenerator(fusion.getGroupOperationFusion(), rewriter), kind(kind),
+        rewriter(rewriter) {}
   virtual ~VectorOperationCanonicalizer() = default;
   /// run the vector canonicalizer for the IR
   void run();
+  /// get current funtion rewriter
+  IRRewriter *getRewriter() noexcept { return rewriter; }
 };
 } // namespace gc
 } // namespace mlir

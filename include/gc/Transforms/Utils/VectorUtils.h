@@ -24,6 +24,14 @@
 
 namespace mlir {
 namespace gc {
+
+enum class OPPRIORITY : uint8_t {
+  FIRST = 0,
+  SECOND,
+  THIRD,
+  LAST,
+  OTHERS = 255,
+};
 /// Need to move some operations like extract_slice or insert_slice.
 /// Because those operation may interpret our analysis result. e.g.:
 /// ```
@@ -54,8 +62,8 @@ namespace gc {
 /// block.
 /// insert_slice just move them to the privious of the first operation which
 /// use it.
-void moveOpsFrontOrBack(func::FuncOp *func, MLIRContext *ctx,
-                        std::function<bool(Operation *)> &conditionalFunc);
+void moveOpsFrontOrBack(func::FuncOp *func, IRRewriter &rewriter,
+                        OPPRIORITY start, OPPRIORITY end);
 
 /// build a constant operation of index type
 Value makeIndexArithConstantOp(OpBuilder &opBuilder, const Location &loc,
