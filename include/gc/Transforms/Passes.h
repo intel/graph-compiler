@@ -20,7 +20,6 @@ namespace func {
 class FuncOp;
 } // namespace func
 
-
 namespace LLVM {
 class LLVMDialect;
 }
@@ -116,7 +115,8 @@ void populateFrontendPasses(mlir::OpPassManager &);
 void populateCPUPipeline(mlir::OpPassManager &);
 
 #ifdef GC_USE_IMEX
-void populateGPUPipeline(mlir::OpPassManager &);
+struct GPUPipelineOption;
+void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOption &);
 #endif
 
 #define GEN_PASS_DECL
