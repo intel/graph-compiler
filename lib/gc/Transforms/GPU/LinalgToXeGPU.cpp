@@ -874,6 +874,7 @@ extractVecSubTiles(PatternRewriter &rewriter, Location loc,
 // removal and returns the operand of the transpose operation as the new matrix
 // multiplication operand.
 static FailureOr<Value> findAndReplaceTranspose(const Value &matmulOperand,
+                                                size_t operandIdx,
                                                 PatternRewriter &rewriter) {
   auto defOp = matmulOperand.getDefiningOp();
   if (!defOp) {
@@ -898,7 +899,7 @@ static FailureOr<Value> findAndReplaceTranspose(const Value &matmulOperand,
             isa<linalg::BatchReduceMatmulOp>(trUser) ||
             isa<linalg::GenericOp>(trUser)) {
           auto matmulOp = dyn_cast<linalg::LinalgOp>(trUser);
-          auto actualMatmulOperand = matmulOp.getDpsInputs()[1];
+          auto actualMatmulOperand = matmulOp.getDpsInputs()[operandIdx];
           if (actualMatmulOperand != matmulOperand) {
             return rewriter.notifyMatchFailure(
                 trUser,
@@ -954,7 +955,7 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   if (isa<linalg::MatmulTransposeBOp>(linalgOp)) {
     transposeB = true;
   } else {
-    auto newMatB = findAndReplaceTranspose(matB, rewriter);
+    auto newMatB = findAndReplaceTranspose(matB, /*operandIdx=*/1, rewriter);
     if (!failed(newMatB)) {
       matB = *newMatB;
       transposeB = true;
