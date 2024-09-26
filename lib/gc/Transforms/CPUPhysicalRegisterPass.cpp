@@ -51,15 +51,6 @@ static inline bool isBroadcastOp(Operation *op) {
   return isa_and_nonnull<vector::BroadcastOp>(op);
 }
 
-static inline bool isProducerOp(Operation *op) {
-  return isa<affine::AffineApplyOp>(op);
-}
-
-static inline bool isCandidateMoveOperations(Operation *op) {
-  return isa<tensor::ExtractSliceOp, tensor::InsertSliceOp, tensor::EmptyOp>(
-      op);
-}
-
 static inline bool isReadOrWriteOperation(Operation *op) {
   return isa<vector::TransferReadOp, vector::TransferWriteOp>(op);
 }
@@ -100,16 +91,14 @@ bool hasDynamicShape(Operation *op) {
   // Check operands data type.
   if (llvm::any_of(op->getOperands(), [&isDynamicShapedType](Value x) {
         return isDynamicShapedType(x);
-      })) {
+      }))
     return true;
-  }
 
   // Check results data type.
   if (llvm::any_of(op->getResults(), [&isDynamicShapedType](OpResult x) {
         return isDynamicShapedType(x);
-      })) {
+      }))
     return true;
-  }
 
   return false;
 }
