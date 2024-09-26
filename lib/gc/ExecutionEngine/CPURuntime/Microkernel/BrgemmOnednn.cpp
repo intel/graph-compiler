@@ -61,7 +61,7 @@ struct brgemm_cache_info_t {
 };
 
 static std::vector<brgemm_cache_info_t> g_cache(DEFAULT_KERNEL_SIZE);
-static int64_t kernel_id = -1;
+static int64_t g_kernel_id = -1;
 
 // TODO(haixin): use syscall to determine page size?
 static constexpr size_t SCRATCH_SIZE = 2 * 4096;
@@ -81,39 +81,39 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
   brgemm_strides_t stride_info{stride_a * dtypeA_size, stride_b * dtypeB_size};
 
   write_lock_guard_t g(g_brgemm_lock);
-  kernel_id++;
+  g_kernel_id++;
 
-  if (kernel_id >= DEFAULT_KERNEL_SIZE) {
-    if (kernel_id >= (int64_t)g_cache.size()) {
-      g_cache.resize(kernel_id + 1);
+  if (g_kernel_id >= DEFAULT_KERNEL_SIZE) {
+    if (g_kernel_id >= (int64_t)g_cache.size()) {
+      g_cache.resize(g_kernel_id + 1);
     }
   }
 
   dnnl::impl::status_t status = brgemm_desc_init(
-      &g_cache[kernel_id].desc, cpu_isa_t::isa_undef,
+      &g_cache[g_kernel_id].desc, cpu_isa_t::isa_undef,
       brgemm_batch_kind_t::brgemm_strd, dnnl_dtypeA, dnnl_dtypeB,
       /*transA=*/false, /*transB=*/false, brgemm_layout_t::brgemm_row_major,
       1.0f, beta, LDA, LDB, LDC, M, N, K, &stride_info);
   assert(status == dnnl::impl::status::success &&
          "Failed to initialize BRGEMM descriptor");
 
-  status =
-      brgemm_kernel_create(&g_cache[kernel_id].kernel, g_cache[kernel_id].desc);
+  status = brgemm_kernel_create(&g_cache[g_kernel_id].kernel,
+                                g_cache[g_kernel_id].desc);
   assert(status == dnnl::impl::status::success &&
          "Failed to JIT BRGEMM kernel");
 
   brgemm_attr_t dnnl_attrs;
-  brgemm_desc_set_attr(&g_cache[kernel_id].desc, dnnl_attrs);
+  brgemm_desc_set_attr(&g_cache[g_kernel_id].desc, dnnl_attrs);
 
-  if (g_cache[kernel_id].desc.is_tmm) {
-    g_cache[kernel_id].palette.reset(new char[PALETTE_SIZE]);
-    status = brgemm_init_tiles(g_cache[kernel_id].desc,
-                               g_cache[kernel_id].palette.get());
+  if (g_cache[g_kernel_id].desc.is_tmm) {
+    g_cache[g_kernel_id].palette.reset(new char[PALETTE_SIZE]);
+    status = brgemm_init_tiles(g_cache[g_kernel_id].desc,
+                               g_cache[g_kernel_id].palette.get());
     assert(status == dnnl::impl::status::success &&
            "Failed to initialize palette for BRGEMM");
   }
 
-  return kernel_id;
+  return g_kernel_id;
 }
 
 void dnnl_brgemm_tileconfig(int64_t kernel_idx) {
