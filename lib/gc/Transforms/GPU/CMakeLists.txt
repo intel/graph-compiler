@@ -1,4 +1,6 @@
 gc_add_mlir_library(GcGpuPasses
+  AddContextArg.cpp
+  GpuToGpuOcl.cpp
   LinalgToXeGPU.cpp
   Pipeline.cpp
 

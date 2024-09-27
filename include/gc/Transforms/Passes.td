@@ -93,6 +93,20 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
                "DPAS register block sizes MxNxK">,
   ];
 }
+
+def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
+  let summary = "Add a context argument.";
+  let description = [{
+    Add a new memref argument to the function, that could be used to pass some context.
+  }];
+}
+
+def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
+  let summary = "Convert the GPU operations to GpuOclRuntime calls.";
+  let description = [{
+    Convert the gpu alloc, dealloc, memcpy and launch operations to GpuOclRuntime calls.
+  }];
+}
 #endif // GC_USE_IMEX
 
 def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
