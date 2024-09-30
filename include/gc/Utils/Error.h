@@ -33,7 +33,7 @@ namespace mlir::gc::err {
 
 template <typename... Args>
 [[nodiscard]] llvm::Error makeLlvmError(GC_ERR_LOC_DECL Args... args) {
-  log::insetLog(GC_ERR_LOC_ARGS std::cerr, "ERROR", args...);
+  log::log(GC_ERR_LOC_ARGS std::cerr, "ERROR", args...);
   std::ostringstream oss;
   log::insertArgs(oss, args...);
   auto msg = oss.str();
@@ -42,7 +42,7 @@ template <typename... Args>
 }
 
 [[noreturn]] static void report(GC_ERR_LOC_DECL llvm::Error err) {
-  log::insetLog(GC_ERR_LOC_ARGS std::cerr, "ERROR", "Unrecoverable error!");
+  log::log(GC_ERR_LOC_ARGS std::cerr, "ERROR", "Unrecoverable error!");
   report_fatal_error(std::move(err));
 }
 

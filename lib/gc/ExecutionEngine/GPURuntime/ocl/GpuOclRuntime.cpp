@@ -8,8 +8,6 @@
 
 #include <CL/cl_ext.h>
 
-// Comment out the following line to enable debug logging
-// #define GC_LOG_NO_DEBUG
 #include "gc/ExecutionEngine/GPURuntime/GpuOclRuntime.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Utils/Error.h"
@@ -569,7 +567,7 @@ bool OclRuntime::isUsm(const void *ptr) const {
 #ifndef NDEBUG
 void OclRuntime::debug(const char *file, int line, const char *msg) {
 #ifndef GC_LOG_NO_DEBUG
-  mlir::gc::log::insetLog(file, line, std::cout, "DEBUG", msg);
+  log::debug(file, line, msg);
 #endif
 }
 #endif
