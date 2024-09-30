@@ -342,7 +342,7 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
         auto suggestedLayouts =
             queryMatmulLayout(rewriter, linalgOp, curInputLayouts, false);
         layoutCache[linalgOp] = suggestedLayouts[0];
-      } else if (mlir::gc::utils::isPackableNamedOp(op)) {
+      } else if (mlir::gc::utils::isPackableOp(op)) {
         // infer layout for non-contraction/non-convolution linalg named ops
         // and linalg generic ops
         SmallVector<TensorLayout> inputLayouts, outputLayouts;
@@ -502,17 +502,37 @@ GlobalAnalysis::GlobalAnalysis(Operation *root) {
 }
 
 namespace utils {
-bool isPackableNamedOp(Operation *op) {
+// TODO(yifei): extend to batch matmuls, sync with deep tile matmul
+bool isSupportedContractionNamedOp(const linalg::LinalgOp &linalgOp) {
+  return isa<linalg::MatmulOp, linalg::MatmulTransposeAOp,
+             linalg::MatmulTransposeBOp>(linalgOp);
+}
+
+bool isPackableOp(Operation *op) {
   if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
     if (!mlir::linalg::isaContractionOpInterface(linalgOp) &&
-        !isa<linalg::ConvolutionOpInterface>(linalgOp.getOperation()) &&
-        !supportedContractionNamedOpList(linalgOp)) {
+        !mlir::linalg::isaConvolutionOpInterface(linalgOp) &&
+        !isSupportedContractionNamedOp(linalgOp)) {
       return true;
     }
   } else if (isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::PadOp>(
                  op))
     return true;
   return false;
+}
+
+bool hasAllTensorSemantics(linalg::LinalgOp linalgOp) {
+  SmallVector<OpOperand *> initOperands = llvm::to_vector(llvm::map_range(
+      linalgOp.getDpsInitsMutable(), [](OpOperand &o) { return &o; }));
+  SmallVector<OpOperand *> inputOperands = linalgOp.getDpsInputOperands();
+  return llvm::all_of(inputOperands,
+                      [](OpOperand *opOperand) {
+                        return mlir::isa<TensorType>(
+                            opOperand->get().getType());
+                      }) &&
+         llvm::all_of(initOperands, [](OpOperand *opOperand) {
+           return mlir::isa<TensorType>(opOperand->get().getType());
+         });
 }
 } // namespace utils
 } // namespace gc

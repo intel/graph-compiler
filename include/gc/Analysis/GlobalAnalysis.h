@@ -152,8 +152,12 @@ private:
 };
 
 namespace utils {
-bool isPackableNamedOp(Operation *op);
-}
+bool isSupportedContractionNamedOp(const linalg::LinalgOp &linalgOp);
+
+bool isPackableOp(Operation *op);
+
+bool hasAllTensorSemantics(linalg::LinalgOp linalgOp);
+} // namespace utils
 } // namespace gc
 } // namespace mlir
 

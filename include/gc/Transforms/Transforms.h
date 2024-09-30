@@ -16,7 +16,7 @@
 namespace mlir {
 namespace gc {
 LogicalResult packLinalgOp(RewriterBase &rewriter, linalg::LinalgOp linalgOp,
-                          OperatorLayout opLayout);
+                           const OperatorLayout &opLayout);
 
 LogicalResult namedOpLayoutPropagation(RewriterBase &rewriter,
                                        linalg::LinalgOp linalgOp,

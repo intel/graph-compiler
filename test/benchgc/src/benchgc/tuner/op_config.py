@@ -139,9 +139,9 @@ class MatMulConfig(Config):
 
     def attach_to_ir(self, op: OpView):
         attr_to_field = {
-            "Mthreads": self.M_threads,
-            "Kthreads": self.K_threads,
-            "Nthreads": self.N_threads,
+            "MThreads": self.M_threads,
+            "KThreads": self.K_threads,
+            "NThreads": self.N_threads,
             "MBlock": self.M_block,
             "KBlock": self.K_block,
             "NBlock": self.N_block,
