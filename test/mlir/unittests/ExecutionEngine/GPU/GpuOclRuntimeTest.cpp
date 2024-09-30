@@ -62,16 +62,16 @@ module @test {
 
 constexpr char matmulAddStatic[] = R"mlir(
 module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
-  func.func @entry(%arg0: memref<64x128xf32>, %arg1: memref<128x128xf32>, %arg2: memref<64x128xf32>) {
-    %0 = bufferization.to_tensor %arg0 restrict : memref<64x128xf32>
-    %1 = bufferization.to_tensor %arg1 restrict : memref<128x128xf32>
-    %2 = tensor.empty() : tensor<64x128xf32>
-    %cst = arith.constant 0.000000e+00 : f32
-    %3 = linalg.fill ins(%cst : f32) outs(%2 : tensor<64x128xf32>) -> tensor<64x128xf32>
-    %4 = linalg.matmul_transpose_b ins(%0, %1 : tensor<64x128xf32>, tensor<128x128xf32>) outs(%3 : tensor<64x128xf32>) -> tensor<64x128xf32>
-    %5 = tensor.empty() : tensor<64x128xf32>
-    %6 = linalg.add ins(%4, %0 : tensor<64x128xf32>, tensor<64x128xf32>) outs(%5 : tensor<64x128xf32>) -> tensor<64x128xf32>
-    bufferization.materialize_in_destination %6 in restrict writable %arg2 : (tensor<64x128xf32>, memref<64x128xf32>) -> ()
+  func.func @entry(%arg0: memref<64x128xf16>, %arg1: memref<128x128xf16>, %arg2: memref<64x128xf16>) {
+    %0 = bufferization.to_tensor %arg0 restrict : memref<64x128xf16>
+    %1 = bufferization.to_tensor %arg1 restrict : memref<128x128xf16>
+    %2 = tensor.empty() : tensor<64x128xf16>
+    %cst = arith.constant 0.000000e+00 : f16
+    %3 = linalg.fill ins(%cst : f16) outs(%2 : tensor<64x128xf16>) -> tensor<64x128xf16>
+    %4 = linalg.matmul_transpose_b ins(%0, %1 : tensor<64x128xf16>, tensor<128x128xf16>) outs(%3 : tensor<64x128xf16>) -> tensor<64x128xf16>
+    %5 = tensor.empty() : tensor<64x128xf16>
+    %6 = linalg.add ins(%4, %0 : tensor<64x128xf16>, tensor<64x128xf16>) outs(%5 : tensor<64x128xf16>) -> tensor<64x128xf16>
+    bufferization.materialize_in_destination %6 in restrict writable %arg2 : (tensor<64x128xf16>, memref<64x128xf16>) -> ()
     return
   }
 }
@@ -141,13 +141,13 @@ template <unsigned N, unsigned M = N> struct TestAdd : TestBase {
 template <unsigned N, unsigned M = N> struct TestMatmulAdd : TestBase {
   static constexpr unsigned size1 = N * M;
   static constexpr unsigned size2 = M * M;
-  float *buf0 = gcGetOrReport(runtime.usmNewDev<float>(size1));
-  float *buf1 = gcGetOrReport(runtime.usmNewDev<float>(size2));
-  float *buf2 = gcGetOrReport(runtime.usmNewShared<float>(size1));
+  cl_half *buf0 = gcGetOrReport(runtime.usmNewDev<cl_half>(size1));
+  cl_half *buf1 = gcGetOrReport(runtime.usmNewDev<cl_half>(size2));
+  cl_half *buf2 = gcGetOrReport(runtime.usmNewShared<cl_half>(size1));
 
   explicit TestMatmulAdd() {
-    float cpuBuf[size2];
-    std::fill(cpuBuf, cpuBuf + size2, 2);
+    cl_half cpuBuf[size2];
+    std::fill(cpuBuf, cpuBuf + size2, 14336);
     assert(runtime.usmCpy(ctx, cpuBuf, buf0, size1));
     assert(runtime.usmCpy(ctx, cpuBuf, buf1, size2));
     gcGetOrReport(ctx.finish());
@@ -167,7 +167,7 @@ template <unsigned N, unsigned M = N> struct TestMatmulAdd : TestBase {
     gcGetOrReport(ctx.finish());
     for (unsigned i = 0; i < size1; i++) {
       // std::cout << buf2[i] << " ";
-      assert(buf2[i] == 514);
+      assert(buf2[i] == 20496);
     }
     // std::cout << "\n";
   }
