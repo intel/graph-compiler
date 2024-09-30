@@ -29,9 +29,11 @@
 namespace mlir::gc {
 
 void populateGPUPipeline(OpPassManager &pm,
-                         const GPUPipelineOption &pipelineOption) {
-  // Add an argument for the GPU context
-  pm.addNestedPass<func::FuncOp>(createAddContextArg());
+                         const GPUPipelineOptions &pipelineOpts) {
+  if (pipelineOpts.useGpuRuntime) {
+    // Add an argument for the GPU context
+    pm.addNestedPass<func::FuncOp>(createAddContextArg());
+  }
 
   pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
 
@@ -72,10 +74,9 @@ void populateGPUPipeline(OpPassManager &pm,
 
   imex::InsertGPUAllocsOptions insertGPUAllocsOption{
       /*clientAPI*/ "opencl", /*inRegions*/ false,
-      /*isUsmArgs*/ pipelineOption.isUsmArgs.getValue()};
+      /*isUsmArgs*/ pipelineOpts.isUsmArgs};
   pm.addNestedPass<func::FuncOp>(
       imex::createInsertGPUAllocsPass(insertGPUAllocsOption));
-
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createCanonicalizerPass());
   pm.addPass(imex::createSetSPIRVCapabilitiesPass());
@@ -94,6 +95,11 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(LLVM::createRequestCWrappersPass());
   pm.addPass(imex::createSerializeSPIRVPass());
   pm.addPass(createConvertVectorToSCFPass());
+
+  if (!pipelineOpts.useGpuRuntime) {
+    pm.addPass(imex::createConvertGPUToGPUXPass());
+  }
+
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(createConvertVectorToLLVMPass());
@@ -101,7 +107,13 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(createGpuToGpuOcl({pipelineOption.callFinish}));
+
+  if (pipelineOpts.useGpuRuntime) {
+    pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
+  } else {
+    pm.addPass(imex::createConvertGPUXToLLVMPass());
+  }
+
   pm.addPass(createConvertIndexToLLVMPass());
   pm.addPass(memref::createExpandStridedMetadataPass());
   pm.addPass(createLowerAffinePass());
@@ -110,7 +122,7 @@ void populateGPUPipeline(OpPassManager &pm,
 }
 
 void registerGPUPipeline() {
-  PassPipelineRegistration<GPUPipelineOption>(
+  PassPipelineRegistration<GPUPipelineOptions>(
       "gc-gpu-pipeline", "The GPU pipeline for Graph Compiler with IMEX",
       populateGPUPipeline);
 }
