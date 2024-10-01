@@ -9,5 +9,9 @@ target_include_directories(GCExecutionEngineTests PRIVATE ${GC_DNNL_INCLUDES})
 target_link_libraries(GCExecutionEngineTests
   PRIVATE
   GcJitWrapper
-  GcCpuRuntime)
+  GcCpuRuntime
+)
 
+if(GC_ENABLE_IMEX)
+  add_subdirectory(GPU)
+endif()

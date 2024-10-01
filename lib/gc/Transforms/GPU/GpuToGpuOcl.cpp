@@ -124,11 +124,13 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
   LogicalResult
   matchAndRewrite(gpu::AllocOp allocOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto fnName =
+        allocOp.getHostShared() ? GPU_OCL_MALLOC_SHARED : GPU_OCL_MALLOC_DEV;
     auto loc = allocOp.getLoc();
     MemRefType type = allocOp.getType();
 
     if (auto staticSize = helper.calculateStaticSize(rewriter, loc, type)) {
-      auto ptr = funcCall(rewriter, GPU_OCL_MALLOC, helper.ptrType,
+      auto ptr = funcCall(rewriter, fnName, helper.ptrType,
                           {helper.ptrType, helper.idxType}, loc,
                           {getCtxPtr(rewriter), staticSize})
                      .getResult();
@@ -151,7 +153,7 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
                              shape, strides, size);
     assert(shape.size() == strides.size());
 
-    auto ptr = funcCall(rewriter, GPU_OCL_MALLOC, helper.ptrType,
+    auto ptr = funcCall(rewriter, fnName, helper.ptrType,
                         {helper.ptrType, helper.idxType}, loc,
                         {getCtxPtr(rewriter), size})
                    .getResult();
@@ -224,7 +226,8 @@ struct ConvertMemcpy final : ConvertOpPattern<gpu::MemcpyOp> {
 
 struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
 
-  explicit ConvertLaunch(const Helper &helper) : ConvertOpPattern(helper) {}
+  explicit ConvertLaunch(const Helper &helper, bool callFinish)
+      : ConvertOpPattern(helper), callFinish(callFinish) {}
 
   LogicalResult
   matchAndRewrite(gpu::LaunchFuncOp gpuLaunch, OpAdaptor adaptor,
@@ -261,10 +264,17 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
         funcCall(rewriter, GPU_OCL_KERNEL_LAUNCH, helper.voidType,
                  {helper.ptrType, helper.ptrType}, loc, args, true);
     rewriter.replaceOp(gpuLaunch, gpuOclLaunch);
+
+    if (callFinish) {
+      funcCall(rewriter, GPU_OCL_FINISH, helper.voidType, {helper.ptrType}, loc,
+               getCtxPtr(rewriter));
+    }
+
     return success();
   }
 
 private:
+  bool callFinish;
   // Returns the kernel pointer stored in the global var ...name_Ptr.
   // If it's NULL, calls the createKernel() function.
   std::optional<Value> getKernel(gpu::LaunchFuncOp &gpuLaunch,
@@ -377,8 +387,9 @@ private:
 
     auto ptr = mod.lookupSymbol<LLVM::GlobalOp>(str("Ptr"));
     assert(ptr);
-    SmallVector<char> nameChars(kernelModName.getValue().begin(),
-                                kernelModName.getValue().end());
+    auto kernelName = gpuLaunch.getKernelName();
+    SmallVector<char> nameChars(kernelName.getValue().begin(),
+                                kernelName.getValue().end());
     nameChars.emplace_back('\0');
     // Kernel name and SPIRV are stored as global strings
     auto name = LLVM::createGlobalString(
@@ -495,6 +506,10 @@ private:
 
 struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
 
+  explicit GpuToGpuOcl() : GpuToGpuOcl(gc::GpuToGpuOclOptions{}) {}
+  explicit GpuToGpuOcl(const gc::GpuToGpuOclOptions &opts)
+      : GpuToGpuOclBase(opts) {}
+
   void runOnOperation() override {
     const auto ctx = &getContext();
     const LLVMConversionTarget target(getContext());
@@ -503,8 +518,9 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
     RewritePatternSet patterns(ctx);
 
     populateGpuToLLVMConversionPatterns(converter, patterns);
-    patterns.insert<ConvertAlloc, ConvertMemcpy, ConvertLaunch, ConvertDealloc>(
-        helper);
+    patterns.insert<ConvertAlloc, ConvertMemcpy>(helper);
+    patterns.insert<ConvertLaunch>(helper, callFinish);
+    patterns.insert<ConvertDealloc>(helper);
 
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {
