@@ -808,6 +808,10 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
   opts.enablePerfNotificationListener = false;
 #endif
 
+  if (enableObjectDump) {
+    mod.dump();
+  }
+
   auto eng = ExecutionEngine::create(mod, opts);
   CHECKE(eng, "Failed to create ExecutionEngine!");
   eng->get()->registerSymbols(OclRuntime::Exports::symbolMap);
