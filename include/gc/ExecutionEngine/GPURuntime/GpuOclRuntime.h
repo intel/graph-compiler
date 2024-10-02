@@ -149,33 +149,27 @@ static constexpr auto ZERO_PTR = const_cast<int64_t *>(&ZERO);
 struct OclContext {
   const OclRuntime &runtime;
   const cl_command_queue queue;
-  // Preserve the execution order. This is required in case of out-of-order
-  // execution (CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE). When the execution
-  // is completed, the 'lastEvent' field contains the event of the last enqueued
-  // command. If this field is false, 'waitList' is ignored.
-  const bool preserveOrder;
+  // Create 'cl_event' object, for each enqueued command, that can be used to
+  // query or wait for the command to complete. This is required in case of
+  // out-of-order execution (CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE), but can
+  // also be used to get the last event. When the execution is completed, the
+  // 'lastEvent' field contains the event of the last enqueued command. If this
+  // field is false, 'waitList' is ignored.
+  const bool createEvents;
   cl_uint waitListLen;
   cl_event *waitList;
   cl_event lastEvent;
 
-  explicit OclContext(const OclRuntime &runtime, cl_command_queue queue,
-                      cl_uint waitListLen = 0, cl_event *waitList = nullptr)
-      : OclContext(runtime, queue, OclRuntime::isOutOfOrder(queue), waitListLen,
-                   waitList) {}
+  explicit OclContext(const OclRuntime &runtime, cl_command_queue queue)
+      : OclContext(runtime, queue, OclRuntime::isOutOfOrder(queue)) {}
 
   explicit OclContext(const OclRuntime &runtime, cl_command_queue queue,
-                      bool preserveOrder, cl_uint waitListLen,
-                      cl_event *waitList)
-      : runtime(runtime), queue(queue), preserveOrder(preserveOrder),
-        waitListLen(preserveOrder ? waitListLen : 0),
-        waitList(preserveOrder ? waitList : nullptr), lastEvent(nullptr),
-        clPtrs(nullptr) {
-    assert(!OclRuntime::isOutOfOrder(queue) || preserveOrder);
-    assert(preserveOrder || (waitListLen == 0 && waitList == nullptr));
-  }
+                      bool createEvents, cl_uint waitListLen = 0,
+                      cl_event *waitList = nullptr);
 
   OclContext(const OclContext &) = delete;
   OclContext &operator=(const OclContext &) = delete;
+  ~OclContext();
 
   [[nodiscard]] llvm::Expected<bool> finish();
 
@@ -186,16 +180,7 @@ private:
   template <unsigned N> friend struct StaticExecutor;
   std::unordered_set<void *> *clPtrs;
 
-  void setLastEvent(cl_event event) {
-    lastEvent = event;
-    if (event) {
-      waitListLen = 1;
-      waitList = &lastEvent;
-    } else {
-      waitListLen = 0;
-      waitList = nullptr;
-    }
-  }
+  void setLastEvent(cl_event event);
 };
 
 struct OclModule {
