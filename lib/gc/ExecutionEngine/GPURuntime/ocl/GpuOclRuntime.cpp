@@ -749,7 +749,8 @@ ArrayRef<Type> getArgTypes(const StringRef &funcName, ModuleOp &mod) {
 
 OclModuleBuilder::OclModuleBuilder(ModuleOp module,
                                    const OclModuleBuilderOpts &opts)
-    : mlirModule(module), enableObjectDump(opts.enableObjectDump),
+    : mlirModule(module), printIr(opts.printIr),
+      enableObjectDump(opts.enableObjectDump),
       sharedLibPaths(opts.sharedLibPaths),
       pipeline(opts.pipeline
                    ? opts.pipeline
@@ -798,6 +799,10 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
   CHECK(!pm.run(mod).failed(), "GPU pipeline failed!");
 
   auto staticMain = createStaticMain(mod, funcName, argTypes);
+
+  if (printIr) {
+    mod.dump();
+  }
 
   ExecutionEngineOptions opts;
   opts.jitCodeGenOptLevel = llvm::CodeGenOptLevel::Aggressive;

@@ -58,7 +58,8 @@ struct Options {
       llvm::cl::MiscFlags::CommaSeparated, llvm::cl::desc("<lib1,lib2,...>"),
       llvm::cl::cat(runnerCategory)};
   llvm::cl::opt<bool> printIr{
-      "print-ir", llvm::cl::desc("Print the IR before the execution."),
+      "print-ir",
+      llvm::cl::desc("Print the resulting IR before the execution."),
       llvm::cl::init(false), llvm::cl::cat(runnerCategory)};
   llvm::cl::opt<std::string> objDumpFile{
       "obj-dump-file",
@@ -121,13 +122,6 @@ void findFunc(Options &opts, ModuleOp mod) {
   }
 }
 
-void pipeline(OpPassManager &pm) {
-  gc::GPUPipelineOptions pipelineOpts;
-  pipelineOpts.isUsmArgs = false;
-  pipelineOpts.callFinish = true;
-  populateGPUPipeline(pm, pipelineOpts);
-}
-
 int main(int argc, char **argv) {
   Options opts;
   llvm::cl::ParseCommandLineOptions(argc, argv, "GraphCompiler GPU runner\n");
@@ -148,19 +142,16 @@ int main(int argc, char **argv) {
   SmallVector<StringRef, 4> sharedLibs(opts.sharedLibs.begin(),
                                        opts.sharedLibs.end());
   builderOpts.funcName = opts.mainFuncName;
+  builderOpts.printIr = opts.printIr;
   builderOpts.enableObjectDump = !opts.objDumpFile.getValue().empty();
   builderOpts.sharedLibPaths = sharedLibs;
-  if (opts.skipPipeline) {
-    builderOpts.pipeline =
-        opts.printIr
-            ? [](OpPassManager &pm) { pm.addPass(createPrintIRPass()); }
-            : [](OpPassManager &) {};
-  } else {
-    builderOpts.pipeline = opts.printIr ? [](OpPassManager &pm) {
-      pipeline(pm);
-      pm.addPass(createPrintIRPass());
-    } : pipeline;
-  }
+  builderOpts.pipeline =
+      opts.skipPipeline ? [](OpPassManager &) {} : [](OpPassManager &pm) {
+        gc::GPUPipelineOptions pipelineOpts;
+        pipelineOpts.isUsmArgs = false;
+        pipelineOpts.callFinish = true;
+        populateGPUPipeline(pm, pipelineOpts);
+      };
 
   gc::gpu::OclModuleBuilder builder{mlirMod, builderOpts};
   auto runtime = gcGetOrReport(gc::gpu::OclRuntime::get());
