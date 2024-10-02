@@ -1,6 +1,5 @@
-// RUN: gc-opt %s --gc-gpu-pipeline="is-usm-args=false use-gpu-ocl=false" \
-// RUN: | gc-cpu-runner -e main --entry-point-result=void \
-// RUN:   --shared-libs=%mlir_runner_utils,%mlir_c_runner_utils,%opencl_runtime | FileCheck %s
+// RUN: gc-gpu-runner --shared-libs=%mlir_runner_utils %s | FileCheck %s
+
 module{
 
 func.func @linalg_matmul(%arg0: tensor<64x64xf16>,
