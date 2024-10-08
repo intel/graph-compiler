@@ -24,4 +24,5 @@ if (NOT DEFINED IMEX_INCLUDES)
             ${imex_SOURCE_DIR}/src
     )
     set_property(GLOBAL PROPERTY IMEX_INCLUDES ${IMEX_INCLUDES})
+    target_compile_options(GcInterface INTERFACE -DGC_USE_IMEX)
 endif ()
