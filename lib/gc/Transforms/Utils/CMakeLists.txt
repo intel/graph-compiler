@@ -3,6 +3,7 @@ gc_add_mlir_library(GcUtilsIR
   StructuredOpMatcher.cpp
   ValueUtils.cpp
   VectorUtils.cpp
+  NumericUtils.cpp
 
   DEPENDS
     MLIRLinalgDialect

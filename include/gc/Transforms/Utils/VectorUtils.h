@@ -1,4 +1,4 @@
-//===-- VectorUtils.h - vector fusion analysis ------------------*- C++ -*-===//
+//===-- VectorUtils.h - vector utilities ------------------------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,6 +8,7 @@
 
 #ifndef GC_TRANSFORMS_UTILS_VECTORUTILS_H
 #define GC_TRANSFORMS_UTILS_VECTORUTILS_H
+#include "gc/Transforms/Utils/NumericUtils.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -96,16 +97,6 @@ int getNearestVectorStep(const int step);
 /// prev-op, may need to use result vectortype
 /// default will return the opeation result type
 mlir::FailureOr<VectorType> getOperationMaxVectorType(Operation *op);
-union Float32Bits {
-  uint32_t u;
-  float f;
-};
-uint16_t float2half(float floatValue);
-float half2float(uint16_t halfValue);
-uint16_t float2bfloat(float floatValue);
-float bfloat2float(uint16_t bfloatBits);
-std::variant<float, int64_t> numeric_limits_minimum(Type type);
-std::variant<float, int64_t> numericLimitsMaximum(Type type);
 
 template <typename T = float>
 T getInitValForReduce(vector::CombiningKind kind, Type t) {
