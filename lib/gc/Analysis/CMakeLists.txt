@@ -5,6 +5,7 @@ gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
 gc_add_mlir_library(GcAnalysis
   TargetDescriptionAnalysis.cpp
   MatmulConfigAnalysis.cpp
+  VectorBasedFusionAnalysis.cpp
 
   DEPENDS
     GraphCompilerPassIncGen

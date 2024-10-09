@@ -77,19 +77,20 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
 
 // scf + arith + math + vector + tensor + linalg.brgemm
 void populateVectorPasses(mlir::OpPassManager &pm) {
+  pm.addNestedPass<func::FuncOp>(createLowerToTileVector());
   // Do promotion for math / arith ops
   pm.addNestedPass<func::FuncOp>(math::createMathLegalizeToF32());
   // sourceTypeStrs can be extended
   arith::ArithEmulateUnsupportedFloatsOptions options;
-  std::array<std::string, 1> typeStr = {"bf16"};
+  std::array<std::string, 1> typeStr{"bf16"};
   options.sourceTypeStrs = typeStr;
   options.targetTypeStr = "f32";
   pm.addNestedPass<func::FuncOp>(
       arith::createArithEmulateUnsupportedFloats(options));
   // Bf16 cast elimilation pass
   pm.addNestedPass<func::FuncOp>(mlir::createCanonicalizerPass());
-  // oneDNN graph spec
-  pm.addNestedPass<func::FuncOp>(arith::createArithExpandOpsPass());
+  pm.addNestedPass<func::FuncOp>(createCPUPhysicalRegisterPass());
+  pm.addPass(createLoopInvariantCodeMotionPass());
   // todo: lower to physical vector pass, device dependent pass
   populateCleanUpPasses(pm);
 }
@@ -150,6 +151,8 @@ void populateCPURuntimePasses(mlir::OpPassManager &pm) {
 }
 
 void populateLoweringToLLVMPasses(mlir::OpPassManager &pm) {
+  pm.addPass(createConvertVectorToSCFPass());
+  pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertSCFToCFPass());

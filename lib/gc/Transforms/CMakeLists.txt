@@ -26,6 +26,7 @@ gc_add_mlir_library(GcPasses
   MergeAllocTickBased.cpp
   FoldTensorOperation.cpp
   LowerToTileVector.cpp
+  CPUPhysicalRegisterPass.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
