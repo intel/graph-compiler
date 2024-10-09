@@ -400,10 +400,15 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs,
       cfgItemCnt++;
     }
   }
-  if (validateConfig(config, shape)) {
-    return cfgItemCnt == 9;
-  } else {
-    assert(validateConfig(config, shape) && "config is invalid");
+  if (cfgItemCnt != 9) {
+    LLVM_DEBUG(llvm::dbgs() << "The predefined matmul config is incomplete. "
+                               "Default matmul config will be set.\n");
+    return false;
+  }
+  if (validateConfig(config, shape))
+    return true;
+  else {
+    assert(0 && "config is invalid");
     return false;
   }
 }
