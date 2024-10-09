@@ -403,7 +403,7 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs,
   if (validateConfig(config, shape)) {
     return cfgItemCnt == 9;
   } else {
-    LLVM_DEBUG(llvm::dbgs() << "The predefined config is invalid\n");
+    assert(validateConfig(config, shape) && "config is invalid");
     return false;
   }
 }
@@ -519,6 +519,8 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         }
         if (!configCandidates.empty())
           config = configCandidates[0];
+
+        assert(validateConfig(config, shape) && "config is invalid");
       }
 
       LLVM_DEBUG(llvm::dbgs()
