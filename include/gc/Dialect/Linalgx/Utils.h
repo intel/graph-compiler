@@ -20,6 +20,7 @@ namespace linalgx {
 /// @brief enum of type of matmul packing
 enum class PackingType : int {
   MM4D = 0,    // MKmk x NKkn
+  MM2D4D,      // MK x NKkn
   VNNI_MM2D,   // MK x NKknV
   VNNI_MM4D,   // MKmk x NKknV
   VNNI_BRMM3D, // BMK x BKNV

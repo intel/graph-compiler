@@ -341,6 +341,12 @@ PackingAttr getPackingAttr(PackingType opType) {
     attr.nPacking = {PackingMap{{0}, {1}}, PackingMap{{3}, {3}}};
     attr.kPacking = {PackingMap{{1}, {1}}, PackingMap{{3}, {2}}};
   } break;
+  case PackingType::MM2D4D: {
+    attr.weightDims = 4;
+    attr.mPacking = {PackingMap{{0}, {0}}};
+    attr.nPacking = {PackingMap{{0, 3}, {1}}};
+    attr.kPacking = {PackingMap{{1}, {1, 2}}};
+  } break;
   case PackingType::VNNI_MM2D: {
     attr.isVnni = true;
     attr.weightDims = 5;
