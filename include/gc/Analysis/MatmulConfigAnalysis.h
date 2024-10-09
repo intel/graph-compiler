@@ -33,6 +33,8 @@ struct MatmulConfig {
   uint32_t innerMostMBlock, innerMostNBlock, innerMostKBlock;
 };
 
+bool validateConfig(const MatmulConfig &cfg, ArrayRef<uint32_t> shape = {});
+
 enum DimType { Batch, M, N, K };
 
 // Extract the index of the given DimType in the DimType list

@@ -37,7 +37,7 @@ static llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
   return ss;
 }
 
-bool validateConfig(const MatmulConfig &cfg) {
+bool validateConfig(const MatmulConfig &cfg, ArrayRef<uint32_t> shape) {
   if (cfg.MThreads <= 0 || cfg.NThreads <= 0 || cfg.KThreads <= 0 ||
       cfg.MBlock <= 0 || cfg.NBlock <= 0 || cfg.KBlock <= 0 ||
       cfg.innerMostMBlock <= 0 || cfg.innerMostNBlock <= 0 ||
@@ -47,6 +47,12 @@ bool validateConfig(const MatmulConfig &cfg) {
       cfg.NBlock % cfg.innerMostNBlock != 0 ||
       cfg.KBlock % cfg.innerMostKBlock != 0)
     return false;
+  if (!shape.empty()) {
+    // KThreads will not shrink automatically
+    // K is shape[2]
+    if (llvm::divideCeil(shape[2], cfg.KBlock) < cfg.KThreads)
+      return false;
+  }
   return true;
 }
 
@@ -179,7 +185,7 @@ double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
                                 ArrayRef<uint32_t> shape,
                                 const MatmulConfig &config,
                                 CPUTargetDescriptionAnalysis &sysDesc) {
-  assert(validateConfig(config) && "config is invalid");
+  assert(validateConfig(config, shape) && "config is invalid");
   assert(shape.size() >= 3 && "shape.size() should >= 3");
   uint32_t M = shape[0], N = shape[1];
   double cost = 0;
@@ -361,7 +367,8 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
 }
 
 // read the config from the attributes for tuning
-bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
+bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs,
+                         ArrayRef<uint32_t> shape) {
   size_t cfgItemCnt = 0;
   for (const auto &attr : attrs) {
     if (attr.getName() == "KBlock") {
@@ -393,10 +400,15 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
       cfgItemCnt++;
     }
   }
-  if (validateConfig(config)) {
-    return cfgItemCnt == 9;
-  } else {
-    LLVM_DEBUG(llvm::dbgs() << "The predefined config is invalid\n");
+  if (cfgItemCnt != 9) {
+    LLVM_DEBUG(llvm::dbgs() << "The predefined matmul config is incomplete. "
+                               "Default matmul config will be set.\n");
+    return false;
+  }
+  if (validateConfig(config, shape))
+    return true;
+  else {
+    assert(0 && "config is invalid");
     return false;
   }
 }
@@ -483,7 +495,8 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
 
       // try to read the config from the attributes
       SmallVector<NamedAttribute> attrs(linalgOp->getAttrs());
-      bool hasPredefinedConfig = readConfigFromAttrs(config, attrs);
+      bool hasPredefinedConfig =
+          readConfigFromAttrs(config, attrs, SmallVector<uint32_t>{M, N, K});
 
       // if there is a given config, skip the cost model
       if (!hasPredefinedConfig) {
@@ -511,6 +524,8 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
         }
         if (!configCandidates.empty())
           config = configCandidates[0];
+
+        assert(validateConfig(config, shape) && "config is invalid");
       }
 
       LLVM_DEBUG(llvm::dbgs()
@@ -520,7 +535,6 @@ MatmulConfig MatmulConfigAnalysis::getConfig() {
     hasConfig = true;
   }
 
-  assert(validateConfig(config) && "config is invalid");
   return config;
 }
 } // namespace gc
