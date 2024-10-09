@@ -49,6 +49,7 @@ __attribute__((weak)) void print_verbose_header() {}
 
 static constexpr int PALETTE_SIZE = 64;
 static constexpr int DEFAULT_KERNEL_SIZE = 1024;
+static constexpr int MAX_KERNEL_SIZE = 2048;
 
 using read_lock_guard_t = std::shared_lock<std::shared_mutex>;
 using write_lock_guard_t = std::unique_lock<std::shared_mutex>;
@@ -82,7 +83,8 @@ int64_t dnnl_brgemm_dispatch(int64_t M, int64_t N, int64_t K, int64_t LDA,
 
   write_lock_guard_t g(g_brgemm_lock);
   g_kernel_id++;
-
+  assert(g_kernel_id < MAX_KERNEL_SIZE &&
+         "Too many brgemm kernels are created");
   if (g_kernel_id >= DEFAULT_KERNEL_SIZE) {
     if (g_kernel_id >= (int64_t)g_cache.size()) {
       g_cache.resize(g_kernel_id + 1);
