@@ -25,3 +25,9 @@ void OneDNNGraphDialect::initialize() {
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphOps.cpp.inc"
       >();
 }
+
+LogicalResult
+OneDNNGraphDialect::verifyOperationAttribute(Operation *op,
+                                             NamedAttribute attr) {
+  return success();
+}

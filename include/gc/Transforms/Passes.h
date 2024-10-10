@@ -139,7 +139,11 @@ void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
 #endif
 
 #define GEN_PASS_DECL
+#define GEN_PASS_DECL_CONSTANTSUBGRAPHANALYSIS
+#define GEN_PASS_DECL_CONSTANTTENSORFOLDING
 #include "gc/Transforms/Passes.h.inc"
+
+std::unique_ptr<Pass> createConstantTensorFoldingPass();
 
 #define GEN_PASS_REGISTRATION
 #include "gc/Transforms/Passes.h.inc"
