@@ -37,7 +37,7 @@ static llvm::raw_ostream &operator<<(llvm::raw_ostream &ss,
   return ss;
 }
 
-bool validateConfig(const MatmulConfig &cfg, ArrayRef<uint32_t> shape = {}) {
+bool validateConfig(const MatmulConfig &cfg, ArrayRef<uint32_t> shape) {
   if (cfg.MThreads <= 0 || cfg.NThreads <= 0 || cfg.KThreads <= 0 ||
       cfg.MBlock <= 0 || cfg.NBlock <= 0 || cfg.KBlock <= 0 ||
       cfg.innerMostMBlock <= 0 || cfg.innerMostNBlock <= 0 ||
