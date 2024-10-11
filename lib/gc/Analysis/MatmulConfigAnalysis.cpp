@@ -52,6 +52,7 @@ bool validateConfig(const MatmulConfig &cfg, ArrayRef<uint32_t> shape,
       (shape[1] % cfg.NThreads != 0 && isVNNIMM2D &&
        cfg.NBlock != cfg.innerMostNBlock))
     return false;
+  // Require K % KBlock == 0 as brgemm dynamic bs is not supported now
   if (cfg.KBlock % cfg.innerMostKBlock != 0 ||
       ((shape[2] / cfg.KThreads % cfg.KBlock != 0 ||
         shape[2] / cfg.KThreads % cfg.innerMostKBlock != 0) &&
@@ -199,6 +200,7 @@ double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
       llvm::divideCeil(M / config.innerMostMBlock, config.MThreads);
   uint32_t MNumInnerBlockPerBlock =
       llvm::divideCeil(config.MBlock, config.innerMostMBlock);
+  assert(MNumInnerBlockPerBlock > 0 && "Invalid MNumInnerBlockPerBlock.");
   uint32_t MCost = MNumBlockPerThread % MNumInnerBlockPerBlock != 0 ||
                    (M / config.innerMostNBlock % config.MThreads != 0 &&
                     config.MBlock != config.innerMostMBlock);
@@ -206,6 +208,7 @@ double dynamicBufferizationCost(linalg::LinalgOp &linalgOp,
       llvm::divideCeil(N / config.innerMostNBlock, config.NThreads);
   uint32_t NNumInnerBlockPerBlock =
       llvm::divideCeil(config.NBlock, config.innerMostNBlock);
+  assert(NNumInnerBlockPerBlock > 0 && "Invalid NNumInnerBlockPerBlock.");
   uint32_t NCost = NNumBlockPerThread % NNumInnerBlockPerBlock != 0 ||
                    (N / config.innerMostNBlock % config.NThreads != 0 &&
                     config.NBlock != config.innerMostNBlock);
@@ -324,8 +327,10 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
     KBlockCandidates = innerMostKBlockCandidates;
   }
 
-  // TODO: improve via multi threading or add more constraints to restrict the
-  // candidate size
+  bool isVNNIMM2D =
+      linalgx::isGenericPackedMatmulOp(root, linalgx::PackingType::VNNI_MM2D);
+  // TODO: improve via multi threading or add more constraints to restrict
+  // the candidate size
   for (uint32_t MThreads : MThreadsCandidates) {
     for (uint32_t NThreads : NThreadsCandidates) {
       for (uint32_t KThreads : KThreadsCandidates) {
@@ -333,30 +338,17 @@ prepareConfigCandidates(Operation *root, CPUTargetDescriptionAnalysis &sysDesc,
           continue;
         for (uint32_t MBlock : MBlockCandidates) {
           for (uint32_t innerMostMBlock : innerMostMBlockCandidates) {
-            if (MBlock % innerMostMBlock != 0 ||
-                (shape[0] % innerMostMBlock != 0 &&
-                 !allowIndivisibleInnerblock))
-              continue;
             for (uint32_t NBlock : NBlockCandidates) {
               for (uint32_t innerMostNBlock : innerMostNBlockCandidates) {
-                if (NBlock % innerMostNBlock != 0 ||
-                    (shape[1] % innerMostNBlock != 0 &&
-                     !allowIndivisibleInnerblock))
-                  continue;
                 for (uint32_t KBlock : KBlockCandidates) {
                   for (uint32_t innerMostKBlock : innerMostKBlockCandidates) {
-                    // Require K % KBlock == 0 as dynamic bs is not supported
-                    // now
-                    if (KBlock % innerMostKBlock != 0 ||
-                        ((shape[2] / KThreads % KBlock != 0 ||
-                          shape[2] / KThreads % innerMostKBlock != 0) &&
-                         !allowIndivisibleInnerblock))
-                      continue;
                     MatmulConfig config{
                         MThreads,        NThreads,        KThreads,
                         MBlock,          NBlock,          KBlock,
                         innerMostMBlock, innerMostNBlock, innerMostKBlock};
-                    configs.push_back(config);
+                    if (validateConfig(config, shape,
+                                       allowIndivisibleInnerblock, isVNNIMM2D))
+                      configs.push_back(config);
                   }
                 }
               }
