@@ -1,9 +1,7 @@
 [<img src="https://scan.coverity.com/projects/30281/badge.svg">](https://scan.coverity.com/projects/intel-graph-compiler)
 
 # Graph Compiler
-Graph Compiler is an end-to-end, MLIR-based compiler designed to enhance the performance of deep learning workloads. It accepts computation graphs from the frontend, applies domain-specific optimizations and transformations, generates code, and manages runtime execution.
-
-The current frontend for Graph Compiler is [oneDNN Graph API](https://oneapi-src.github.io/oneDNN/graph_extension.html).
+Graph Compiler is an end-to-end, MLIR-based compiler designed to enhance the performance of deep learning workloads. It accepts computation graphs from the frontend (primarily linalg on tensors), applies domain-specific optimizations and transformations, generates code, and manages runtime execution.
 
 ## Build instructions
 

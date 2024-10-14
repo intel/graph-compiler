@@ -118,3 +118,35 @@ function(gc_add_mlir_dialect_library name)
         target_link_libraries(obj.${name} PUBLIC GcInterface)
     endif()
 endfunction()
+
+macro(gc_add_mlir_tool name)
+    # the dependency list copied from mlir/tools/mlir-cpu-runner/CMakeLists.txt of upstream
+    if(NOT DEFINED LLVM_LINK_COMPONENTS)
+        set(LLVM_LINK_COMPONENTS
+          Core
+          Support
+          nativecodegen
+          native
+        )
+    endif()
+    if(NOT DEFINED MLIR_LINK_COMPONENTS)
+        gc_set_mlir_link_components(MLIR_LINK_COMPONENTS
+          MLIRAnalysis
+          MLIRBuiltinToLLVMIRTranslation
+          MLIRExecutionEngine
+          MLIRIR
+          MLIRJitRunner
+          MLIRLLVMDialect
+          MLIRLLVMToLLVMIRTranslation
+          MLIRToLLVMIRTranslationRegistration
+          MLIRParser
+          MLIRTargetLLVMIRExport
+          MLIRSupport
+        )
+    endif()
+    add_mlir_tool(${ARGV})
+    #LLVM_LINK_COMPONENTS is processed by LLVM cmake in add_llvm_executable
+    target_link_libraries(${name} PRIVATE GcInterface ${MLIR_LINK_COMPONENTS})
+    llvm_update_compile_flags(${name})
+    set_property(GLOBAL APPEND PROPERTY GC_TOOLS ${name})
+endmacro()

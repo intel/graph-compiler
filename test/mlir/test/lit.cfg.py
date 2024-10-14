@@ -49,7 +49,7 @@ config.excludes = []
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 
 tool_dirs = [config.gc_tools_dir, config.llvm_tools_dir]
-tools = ["gc-opt", "gc-cpu-runner"]
+tools = ["gc-opt", "gc-cpu-runner", "gc-gpu-runner"]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 
