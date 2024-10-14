@@ -20,6 +20,33 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/PassManager.h"
 
+#ifdef GC_ENABLE_GPU_PROFILE
+
+void EnableProfiling();
+void DisableProfiling();
+
+class tracer_t {
+public:
+  static std::shared_ptr<tracer_t> getInstance() {
+    std::shared_ptr<tracer_t> instance = std::make_shared<tracer_t>();
+    return instance;
+  }
+
+  tracer_t() {
+    gcLogD("Enable Profiling.\n");
+    EnableProfiling();
+  }
+
+  ~tracer_t() {
+    gcLogD("Profiling is finished.\n");
+    DisableProfiling();
+  }
+};
+
+static std::shared_ptr<tracer_t> trace = tracer_t::getInstance();
+
+#endif
+
 namespace mlir::gc::gpu {
 
 #define makeClErrPref(code) "OpenCL error ", code, ": "
