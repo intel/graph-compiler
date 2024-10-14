@@ -1,0 +1,19 @@
+name: Graph Compiler build
+
+on:
+  workflow_dispatch:
+  push:
+
+permissions: read-all
+
+jobs:
+  build:
+    name: Build GPU with IMEX
+    runs-on: [self-hosted, l0]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test hostname
+        run: |
+          hostname
