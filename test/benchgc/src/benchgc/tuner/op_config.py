@@ -21,6 +21,7 @@ import os
 
 from gc_mlir.extras import types as T
 from gc_mlir.ir import IntegerAttr, OpView
+from gc_mlir.tools import validate_matmul_config
 
 
 class Config:
@@ -37,6 +38,9 @@ class Config:
         pass
 
     def attach_to_ir(self, op: OpView):
+        pass
+
+    def verify(self) -> bool:
         pass
 
 
@@ -67,7 +71,7 @@ class MatMulConfig(Config):
         self.m = op.inputs[0].type.shape[0]
         self.k = op.inputs[0].type.shape[1]
         self.n = op.inputs[1].type.shape[1]
-        # self.input_a_dtype = str(op.inputs[0].type.element_type)
+        self.input_a_dtype = str(op.inputs[0].type.element_type)
         self.num_threads = int(os.environ.get("OMP_NUM_THREADS", 1))
         self.m_threads = MThreads
         self.k_threads = KThreads
@@ -137,6 +141,26 @@ class MatMulConfig(Config):
             == 0
         )
 
+    def verify(self):
+        allow_indivisible_innerblock = False
+        is_vnni_mm2d = True if self.input_a_dtype == "bf16" else False
+        return validate_matmul_config(
+            [
+                self.m_threads,
+                self.k_threads,
+                self.n_threads,
+                self.m_block,
+                self.k_block,
+                self.n_block,
+                self.innermost_m_block,
+                self.innermost_k_block,
+                self.innermost_n_block,
+            ],
+            [self.m, self.k, self.n],
+            allow_indivisible_innerblock,
+            is_vnni_mm2d,
+        )
+
     def attach_to_ir(self, op: OpView):
         attr_to_field = {
             "MThreads": self.m_threads,
@@ -153,7 +177,19 @@ class MatMulConfig(Config):
             op.attributes[name] = IntegerAttr.get(T.i32(), value)
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return str(
+            [
+                self.m_threads,
+                self.k_threads,
+                self.n_threads,
+                self.m_block,
+                self.k_block,
+                self.n_block,
+                self.innermost_m_block,
+                self.innermost_k_block,
+                self.innermost_n_block,
+            ]
+        )
 
     def __str__(self) -> str:
         obj_dict = {
