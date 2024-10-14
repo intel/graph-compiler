@@ -490,8 +490,10 @@ OclRuntime::createQueue(bool outOfOrder) const {
   cl_command_queue queue;
 #ifdef CL_VERSION_2_0
   cl_queue_properties properties[] = {
-      CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE,
-      static_cast<cl_queue_properties>(outOfOrder ? 1 : 0)};
+      CL_QUEUE_PROPERTIES,
+      static_cast<cl_queue_properties>(
+          outOfOrder ? CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE : 0),
+      0};
   queue = clCreateCommandQueueWithProperties(ext.context, ext.device,
                                              properties, &err);
 #else
