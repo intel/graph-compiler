@@ -22,6 +22,185 @@
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 
+#ifdef GC_ENABLE_GPU_PROFILE
+#include "PtiGpuUtils.h"
+#include "pti/pti_view.h"
+std::map<std::pair<pti_view_external_kind, uint64_t>, std::vector<uint32_t>>
+    external_corr_map;
+std::map<uint32_t, std::string> runtime_enq_2_gpu_kernel_name_map;
+std::map<uint32_t, std::string> runtime_enq_2_gpu_mem_op_name_map;
+
+class GPUKernelTracer {
+public:
+  GPUKernelTracer() {
+    gcLogD("Enable Profiling.");
+    ptiViewSetCallbacks(
+        [](auto **buf, auto *buf_size) {
+          *buf_size = sizeof(pti_view_record_kernel) * 100;
+          void *ptr = ::operator new(*buf_size);
+          ptr = std::align(8, sizeof(unsigned char), ptr, *buf_size);
+          *buf = reinterpret_cast<unsigned char *>(ptr);
+          if (!*buf) {
+            std::abort();
+          }
+          return;
+        },
+        [](auto *buf, auto buf_size, auto valid_buf_size) {
+          if (!buf_size || !valid_buf_size || !buf_size) {
+            std::cerr << "Received empty buffer" << '\n';
+            if (valid_buf_size) {
+              ::operator delete(buf);
+            }
+            return;
+          }
+          pti_view_record_base *ptr = nullptr;
+          while (true) {
+            auto buf_status = ptiViewGetNextRecord(buf, valid_buf_size, &ptr);
+            if (buf_status == pti_result::PTI_STATUS_END_OF_BUFFER) {
+              std::cout << "Reached End of buffer" << '\n';
+              break;
+            }
+            if (buf_status != pti_result::PTI_SUCCESS) {
+              std::cerr << "Found Error Parsing Records from PTI" << '\n';
+              break;
+            }
+            switch (ptr->_view_kind) {
+            case pti_view_kind::PTI_VIEW_INVALID: {
+              std::cout << "Found Invalid Record" << '\n';
+              break;
+            }
+            case pti_view_kind::PTI_VIEW_DEVICE_GPU_MEM_COPY: {
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              pti_view_record_memory_copy *rec =
+                  reinterpret_cast<pti_view_record_memory_copy *>(ptr);
+              runtime_enq_2_gpu_mem_op_name_map[rec->_correlation_id] =
+                  rec->_name;
+              std::cout << "Found Memory Record" << '\n';
+              samples_utils::dump_record(rec);
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              break;
+            }
+            case pti_view_kind::PTI_VIEW_DEVICE_GPU_MEM_FILL: {
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              pti_view_record_memory_fill *rec =
+                  reinterpret_cast<pti_view_record_memory_fill *>(ptr);
+              runtime_enq_2_gpu_mem_op_name_map[rec->_correlation_id] =
+                  rec->_name;
+              std::cout << "Found Memory Record" << '\n';
+              samples_utils::dump_record(rec);
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              break;
+            }
+            case pti_view_kind::PTI_VIEW_DEVICE_GPU_KERNEL: {
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              pti_view_record_kernel *rec =
+                  reinterpret_cast<pti_view_record_kernel *>(ptr);
+              runtime_enq_2_gpu_kernel_name_map[rec->_correlation_id] =
+                  rec->_name;
+              std::cout << "Found Kernel Record" << '\n';
+              samples_utils::dump_record(rec);
+
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              if (samples_utils::isMonotonic(
+                      {rec->_sycl_task_begin_timestamp,
+                       rec->_sycl_enqk_begin_timestamp, rec->_append_timestamp,
+                       rec->_submit_timestamp, rec->_start_timestamp,
+                       rec->_end_timestamp})) {
+                std::cout << "------------>     All Monotonic" << std::endl;
+              } else {
+                std::cerr
+                    << "------------>     Something wrong: NOT All monotonic"
+                    << std::endl;
+              };
+              if (rec->_sycl_task_begin_timestamp == 0) {
+                std::cerr << "------------>     Something wrong: Sycl Task "
+                             "Begin Time is 0"
+                          << std::endl;
+              }
+              if (rec->_sycl_enqk_begin_timestamp == 0) {
+                std::cerr << "------------>     Something wrong: Sycl Enq "
+                             "Launch Kernel Time is 0"
+                          << std::endl;
+              }
+
+              break;
+            }
+            case pti_view_kind::PTI_VIEW_EXTERNAL_CORRELATION: {
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              pti_view_record_external_correlation *rec =
+                  reinterpret_cast<pti_view_record_external_correlation *>(ptr);
+
+              external_corr_map[std::pair{rec->_external_kind,
+                                          rec->_external_id}]
+                  .push_back(rec->_correlation_id);
+              samples_utils::dump_record(rec);
+              break;
+            }
+            case pti_view_kind::PTI_VIEW_OPENCL_CALLS: {
+              std::cout << "---------------------------------------------------"
+                           "-----------------------------"
+                        << '\n';
+              pti_view_record_oclcalls *rec =
+                  reinterpret_cast<pti_view_record_oclcalls *>(ptr);
+              samples_utils::dump_record(rec);
+              break;
+            }
+            default: {
+              std::cerr << "This shouldn't happen" << '\n';
+              break;
+            }
+            }
+          }
+          ::operator delete(buf);
+        });
+    ptiViewSetOclProfiling();
+
+    ptiViewEnable(PTI_VIEW_DEVICE_GPU_KERNEL);
+    ptiViewEnable(PTI_VIEW_DEVICE_GPU_MEM_COPY);
+    ptiViewEnable(PTI_VIEW_DEVICE_GPU_MEM_FILL);
+    ptiViewEnable(PTI_VIEW_OPENCL_CALLS);
+    ptiViewEnable(PTI_VIEW_EXTERNAL_CORRELATION);
+  }
+
+  ~GPUKernelTracer() {
+    gcLogD("Profiling is finished.");
+    ptiViewDisable(PTI_VIEW_DEVICE_GPU_KERNEL);
+    ptiViewDisable(PTI_VIEW_DEVICE_GPU_MEM_COPY);
+    ptiViewDisable(PTI_VIEW_DEVICE_GPU_MEM_FILL);
+    ptiViewEnable(PTI_VIEW_OPENCL_CALLS);
+    ptiViewDisable(PTI_VIEW_EXTERNAL_CORRELATION);
+    ptiFlushAllViews();
+  }
+};
+
+/*
+Create an RAII tracer with a static life cycle to trace all device kernel
+execution during the program. When the tracer's constructor is called, the
+EnableProfiling will also be called, registering some metric collection
+call-back function into the opencl function call. When the tracer is destroyed,
+the DisableProfiling is also called which will statistic the collected metric
+during the tracer lifetime and print the result. The concrete implementation of
+EnableProfiling and DisableProfiling could refer to
+https://github.com/intel/pti-gpu/blob/master/tools/onetrace/tool.cc.
+*/
+static GPUKernelTracer tracer;
+
+#endif
+
 namespace mlir::gc::gpu {
 
 #define makeClErrPref(code) "OpenCL error ", code, ": "
