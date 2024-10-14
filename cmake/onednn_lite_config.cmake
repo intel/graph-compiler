@@ -28,7 +28,7 @@ if(${DNNL_CPU_RUNTIME} STREQUAL "OMP")
 endif()
 
 if(${DNNL_CPU_RUNTIME} STREQUAL "TBB")
-    include("${DNNL_PATH}/cmake/TBB.cmake")
+    find_package(TBB REQUIRED)
 endif()
 
 ########## copied from main cmake file of DNNL

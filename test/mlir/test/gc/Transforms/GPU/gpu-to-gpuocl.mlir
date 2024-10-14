@@ -68,7 +68,7 @@ module @test attributes {gpu.container_module} {
 
 // CHECK: llvm.func @entry(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64, [[CTX:%.+]]: !llvm.ptr, %arg8: !llvm.ptr, %arg9: i64)
 // CHECK: [[SIZE:%.+]] = llvm.mlir.constant(16384 : i64) : i64
-// CHECK: llvm.call @gcGpuOclMalloc([[CTX]], [[SIZE]])
+// CHECK: llvm.call @gcGpuOclMallocShared([[CTX]], [[SIZE]])
 // CHECK: [[SIZE:%.+]] = llvm.mlir.constant(16384 : i64) : i64
 // CHECK: [[SRC:%.+]] = llvm.extractvalue
 // CHECK: [[DST:%.+]] = llvm.extractvalue [[GPU_MEMREF:%.+]][1]

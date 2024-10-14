@@ -19,6 +19,8 @@ $(basename "$0")
     [ -r | --release ] Release build, requires rebuild of LLVM in Release mode, activates 'dev' option
     [ -c | --clean   ] Delete the build artifacts from the previous build
     [ -i | --imex    ] Compile with IMEX (used for GPU pipeline)
+    [ -s | --suffix  ] Build dir suffix
+    [ -v | --llvm    ] Build llvm only
     [ -h | --help    ] Print this message
 EOF
 }
@@ -26,9 +28,14 @@ EOF
 DYN_LINK=OFF
 ENABLE_IMEX=false
 for arg in "$@"; do
+    if [ ! -z "$ASSIGN_NEXT" ]; then
+        eval "$ASSIGN_NEXT=$arg"
+        unset ASSIGN_NEXT
+        continue
+    fi
     case $arg in
-        -d | --dev)   
-            DEV_BUILD=true 
+        -d | --dev)
+            DEV_BUILD=true
             ;;
         -i | --imex)
             ENABLE_IMEX=true
@@ -44,12 +51,18 @@ for arg in "$@"; do
         -c | --clean)
             CLEANUP=true
             ;;
+        -s | --suffix)
+            ASSIGN_NEXT=BUILD_DIR_SFX
+            ;;
+        -v | --llvm)
+            LLVM_ONLY=true
+            ;;
         -h | --help)
             print_usage
             exit 0
             ;;
         # -- means the end of the arguments; drop this, and break out of the while loop
-        *) 
+        *)
             echo Unsupported option: $arg
             print_usage
             exit 1
@@ -99,6 +112,10 @@ load_llvm() {
 
 build_llvm() {
     local llvm_dir="$EXTERNALS_DIR/llvm-project"
+    LLVM_BUILD_DIR="$llvm_dir/build$BUILD_DIR_SFX"
+    MLIR_DIR="$LLVM_BUILD_DIR/lib/cmake/mlir"
+    mkdir -p "$LLVM_BUILD_DIR"
+
     if ! [ -d "$llvm_dir" ]; then
         git clone https://github.com/llvm/llvm-project.git
         cd "$llvm_dir"
@@ -111,16 +128,17 @@ build_llvm() {
     fi
 
     git checkout ${LLVM_HASH}
-    [ -z "$CLEANUP" ] || rm -rf build
+    [ -z "$CLEANUP" ] || rm -rf "$LLVM_BUILD_DIR"
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
 
     if [ "$ENABLE_IMEX" = "true" ]; then
         # clone IMEX and apply patches
-        local mlir_ext_dir="$EXTERNALS_DIR/mlir-extensions"
+        local mlir_ext_dir="$EXTERNALS_DIR/imex-src"
         if ! [ -d "$mlir_ext_dir" ]; then
             cd "$EXTERNALS_DIR"
-            git clone https://github.com/intel/mlir-extensions.git
+            local imex_url="$(grep -F 'set(IMEX_URL ' "$PROJECT_DIR/cmake/imex.cmake" | awk '{print $2}' | tr -d ')')"
+            git clone "$imex_url" "$mlir_ext_dir"
             cd "$mlir_ext_dir"
         else
             cd "$mlir_ext_dir"
@@ -134,7 +152,7 @@ build_llvm() {
         find "$mlir_ext_dir/build_tools/patches" -name '*.patch' | sort -V | xargs git apply
     fi
 
-    cmake -G Ninja llvm -B build \
+    cmake -G Ninja llvm -B "$LLVM_BUILD_DIR" \
         -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
         -DCMAKE_CXX_FLAGS="$CXX_FLAGS" \
         -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
@@ -153,9 +171,7 @@ build_llvm() {
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_INSTALL_GTEST=ON \
         -DMLIR_ENABLE_BINDINGS_PYTHON=ON
-    cmake --build build --parallel $MAX_JOBS
-
-    MLIR_DIR="$PWD/build/lib/cmake/mlir"
+    cmake --build "$LLVM_BUILD_DIR" --parallel $MAX_JOBS
 }
 
 # MLIR_DIR is set on all passes
@@ -174,13 +190,14 @@ get_llvm() {
         cd "$llvm_dir"
         load_llvm
         cd "$PROJECT_DIR"
-    else 
+    else
         MLIR_DIR="$llvm_dir/lib/cmake/mlir"
     fi
     return 0
 }
 
 get_llvm
+[ -z "$LLVM_ONLY" ] || exit 0
 
 # written in this form to set LIT_PATH in any case
 if ! LIT_PATH=$(which lit) && [ -z "$DEV_BUILD" ]; then
@@ -193,11 +210,12 @@ if [ -z "$DEV_BUILD" ]; then
     FETCH_DIR=$PROJECT_DIR/build/_deps
 else
     FETCH_DIR=$PROJECT_DIR/externals
-    LIT_PATH=$PROJECT_DIR/externals/llvm-project/build/bin/llvm-lit
+    LIT_PATH="$LLVM_BUILD_DIR/bin/llvm-lit"
 fi
 
-[ -z "$CLEANUP" ] || rm -rf build
-cmake -S . -G Ninja -B build \
+BUILD_DIR="$PROJECT_DIR/build$BUILD_DIR_SFX"
+[ -z "$CLEANUP" ] || rm -rf "$BUILD_DIR"
+cmake -S . -G Ninja -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DMLIR_DIR=$MLIR_DIR \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
@@ -205,4 +223,4 @@ cmake -S . -G Ninja -B build \
     -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK \
     -DGC_ENABLE_IMEX=$ENABLE_IMEX
 
-cmake --build build --parallel $MAX_JOBS
+cmake --build "$BUILD_DIR" --parallel $MAX_JOBS

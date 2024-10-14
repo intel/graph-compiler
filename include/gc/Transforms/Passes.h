@@ -10,6 +10,7 @@
 #define GC_PASSES_H
 
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassOptions.h"
 
 namespace mlir {
 class OpBuilder;
@@ -115,8 +116,26 @@ void populateFrontendPasses(mlir::OpPassManager &);
 void populateCPUPipeline(mlir::OpPassManager &);
 
 #ifdef GC_USE_IMEX
-struct GPUPipelineOption;
-void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOption &);
+struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
+  Option<bool> isUsmArgs{
+      *this, "is-usm-args",
+      llvm::cl::desc("Whether to use USM(unified shared memory) func args, in "
+                     "which the host and device could access the same buffer "
+                     "and there is no need to add memcpy explicitly."),
+      llvm::cl::init(true)};
+  Option<bool> useGpuRuntime{
+      *this, "use-gpu-ocl",
+      llvm::cl::desc("Use the GpuToGpuOcl path, that converts the GPU "
+                     "operations to GpuOclRuntime calls."),
+      llvm::cl::init(true)};
+  Option<bool> callFinish{
+      *this, "call-finish",
+      llvm::cl::desc(
+          "Call finish() after each GPU kernel launch. This option is passed "
+          "to the GpuToGpuOcl path, if use-gpu-ocl is true."),
+      llvm::cl::init(false)};
+};
+void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
 #endif
 
 #define GEN_PASS_DECL

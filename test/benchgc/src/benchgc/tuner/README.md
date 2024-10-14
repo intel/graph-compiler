@@ -80,15 +80,15 @@ Tuning ends in 26.26677966117859 s
 Best cost: 0.025292858481407166 ms
 Best config: [{
     "MatMulConfig": {
-        "M_threads": 1,
-        "K_threads": 1,
-        "N_threads": 1,
-        "M_block": 64,
-        "K_block": 32,
-        "N_block": 64,
-        "innermostM_block": 16,
-        "innermostK_block": 16,
-        "innermostN_block": 16
+        "MThreads": 1,
+        "KThreads": 1,
+        "NThreads": 1,
+        "MBlock": 128,
+        "KBlock": 64,
+        "NBlock": 16,
+        "innerMostMBlock": 32,
+        "innerMostKBlock": 16,
+        "innerMostNBlock": 16
     }
 }]
 mlir:
@@ -97,7 +97,7 @@ mlir:
     %cst = arith.constant 0.000000e+00 : f32
     %0 = tensor.empty() : tensor<128x128xf32>
     %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<128x128xf32>) -> tensor<128x128xf32>
-    %2 = linalg.matmul {KBlock = 32 : i32, Kthreads = 1 : i32, MBlock = 64 : i32, Mthreads = 1 : i32, NBlock = 64 : i32, Nthreads = 1 : i32, cast = #linalg.type_fn<cast_signed>, innermostKBlock = 16 : i32, innermostMBlock = 16 : i32, innermostNBlock = 16 : i32} ins(%arg0, %arg1 : tensor<128x128xf32>, tensor<128x128xf32>) outs(%1 : tensor<128x128xf32>) -> tensor<128x128xf32>
+    %2 = linalg.matmul {KBlock = 64 : i32, KThreads = 1 : i32, MBlock = 128 : i32, MThreads = 1 : i32, NBlock = 16 : i32, NThreads = 1 : i32, cast = #linalg.type_fn<cast_signed>, innerMostKBlock = 16 : i32, innerMostMBlock = 32 : i32, innerMostNBlock = 16 : i32} ins(%arg0, %arg1 : tensor<128x128xf32>, tensor<128x128xf32>) outs(%1 : tensor<128x128xf32>) -> tensor<128x128xf32>
     return %2 : tensor<128x128xf32>
   }
 }
@@ -117,31 +117,31 @@ OMP_NUM_THREADS=1 python -m benchgc --mode T --driver pattern --case mlp --batch
 [ 400 / 1536 ] skipped: 1131 best: 0.006834045052528381 ms
 [ 405 / 1536 ] skipped: 1131 best: 0.006834045052528381 ms
 Tuner returns empty batch, early stop now
-Tuning ends in 80.21396946907043 s
-Best cost: 0.006834045052528381 ms
+Tuning ends in 80.10290145874023 s
+Best cost: 0.006632879376411438 ms
 Best config: [{
     "MatMulConfig": {
-        "M_threads": 1,
-        "K_threads": 1,
-        "N_threads": 1,
-        "M_block": 32,
-        "K_block": 16,
-        "N_block": 32,
-        "innermostM_block": 16,
-        "innermostK_block": 16,
-        "innermostN_block": 32
+        "MThreads": 1,
+        "KThreads": 1,
+        "NThreads": 1,
+        "MBlock": 32,
+        "KBlock": 16,
+        "NBlock": 32,
+        "innerMostMBlock": 32,
+        "innerMostKBlock": 16,
+        "innerMostNBlock": 16
     }
 }, {
     "MatMulConfig": {
-        "M_threads": 1,
-        "K_threads": 1,
-        "N_threads": 1,
-        "M_block": 32,
-        "K_block": 32,
-        "N_block": 64,
-        "innermostM_block": 16,
-        "innermostK_block": 16,
-        "innermostN_block": 32
+        "MThreads": 1,
+        "KThreads": 1,
+        "NThreads": 1,
+        "MBlock": 32,
+        "KBlock": 32,
+        "NBlock": 16,
+        "innerMostMBlock": 16,
+        "innerMostKBlock": 32,
+        "innerMostNBlock": 16
     }
 }]
 mlir:
@@ -150,7 +150,7 @@ mlir:
     %cst = arith.constant 0.000000e+00 : f32
     %0 = tensor.empty() : tensor<32x32xf32>
     %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<32x32xf32>) -> tensor<32x32xf32>
-    %2 = linalg.matmul {KBlock = 16 : i32, Kthreads = 1 : i32, MBlock = 32 : i32, Mthreads = 1 : i32, NBlock = 32 : i32, Nthreads = 1 : i32, cast = #linalg.type_fn<cast_signed>, innermostKBlock = 16 : i32, innermostMBlock = 16 : i32, innermostNBlock = 32 : i32} ins(%arg0, %arg1 : tensor<32x16xf32>, tensor<16x32xf32>) outs(%1 : tensor<32x32xf32>) -> tensor<32x32xf32>
+    %2 = linalg.matmul {KBlock = 16 : i32, KThreads = 1 : i32, MBlock = 32 : i32, MThreads = 1 : i32, NBlock = 32 : i32, NThreads = 1 : i32, cast = #linalg.type_fn<cast_signed>, innerMostKBlock = 16 : i32, innerMostMBlock = 32 : i32, innerMostNBlock = 16 : i32} ins(%arg0, %arg1 : tensor<32x16xf32>, tensor<16x32xf32>) outs(%1 : tensor<32x32xf32>) -> tensor<32x32xf32>
     %3 = tensor.empty() : tensor<32x32xf32>
     %broadcasted = linalg.broadcast ins(%arg3 : tensor<32xf32>) outs(%3 : tensor<32x32xf32>) dimensions = [0] 
     %4 = tensor.empty() : tensor<32x32xf32>
@@ -160,7 +160,7 @@ mlir:
     %7 = linalg.max ins(%5, %cst_0 : tensor<32x32xf32>, tensor<32x32xf32>) outs(%6 : tensor<32x32xf32>) -> tensor<32x32xf32>
     %8 = tensor.empty() : tensor<32x64xf32>
     %9 = linalg.fill ins(%cst : f32) outs(%8 : tensor<32x64xf32>) -> tensor<32x64xf32>
-    %10 = linalg.matmul {KBlock = 32 : i32, Kthreads = 1 : i32, MBlock = 32 : i32, Mthreads = 1 : i32, NBlock = 64 : i32, Nthreads = 1 : i32, cast = #linalg.type_fn<cast_signed>, innermostKBlock = 16 : i32, innermostMBlock = 16 : i32, innermostNBlock = 32 : i32} ins(%7, %arg2 : tensor<32x32xf32>, tensor<32x64xf32>) outs(%9 : tensor<32x64xf32>) -> tensor<32x64xf32>
+    %10 = linalg.matmul {KBlock = 32 : i32, KThreads = 1 : i32, MBlock = 32 : i32, MThreads = 1 : i32, NBlock = 16 : i32, NThreads = 1 : i32, cast = #linalg.type_fn<cast_signed>, innerMostKBlock = 32 : i32, innerMostMBlock = 16 : i32, innerMostNBlock = 16 : i32} ins(%7, %arg2 : tensor<32x32xf32>, tensor<32x64xf32>) outs(%9 : tensor<32x64xf32>) -> tensor<32x64xf32>
     %11 = tensor.empty() : tensor<32x64xf32>
     %broadcasted_1 = linalg.broadcast ins(%arg4 : tensor<64xf32>) outs(%11 : tensor<32x64xf32>) dimensions = [0] 
     %12 = tensor.empty() : tensor<32x64xf32>

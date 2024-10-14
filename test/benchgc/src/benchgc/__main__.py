@@ -494,8 +494,10 @@ def performance_tuning(flags: argparse.Namespace, module: ir.Module, args: List[
                 flags.early_stop,
                 flags.checkpoint_path,
                 flags.tuner_verbose,
-                random_seed=flags.random_seed,
-                expected_tune_num=flags.expected_tune_num,
+                flags.ga_elite_num,
+                flags.ga_mutation_prob,
+                random_seed=flags.ga_random_seed,
+                expected_tune_num=flags.ga_expected_tune_num,
             )
         tuner.run(flags.max_tuning_iters, flags.timeout)
 

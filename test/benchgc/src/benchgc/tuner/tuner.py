@@ -85,8 +85,17 @@ class TuningSpace:
         constraint = self.flatten_constraints[candidate_idx]
         val = self.flatten_candidates[candidate_idx][val]
         setattr(config, field_name, val)
-        if constraint:
-            return constraint(config, val)
+        if constraint and (not constraint(config, val)):
+            return False
+        # verify the config when it has all fields
+        if (candidate_idx + 1) == len(
+            self.flatten_candidates
+        ) or self.ind_candidate_to_config[
+            candidate_idx + 1
+        ] != self.ind_candidate_to_config[
+            candidate_idx
+        ]:
+            return config.verify()
         return True
 
     def filter_next_candidates(self, candidate_idx, val) -> List[int]:
@@ -186,7 +195,7 @@ class Tuner(ABC):
         print("Tuning ends in", tuning_time, "s")
         best_config = self.tunning_space.make_config_from_indexes(self.best)
         print("Best cost:", self.best_cost, "ms")
-        print("Best config:", best_config)
+        print("Best config:", [str(single_cfg) for single_cfg in best_config])
         attach_configs_to_ir(self.tunning_space.initial_ir, best_config)
         print(
             "mlir:\n",
@@ -218,8 +227,6 @@ class Tuner(ABC):
 
             old_iter = self.iter
             self.iter += len(config_indices_batch)
-            if self.tuner_verbose:
-                print("config_indices_batch:", config_indices_batch)
             perf_result = []
             ir_modules = []
             for config_indexes in config_indices_batch:
@@ -233,8 +240,19 @@ class Tuner(ABC):
                 )
                 attach_configs_to_ir(new_ir, real_config)
                 ir_modules.append(new_ir)
+            if self.tuner_verbose:
+                print("start to execute the batch of configs ...")
             res = self.batch_executor(ir_modules)
             perf_result = [item[1] for item in res]
+            # print the perf result of each config
+            if self.tuner_verbose:
+                for i, config_indexes in enumerate(config_indices_batch):
+                    real_config = self.tunning_space.make_config_from_indexes(
+                        config_indexes
+                    )
+                    perf_to_cfg = {"cost": perf_result[i], "cfg": repr(real_config)}
+                    print(json.dumps(perf_to_cfg))
+
             old_best = self.best_cost
             self.tuner_update(config_indices_batch, perf_result)
             print(
@@ -313,7 +331,10 @@ class GridTuner(Tuner):
             if valid_config_idx:
                 config_indices_batch.append(config_ids)
                 if self.tuner_verbose:
-                    print(self.tunning_space.make_config_from_indexes(config_ids))
+                    print(
+                        "find valid config",
+                        self.tunning_space.make_config_from_indexes(config_ids),
+                    )
             else:
                 self.skipped_num += 1
                 if self.tuner_verbose:
@@ -381,7 +402,14 @@ class GATuner(Tuner):
         random_seed: int = DEFAULT_RANDOM_SEED,
         expected_tune_num: int = DEFAULT_EXPECTED_TUNE_NUM,
     ):
-        super().__init__(batch_executor, tuning_space, pop_size, early_stop, checkpoint)
+        super().__init__(
+            batch_executor,
+            tuning_space,
+            pop_size,
+            early_stop,
+            checkpoint,
+            tuner_verbose,
+        )
         self.elite_num = min(elite_num, pop_size)
         self.mutation_prob = mutation_prob
         self.pop_size = pop_size
@@ -486,6 +514,11 @@ class GATuner(Tuner):
             )
             return False
 
+        graph_cfg = self.tunning_space.make_config_from_indexes(gene)
+        for cfg in graph_cfg:
+            if not cfg.verify():
+                return False
+
         to_tune.append(gene)
         self.cur_mutation_prob = GATuner.update_mutation_prob(
             self.cur_mutation_prob, self.mutation_prob, False
@@ -504,7 +537,7 @@ class GATuner(Tuner):
             self.get_next_config(prob_range, to_tune)
 
         if self.tuner_verbose:
-            print("to_tune", to_tune)
+            print("to_tune list:")
             for to_tune_config in to_tune:
                 print(self.tunning_space.make_config_from_indexes(to_tune_config))
 

@@ -21,6 +21,7 @@ import os
 
 from gc_mlir.extras import types as T
 from gc_mlir.ir import IntegerAttr, OpView
+from gc_mlir.tools import validate_matmul_config
 
 
 class Config:
@@ -39,6 +40,9 @@ class Config:
     def attach_to_ir(self, op: OpView):
         pass
 
+    def verify(self) -> bool:
+        pass
+
 
 def find_factors(num):
     factors = set()
@@ -53,120 +57,152 @@ class MatMulConfig(Config):
     def __init__(
         self,
         op: OpView,
-        M_threads: int = 1,
-        K_threads: int = 1,
-        N_threads: int = 1,
-        M_block: int = 1,
-        K_block: int = 1,
-        N_block: int = 1,
-        innermostM_block: int = 1,
-        innermostK_block: int = 1,
-        innermostN_block: int = 1,
+        MThreads: int = 1,
+        KThreads: int = 1,
+        NThreads: int = 1,
+        MBlock: int = 1,
+        KBlock: int = 1,
+        NBlock: int = 1,
+        innerMostMBlock: int = 1,
+        innerMostKBlock: int = 1,
+        innerMostNBlock: int = 1,
     ):
         # you can set the default value and candidates by info from matmul_op
-        self.M = op.inputs[0].type.shape[0]
-        self.K = op.inputs[0].type.shape[1]
-        self.N = op.inputs[1].type.shape[1]
-        # self.input_a_dtype = str(op.inputs[0].type.element_type)
+        self.m = op.inputs[0].type.shape[0]
+        self.k = op.inputs[0].type.shape[1]
+        self.n = op.inputs[1].type.shape[1]
+        self.input_a_dtype = str(op.inputs[0].type.element_type)
         self.num_threads = int(os.environ.get("OMP_NUM_THREADS", 1))
-        self.M_threads = M_threads
-        self.K_threads = K_threads
-        self.N_threads = N_threads
-        self.M_block = M_block
-        self.K_block = K_block
-        self.N_block = N_block
-        self.innermostM_block = innermostM_block
-        self.innermostK_block = innermostK_block
-        self.innermostN_block = innermostN_block
+        self.m_threads = MThreads
+        self.k_threads = KThreads
+        self.n_threads = NThreads
+        self.m_block = MBlock
+        self.k_block = KBlock
+        self.n_block = NBlock
+        self.innermost_m_block = innerMostMBlock
+        self.innermost_k_block = innerMostKBlock
+        self.innermost_n_block = innerMostNBlock
         super().__init__()
 
     def init_candidates(self):
         default_blocks = [16, 32, 64, 128, 256, 512]
         default_innermost_blocks = [16, 32]
-        self.field_candidates["M_threads"] = find_factors(self.num_threads)
-        self.field_candidates["K_threads"] = find_factors(self.num_threads)
-        self.field_candidates["N_threads"] = find_factors(self.num_threads)
-        self.field_candidates["M_block"] = [
-            block for block in default_blocks if self.M >= block
+        self.field_candidates["m_threads"] = find_factors(self.num_threads)
+        self.field_candidates["k_threads"] = find_factors(self.num_threads)
+        self.field_candidates["n_threads"] = find_factors(self.num_threads)
+        self.field_candidates["m_block"] = [
+            block for block in default_blocks if self.m >= block
         ]
-        self.field_candidates["K_block"] = [
-            block for block in default_blocks if self.K >= block
+        self.field_candidates["k_block"] = [
+            block for block in default_blocks if self.k >= block
         ]
-        self.field_candidates["N_block"] = [
-            block for block in default_blocks if self.N >= block
+        self.field_candidates["n_block"] = [
+            block for block in default_blocks if self.n >= block
         ]
-        self.field_candidates["innermostM_block"] = [
-            block for block in default_innermost_blocks if self.M >= block
+        self.field_candidates["innermost_m_block"] = [
+            block for block in default_innermost_blocks if self.m >= block
         ]
-        self.field_candidates["innermostK_block"] = [
-            block for block in default_innermost_blocks if self.K >= block
+        self.field_candidates["innermost_k_block"] = [
+            block for block in default_innermost_blocks if self.k >= block
         ]
-        self.field_candidates["innermostN_block"] = [
-            block for block in default_innermost_blocks if self.N >= block
+        self.field_candidates["innermost_n_block"] = [
+            block for block in default_innermost_blocks if self.n >= block
         ]
 
     def init_constraints(self):
         # example: using lambda to add constraints, adding constraints by the order of the fields
-        self.field_constraints["M_threads"] = None
-        self.field_constraints["K_threads"] = (
-            lambda MatMulConfig, K_threads: self.num_threads
-            % (MatMulConfig.M_threads * K_threads)
+        self.field_constraints["m_threads"] = None
+        self.field_constraints["k_threads"] = (
+            lambda MatMulConfig, k_threads: self.num_threads
+            % (MatMulConfig.m_threads * k_threads)
             == 0
         )
-        self.field_constraints["N_threads"] = (
-            lambda MatMulConfig, N_threads: self.num_threads
-            % (MatMulConfig.M_threads * MatMulConfig.K_threads * N_threads)
+        self.field_constraints["n_threads"] = (
+            lambda MatMulConfig, n_threads: self.num_threads
+            % (MatMulConfig.m_threads * MatMulConfig.k_threads * n_threads)
             == 0
         )
-        self.field_constraints["M_block"] = None
-        self.field_constraints["K_block"] = None
-        self.field_constraints["N_block"] = None
-        self.field_constraints["innermostM_block"] = (
-            lambda MatMulConfig, innermostM_block: MatMulConfig.M_block
-            % innermostM_block
+        self.field_constraints["m_block"] = None
+        self.field_constraints["k_block"] = None
+        self.field_constraints["n_block"] = None
+        self.field_constraints["innermost_m_block"] = (
+            lambda MatMulConfig, innermost_m_block: MatMulConfig.m_block
+            % innermost_m_block
             == 0
         )
-        self.field_constraints["innermostK_block"] = (
-            lambda MatMulConfig, innermostK_block: MatMulConfig.K_block
-            % innermostK_block
+        self.field_constraints["innermost_k_block"] = (
+            lambda MatMulConfig, innermost_k_block: MatMulConfig.k_block
+            % innermost_k_block
             == 0
         )
-        self.field_constraints["innermostN_block"] = (
-            lambda MatMulConfig, innermostN_block: MatMulConfig.N_block
-            % innermostN_block
+        self.field_constraints["innermost_n_block"] = (
+            lambda MatMulConfig, innermost_n_block: MatMulConfig.n_block
+            % innermost_n_block
             == 0
+        )
+
+    def verify(self):
+        allow_indivisible_innerblock = False
+        is_vnni_mm2d = True if self.input_a_dtype == "bf16" else False
+        return validate_matmul_config(
+            [
+                self.m_threads,
+                self.k_threads,
+                self.n_threads,
+                self.m_block,
+                self.k_block,
+                self.n_block,
+                self.innermost_m_block,
+                self.innermost_k_block,
+                self.innermost_n_block,
+            ],
+            [self.m, self.k, self.n],
+            allow_indivisible_innerblock,
+            is_vnni_mm2d,
         )
 
     def attach_to_ir(self, op: OpView):
         attr_to_field = {
-            "MThreads": self.M_threads,
-            "KThreads": self.K_threads,
-            "NThreads": self.N_threads,
-            "MBlock": self.M_block,
-            "KBlock": self.K_block,
-            "NBlock": self.N_block,
-            "innermostMBlock": self.innermostM_block,
-            "innermostKBlock": self.innermostK_block,
-            "innermostNBlock": self.innermostN_block,
+            "MThreads": self.m_threads,
+            "KThreads": self.k_threads,
+            "NThreads": self.n_threads,
+            "MBlock": self.m_block,
+            "KBlock": self.k_block,
+            "NBlock": self.n_block,
+            "innerMostMBlock": self.innermost_m_block,
+            "innerMostKBlock": self.innermost_k_block,
+            "innerMostNBlock": self.innermost_n_block,
         }
         for name, value in attr_to_field.items():
             op.attributes[name] = IntegerAttr.get(T.i32(), value)
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return str(
+            [
+                self.m_threads,
+                self.k_threads,
+                self.n_threads,
+                self.m_block,
+                self.k_block,
+                self.n_block,
+                self.innermost_m_block,
+                self.innermost_k_block,
+                self.innermost_n_block,
+            ]
+        )
 
     def __str__(self) -> str:
         obj_dict = {
             "MatMulConfig": {
-                "M_threads": self.M_threads,
-                "K_threads": self.K_threads,
-                "N_threads": self.N_threads,
-                "M_block": self.M_block,
-                "K_block": self.K_block,
-                "N_block": self.N_block,
-                "innermostM_block": self.innermostM_block,
-                "innermostK_block": self.innermostK_block,
-                "innermostN_block": self.innermostN_block,
+                "MThreads": self.m_threads,
+                "KThreads": self.k_threads,
+                "NThreads": self.n_threads,
+                "MBlock": self.m_block,
+                "KBlock": self.k_block,
+                "NBlock": self.n_block,
+                "innerMostMBlock": self.innermost_m_block,
+                "innerMostKBlock": self.innermost_k_block,
+                "innerMostNBlock": self.innermost_n_block,
             }
         }
         return json.dumps(obj_dict, indent=4)

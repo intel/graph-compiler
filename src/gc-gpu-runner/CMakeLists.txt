@@ -15,7 +15,14 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-add_subdirectory(dnnl)
-add_subdirectory(gc-cpu-runner)
-add_subdirectory(gc-gpu-runner)
-add_subdirectory(gc-opt)
+if(NOT GC_ENABLE_TOOLS OR NOT GC_ENABLE_IMEX)
+  message(STATUS "Gpu runner is not enabled.")
+  return()
+endif()
+
+gc_add_mlir_tool(gc-gpu-runner GpuRunner.cpp)
+target_link_libraries(gc-gpu-runner PRIVATE
+  GcJitWrapper
+  GcGpuOclRuntime
+)
+mlir_check_all_link_libraries(gc-gpu-runner)
