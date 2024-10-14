@@ -195,7 +195,7 @@ class Tuner(ABC):
         print("Tuning ends in", tuning_time, "s")
         best_config = self.tunning_space.make_config_from_indexes(self.best)
         print("Best cost:", self.best_cost, "ms")
-        print("Best config:", str(best_config))
+        print("Best config:", [str(single_cfg) for single_cfg in best_config])
         attach_configs_to_ir(self.tunning_space.initial_ir, best_config)
         print(
             "mlir:\n",
@@ -240,6 +240,8 @@ class Tuner(ABC):
                 )
                 attach_configs_to_ir(new_ir, real_config)
                 ir_modules.append(new_ir)
+            if self.tuner_verbose:
+                print("start to execute the batch of configs ...")
             res = self.batch_executor(ir_modules)
             perf_result = [item[1] for item in res]
             # print the perf result of each config
