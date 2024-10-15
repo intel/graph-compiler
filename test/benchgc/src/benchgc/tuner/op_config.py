@@ -156,7 +156,7 @@ class MatMulConfig(Config):
                 self.innermost_k_block,
                 self.innermost_n_block,
             ],
-            [self.m, self.k, self.n],
+            [self.m, self.n, self.k],
             allow_indivisible_innerblock,
             is_vnni_mm2d,
         )
