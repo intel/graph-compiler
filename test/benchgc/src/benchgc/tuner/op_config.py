@@ -147,14 +147,14 @@ class MatMulConfig(Config):
         return validate_matmul_config(
             [
                 self.m_threads,
-                self.k_threads,
                 self.n_threads,
+                self.k_threads,
                 self.m_block,
-                self.k_block,
                 self.n_block,
+                self.k_block,
                 self.innermost_m_block,
-                self.innermost_k_block,
                 self.innermost_n_block,
+                self.innermost_k_block,
             ],
             [self.m, self.n, self.k],
             allow_indivisible_innerblock,
