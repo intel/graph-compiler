@@ -27,9 +27,9 @@ void DisableProfiling();
 
 class GPUKernelTracer {
 public:
-  static std::shared_ptr<GPUKernelTracer> getInstance() {
-    std::shared_ptr<GPUKernelTracer> instance =
-        std::make_shared<GPUKernelTracer>();
+  static std::unique_ptr<GPUKernelTracer> getInstance() {
+    std::unique_ptr<GPUKernelTracer> instance =
+        std::make_unique<GPUKernelTracer>();
     return instance;
   }
 
@@ -44,7 +44,13 @@ public:
   }
 };
 
-static std::shared_ptr<GPUKernelTracer> tracer = GPUKernelTracer::getInstance();
+/*
+Create a tracer with a static life cycle to trace all device kernel execution
+during the program. The unique pointer is used to manage class creation and
+recycling. When the pointer is destroyed, the tracer's destructor will be called
+and print the profile result.
+*/
+static std::unique_ptr<GPUKernelTracer> tracer = GPUKernelTracer::getInstance();
 
 #endif
 
