@@ -876,8 +876,7 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
         {CL_DEVICE_MAX_COMPUTE_UNITS, "num_exec_units"},
         {CL_DEVICE_NUM_EUS_PER_SUB_SLICE_INTEL, "num_exec_units_per_slice"},
         {CL_DEVICE_NUM_THREADS_PER_EU_INTEL, "num_threads_per_eu"},
-        // Assuming the cache size is equal to the local mem
-        {CL_DEVICE_LOCAL_MEM_SIZE, "L1_cache_size_in_bytes"},
+        {CL_DEVICE_LOCAL_MEM_SIZE, "local_mem_size"},
     };
 
     unsigned i = 0;

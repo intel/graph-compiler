@@ -61,17 +61,17 @@ module @test {
 )mlir";
 
 constexpr char matmulAddStatic[] = R"mlir(
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
-  func.func @entry(%arg0: memref<64x128xf16>, %arg1: memref<128x128xf16>, %arg2: memref<64x128xf16>) {
-    %0 = bufferization.to_tensor %arg0 restrict : memref<64x128xf16>
-    %1 = bufferization.to_tensor %arg1 restrict : memref<128x128xf16>
-    %2 = tensor.empty() : tensor<64x128xf16>
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"max_work_group_size", 16 : i64>>>} {
+  func.func @entry(%arg0: memref<128x256xf16>, %arg1: memref<256x256xf16>, %arg2: memref<128x256xf16>) {
+    %0 = bufferization.to_tensor %arg0 restrict : memref<128x256xf16>
+    %1 = bufferization.to_tensor %arg1 restrict : memref<256x256xf16>
+    %2 = tensor.empty() : tensor<128x256xf16>
     %cst = arith.constant 0.000000e+00 : f16
-    %3 = linalg.fill ins(%cst : f16) outs(%2 : tensor<64x128xf16>) -> tensor<64x128xf16>
-    %4 = linalg.matmul_transpose_b ins(%0, %1 : tensor<64x128xf16>, tensor<128x128xf16>) outs(%3 : tensor<64x128xf16>) -> tensor<64x128xf16>
-    %5 = tensor.empty() : tensor<64x128xf16>
-    %6 = linalg.add ins(%4, %0 : tensor<64x128xf16>, tensor<64x128xf16>) outs(%5 : tensor<64x128xf16>) -> tensor<64x128xf16>
-    bufferization.materialize_in_destination %6 in restrict writable %arg2 : (tensor<64x128xf16>, memref<64x128xf16>) -> ()
+    %3 = linalg.fill ins(%cst : f16) outs(%2 : tensor<128x256xf16>) -> tensor<128x256xf16>
+    %4 = linalg.matmul ins(%0, %1 : tensor<128x256xf16>, tensor<256x256xf16>) outs(%3 : tensor<128x256xf16>) -> tensor<128x256xf16>
+    %5 = tensor.empty() : tensor<128x256xf16>
+    %6 = linalg.add ins(%4, %0 : tensor<128x256xf16>, tensor<128x256xf16>) outs(%5 : tensor<128x256xf16>) -> tensor<128x256xf16>
+    bufferization.materialize_in_destination %6 in restrict writable %arg2 : (tensor<128x256xf16>, memref<128x256xf16>) -> ()
     return
   }
 }
@@ -167,7 +167,7 @@ template <unsigned N, unsigned M = N> struct TestMatmulAdd : TestBase {
     gcGetOrReport(ctx.finish());
     for (unsigned i = 0; i < size1; i++) {
       // std::cout << buf2[i] << " ";
-      assert(buf2[i] == 20496);
+      assert(buf2[i] == 21512);
     }
     // std::cout << "\n";
   }
@@ -220,7 +220,7 @@ TEST(GpuOclRuntime, TestAddDynamic) {
 }
 
 TEST(GpuOclRuntime, TestMatmulAddStatic) {
-  struct Test : TestMatmulAdd<64, 128> {
+  struct Test : TestMatmulAdd<128, 256> {
     void exec(std::shared_ptr<const OclModule> &mod) override {
       assert(mod->isStatic);
       StaticExecutor<3> exec(mod);

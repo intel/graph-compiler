@@ -120,6 +120,36 @@ def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
            "Call finish() after each kernel launch.">
     ];
 }
+
+def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
+  let summary = "GPU tiling and fusion path.";
+  let description = [{
+    This pass tiles linalg operations and creates two nested scf.forall loops. When converting to gpu.launch,
+    the inner loop is mapped to the block sizes and the outer - to grid sizes. The tiles calculation is based
+    on the GPU device properties, retrieved from the DLTI attributes. If the DLTI attributes are not specified,
+    defaults to the pass options.
+  }];
+  let options = [
+    Option<"numEus", "num-eus", "size_t",
+           /*default=*/"448",
+           "Number of Execution Units.">,
+    Option<"numEusPerSlice", "num-eus-per-slice", "size_t",
+           /*default=*/"8",
+           "Number of Execution Units per slice.">,
+    Option<"numThreadsPerEu", "num-threads-per-eu", "size_t",
+           /*default=*/"8",
+           "Number of threads per Execution Unit.">,
+    Option<"localMemSize", "local-mem-size", "size_t",
+           /*default=*/"131072",
+           "The size of the local memory, shared across a work-group.">,
+    Option<"vectorWidth", "vector-width", "size_t",
+           /*default=*/"512",
+           "The maximum width of EU's vector registers.">,
+    Option<"workGroupSize", "work-group-size", "size_t",
+           /*default=*/"64",
+           "The maximum workgroup size.">
+    ];
+}
 #endif // GC_USE_IMEX
 
 def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
