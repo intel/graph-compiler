@@ -25,25 +25,26 @@
 void EnableProfiling();
 void DisableProfiling();
 
-class tracer_t {
+class GPUKernelTracer {
 public:
-  static std::shared_ptr<tracer_t> getInstance() {
-    std::shared_ptr<tracer_t> instance = std::make_shared<tracer_t>();
+  static std::shared_ptr<GPUKernelTracer> getInstance() {
+    std::shared_ptr<GPUKernelTracer> instance =
+        std::make_shared<GPUKernelTracer>();
     return instance;
   }
 
-  tracer_t() {
-    gcLogD("Enable Profiling.\n");
+  GPUKernelTracer() {
+    gcLogD("Enable Profiling.");
     EnableProfiling();
   }
 
-  ~tracer_t() {
-    gcLogD("Profiling is finished.\n");
+  ~GPUKernelTracer() {
+    gcLogD("Profiling is finished.");
     DisableProfiling();
   }
 };
 
-static std::shared_ptr<tracer_t> trace = tracer_t::getInstance();
+static std::shared_ptr<GPUKernelTracer> tracer = GPUKernelTracer::getInstance();
 
 #endif
 
