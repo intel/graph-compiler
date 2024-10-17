@@ -386,13 +386,13 @@ bool readConfigFromAttrs(MatmulConfig &config, ArrayRef<NamedAttribute> attrs) {
     } else if (attr.getName() == "MThreads") {
       config.MThreads = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
-    } else if (attr.getName() == "innermostMBlock") {
+    } else if (attr.getName() == "innerMostMBlock") {
       config.innerMostMBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
-    } else if (attr.getName() == "innermostNBlock") {
+    } else if (attr.getName() == "innerMostNBlock") {
       config.innerMostNBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
-    } else if (attr.getName() == "innermostKBlock") {
+    } else if (attr.getName() == "innerMostKBlock") {
       config.innerMostKBlock = cast<IntegerAttr>(attr.getValue()).getInt();
       cfgItemCnt++;
     }
