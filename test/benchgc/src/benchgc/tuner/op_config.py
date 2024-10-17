@@ -169,9 +169,9 @@ class MatMulConfig(Config):
             "MBlock": self.m_block,
             "KBlock": self.k_block,
             "NBlock": self.n_block,
-            "innerMostMBlock": self.innermost_m_block,
-            "innerMostKBlock": self.innermost_k_block,
-            "innerMostNBlock": self.innermost_n_block,
+            "innermostMBlock": self.innermost_m_block,
+            "innermostKBlock": self.innermost_k_block,
+            "innermostNBlock": self.innermost_n_block,
         }
         for name, value in attr_to_field.items():
             op.attributes[name] = IntegerAttr.get(T.i32(), value)
@@ -180,29 +180,30 @@ class MatMulConfig(Config):
         return str(
             [
                 self.m_threads,
-                self.k_threads,
                 self.n_threads,
+                self.k_threads,
                 self.m_block,
-                self.k_block,
                 self.n_block,
+                self.k_block,
                 self.innermost_m_block,
-                self.innermost_k_block,
                 self.innermost_n_block,
+                self.innermost_k_block,
             ]
         )
 
     def __str__(self) -> str:
         obj_dict = {
             "MatMulConfig": {
-                "MThreads": self.m_threads,
-                "KThreads": self.k_threads,
+                "MThreads": self.m_threads,          
                 "NThreads": self.n_threads,
+                "KThreads": self.k_threads,
                 "MBlock": self.m_block,
-                "KBlock": self.k_block,
                 "NBlock": self.n_block,
+                "KBlock": self.k_block,            
                 "innerMostMBlock": self.innermost_m_block,
-                "innerMostKBlock": self.innermost_k_block,
                 "innerMostNBlock": self.innermost_n_block,
+                "innerMostKBlock": self.innermost_k_block,
+                
             }
         }
         return json.dumps(obj_dict, indent=4)
