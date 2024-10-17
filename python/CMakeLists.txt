@@ -95,6 +95,13 @@ declare_mlir_python_extension(GcPythonSources.CpuInfoExtension
     CPUInfo.cpp
 )
 
+declare_mlir_python_extension(GcPythonSources.ToolsExtension
+  MODULE_NAME _tools
+  ADD_TO_PARENT GcPythonSources
+  SOURCES
+    Tools.cpp
+)
+
 ################################################################################
 # Common CAPI
 ################################################################################
