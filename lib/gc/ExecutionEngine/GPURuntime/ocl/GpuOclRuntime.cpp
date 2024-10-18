@@ -27,12 +27,6 @@ void DisableProfiling();
 
 class GPUKernelTracer {
 public:
-  static std::unique_ptr<GPUKernelTracer> getInstance() {
-    std::unique_ptr<GPUKernelTracer> instance =
-        std::make_unique<GPUKernelTracer>();
-    return instance;
-  }
-
   GPUKernelTracer() {
     gcLogD("Enable Profiling.");
     EnableProfiling();
@@ -45,12 +39,16 @@ public:
 };
 
 /*
-Create a tracer with a static life cycle to trace all device kernel execution
-during the program. The unique pointer is used to manage class creation and
-recycling. When the pointer is destroyed, the tracer's destructor will be called
-and print the profile result.
+Create an RAII tracer with a static life cycle to trace all device kernel
+execution during the program. When the tracer's constructor is called, the
+EnableProfiling will also be called, registering some metric collection
+call-back function into the opencl function call. When the tracer is destroyed,
+the DisableProfiling is also called which will statistic the collected metric
+during the tracer lifetime and print the result. The concrete implementation of
+EnableProfiling and DisableProfiling could refer to
+https://github.com/intel/pti-gpu/blob/master/tools/onetrace/tool.cc.
 */
-static std::unique_ptr<GPUKernelTracer> tracer = GPUKernelTracer::getInstance();
+static GPUKernelTracer tracer;
 
 #endif
 
