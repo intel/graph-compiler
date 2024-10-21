@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -ex
 
 cd "$(dirname "$0")/.."
 PROJECT_DIR="$PWD"
@@ -114,7 +114,6 @@ build_llvm() {
     local llvm_dir="$EXTERNALS_DIR/llvm-project"
     LLVM_BUILD_DIR="$llvm_dir/build$BUILD_DIR_SFX"
     MLIR_DIR="$LLVM_BUILD_DIR/lib/cmake/mlir"
-    mkdir -p "$LLVM_BUILD_DIR"
 
     if ! [ -d "$llvm_dir" ]; then
         git clone https://github.com/llvm/llvm-project.git
@@ -129,6 +128,7 @@ build_llvm() {
 
     git checkout ${LLVM_HASH}
     [ -z "$CLEANUP" ] || rm -rf "$LLVM_BUILD_DIR"
+    mkdir -p "$LLVM_BUILD_DIR"
 
     [ "$DYN_LINK" = "OFF" ] && CXX_FLAGS="-fvisibility=hidden"
 
