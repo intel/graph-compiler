@@ -18,6 +18,7 @@
  */
 
 #include "gc/Dialect/CPURuntime/Transforms/CPURuntimePasses.h"
+#include "gc/Dialect/LLVMIR/XeVMDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Microkernel/MicrokernelDialect.h"
 #ifdef GC_HAS_ONEDNN_DIALECT
@@ -65,6 +66,7 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   registry.insert<mlir::microkernel::MicrokernelDialect>();
+  registry.insert<mlir::xevm::XeVMDialect>();
   mlir::registerAllDialects(registry);
 #ifdef GC_USE_IMEX
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
