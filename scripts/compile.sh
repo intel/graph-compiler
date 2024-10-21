@@ -21,12 +21,14 @@ $(basename "$0")
     [ -i | --imex    ] Compile with IMEX (used for GPU pipeline)
     [ -s | --suffix  ] Build dir suffix
     [ -v | --llvm    ] Build llvm only
+    [ -t | --test    ] Run MLIR tests
     [ -h | --help    ] Print this message
 EOF
 }
 
 DYN_LINK=OFF
 ENABLE_IMEX=false
+RUN_TESTS=false
 for arg in "$@"; do
     if [ ! -z "$ASSIGN_NEXT" ]; then
         eval "$ASSIGN_NEXT=$arg"
@@ -56,6 +58,9 @@ for arg in "$@"; do
             ;;
         -v | --llvm)
             LLVM_ONLY=true
+            ;;
+        -t | --test)
+            RUN_TESTS=true
             ;;
         -h | --help)
             print_usage
@@ -196,15 +201,13 @@ get_llvm() {
     return 0
 }
 
-get_llvm
-[ -z "$LLVM_ONLY" ] || exit 0
-
-# written in this form to set LIT_PATH in any case
-if ! LIT_PATH=$(which lit) && [ -z "$DEV_BUILD" ]; then
-    echo "========Warning======="
-    echo "   Lit not found.     "
-    echo "======================"
-fi
+build_gc() {
+    # written in this form to set LIT_PATH in any case
+    if ! LIT_PATH=$(which lit) && [ -z "$DEV_BUILD" ]; then
+        echo "========Warning======="
+        echo "   Lit not found.     "
+        echo "======================"
+    fi
 
 if [ -z "$DEV_BUILD" ]; then
     FETCH_DIR=$PROJECT_DIR/build/_deps
@@ -213,14 +216,24 @@ else
     LIT_PATH="$LLVM_BUILD_DIR/bin/llvm-lit"
 fi
 
-BUILD_DIR="$PROJECT_DIR/build$BUILD_DIR_SFX"
-[ -z "$CLEANUP" ] || rm -rf "$BUILD_DIR"
-cmake -S . -G Ninja -B "$BUILD_DIR" \
-    -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-    -DMLIR_DIR=$MLIR_DIR \
-    -DLLVM_EXTERNAL_LIT=$LIT_PATH \
-    -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
-    -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK \
-    -DGC_ENABLE_IMEX=$ENABLE_IMEX
+    cmake -S . -G Ninja -B "$BUILD_DIR" \
+        -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+        -DMLIR_DIR=$MLIR_DIR \
+        -DLLVM_EXTERNAL_LIT=$LIT_PATH \
+        -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
+        -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK \
+        -DGC_ENABLE_IMEX=$ENABLE_IMEX
+    BUILD_DIR="$PROJECT_DIR/build$BUILD_DIR_SFX"
+    [ -z "$CLEANUP" ] || rm -rf "$BUILD_DIR"
+    cmake --build "$BUILD_DIR" --parallel $MAX_JOBS
+}
 
-cmake --build "$BUILD_DIR" --parallel $MAX_JOBS
+run_tests() {
+    cmake --build "$BUILD_DIR" --target check-mlir
+}
+
+get_llvm
+[ -z "$LLVM_ONLY" ] || exit 0
+
+build_gc
+$RUN_TESTS && run_tests

@@ -28,7 +28,7 @@ jobs:
 
       - name: Build
         run: |
-          scripts/compile.sh
+          scripts/compile.sh --test
 
       - name: Test
         run: |
