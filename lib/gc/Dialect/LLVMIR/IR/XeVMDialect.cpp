@@ -18,6 +18,7 @@ using namespace xevm;
 #include "gc/Dialect/LLVMIR/XeVMOpsDialect.cpp.inc"
 
 void XeVMDialect::initialize() {
+  // NOLINTBEGIN
   addOperations<
 #define GET_OP_LIST
 #include "gc/Dialect/LLVMIR/XeVMOps.cpp.inc"
@@ -27,6 +28,7 @@ void XeVMDialect::initialize() {
 #define GET_ATTRDEF_LIST
 #include "gc/Dialect/LLVMIR/XeVMOpsAttributes.cpp.inc"
       >();
+  // NOLINTEND
 }
 
 #define GET_OP_CLASSES
