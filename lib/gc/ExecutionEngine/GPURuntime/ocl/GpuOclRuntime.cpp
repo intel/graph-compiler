@@ -20,6 +20,38 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/PassManager.h"
 
+#ifdef GC_ENABLE_GPU_PROFILE
+
+void EnableProfiling();
+void DisableProfiling();
+
+class GPUKernelTracer {
+public:
+  GPUKernelTracer() {
+    gcLogD("Enable Profiling.");
+    EnableProfiling();
+  }
+
+  ~GPUKernelTracer() {
+    gcLogD("Profiling is finished.");
+    DisableProfiling();
+  }
+};
+
+/*
+Create an RAII tracer with a static life cycle to trace all device kernel
+execution during the program. When the tracer's constructor is called, the
+EnableProfiling will also be called, registering some metric collection
+call-back function into the opencl function call. When the tracer is destroyed,
+the DisableProfiling is also called which will statistic the collected metric
+during the tracer lifetime and print the result. The concrete implementation of
+EnableProfiling and DisableProfiling could refer to
+https://github.com/intel/pti-gpu/blob/master/tools/onetrace/tool.cc.
+*/
+static GPUKernelTracer tracer;
+
+#endif
+
 namespace mlir::gc::gpu {
 
 #define makeClErrPref(code) "OpenCL error ", code, ": "
