@@ -12,6 +12,8 @@ set_property(GLOBAL APPEND PROPERTY IMEX_LIBS ${IMEX_LIBS})
 
 gc_add_mlir_library(GcGpuPasses
   AddContextArg.cpp
+  GpuLoopTiling.cpp
+  GpuTilingAndFusion.cpp
   GpuToGpuOcl.cpp
   LinalgToXeGPU.cpp
   Pipeline.cpp

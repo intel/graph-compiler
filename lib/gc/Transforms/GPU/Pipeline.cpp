@@ -35,7 +35,7 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addNestedPass<func::FuncOp>(createAddContextArg());
   }
 
-  pm.addNestedPass<func::FuncOp>(createIterativeTilingAndFusion());
+  pm.addNestedPass<func::FuncOp>(createGpuTilingAndFusion());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
@@ -63,6 +63,7 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createBufferizationToMemRefPass());
 
   pm.addNestedPass<func::FuncOp>(createForallToParallelLoopPass());
+  pm.addNestedPass<func::FuncOp>(createGpuLoopTiling());
   pm.addNestedPass<func::FuncOp>(createLinalgToXeGPU(
       {/*kTile=*/16, /*stages=*/1, /*dpasTiles=*/{8, 16, 16}}));
 
