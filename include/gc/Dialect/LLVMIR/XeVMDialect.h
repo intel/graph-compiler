@@ -14,6 +14,8 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 
+#include "gc/Dialect/LLVMIR/XeVMOpsEnums.h.inc"
+
 #define GET_ATTRDEF_CLASSES
 #include "gc/Dialect/LLVMIR/XeVMOpsAttributes.h.inc"
 

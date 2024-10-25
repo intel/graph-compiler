@@ -16,6 +16,11 @@ using namespace mlir;
 using namespace xevm;
 
 #include "gc/Dialect/LLVMIR/XeVMOpsDialect.cpp.inc"
+#include "gc/Dialect/LLVMIR/XeVMOpsEnums.cpp.inc"
+
+// TODO
+LogicalResult BlockLoad2dOp::verify() { return success(); }
+LogicalResult BlockStore2dOp::verify() { return success(); }
 
 void XeVMDialect::initialize() {
   // NOLINTBEGIN
