@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --math-legalize-to-f32 --arith-emulate-unsupported-floats="source-types=bf16 target-type=f32" --canonicalize | FileCheck %s
+// RUN: gc-opt %s --math-extend-to-supported-types --arith-emulate-unsupported-floats="source-types=bf16 target-type=f32" --canonicalize | FileCheck %s
 
 // CHECK-LABEL: @sin
 // CHECK-SAME: ([[ARG0:%.+]]: bf16)
