@@ -101,6 +101,14 @@ def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
   }];
 }
 
+def AllocsToSLM : Pass<"allocs-to-slm", "func::FuncOp"> {
+  let summary = "Add 'shared' memory space to memrefs allocated inside a gpu.block.";
+  let description = [{Add 'shared' memory space to memrefs allocated inside a gpu.block.}];
+  let dependentDialects = [
+    "gpu::GPUDialect", "memref::MemRefDialect"
+  ];
+}
+
 def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
   let summary = "Convert the GPU operations to GpuOclRuntime calls.";
   let description = [{
