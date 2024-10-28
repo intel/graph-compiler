@@ -31,13 +31,13 @@ namespace gc {
 
 namespace {
 
-bool isInGpuLaunch(mlir::Operation *op) {
+bool isInGpuLaunch(Operation *op) {
   auto launchOp = op->getParentOfType<gpu::LaunchOp>();
   return launchOp != nullptr;
 }
 
-bool hasAssignedMemSpace(mlir::Value value) {
-  if (auto memrefType = value.getType().dyn_cast<mlir::MemRefType>()) {
+bool hasAssignedMemSpace(Value value) {
+  if (auto memrefType = dyn_cast<MemRefType>(value.getType())) {
     if (memrefType.getMemorySpace()) {
       return true;
     }
@@ -62,20 +62,19 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
                                          "Only support allocs in GPU regions");
     }
 
-    mlir::Value memref = allocOp->getResult(0);
-    mlir::MemRefType originalMemRefType =
-        memref.getType().cast<mlir::MemRefType>();
+    Value memref = allocOp->getResult(0);
+    MemRefType originalMemRefType = cast<MemRefType>(memref.getType());
 
     IntegerAttr sharedAddressSpace =
         IntegerAttr::get(rewriter.getIntegerType(64),
                          static_cast<int64_t>(gpu::AddressSpace::Private));
 
     // Create a new MemRefType with the desired address space
-    mlir::MemRefType newMemRefType = mlir::MemRefType::get(
+    MemRefType newMemRefType = MemRefType::get(
         originalMemRefType.getShape(), originalMemRefType.getElementType(),
         originalMemRefType.getLayout(), sharedAddressSpace);
 
-    mlir::Value newMemRef = rewriter.create<memref::AllocOp>(
+    Value newMemRef = rewriter.create<memref::AllocOp>(
         allocOp.getLoc(), newMemRefType, allocOp.getOperands());
 
     memref.replaceAllUsesWith(newMemRef);
