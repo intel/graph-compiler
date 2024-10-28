@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace mlir;
 using namespace xevm;
@@ -32,17 +33,16 @@ template <typename Op> LogicalResult verifyMatrixInput(Op op) {
     return op->emitOpError(
         "4th operand (base pitch) should be >= 2nd operand (base width)");
 
-  if (op.getElemSizeInBits() != 8 && op.getElemSizeInBits() != 16 &&
-      op.getElemSizeInBits() != 32)
+  uint32_t elemSize = op.getElemSizeInBits();
+  if (elemSize < 8 || !llvm::isPowerOf2_32(elemSize) || elemSize > 32)
     return op->emitOpError("expecting 'elem_size_in_bits' to be 8, 16, or 32");
 
   uint32_t tileHeight = op.getTileHeight();
-  if (tileHeight != 1 && tileHeight != 2 && tileHeight != 4 &&
-      tileHeight != 8 && tileHeight != 16 && tileHeight != 32)
+  if (tileHeight > 32 || !llvm::isPowerOf2_32(tileHeight))
     return op->emitOpError("expecting tile_height to be 1, 2, 4, 8, 16, or 32");
 
   uint32_t vBlocks = op.getVBlocks();
-  if (vBlocks != 1 && vBlocks != 2 && vBlocks != 4 && vBlocks != 8)
+  if (vBlocks > 8 || !llvm::isPowerOf2_32(vBlocks))
     return op->emitOpError("expecting v_blocks to be 1, 2, 4, or 8");
 
   return success();
@@ -50,6 +50,9 @@ template <typename Op> LogicalResult verifyMatrixInput(Op op) {
 
 LogicalResult verify2DBlockLoadHWRestriction(BlockLoad2dOp op) {
   VectorType resTy = op.getRes().getType();
+  if (!resTy.getElementType().isIntOrFloat())
+    return op.emitOpError()
+           << "expecting result element type to be int or float";
   unsigned resElemTySize = resTy.getElementType().getIntOrFloatBitWidth();
   unsigned resSize = resTy.getNumElements() * resElemTySize;
   unsigned expectedSize = op.getElemSizeInBits() * op.getTileHeight() *
@@ -225,6 +228,8 @@ LogicalResult BlockLoad2dOp::verify() {
     return failure();
 
   VectorType resTy = getRes().getType();
+  if (!resTy.getElementType().isIntOrFloat())
+    return emitOpError() << "expecting result element type to be int of float";
   unsigned resElemTySize = resTy.getElementType().getIntOrFloatBitWidth();
   if (getElemSizeInBits() == 32 || getVnniTransform()) {
     if (resElemTySize != 32)
