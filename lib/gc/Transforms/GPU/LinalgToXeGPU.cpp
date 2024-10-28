@@ -1213,9 +1213,9 @@ static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
   }
 
   // Extract DPAS tiles from loaded sub-tiles.
-  TilesArray dpasVecA = extractVecSubTiles(rewriter, loc, loadVecA,
-                                           {dimM, kTile}, tileTypeA.getShape(),
-                                           {dpasTileM, dpasTileK});
+  TilesArray dpasVecA =
+      extractVecSubTiles(rewriter, loc, loadVecA, {dimM, kTile},
+                         tileTypeA.getShape(), {dpasTileM, dpasTileK});
   TilesArray dpasVecB = extractVecSubTiles(rewriter, loc, loadVecB,
                                            {kTile, dimN}, tileTypeB.getShape(),
                                            {dpasTileK, dpasTileN}, vnniConfB);
@@ -1630,7 +1630,8 @@ struct LinalgToXeGPU : public gc::impl::LinalgToXeGPUBase<LinalgToXeGPU> {
   using LinalgToXeGPUBase::LinalgToXeGPUBase;
 
   void runOnOperation() override {
-    LinalgToXeGPUOptions options{kTile, stages, SmallVector<int64_t>{dpasTile.begin(), dpasTile.end()}};
+    LinalgToXeGPUOptions options{
+        kTile, stages, SmallVector<int64_t>(dpasTile.begin(), dpasTile.end())};
 
     // Run GEMM pattern first to allow fusion with its consumers.
     RewritePatternSet gemmPatterns(&getContext());
