@@ -32,18 +32,8 @@ namespace gc {
 namespace {
 
 bool isInGpuLaunch(mlir::Operation *op) {
-  // Traverse up through parent operations
-  mlir::Operation *parentOp = op;
-  while (parentOp) {
-    // Check if the current parent is a gpu.launch operation
-    if (llvm::isa<mlir::gpu::LaunchOp>(parentOp)) {
-      return true;
-    }
-    // Move to the parent operation
-    parentOp = parentOp->getParentOp();
-  }
-  // If we reached the top without finding a gpu.launch, return false
-  return false;
+  auto launchOp = op->getParentOfType<gpu::LaunchOp>();
+  return launchOp != nullptr;
 }
 
 bool hasAssignedMemSpace(mlir::Value value) {
