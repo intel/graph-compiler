@@ -20,6 +20,11 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
+#define DEBUG_TYPE "driver"
+
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 namespace mlir {
 namespace gc {
 
@@ -46,8 +51,8 @@ const DialectRegistry &initCompilerAndGetDialects() {
   return reg;
 }
 
-static const char defaultComputeName[] = "_mlir_ciface_compute";
-
+static const char defaultEntryName[] = "_mlir_ciface_entry";
+static const char defaultFoldName[] = "_mlir_ciface_runtime_fold";
 llvm::Expected<std::shared_ptr<JitModule>>
 JitModule::create(Operation *op, const DriverOptions &options) {
   if (options.runTransforms) {
@@ -66,21 +71,213 @@ JitModule::create(Operation *op, const DriverOptions &options) {
     return exec.takeError();
   }
   auto &engine = *exec;
-  JitModuleFuncT compute;
-  {
-    auto expectCompute = engine->lookupPacked(defaultComputeName);
-    if (!expectCompute) {
-      return expectCompute.takeError();
-    }
-    compute = *expectCompute;
+
+  auto expectEntry = engine->lookupPacked(defaultEntryName);
+  if (!expectEntry) {
+    // entry function must exist
+    return expectEntry.takeError();
   }
-  return std::make_shared<JitModule>(std::move(engine), compute);
+  JitModuleFuncT entry = *expectEntry;
+
+  int32_t numOrigArgs = 0;
+  llvm::ArrayRef<int64_t> foldBufferIds;
+  JitModuleFuncT fold = nullptr;
+  llvm::ArrayRef<int32_t> entryArgs;
+  llvm::ArrayRef<int32_t> foldArgs;
+  do {
+    {
+      auto expectArgs = engine->lookup("__num_orig_args");
+      if (!expectArgs) { // nothing to fold, It is OK.
+        llvm::consumeError(expectArgs.takeError());
+        // break out of the scope, don't need to lookup other things
+        break;
+      }
+      numOrigArgs = *reinterpret_cast<int32_t *>(*expectArgs);
+    }
+
+    // If lookup("__num_orig_num_args") succeeds, then all the following should
+    // also succeed.
+    {
+      auto expectBufferIds = engine->lookup("__runtime_fold_buffer_ids");
+      if (!expectBufferIds) {
+        llvm_unreachable("Symbol: __runtime_fold_buffer_ids not found");
+        break;
+      }
+      auto raw = reinterpret_cast<int64_t *>(*expectBufferIds);
+      foldBufferIds =
+          llvm::ArrayRef<int64_t>{raw + 1, static_cast<size_t>(raw[0])};
+    }
+
+    // find "fold" func
+    {
+      auto expectFold = engine->lookupPacked(defaultFoldName);
+      if (!expectFold) {
+        llvm_unreachable("Symbol: runtime_fold not found");
+        break;
+      }
+      fold = *expectFold;
+    }
+
+    // find "foldArgs"
+    {
+      auto expectFold = engine->lookup("__fold_args");
+      if (!expectFold) {
+        llvm_unreachable("Symbol: __fold_args not found");
+        break;
+      }
+      auto raw = reinterpret_cast<int32_t *>(*expectFold);
+      foldArgs = llvm::ArrayRef<int32_t>{raw + 1, static_cast<size_t>(raw[0])};
+    }
+
+    // find "entryArgs"
+    {
+      auto expect = engine->lookup("__compute_args");
+      if (!expect) {
+        llvm_unreachable("Symbol: __compute_args not found");
+        break;
+      }
+      auto raw = reinterpret_cast<int32_t *>(*expect);
+      entryArgs = llvm::ArrayRef<int32_t>{raw + 1, static_cast<size_t>(raw[0])};
+    }
+  } while (false);
+
+  std::vector<std::shared_ptr<CachedGraphTensor>> foldInfo;
+  foldInfo.reserve(foldBufferIds.size());
+  auto cacheManager = ConstGraphTensorCacheManager::get();
+  for (auto bufId : foldBufferIds) {
+    auto ret = cacheManager->queryCacheTensor(bufId);
+    if (!ret) {
+      return llvm::make_error<llvm::StringError>(
+          "Failed to query the folded cached tensor of id: " +
+              std::to_string(bufId),
+          llvm::inconvertibleErrorCode());
+    }
+    foldInfo.emplace_back(std::move(ret));
+  }
+
+  return std::make_shared<JitModule>(std::move(engine), entry, fold,
+                                     numOrigArgs, entryArgs, foldArgs,
+                                     std::move(foldInfo));
 }
 
-JitModule::JitModule(std::unique_ptr<ExecutionEngine> engine,
-                     JitModuleFuncT compute)
-    : engine{std::move(engine)}, compute{compute} {}
+JitModule::JitModule(
+    std::unique_ptr<ExecutionEngine> engine, JitModuleFuncT entry,
+    JitModuleFuncT fold, int32_t numOrigArgs,
+    // The code inside `engine` has the ownership of the buffer
+    llvm::ArrayRef<int32_t> entryArgs,
+    // The code inside `engine` has the ownership  of the buffer
+    llvm::ArrayRef<int32_t> foldArgs,
+    std::vector<std::shared_ptr<CachedGraphTensor>> &&cachekeepAlive)
+    : engine{std::move(engine)}, entry{entry}, fold{fold},
+      numOrigArgs{numOrigArgs}, foldArgs{foldArgs}, entryArgs{entryArgs},
+      keepAlive{std::move(cachekeepAlive)} {
+  for (const auto &cache : keepAlive) {
+    auto currentItr =
+        std::find(cacheBases.begin(), cacheBases.end(), cache->base.get());
+    if (currentItr == cacheBases.end()) {
+      cacheBases.push_back(cache->base.get());
+      currentItr = cacheBases.end() - 1;
+    }
+    cacheInfo.emplace_back(CacheBufferInfo{
+        static_cast<size_t>(currentItr - cacheBases.begin()), cache->offset});
+    fastFoldBuffers.push_back(&cache->ref);
+  }
+}
 JitModule::~JitModule() = default;
+
+static void prepareCallArgs(llvm::SmallVector<void *, 32> &realargs,
+                            GeneralMemrefPtr *origargs, int32_t numArgs,
+                            int32_t numOrigArgs, GeneralMemrefPtr *foldedCache,
+                            llvm::ArrayRef<int32_t> realArgIdx) {
+  // inputs, including unfolded and folded
+  realargs.reserve(realArgIdx.size());
+  for (auto argIdx : realArgIdx) {
+    if (argIdx < numOrigArgs) {
+      realargs.push_back(&origargs[argIdx]);
+    } else {
+      realargs.push_back(&foldedCache[argIdx - numOrigArgs]);
+    }
+  }
+  // outputs
+  for (int i = numOrigArgs; i < numArgs; ++i) {
+    realargs.push_back(&origargs[i]);
+  }
+}
+
+void JitModule::call(GeneralMemrefPtr *args, int32_t numArgs) {
+  if (unlikely(cacheInfo.empty())) {
+    // fast path, no folded cached buffers
+    // Silly code, MLIR execution engine requires pointers of real args as
+    // inputs
+    llvm::SmallVector<void *, 32> realargs;
+    realargs.reserve(numArgs);
+    for (int i = 0; i < numArgs; i++) {
+      realargs.push_back(&args[i]);
+    }
+    entry(realargs.data());
+    return;
+  }
+
+  // stage 1, acquire the foldBasePtr
+  llvm::SmallVector<char *, 4> foldBasePtr;
+  int32_t inited = 1;
+  for (auto b : cacheBases) {
+    auto ptr = b->acquire(&inited);
+    if (unlikely(!ptr)) {
+      ptr = std::aligned_alloc(/*alignment*/ 64, b->size);
+      inited = 0;
+    }
+    foldBasePtr.push_back((char *)ptr);
+  }
+
+  // stage 2, run fold() if necessary
+  GeneralMemrefPtr *foldedCache;
+  // only used when !inited
+  std::vector<GeneralMemrefPtr> slowFold;
+  std::vector<StridedMemRefType<char, 8>> slowFoldObj;
+  if (likely(inited)) {
+    foldedCache = fastFoldBuffers.data();
+  } else {
+    slowFold.reserve(cacheInfo.size());
+    slowFoldObj.reserve(cacheInfo.size());
+    for (auto &info : cacheInfo) {
+      slowFoldObj.emplace_back();
+      auto &obj = slowFoldObj.back();
+      obj.basePtr = foldBasePtr[info.baseIdx] + info.offset;
+      obj.data = obj.basePtr;
+      memset(obj.sizes, 0, sizeof(obj.sizes));
+      memset(obj.strides, 0, sizeof(obj.strides));
+      slowFold.push_back(&obj);
+    }
+    foldedCache = slowFold.data();
+    llvm::SmallVector<void *, 32> realargs;
+    prepareCallArgs(realargs, args, numArgs, numOrigArgs, foldedCache,
+                    foldArgs);
+    LLVM_DEBUG(llvm::dbgs()
+               << "fold func args size: " << foldArgs.size() << '\n');
+    fold(realargs.data());
+  }
+
+  // stage 3, call entry
+  {
+    llvm::SmallVector<void *, 32> realargs;
+    prepareCallArgs(realargs, args, numArgs, numOrigArgs, foldedCache,
+                    entryArgs);
+    LLVM_DEBUG(llvm::dbgs()
+               << "entry func args size: " << realargs.size() << '\n');
+    entry(realargs.data());
+  }
+
+  // stage 4, cleanup
+  for (size_t i = 0; i < cacheBases.size(); i++) {
+    auto b = cacheBases[i];
+    if (unlikely(!b->release())) {
+      // if the cached buffer is already free'd, foldBasePtr[i] is allocated via
+      // std::aligned_alloc by us, free it
+      std::free(foldBasePtr[i]);
+    }
+  }
+}
 
 } // namespace gc
 } // namespace mlir

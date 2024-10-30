@@ -196,6 +196,18 @@ def MergeNestedForall : Pass<"merge-nested-forall"> {
   let dependentDialects = ["scf::SCFDialect"];
 }
 
+def ConstantTensorFolding : Pass<"constant-tensor-folding"> {
+  let summary = "Constant Tensor Folding Transform";
+  let description = [{
+    This pass implements a constant tensor folding transform.
+  }];
+  let constructor = "mlir::gc::createConstantTensorFoldingPass()";
+  let dependentDialects = [
+      "tensor::TensorDialect",
+      "linalg::LinalgDialect",
+      "LLVM::LLVMDialect"];
+}
+
 def FoldTensorOperation : Pass<"fold-tensor-operation"> {
   let summary = "Fold some tensor operation";
   let description = [{
