@@ -36,7 +36,7 @@ module @test attributes {gpu.container_module} {
 // CHECK: llvm.mlir.global internal constant @gcGpuOclKernel_entry_kernel_Name
 // CHECK: llvm.mlir.global internal @gcGpuOclKernel_entry_kernel_Ptr
 
-// CHECK: llvm.func internal @createGcGpuOclKernel_entry_kernel([[CTX:%.+]]: !llvm.ptr) -> !llvm.ptr
+// CHECK: llvm.func @createGcGpuOclKernel_entry_kernel([[CTX:%.+]]: !llvm.ptr) -> !llvm.ptr
 // CHECK: [[NEW_PTR:%.+]] = llvm.call @gcGpuOclKernelCreate([[CTX]]
 // CHECK: [[ZERO:%.+]] = llvm.mlir.zero
 // CHECK: [[PTR_ADDR:%.+]] = llvm.mlir.addressof @gcGpuOclKernel_entry_kernel_Ptr
