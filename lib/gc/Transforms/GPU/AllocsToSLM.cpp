@@ -55,7 +55,9 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
 
   LogicalResult matchAndRewrite(memref::AllocOp allocOp,
                                 PatternRewriter &rewriter) const override {
-    if (hasAssignedMemSpace(allocOp->getResult(0))) {
+    Value memref = allocOp->getResult(0);
+
+    if (hasAssignedMemSpace(memref)) {
       return rewriter.notifyMatchFailure(
           allocOp, "Memref already has some memory space attribute");
     }
@@ -86,15 +88,12 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
       return rewriter.notifyMatchFailure(
           allocOp, "Only support 2D shared memory for now");
 
-    int64_t totalWorkGroupSize = xI * yI * zI;
-
-    Value memref = allocOp->getResult(0);
-
     MemRefType originalMemRefType = cast<MemRefType>(memref.getType());
+    auto originalShape = originalMemRefType.getShape();
 
     // Scale the allocation size by the number of threads in the work-group
-    int64_t newX = originalMemRefType.getShape()[0] * xI;
-    int64_t newY = originalMemRefType.getShape()[1] * yI;
+    int64_t newX = originalShape[0] * xI;
+    int64_t newY = originalShape[1] * yI;
 
     SmallVector<int64_t> newShape = {newX, newY};
 
@@ -113,12 +112,10 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
             .getResult();
 
     // Compute the offsets in SLM chunk for the current thread
-    auto oneConst =
-        rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(), 1);
-    auto origXConst = rewriter.create<arith::ConstantIndexOp>(
-        allocOp.getLoc(), originalMemRefType.getShape()[0]);
-    auto origYConst = rewriter.create<arith::ConstantIndexOp>(
-        allocOp.getLoc(), originalMemRefType.getShape()[1]);
+    auto origXConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
+                                                              originalShape[0]);
+    auto origYConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
+                                                              originalShape[1]);
 
     auto threadIds = launchOp.getThreadIds();
 
@@ -133,7 +130,7 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
 
     auto offsets = getMixedValues({ShapedType::kDynamic, ShapedType::kDynamic},
                                   {offX, offY}, rewriter);
-    auto sizes = getMixedValues(originalMemRefType.getShape(), {}, rewriter);
+    auto sizes = getMixedValues(originalShape, {}, rewriter);
     auto strides = getMixedValues({1, 1}, {}, rewriter);
 
     auto newSlice =
