@@ -45,6 +45,9 @@ bool hasAssignedMemSpace(Value value) {
   return false;
 }
 
+// Converts `memref::AllocOp` within GPU regions to the GPU shared local
+// memory. Adjusts the allocation shape based on GPU block dimensions and
+// creates a `memref::SubViewOp` for thread-specific memory access.
 struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
   using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
 
@@ -52,7 +55,9 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
 
   LogicalResult matchAndRewrite(memref::AllocOp allocOp,
                                 PatternRewriter &rewriter) const override {
-    if (hasAssignedMemSpace(allocOp->getResult(0))) {
+    Value memref = allocOp->getResult(0);
+
+    if (hasAssignedMemSpace(memref)) {
       return rewriter.notifyMatchFailure(
           allocOp, "Memref already has some memory space attribute");
     }
@@ -62,22 +67,83 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
                                          "Only support allocs in GPU regions");
     }
 
-    Value memref = allocOp->getResult(0);
+    auto launchOp = allocOp->getParentOfType<gpu::LaunchOp>();
+
+    auto xSz = dyn_cast<arith::ConstantIndexOp>(
+        launchOp.getBlockSizeX().getDefiningOp());
+    auto ySz = dyn_cast<arith::ConstantIndexOp>(
+        launchOp.getBlockSizeY().getDefiningOp());
+    auto zSz = dyn_cast<arith::ConstantIndexOp>(
+        launchOp.getBlockSizeZ().getDefiningOp());
+
+    if (!xSz || !ySz || !zSz)
+      return rewriter.notifyMatchFailure(
+          allocOp, "Only support constant block sizes for now");
+
+    int64_t xI = xSz.value();
+    int64_t yI = ySz.value();
+    int64_t zI = zSz.value();
+
+    if (zI != 1)
+      return rewriter.notifyMatchFailure(
+          allocOp, "Only support 2D shared memory for now");
+
     MemRefType originalMemRefType = cast<MemRefType>(memref.getType());
+    auto originalShape = originalMemRefType.getShape();
+
+    // Scale the allocation size by the number of threads in the work-group
+    int64_t newX = originalShape[0] * xI;
+    int64_t newY = originalShape[1] * yI;
+
+    SmallVector<int64_t> newShape = {newX, newY};
 
     IntegerAttr sharedAddressSpace =
         IntegerAttr::get(rewriter.getIntegerType(64),
                          static_cast<int64_t>(gpu::AddressSpace::Private));
 
-    // Create a new MemRefType with the desired address space
-    MemRefType newMemRefType = MemRefType::get(
-        originalMemRefType.getShape(), originalMemRefType.getElementType(),
-        originalMemRefType.getLayout(), sharedAddressSpace);
+    MemRefType newRootMemRefType =
+        MemRefType::get(newShape, originalMemRefType.getElementType(),
+                        originalMemRefType.getLayout(), sharedAddressSpace);
 
-    Value newMemRef = rewriter.create<memref::AllocOp>(
-        allocOp.getLoc(), newMemRefType, allocOp.getOperands());
+    Value newRootMemRef =
+        rewriter
+            .create<memref::AllocOp>(allocOp.getLoc(), newRootMemRefType,
+                                     allocOp.getOperands())
+            .getResult();
 
-    memref.replaceAllUsesWith(newMemRef);
+    // Compute the offsets in SLM chunk for the current thread
+    auto origXConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
+                                                              originalShape[0]);
+    auto origYConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
+                                                              originalShape[1]);
+
+    auto threadIds = launchOp.getThreadIds();
+
+    auto offX =
+        rewriter
+            .create<arith::MulIOp>(allocOp.getLoc(), threadIds.x, origXConst)
+            .getResult();
+    auto offY =
+        rewriter
+            .create<arith::MulIOp>(allocOp.getLoc(), threadIds.y, origYConst)
+            .getResult();
+
+    auto offsets = getMixedValues({ShapedType::kDynamic, ShapedType::kDynamic},
+                                  {offX, offY}, rewriter);
+    auto sizes = getMixedValues(originalShape, {}, rewriter);
+    auto strides = getMixedValues({1, 1}, {}, rewriter);
+
+    auto newSlice =
+        rewriter
+            .create<memref::SubViewOp>(allocOp.getLoc(), newRootMemRef, offsets,
+                                       sizes, strides)
+            .getResult();
+    memref.replaceAllUsesWith(newSlice);
+
+    // Erase deallocs since we don't need them for SLM
+    for (auto user : newSlice.getUsers())
+      if (auto deallocOp = dyn_cast<memref::DeallocOp>(user))
+        deallocOp->erase();
 
     return success();
   }
