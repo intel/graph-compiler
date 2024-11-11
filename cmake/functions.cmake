@@ -129,6 +129,16 @@ function(gc_add_mlir_conversion_library name)
     endif()
 endfunction()
 
+function(gc_add_mlir_translation_library name)
+    add_mlir_translation_library(${ARGV})
+    target_link_libraries(obj.${name} PUBLIC GcInterface)
+    set_property(GLOBAL APPEND PROPERTY GC_MLIR_LIBS ${name})
+
+    if(GcInterface IN_LIST ARGN)
+        target_link_libraries(obj.${name} PUBLIC GcInterface)
+    endif()
+endfunction()
+
 macro(gc_add_mlir_tool name)
     # the dependency list copied from mlir/tools/mlir-cpu-runner/CMakeLists.txt of upstream
     if(NOT DEFINED LLVM_LINK_COMPONENTS)
