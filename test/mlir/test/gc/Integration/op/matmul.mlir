@@ -1,7 +1,7 @@
 // RUN: gc-opt %s --gc-gpu-pipeline -split-input-file | FileCheck %s
 
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @matmul_f16(%arg0: memref<4096x4096xf16>, %arg1: memref<4096x4096xf16>, %arg2: memref<4096x4096xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<4096x4096xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<4096x4096xf16>
@@ -16,7 +16,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @corner_shape_matmul_f16(%arg0: memref<521x521xf16>, %arg1: memref<521x521xf16>, %arg2: memref<521x521xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<521x521xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<521x521xf16>
@@ -31,7 +31,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>}{
   func.func @dynamic_matmul_f16(%arg0: memref<?x?xf16>, %arg1: memref<1024x1024xf16>, %arg2: memref<?x1024xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<?x?xf16>
     %c0 = arith.constant 0 : index
@@ -50,7 +50,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @matmul_bf16(%arg0: memref<4096x4096xbf16>, %arg1: memref<4096x4096xbf16>, %arg2: memref<4096x4096xbf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<4096x4096xbf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<4096x4096xbf16>
@@ -65,7 +65,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @matmul_f32(%arg0: memref<4096x4096xf32>, %arg1: memref<4096x4096xf32>, %arg2: memref<4096x4096xf32>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<4096x4096xf32>
     %1 = bufferization.to_tensor %arg1 restrict : memref<4096x4096xf32>

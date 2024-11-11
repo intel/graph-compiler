@@ -1,7 +1,7 @@
 // RUN: gc-opt %s --gc-gpu-pipeline -split-input-file | FileCheck %s
 
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @multiply(%arg0: memref<1024x1024xf16>, %arg1: memref<1024x1024xf16>, %arg2: memref<1024x1024xf16>, %arg3: memref<1024x1024xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<1024x1024xf16>
@@ -16,7 +16,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 // -----
 
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @add(%arg0: memref<1024x1024xf16>, %arg1: memref<1024x1024xf16>, %arg2: memref<1024x1024xf16>, %arg3: memref<1024x1024xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<1024x1024xf16>
@@ -30,7 +30,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @subtract(%arg0: memref<1024x1024xf16>, %arg1: memref<1024x1024xf16>, %arg2: memref<1024x1024xf16>, %arg3: memref<1024x1024xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<1024x1024xf16>
@@ -44,7 +44,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @divide(%arg0: memref<1024x1024xf16>, %arg1: memref<1024x1024xf16>, %arg2: memref<1024x1024xf16>, %arg3: memref<1024x1024xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<1024x1024xf16>

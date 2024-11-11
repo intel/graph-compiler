@@ -3,7 +3,7 @@
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @relu_f16(%arg0: memref<1024x1024xf16>, %arg1: memref<1024x1024xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xf16>
     %1 = tensor.empty() : tensor<1024x1024xf16>
@@ -17,7 +17,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @dynamic_relu(%arg0: memref<?x?xf16>, %arg1: memref<?x?xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<?x?xf16>
     %c0 = arith.constant 0 : index
@@ -35,7 +35,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @relu_bf16(%arg0: memref<1024x1024xbf16>, %arg1: memref<1024x1024xbf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xbf16>
     %1 = tensor.empty() : tensor<1024x1024xbf16>
@@ -49,7 +49,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @relu_f32(%arg0: memref<1024x1024xf32>, %arg1: memref<1024x1024xf32>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1024x1024xf32>
     %1 = tensor.empty() : tensor<1024x1024xf32>
@@ -63,7 +63,7 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
 
 // -----
 // CHECK-LABEL: llvm
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"CPU" : #dlti.target_device_spec<#dlti.dl_entry<"tile_size", 32 : i32>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"num_exec_units", 448 : i32>, #dlti.dl_entry<"num_exec_units_per_slice", 32 : i32>, #dlti.dl_entry<"num_threads_per_eu", 8 : i32>, #dlti.dl_entry<"L1_cache_size_in_bytes", 67108864 : i32>, #dlti.dl_entry<"max_vector_op_width", 256 : i32>, #dlti.dl_entry<"max_work_group_size", 1024 : i32>>>} {
   func.func @relu_f32_corner_shape(%arg0: memref<1061x1061xf32>, %arg1: memref<1061x1061xf32>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<1061x1061xf32>
     %1 = tensor.empty() : tensor<1061x1061xf32>
@@ -74,4 +74,3 @@ module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"C
     return
   }
 }
-
