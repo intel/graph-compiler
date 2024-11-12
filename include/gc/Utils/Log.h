@@ -68,6 +68,7 @@ static void debug(const char *fileName, int lineNum, Args... args) {
 #define gcLogD(...) mlir::gc::log::debug(__FILE__, __LINE__, __VA_ARGS__)
 #define gcLogE(...)                                                            \
   mlir::gc::log::log(__FILE__, __LINE__, std::cerr, "ERROR", __VA_ARGS__)
+#define gcRunD(...) if (mlir::gc::log::isDebugEnabled(__FILE__)) {__VA_ARGS__;}
 #endif
 } // namespace mlir::gc::log
 
