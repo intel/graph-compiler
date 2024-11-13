@@ -888,7 +888,7 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
   assert(loadShape.size() <= 2 &&
          "Require at most 2D tile size for eltwise lowering");
 
-  auto srcType = src.getType().cast<MemRefType>();
+  auto srcType = cast<MemRefType>(src.getType());
   assert(srcType.getRank() == 2 && "Expected a 2D memref");
   auto elemByteWidth = srcType.getElementType().getIntOrFloatBitWidth() / 8;
 

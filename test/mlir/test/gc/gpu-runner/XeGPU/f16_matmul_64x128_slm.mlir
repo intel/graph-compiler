@@ -1,6 +1,7 @@
 // RUN: gc-gpu-runner --shared-libs=%mlir_runner_utils %s | FileCheck %s
 
 module @fragment_name {
+  // This kernel requires using SLM
   func.func @entry(%0: tensor<64x128xf16>, %1: tensor<128x128xf16>, %2: tensor<64x128xf16>, %res: tensor<64x128xf16>) -> tensor<64x128xf16> {
     %3 = tensor.empty() : tensor<128x128xf16>
     %4 = tensor.empty() : tensor<64x128xf16>
