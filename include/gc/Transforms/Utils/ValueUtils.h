@@ -33,6 +33,23 @@ FailureOr<SmallVector<int64_t>> getStaticStrides(Value val);
 // is not a memref.
 std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand);
 
+template <typename T>
+Value createTypedVector(PatternRewriter &rewriter, Location loc,
+                        ArrayRef<T> values, Type elementType) {
+  mlir::VectorType vectorType =
+      mlir::VectorType::get({static_cast<int64_t>(values.size())}, elementType);
+  mlir::DenseElementsAttr denseAttr =
+      mlir::DenseElementsAttr::get(vectorType, values);
+  auto vector =
+      rewriter.create<mlir::arith::ConstantOp>(loc, vectorType, denseAttr)
+          .getResult();
+  return vector;
+}
+
+Value flattenMemref(PatternRewriter &rewriter, Location loc, Value srcMemref);
+
+bool hasSharedMemSpace(mlir::Value memref);
+
 } // namespace utils
 } // namespace mlir
 

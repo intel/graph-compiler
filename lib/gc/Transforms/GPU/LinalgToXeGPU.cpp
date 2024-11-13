@@ -49,78 +49,15 @@ namespace gc {
 
 namespace {
 
-// TODO: move these to utils
-template <typename T>
-static Value createTypedVector(PatternRewriter &rewriter, Location loc,
-                               ArrayRef<T> values, Type elementType) {
-  mlir::VectorType vectorType =
-      mlir::VectorType::get({static_cast<int64_t>(values.size())}, elementType);
-  mlir::DenseElementsAttr denseAttr =
-      mlir::DenseElementsAttr::get(vectorType, values);
-  auto vector =
-      rewriter.create<mlir::arith::ConstantOp>(loc, vectorType, denseAttr)
-          .getResult();
-  return vector;
-}
-
-static Value createIndexVector(PatternRewriter &rewriter, Location loc,
-                               ArrayRef<int64_t> values) {
-  return createTypedVector(rewriter, loc, values, rewriter.getIndexType());
-}
-
-static Value createIndexConstant(PatternRewriter &rewriter, Location loc,
-                                 int64_t value) {
-  return rewriter.create<arith::ConstantIndexOp>(loc, value);
-}
-
-static Value flattenMemref(PatternRewriter &rewriter, Location loc,
-                           Value srcMemref) {
-  auto srcType = cast<MemRefType>(srcMemref.getType());
-
-  assert(srcType && "Expected a memref type");
-  assert(srcType.getRank() == 2 && "Expected a 2D memref");
-
-  int64_t flatSize = srcType.getShape()[0] * srcType.getShape()[1];
-
-  Value offset = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-  Value size = rewriter.create<arith::ConstantIndexOp>(loc, flatSize);
-  Value stride = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-
-  // Use memref.reinterpret_cast to flatten the memref
-  auto flatMemRefType = MemRefType::get({flatSize}, srcType.getElementType(),
-                                        nullptr, srcType.getMemorySpace());
-  auto flatMemref =
-      rewriter
-          .create<memref::ReinterpretCastOp>(loc, flatMemRefType, srcMemref,
-                                             offset, size, stride)
-          .getResult();
-  return flatMemref;
-}
-
-static bool hasSharedMemSpace(mlir::Value memref) {
-  auto type = mlir::dyn_cast<mlir::MemRefType>(memref.getType());
-  if (!type)
-    return false;
-
-  auto memSpace = type.getMemorySpace();
-  if (!memSpace)
-    return false;
-
-  if (auto gpuAttr = mlir::dyn_cast<mlir::gpu::AddressSpaceAttr>(memSpace))
-    return gpuAttr.getValue() == mlir::gpu::AddressSpace::Private;
-
-  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(memSpace))
-    return intAttr.getValue() ==
-           static_cast<int64_t>(mlir::gpu::AddressSpace::Private);
-
-  return false;
-}
-
 static Value createFullMask(PatternRewriter &rewriter, Location loc,
                             int64_t size) {
-  auto maskVal = createIndexConstant(rewriter, loc, 32);
+  auto maskVal = rewriter.create<arith::ConstantIndexOp>(loc, 32);
   mlir::VectorType maskVectorType =
       mlir::VectorType::get({size}, rewriter.getI1Type());
+  // HACK: creating mask vector through this strange op instead of
+  // simple 'arith.constant dense<true>' to avoid the mask being
+  // moved out of the GPU kernel (it causes strange behaviour
+  // when a bit-mask is passed as a kernel parameter).
   auto res = rewriter.create<vector::CreateMaskOp>(
       loc, maskVectorType, SmallVector<Value>({maskVal}));
   return res.getResult();
@@ -826,8 +763,9 @@ static SmallVector<Value> createScatterDescriptorTiles(
   }
 
   int64_t skipPerLoad = memrefStrides[0] * rowsPerLoad;
-  auto offsetPerLoad =
-      createIndexVector(rewriter, loc, SmallVector<int64_t>(32, skipPerLoad));
+  auto offsetPerLoad = utils::createTypedVector<int64_t>(
+      rewriter, loc, SmallVector<int64_t>(32, skipPerLoad),
+      rewriter.getIndexType());
 
   auto offsetVecType = VectorType::get({maxLoadSize}, rewriter.getIndexType());
   auto descType = getTensorDescType(
@@ -843,7 +781,8 @@ static SmallVector<Value> createScatterDescriptorTiles(
 
   SmallVector<Value> tiles;
   for (int i = 0; i < numColTiles; i++) {
-    auto offsetsShift = createIndexVector(rewriter, loc, offsetShiftValues[i]);
+    auto offsetsShift = utils::createTypedVector<int64_t>(
+        rewriter, loc, offsetShiftValues[i], rewriter.getIndexType());
     auto offsets0 =
         rewriter.create<arith::AddIOp>(loc, blockOffsetV, offsetsShift);
 
@@ -924,7 +863,7 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
   }
 
   // Scatter descriptors only work with 1D memrefs
-  src = flattenMemref(rewriter, loc, src);
+  src = utils::flattenMemref(rewriter, loc, src);
 
   return createScatterDescriptorTiles(
       rewriter, loc, /*flatMemref=*/src, /*loadShape2D=*/loadShape,
@@ -938,7 +877,7 @@ static SmallVector<Value> createDescriptorTiles(
     std::optional<ArrayRef<int64_t>> loadOffsets = std::nullopt,
     int arrayLength = 1, bool transpose = false) {
 
-  if (hasSharedMemSpace(src)) {
+  if (utils::hasSharedMemSpace(src)) {
     assert(!transpose && "Transpose is not supported for shared memory");
     assert(arrayLength == 1 &&
            "Array descriptors are not supported for shared memory");
@@ -1092,8 +1031,8 @@ loadScatterDescTiles(PatternRewriter &rewriter, Location loc,
     // Accumulator vector for the current tile (its number of elements equals to
     // tileShape) HACK: we first create a flat vector of zeros and then cast it
     // to the 2D shape. Otherwise 'imex::ConvertGPUXToSPIRVPass' fails.
-    auto accumVector =
-        createTypedVector<Attribute>(rewriter, loc, accumValues, elementType);
+    auto accumVector = utils::createTypedVector<Attribute>(
+        rewriter, loc, accumValues, elementType);
     accumVector =
         rewriter.create<vector::ShapeCastOp>(loc, accumVectorType, accumVector);
 
@@ -1961,7 +1900,7 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
   }
 
   // Extract SIMD sized sub-tiles
-  int64_t maxSizeSIMD = hasSharedMemSpace(output) ? 32 : 256;
+  int64_t maxSizeSIMD = utils::hasSharedMemSpace(output) ? 32 : 256;
   int64_t subTileCols = std::min(outputShape[1], maxSizeSIMD);
   int64_t subTileRows =
       std::min(outputShape[0], std::max(maxSizeSIMD / subTileCols, 1L));
