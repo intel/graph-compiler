@@ -12,7 +12,6 @@
 #include "gc/Transforms/Utils/StructuredOpMatcher.h"
 #include "gc/Transforms/Utils/ValueUtils.h"
 
-#include "gc/Utils/Log.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -832,7 +831,6 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
 
   auto srcType = cast<MemRefType>(src.getType());
   assert(srcType.getRank() == 2 && "Expected a 2D memref");
-  auto elemByteWidth = srcType.getElementType().getIntOrFloatBitWidth() / 8;
 
   SmallVector<int64_t> memrefStrides;
   Value blockOffset;
