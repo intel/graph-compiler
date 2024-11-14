@@ -33,6 +33,7 @@ FailureOr<SmallVector<int64_t>> getStaticStrides(Value val);
 // is not a memref.
 std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand);
 
+// Create a 'mlir::vector' constant from a list of values.
 template <typename T>
 Value createTypedVector(PatternRewriter &rewriter, Location loc,
                         ArrayRef<T> values, Type elementType) {
@@ -46,8 +47,10 @@ Value createTypedVector(PatternRewriter &rewriter, Location loc,
   return vector;
 }
 
+// Flatten a 2D memref to a 1D memref.
 Value flattenMemref(PatternRewriter &rewriter, Location loc, Value srcMemref);
 
+// Return true if the memref has shared memory space.
 bool hasSharedMemSpace(mlir::Value memref);
 
 } // namespace utils

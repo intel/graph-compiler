@@ -140,7 +140,4 @@ install(FILES
   ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
   DESTINATION "lib/cmake/${PROJECT_NAME}"
 )
-
-message("C++ Standard: ${CMAKE_CXX_STANDARD}")
-
 ################################################################################

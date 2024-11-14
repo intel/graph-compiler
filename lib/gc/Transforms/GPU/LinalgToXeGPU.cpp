@@ -745,12 +745,14 @@ static SmallVector<Value> createScatterDescriptorTiles(
          "Descriptor tile must be divisible by max load size");
 
   int64_t numLoadsPerTile = tileSize2D[0] * tileSize2D[1] / maxLoadSize;
-  // How much rows of a tile fit into a single descriptor load
+  // This indicates how many rows of a single tile (defined by tileSize2D) are
+  // loaded per single load operation (single load loads exactly 32 elements).
   int64_t rowsPerLoad = maxLoadSize / tileSize2D[1];
   int64_t numColTiles = loadShape2D[1] / tileSize2D[1];
 
   auto memrefType = dyn_cast<MemRefType>(flatMemref.getType());
 
+  // compute load offsets for each colTile
   SmallVector<SmallVector<int64_t>> offsetShiftValues;
   for (int colTile = 0; colTile < numColTiles; colTile++) {
     offsetShiftValues.push_back(SmallVector<int64_t>());
@@ -762,6 +764,7 @@ static SmallVector<Value> createScatterDescriptorTiles(
     }
   }
 
+  // This indicates an offset between two loads
   int64_t skipPerLoad = memrefStrides[0] * rowsPerLoad;
   auto offsetPerLoad = utils::createTypedVector<int64_t>(
       rewriter, loc, SmallVector<int64_t>(32, skipPerLoad),

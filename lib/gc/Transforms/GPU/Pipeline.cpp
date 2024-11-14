@@ -69,6 +69,7 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(createAllocsToSLM());
   pm.addNestedPass<func::FuncOp>(createLinalgToXeGPU(
       {/*kTile=*/16, /*stages=*/1, /*dpasTiles=*/{8, 16, 16}}));
+  pm.addPass(createCSEPass());
 
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
   pm.addPass(xegpu::createXeGPUFoldAliasOps());
