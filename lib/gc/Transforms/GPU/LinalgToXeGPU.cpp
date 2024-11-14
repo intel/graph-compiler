@@ -62,6 +62,9 @@ static Value createFullMask(PatternRewriter &rewriter, Location loc,
   return res.getResult();
 }
 
+// Max number of elements to load/store from SLM
+constexpr int64_t maxSLMTileSize = 32;
+
 // Represents VNNI configuration for an operand.
 struct VnniConfig {
   int vnniFactor;
@@ -732,21 +735,19 @@ static SmallVector<Value> createScatterDescriptorTiles(
     PatternRewriter &rewriter, Location loc, Value flatMemref,
     ArrayRef<int64_t> loadShape2D, ArrayRef<int64_t> tileSize2D,
     ArrayRef<int64_t> memrefStrides, Value blockOffset) {
-  int64_t maxLoadSize = 32;
-
   assert(memrefStrides.size() == 2 && "Strides must be 2D");
   assert(memrefStrides[1] == 1 && "Only row-major strides are supported");
   assert(loadShape2D.size() == 2 && "Load shape must be 2D");
-  assert(loadShape2D[0] * loadShape2D[1] % maxLoadSize == 0 &&
+  assert(loadShape2D[0] * loadShape2D[1] % maxSLMTileSize == 0 &&
          "Load shape must be divisible by max load size");
   assert(tileSize2D.size() == 2 && "Descriptor tile must be 2D");
-  assert(maxLoadSize % tileSize2D[1] == 0 &&
+  assert(maxSLMTileSize % tileSize2D[1] == 0 &&
          "Descriptor tile must be divisible by max load size");
 
-  int64_t numLoadsPerTile = tileSize2D[0] * tileSize2D[1] / maxLoadSize;
+  int64_t numLoadsPerTile = tileSize2D[0] * tileSize2D[1] / maxSLMTileSize;
   // This indicates how many rows of a single tile (defined by tileSize2D) are
   // loaded per single load operation (single load loads exactly 32 elements).
-  int64_t rowsPerLoad = maxLoadSize / tileSize2D[1];
+  int64_t rowsPerLoad = maxSLMTileSize / tileSize2D[1];
   int64_t numColTiles = loadShape2D[1] / tileSize2D[1];
 
   auto memrefType = dyn_cast<MemRefType>(flatMemref.getType());
@@ -757,7 +758,7 @@ static SmallVector<Value> createScatterDescriptorTiles(
     offsetShiftValues.push_back(SmallVector<int64_t>());
     for (int i = 0; i < rowsPerLoad; i++) {
       int64_t offset = i * memrefStrides[0];
-      for (int j = 0; j < maxLoadSize / rowsPerLoad; j++)
+      for (int j = 0; j < maxSLMTileSize / rowsPerLoad; j++)
         offsetShiftValues[colTile].push_back(offset + j +
                                              colTile * tileSize2D[1]);
     }
@@ -769,9 +770,10 @@ static SmallVector<Value> createScatterDescriptorTiles(
       rewriter, loc, SmallVector<int64_t>(32, skipPerLoad),
       rewriter.getIndexType());
 
-  auto offsetVecType = VectorType::get({maxLoadSize}, rewriter.getIndexType());
+  auto offsetVecType =
+      VectorType::get({maxSLMTileSize}, rewriter.getIndexType());
   auto descType = getTensorDescType(
-      {maxLoadSize}, memrefType.getElementType(),
+      {maxSLMTileSize}, memrefType.getElementType(),
       xegpu::ScatterTensorDescAttr::get(
           rewriter.getContext(), xegpu::MemorySpace::SLM, /*chunkSize=*/1));
 
@@ -793,8 +795,9 @@ static SmallVector<Value> createScatterDescriptorTiles(
             .create<xegpu::CreateDescOp>(loc, descType, flatMemref, offsets0)
             .getResult();
     tiles.push_back(desc);
-    for (int j = maxLoadSize; j < loadShape2D[0] * loadShape2D[1] / numColTiles;
-         j += maxLoadSize) {
+    for (int j = maxSLMTileSize;
+         j < loadShape2D[0] * loadShape2D[1] / numColTiles;
+         j += maxSLMTileSize) {
       auto newTile = rewriter
                          .create<xegpu::UpdateOffsetOp>(
                              loc, descType, tiles.back(), offsetPerLoad)
@@ -994,39 +997,37 @@ loadScatterDescTiles(PatternRewriter &rewriter, Location loc,
                      std::optional<VnniConfig> vnniConf = std::nullopt,
                      DenseI64ArrayAttr transpose = nullptr,
                      IntegerAttr transpose_bit = nullptr) {
-  int64_t elementsPerLoad = 32;
-
   // Assume all tiles have the same shape.
   auto tileType = cast<xegpu::TensorDescType>(loadTiles[0].getType());
   assert(llvm::all_of(loadTiles,
                       [&](Value tile) { return tile.getType() == tileType; }) &&
          "All load tiles must have the same type.");
   assert(tileType.getShape().size() == 1 && "Scatter tiles must be 1D");
-  assert(tileType.getShape()[0] == elementsPerLoad &&
+  assert(tileType.getShape()[0] == maxSLMTileSize &&
          "Scatter tiles must have 32 elements");
   assert(!vnniConf && "VNNI not supported for scatter loads");
   assert(!transpose && "Transpose is not supported for scatter loads");
   assert(!transpose_bit && "Transpose is not supported for scatter loads");
 
   int64_t totalLoadElems = tileType.getShape()[0] * loadTiles.size();
-  assert(totalLoadElems % elementsPerLoad == 0 &&
+  assert(totalLoadElems % maxSLMTileSize == 0 &&
          "Total load size must be multiple of 32");
-  assert(tileShape[0] * tileShape[1] % elementsPerLoad == 0 &&
+  assert(tileShape[0] * tileShape[1] % maxSLMTileSize == 0 &&
          "Tile shape must be multiple of 32");
 
-  int64_t loadsPerTile = tileShape[0] * tileShape[1] / elementsPerLoad;
-  int64_t totalNumLoads = totalLoadElems / elementsPerLoad;
-  auto mask = createFullMask(rewriter, loc, elementsPerLoad);
+  int64_t loadsPerTile = tileShape[0] * tileShape[1] / maxSLMTileSize;
+  int64_t totalNumLoads = totalLoadElems / maxSLMTileSize;
+  auto mask = createFullMask(rewriter, loc, maxSLMTileSize);
 
   SmallVector<Value> result;
   auto elementType = tileType.getElementType();
   SmallVector<Attribute> accumValues(
-      loadsPerTile * elementsPerLoad,
+      loadsPerTile * maxSLMTileSize,
       dyn_cast<Attribute>(rewriter.getZeroAttr(elementType)));
 
   VectorType accumVectorType =
-      VectorType::get({loadsPerTile, elementsPerLoad}, elementType);
-  VectorType loadVectorType = VectorType::get({elementsPerLoad}, elementType);
+      VectorType::get({loadsPerTile, maxSLMTileSize}, elementType);
+  VectorType loadVectorType = VectorType::get({maxSLMTileSize}, elementType);
 
   for (int64_t tileIdx = 0; tileIdx < totalNumLoads; tileIdx += loadsPerTile) {
     // Accumulator vector for the current tile (its number of elements equals to
@@ -1049,7 +1050,7 @@ loadScatterDescTiles(PatternRewriter &rewriter, Location loc,
           loc, loadOp.getResult(), accumVector, SmallVector<int64_t>{loadIdx});
     }
 
-    if (tileShape[1] == elementsPerLoad) {
+    if (tileShape[1] == maxSLMTileSize) {
       // No need to reshape the accumulator vector.
       result.push_back(accumVector);
       continue;
@@ -1115,24 +1116,22 @@ static void storeScatterDescTiles(PatternRewriter &rewriter, Location loc,
                                   SmallVector<Value> &results,
                                   ValueRange storeTiles,
                                   xegpu::CachePolicyAttr hint) {
-  int64_t elementsPerStore = 32;
-
   auto tileType = cast<xegpu::TensorDescType>(storeTiles[0].getType());
   assert(llvm::all_of(storeTiles,
                       [&](Value tile) { return tile.getType() == tileType; }) &&
          "All load tiles must have the same type.");
   assert(tileType.getShape().size() == 1 && "Scatter tiles must be 1D");
-  assert(tileType.getShape()[0] == elementsPerStore &&
+  assert(tileType.getShape()[0] == maxSLMTileSize &&
          "Scatter tiles must have 32 elements");
 
-  auto mask = createFullMask(rewriter, loc, elementsPerStore);
+  auto mask = createFullMask(rewriter, loc, maxSLMTileSize);
   int64_t descIdx = 0;
 
   for (auto vec : results) {
     auto vecType = dyn_cast<VectorType>(vec.getType());
     auto vecShape = vecType.getShape();
     assert(vecShape.size() == 2 && "Expected 2D vector");
-    assert(vecShape[0] * vecShape[1] % elementsPerStore == 0 &&
+    assert(vecShape[0] * vecShape[1] % maxSLMTileSize == 0 &&
            "Vector shape must be divisible by load size");
 
     // Flatten the vector to 1D
@@ -1142,10 +1141,10 @@ static void storeScatterDescTiles(PatternRewriter &rewriter, Location loc,
         vec);
     // Extract slices of 32 size from 'flatVec' and store them
     for (int64_t loadChunkIdx = 0; loadChunkIdx < vecShape[0] * vecShape[1];
-         loadChunkIdx += elementsPerStore) {
+         loadChunkIdx += maxSLMTileSize) {
       auto toStore = rewriter.create<vector::ExtractStridedSliceOp>(
           loc, flatVec, /*offsets=*/SmallVector<int64_t>({loadChunkIdx}),
-          /*sizes=*/SmallVector<int64_t>({elementsPerStore}),
+          /*sizes=*/SmallVector<int64_t>({maxSLMTileSize}),
           /*strides=*/SmallVector<int64_t>({1}));
       rewriter.create<xegpu::StoreScatterOp>(loc, toStore, storeTiles[descIdx],
                                              /*mask=*/mask,
@@ -1901,7 +1900,7 @@ LogicalResult createMemoryFillKernel(linalg::LinalgOp linalgOp,
   }
 
   // Extract SIMD sized sub-tiles
-  int64_t maxSizeSIMD = utils::hasSharedMemSpace(output) ? 32 : 256;
+  int64_t maxSizeSIMD = utils::hasSharedMemSpace(output) ? maxSLMTileSize : 256;
   int64_t subTileCols = std::min(outputShape[1], maxSizeSIMD);
   int64_t subTileRows =
       std::min(outputShape[0], std::max(maxSizeSIMD / subTileCols, 1L));
