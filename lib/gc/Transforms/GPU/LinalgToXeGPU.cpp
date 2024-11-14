@@ -102,14 +102,14 @@ struct TilesArray {
 
 static xegpu::TensorDescType
 getTensorDescType(llvm::ArrayRef<int64_t> shape, mlir::Type elementType,
-                  std::optional<mlir::Attribute> sgMap = std::nullopt) {
-  if (!sgMap) {
+                  std::optional<mlir::Attribute> descAttr = std::nullopt) {
+  if (!descAttr) {
     // Assuming default tensor descriptor type (blocked & in global memory).
     return xegpu::TensorDescType::get(shape, elementType, /*array_length=*/1,
                                       /*boundary_check=*/true);
   }
 
-  auto descriptor = sgMap.value();
+  auto descriptor = descAttr.value();
   if (auto scatterMap = dyn_cast<ScatterTensorDescAttr>(descriptor)) {
     auto memSpace = scatterMap.getMemorySpace().getValue();
     int64_t chunkSize = scatterMap.getChunkSize().getInt();
