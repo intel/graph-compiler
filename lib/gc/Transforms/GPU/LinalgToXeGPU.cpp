@@ -710,8 +710,8 @@ static SmallVector<Value> createNdDescriptorTiles(
                       .create<xegpu::UpdateNdOffsetOp>(
                           loc, descType, rootTile,
                           /*offsets=*/
-                              transpose ? ValueRange{newColOffs, newRowOffs}
-                                        : ValueRange{newRowOffs, newColOffs},
+                          transpose ? ValueRange{newColOffs, newRowOffs}
+                                    : ValueRange{newRowOffs, newColOffs},
                           SmallVector<int64_t>{ShapedType::kDynamic,
                                                ShapedType::kDynamic})
                       .getResult();
