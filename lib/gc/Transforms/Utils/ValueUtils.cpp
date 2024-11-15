@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -148,6 +149,48 @@ std::pair<Value, Value> getPtrAndOffset(OpBuilder &builder, Value operand) {
       alignedPointerAsI64);
   Value offset = meta.getOffset();
   return std::make_pair(alignedPointer, offset);
+}
+
+Value flattenMemref(PatternRewriter &rewriter, Location loc, Value srcMemref) {
+  auto srcType = cast<MemRefType>(srcMemref.getType());
+
+  assert(srcType && "Expected a memref type");
+  assert(srcType.getRank() == 2 && "Expected a 2D memref");
+
+  int64_t flatSize = srcType.getShape()[0] * srcType.getShape()[1];
+
+  Value offset = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  Value size = rewriter.create<arith::ConstantIndexOp>(loc, flatSize);
+  Value stride = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+
+  // Use memref.reinterpret_cast to flatten the memref
+  auto flatMemRefType = MemRefType::get({flatSize}, srcType.getElementType(),
+                                        nullptr, srcType.getMemorySpace());
+  auto flatMemref =
+      rewriter
+          .create<memref::ReinterpretCastOp>(loc, flatMemRefType, srcMemref,
+                                             offset, size, stride)
+          .getResult();
+  return flatMemref;
+}
+
+bool hasSharedMemSpace(mlir::Value memref) {
+  auto type = mlir::dyn_cast<mlir::MemRefType>(memref.getType());
+  if (!type)
+    return false;
+
+  auto memSpace = type.getMemorySpace();
+  if (!memSpace)
+    return false;
+
+  if (auto gpuAttr = mlir::dyn_cast<mlir::gpu::AddressSpaceAttr>(memSpace))
+    return gpuAttr.getValue() == mlir::gpu::AddressSpace::Private;
+
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(memSpace))
+    return intAttr.getValue() ==
+           static_cast<int64_t>(mlir::gpu::AddressSpace::Private);
+
+  return false;
 }
 
 } // namespace utils
