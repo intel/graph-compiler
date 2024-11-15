@@ -706,13 +706,12 @@ static SmallVector<Value> createNdDescriptorTiles(
     Value newRowOffs = rewriter.create<arith::ConstantIndexOp>(loc, i);
     for (int j = 0; j < loadShape[1]; j += descTile[1] * arrayLength) {
       Value newColOffs = rewriter.create<arith::ConstantIndexOp>(loc, j);
-      if (transpose) {
-        std::swap(newRowOffs, newColOffs);
-      }
       auto tile = rewriter
                       .create<xegpu::UpdateNdOffsetOp>(
                           loc, descType, rootTile,
-                          /*offsets=*/ValueRange{newRowOffs, newColOffs},
+                          /*offsets=*/
+                              transpose ? ValueRange{newColOffs, newRowOffs}
+                                        : ValueRange{newRowOffs, newColOffs},
                           SmallVector<int64_t>{ShapedType::kDynamic,
                                                ShapedType::kDynamic})
                       .getResult();
