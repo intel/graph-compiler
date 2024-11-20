@@ -25,6 +25,7 @@ gc_add_mlir_library(GcPasses
   MergeAlloc.cpp
   MergeAllocTickBased.cpp
   FoldTensorOperation.cpp
+  DecomposeTensorOperation.cpp
   LowerToTileVector.cpp
 
   DEPENDS

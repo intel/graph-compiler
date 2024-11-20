@@ -30,7 +30,7 @@ def MergeAlloc : Pass<"gc-merge-alloc", "func::FuncOp">  {
     lifetime of the original memref before merging. This pass schedules the
     offsets to 1) make sure the offsets and address ranges do not overlap if
     two "mergeable" allocations have overlapped lifetime, and 2) reuse the
-    address ranges that are considered "hot" in cache for an later allocation. 
+    address ranges that are considered "hot" in cache for an later allocation.
   }];
   let options = [
     Option<"optionAnalysisOnly", "analysis-only", "bool",
@@ -230,6 +230,16 @@ def FoldTensorOperation : Pass<"fold-tensor-operation"> {
   let summary = "Fold some tensor operation";
   let description = [{
     Remove some useless tensor operations.
+  }];
+  let dependentDialects = [
+    "tensor::TensorDialect",
+  ];
+}
+
+def DecomposeTensorOperation : Pass<"decompose-tensor-operation"> {
+  let summary = "decompose some tensor operation";
+  let description = [{
+    Decompose some tensor operations(concat, gather) into linalg operation.
   }];
   let dependentDialects = [
     "::mlir::tensor::TensorDialect"
