@@ -62,6 +62,28 @@ static Value createFullMask(PatternRewriter &rewriter, Location loc,
   return res.getResult();
 }
 
+// Extracts the offsets from a subview operation as values.
+// The differense from mlir::getMixedOffsets is that this function
+// returns the offsets as mlir::Value that can already be used as an argument
+// for other mlir::Operations.
+static SmallVector<Value> extractOffsetsAsValues(PatternRewriter &rewriter,
+                                                 Location loc,
+                                                 memref::SubViewOp subview) {
+  SmallVector<Value> offsetValues;
+  auto staticOffsets = subview.getStaticOffsets();
+  auto dynamicOffsets = subview.getOffsets();
+  size_t dynIdx = 0;
+  for (size_t i = 0; i < staticOffsets.size(); i++) {
+    if (staticOffsets[i] == ShapedType::kDynamic)
+      offsetValues.push_back(dynamicOffsets[dynIdx++]);
+    else
+      offsetValues.push_back(
+          rewriter.create<arith::ConstantIndexOp>(loc, staticOffsets[i]));
+  }
+
+  return offsetValues;
+}
+
 // Max number of elements to load/store from SLM
 constexpr int64_t maxSLMTileSize = 32;
 
@@ -841,8 +863,11 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
   // GPU kernel. We have to merge the subview offsets into the descriptor
   // offset.
   if (auto subView = dyn_cast<memref::SubViewOp>(src.getDefiningOp())) {
-    auto xIntOffs = subView.getOffsets()[0];
-    auto yIntOffs = subView.getOffsets()[1];
+    auto offsets = extractOffsetsAsValues(rewriter, loc, subView);
+    assert(offsets.size() == 2 && "Expected 2D subview offsets");
+
+    auto xIntOffs = offsets[0];
+    auto yIntOffs = offsets[1];
 
     // compute 'blockOffset' (beginning of the subview block in the original
     // flat memref)

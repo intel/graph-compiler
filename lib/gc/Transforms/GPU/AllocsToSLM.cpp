@@ -8,6 +8,7 @@
 
 #include "gc/Transforms/Passes.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/TransformOps/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -80,22 +81,16 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
       return rewriter.notifyMatchFailure(
           allocOp, "Only support constant block sizes for now");
 
-    int64_t xI = xSz.value();
-    int64_t yI = ySz.value();
-    int64_t zI = zSz.value();
-
-    if (zI != 1)
-      return rewriter.notifyMatchFailure(
-          allocOp, "Only support 2D shared memory for now");
-
+    int64_t blockSizes[3] = {xSz.value(), ySz.value(), zSz.value()};
     MemRefType originalMemRefType = cast<MemRefType>(memref.getType());
     auto originalShape = originalMemRefType.getShape();
 
-    // Scale the allocation size by the number of threads in the work-group
-    int64_t newX = originalShape[0] * xI;
-    int64_t newY = originalShape[1] * yI;
-
-    SmallVector<int64_t> newShape = {newX, newY};
+    // Scale the allocation size (X dimension) by the number of threads in the
+    // work-group
+    int64_t newX =
+        originalShape[0] * blockSizes[0] * blockSizes[1] * blockSizes[2];
+    SmallVector<int64_t> newShape({newX});
+    newShape.append(originalShape.begin() + 1, originalShape.end());
 
     IntegerAttr sharedAddressSpace =
         IntegerAttr::get(rewriter.getIntegerType(64),
@@ -111,27 +106,29 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
                                      allocOp.getOperands())
             .getResult();
 
-    // Compute the offsets in SLM chunk for the current thread
-    auto origXConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
-                                                              originalShape[0]);
-    auto origYConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
-                                                              originalShape[1]);
+    // Compute the offsets in SLM chunk for the current thread:
+    // X_off = (Xthr_i * Ybl_sz * Zbl_sz + Ythr_i * Zbl_sz + Zthr_i) * Xchunk_sz
+    // Offsets for other dimensions = 0
+    auto xI = getAffineDimExpr(0, rewriter.getContext());
+    auto yI = getAffineDimExpr(1, rewriter.getContext());
+    auto zI = getAffineDimExpr(2, rewriter.getContext());
+    auto idxExpr =
+        (xI * blockSizes[1] * blockSizes[2] + yI * blockSizes[2] + zI) *
+        originalShape[0];
+    auto idxMap = AffineMap::get(/*dimCount=*/3, /*symbolCount=*/0, idxExpr);
 
     auto threadIds = launchOp.getThreadIds();
+    auto offX = rewriter.create<affine::AffineApplyOp>(
+        allocOp.getLoc(), idxMap,
+        /*exprOperands=*/ValueRange({threadIds.x, threadIds.y, threadIds.z}));
 
-    auto offX =
-        rewriter
-            .create<arith::MulIOp>(allocOp.getLoc(), threadIds.x, origXConst)
-            .getResult();
-    auto offY =
-        rewriter
-            .create<arith::MulIOp>(allocOp.getLoc(), threadIds.y, origYConst)
-            .getResult();
+    SmallVector<int64_t> staticOffsets({ShapedType::kDynamic});
+    staticOffsets.insert(staticOffsets.end(), originalShape.size() - 1, 0);
 
-    auto offsets = getMixedValues({ShapedType::kDynamic, ShapedType::kDynamic},
-                                  {offX, offY}, rewriter);
+    auto offsets = getMixedValues(staticOffsets, {offX}, rewriter);
     auto sizes = getMixedValues(originalShape, {}, rewriter);
-    auto strides = getMixedValues({1, 1}, {}, rewriter);
+    auto strides = getMixedValues(SmallVector<int64_t>(originalShape.size(), 1),
+                                  {}, rewriter);
 
     auto newSlice =
         rewriter
