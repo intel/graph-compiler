@@ -9,6 +9,7 @@
 #include "gc/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/TransformOps/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Dialect.h"
@@ -80,22 +81,35 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
       return rewriter.notifyMatchFailure(
           allocOp, "Only support constant block sizes for now");
 
-    int64_t xI = xSz.value();
-    int64_t yI = ySz.value();
-    int64_t zI = zSz.value();
-
-    if (zI != 1)
-      return rewriter.notifyMatchFailure(
-          allocOp, "Only support 2D shared memory for now");
-
+    SmallVector<int64_t, 3> blockDims = {xSz.value(), ySz.value(), zSz.value()};
     MemRefType originalMemRefType = cast<MemRefType>(memref.getType());
     auto originalShape = originalMemRefType.getShape();
 
-    // Scale the allocation size by the number of threads in the work-group
-    int64_t newX = originalShape[0] * xI;
-    int64_t newY = originalShape[1] * yI;
+    // 1D memref:
+    // newShape = {oldShape[0] * Xsz * Ysz * Zsz}
+    // Xsv = (Xi * Ysz * Zsz + Yi * Zsz + Zi) * oldShape[0]
+    // 2D memref:
+    // newShape = {oldShape[0] * Xsz, oldShape[1] * Ysz * Ysz}
+    // Xsv = Xi * oldShape[0]
+    // Ysv = (Yi * Zsz + Zi) * oldShape[1]
+    // 3D memref:
+    // newShape = {oldShape[0] * Xsz, oldShape[1] * Ysz, oldShape[2] * Zsz}
+    // Xsv = Xi * oldShape[0]
+    // Ysv = Yi * oldShape[1]
+    // Zsv = Zi * oldShape[2]
+    
 
-    SmallVector<int64_t> newShape = {newX, newY};
+    // New idea:
+    // only scale 0th dimension by the number of threads in the work-group
+
+
+
+    // Scale the allocation size by the number of threads in the work-group
+    int64_t newX = originalShape[0] * blockDims[0] * blockDims[1] * blockDims[2];
+    SmallVector<int64_t> newShape({newX});
+    newShape.append(originalShape.begin() + 1, originalShape.end());
+
+    llvm::dbgs() << "newShape: " << newShape.size() << "\n";
 
     IntegerAttr sharedAddressSpace =
         IntegerAttr::get(rewriter.getIntegerType(64),
@@ -112,26 +126,38 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
             .getResult();
 
     // Compute the offsets in SLM chunk for the current thread
-    auto origXConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
-                                                              originalShape[0]);
-    auto origYConst = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(),
-                                                              originalShape[1]);
+    auto xI = getAffineDimExpr(0, rewriter.getContext());
+    auto yI = getAffineDimExpr(1, rewriter.getContext());
+    auto zI = getAffineDimExpr(2, rewriter.getContext());
+    auto idxExpr = (xI * blockDims[1] * blockDims[2] + yI * blockDims[2] + zI) * originalShape[0];
+    auto idxMap = AffineMap::get(/*dimCount=*/3, /*symbolCount=*/0, idxExpr);
 
     auto threadIds = launchOp.getThreadIds();
+    auto offX = rewriter.create<affine::AffineApplyOp>(
+        allocOp.getLoc(), idxMap, ValueRange({threadIds.x, threadIds.y, threadIds.z}));
 
-    auto offX =
-        rewriter
-            .create<arith::MulIOp>(allocOp.getLoc(), threadIds.x, origXConst)
-            .getResult();
-    auto offY =
-        rewriter
-            .create<arith::MulIOp>(allocOp.getLoc(), threadIds.y, origYConst)
-            .getResult();
+    auto c0 = rewriter.create<arith::ConstantIndexOp>(allocOp.getLoc(), 0);
 
-    auto offsets = getMixedValues({ShapedType::kDynamic, ShapedType::kDynamic},
-                                  {offX, offY}, rewriter);
+    // SmallVector<int64_t> staticOffsets({offX});
+    // if (originalShape.size() > 1)
+    //   staticOffsets.assign(originalShape.size() - 1, c0);
+    // auto offsets = getMixedValues(SmallVector<int64_t>(originalShape.size(), ShapedType::kDynamic), staticOffsets, rewriter);
+
+    SmallVector<int64_t> staticOffsets({ShapedType::kDynamic});
+    for (int i = 0; i < originalShape.size() - 1; i++)
+      staticOffsets.push_back(0);
+    // if (originalShape.size() > 1)
+    //   staticOffsets.assign(originalShape.size() - 1, 0);
+
+    llvm::dbgs() << "staticOffsets: " << staticOffsets.size() << "\n";
+
+    auto offsets = getMixedValues(staticOffsets, {offX}, rewriter);
     auto sizes = getMixedValues(originalShape, {}, rewriter);
-    auto strides = getMixedValues({1, 1}, {}, rewriter);
+    auto strides = getMixedValues(SmallVector<int64_t>(originalShape.size(), 1), {}, rewriter);
+
+    llvm::dbgs() << "offsets: " << offsets.size() << "\n";
+    llvm::dbgs() << "sizes: " << sizes.size() << "\n";
+    llvm::dbgs() << "strides: " << strides.size() << "\n";
 
     auto newSlice =
         rewriter

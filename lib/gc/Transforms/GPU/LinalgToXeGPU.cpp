@@ -820,6 +820,23 @@ static SmallVector<Value> createScatterDescriptorTiles(
   return transposedTiles;
 }
 
+SmallVector<Value> extractOffsets(PatternRewriter &rewriter, Location loc,
+                                  memref::SubViewOp subview) {
+  SmallVector<Value> offsetValues;
+  auto staticOffsets = subview.getStaticOffsets();
+  auto dynamicOffsets = subview.getOffsets();
+  int64_t dynIdx = 0;
+  for (int64_t i = 0; i < staticOffsets.size(); i++) {
+    if (staticOffsets[i] == ShapedType::kDynamic)
+      offsetValues.push_back(dynamicOffsets[dynIdx++]);
+    else
+      offsetValues.push_back(
+          rewriter.create<arith::ConstantIndexOp>(loc, staticOffsets[i]));
+  }
+
+  return offsetValues;
+}
+
 // Creates descriptors to load from SLM.
 //
 // The function returns a vector of 1D descriptor tiles that load the specified
@@ -841,8 +858,11 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
   // GPU kernel. We have to merge the subview offsets into the descriptor
   // offset.
   if (auto subView = dyn_cast<memref::SubViewOp>(src.getDefiningOp())) {
-    auto xIntOffs = subView.getOffsets()[0];
-    auto yIntOffs = subView.getOffsets()[1];
+    auto offsets = extractOffsets(rewriter, loc, subView);
+    assert(offsets.size() == 2 && "Expected 2D subview offsets");
+
+    auto xIntOffs = offsets[0];
+    auto yIntOffs = offsets[1];
 
     // compute 'blockOffset' (beginning of the subview block in the original
     // flat memref)
