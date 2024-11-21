@@ -72,8 +72,8 @@ static SmallVector<Value> extractOffsetsAsValues(PatternRewriter &rewriter,
   SmallVector<Value> offsetValues;
   auto staticOffsets = subview.getStaticOffsets();
   auto dynamicOffsets = subview.getOffsets();
-  int64_t dynIdx = 0;
-  for (int64_t i = 0; i < staticOffsets.size(); i++) {
+  size_t dynIdx = 0;
+  for (size_t i = 0; i < staticOffsets.size(); i++) {
     if (staticOffsets[i] == ShapedType::kDynamic)
       offsetValues.push_back(dynamicOffsets[dynIdx++]);
     else

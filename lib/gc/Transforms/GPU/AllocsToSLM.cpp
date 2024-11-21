@@ -108,9 +108,8 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
             .getResult();
 
     // Compute the offsets in SLM chunk for the current thread:
-    // X_offset = (X_thread_idx * blockSizes[1] * blockSizes[2] + Y_thread_idx *
-    // blockSizes[2] + Z_thread_idx) * originalShape[0] Offsets for other
-    // dimensions = 0
+    // X_off = (Xthr_i * Ybl_sz * Zbl_sz + Ythr_i * Zbl_sz + Zthr_i) * Xchunk_sz
+    // Offsets for other dimensions = 0
     auto xI = getAffineDimExpr(0, rewriter.getContext());
     auto yI = getAffineDimExpr(1, rewriter.getContext());
     auto zI = getAffineDimExpr(2, rewriter.getContext());
