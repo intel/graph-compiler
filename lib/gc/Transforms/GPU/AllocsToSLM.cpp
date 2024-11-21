@@ -81,8 +81,7 @@ struct ConvertAlloc : public OpRewritePattern<memref::AllocOp> {
       return rewriter.notifyMatchFailure(
           allocOp, "Only support constant block sizes for now");
 
-    SmallVector<int64_t, 3> blockSizes = {xSz.value(), ySz.value(),
-                                          zSz.value()};
+    int64_t blockSizes[3] = {xSz.value(), ySz.value(), zSz.value()};
     MemRefType originalMemRefType = cast<MemRefType>(memref.getType());
     auto originalShape = originalMemRefType.getShape();
 
