@@ -352,7 +352,7 @@ OclRuntime::gcIntelDevices(size_t max) {
 
   for (auto platform : platforms) {
     cl_uint numDevices;
-    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, nullptr, &numDevices);
+    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, 0, nullptr, &numDevices);
     if (err != CL_SUCCESS) {
       gcLogE("Failed to get the number of devices on the platform.", platform,
              " Error: ", err);
@@ -363,7 +363,7 @@ OclRuntime::gcIntelDevices(size_t max) {
     }
 
     SmallVector<cl_device_id> devices(numDevices);
-    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, numDevices,
+    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, numDevices,
                          devices.data(), nullptr);
     if (err != CL_SUCCESS) {
       gcLogE("Failed to get the device ids on the platform ", platform,
@@ -372,6 +372,9 @@ OclRuntime::gcIntelDevices(size_t max) {
     }
 
     for (auto dev : devices) {
+      cl_device_type deviceType;
+      clGetDeviceInfo(dev, CL_DEVICE_TYPE, sizeof(deviceType), &deviceType,
+                      nullptr);
       cl_uint vendorId;
       err = clGetDeviceInfo(dev, CL_DEVICE_VENDOR_ID, sizeof(cl_uint),
                             &vendorId, nullptr);
@@ -380,6 +383,8 @@ OclRuntime::gcIntelDevices(size_t max) {
         continue;
       }
       if (vendorId == 0x8086) {
+        if (!(deviceType & CL_DEVICE_TYPE_GPU))
+          continue;
         intelDevices.emplace_back(dev);
 #ifndef NDEBUG
         size_t nameSize;
