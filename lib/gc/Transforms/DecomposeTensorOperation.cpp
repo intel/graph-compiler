@@ -37,9 +37,36 @@ namespace {
 ///      %extracted = tensor.extract %0[%in, %17] : tensor<7x128xf16>
 ///      linalg.yield %extracted : f16
 ///    } -> tensor<1x7x128xf16>
-
 struct DecomposeGatherOp : public OpRewritePattern<tensor::GatherOp> {
   using OpRewritePattern<tensor::GatherOp>::OpRewritePattern;
+
+  SmallVector<OpFoldResult> getDstMixedSizes(PatternRewriter &rewriter,
+                                             Location loc,
+                                             tensor::GatherOp gatherOp) const {
+    SmallVector<OpFoldResult> dstSize =
+        tensor::getMixedSizes(rewriter, loc, gatherOp.getResult());
+    SmallVector<OpFoldResult> indexSize =
+        tensor::getMixedSizes(rewriter, loc, gatherOp.getIndices());
+    SmallVector<OpFoldResult> srcSize =
+        tensor::getMixedSizes(rewriter, loc, gatherOp.getSource());
+    SmallVector<int64_t> gatherDims(gatherOp.getGatherDims());
+    bool isShrinkDst = (indexSize.size() - 1) + srcSize.size() ==
+                       dstSize.size() + gatherDims.size();
+    for (size_t i = 0; i < indexSize.size() - 1; i++) {
+      dstSize[i] = indexSize[i];
+    }
+    auto cnt = 0;
+    for (size_t i = indexSize.size() - 1; i < dstSize.size(); i++) {
+      while (isShrinkDst && llvm::find(gatherDims, cnt) != gatherDims.end()) {
+        cnt++;
+      }
+      dstSize[i] = llvm::find(gatherDims, cnt) == gatherDims.end()
+                       ? srcSize[cnt]
+                       : getAsIndexOpFoldResult(rewriter.getContext(), 1);
+      cnt++;
+    }
+    return dstSize;
+  }
 
   LogicalResult matchAndRewrite(tensor::GatherOp gatherOp,
                                 PatternRewriter &rewriter) const override {
@@ -51,7 +78,7 @@ struct DecomposeGatherOp : public OpRewritePattern<tensor::GatherOp> {
     // create destination tensor for linalg out
     RankedTensorType dstType = gatherOp.getResultType();
     Value dstTensor = rewriter.create<tensor::EmptyOp>(
-        loc, tensor::getMixedSizes(rewriter, loc, gatherOp.getResult()),
+        loc, getDstMixedSizes(rewriter, loc, gatherOp),
         dstType.getElementType());
 
     // split index tensor to create the linalg input
@@ -113,8 +140,8 @@ struct DecomposeGatherOp : public OpRewritePattern<tensor::GatherOp> {
                              dstRank + gatherDims.size();
           int cnt = 0;
           for (auto i = indexTensorSize.size() - 1; i < dstRank; i++) {
-            while (llvm::find(gatherDims, cnt) != gatherDims.end() &&
-                   isShrinkDst) {
+            while (isShrinkDst &&
+                   llvm::find(gatherDims, cnt) != gatherDims.end()) {
               cnt++;
             }
             indexValues[cnt] = b.create<linalg::IndexOp>(loc, i);
