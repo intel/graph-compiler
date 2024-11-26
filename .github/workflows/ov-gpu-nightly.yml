@@ -1,0 +1,82 @@
+name: OpenVino GPU Nightly Test
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  nightly:
+    name: OpenVino GPU Nightly
+    runs-on: [self-hosted, l0]
+
+    env:
+      GH_TOKEN: ${{ github.token }}    
+
+    steps:
+      - name: "Checkout Graph Compiler"
+        uses: actions/checkout@v4
+        with:
+          repository: 'intel/graph-compiler'
+          path: 'graph-compiler'
+
+      - name: Setup MLIR Python bindings
+        id: setup-mlir-python-bindings
+        uses: ./graph-compiler/.github/actions/setup-mlir-python-bindings
+
+      - name: Build LLVM with IMEX
+        working-directory: graph-compiler
+        run: |
+          scripts/compile.sh --dev --llvm --imex
+          echo LLVM_INST_PATH=$(pwd)/externals/llvm-project/build >>$GITHUB_ENV
+
+      - name: "Checkout OpenVino"
+        uses: actions/checkout@v4
+        with:
+          repository: 'dchigarev/openvino'
+          ref: 'gc-gpu'
+          path: 'openvino'
+          submodules: true
+          fetch-depth: 0
+          recursive: true
+      
+      - name: Build OpenVino
+        working-directory: openvino
+        run: |
+          cmake -B build -G Ninja -DLLVM_DIR=${LLVM_INST_PATH}/lib/cmake/llvm -DMLIR_DIR=${LLVM_INST_PATH}/lib/cmake/mlir -DENABLE_GRAPH_COMPILER=ON -DENABLE_INTEL_GPU=ON -DENABLE_TESTS=ON
+          cmake --build build --target all
+      
+      - name: Benchmark
+        working-directory: openvino
+        run: |
+          pip install openvino torch
+          for param in 'matmul[512,512,512]' 'matmul[1024,1024,1024]' 'matmul[2048,2048,2048]', 'matmul[4096,4096,4096]' 'matmul[8192,8192,8192]' 'matmul[4096,512,4096]'; do
+            python3 ./tools/mlir_bench/ov_model_gen.py -l=$param -t f16 -n test.xml
+            OV_MLIR_MODE=GC_GPU ./bin/intel64/Release/benchmark_app -m ./test.xml -d GPU -use_device_mem -ip f16 -infer_precision f16 -niter 100 -hint none -nstreams 1 -nthreads 1 >tmp
+            echo 'gc-gpu: ' $param
+            cat tmp
+            COMPILE_TIME=$(grep "Compile model took" tmp|tr -cd '0-9.')
+            FIRST_INFERENCE_TIME=$(grep "First inference took" tmp|tr -cd '0-9.')
+            THROUGHPUT=$(grep "Throughput" tmp|tr -cd '0-9.')
+            echo "openvino,$param,$COMPILE_TIME,$FIRST_INFERENCE_TIME,$THROUGHPUT" >> perf.csv
+
+            OV_MLIR=0 ./bin/intel64/Release/benchmark_app -m ./test.xml -d GPU -use_device_mem -ip f16 -infer_precision f16 -niter 100 -hint none -nstreams 1 -nthreads 1 >tmp
+            echo 'baseline: ' $param
+            cat tmp
+            COMPILE_TIME=$(grep "Compile model took" tmp|tr -cd '0-9.')
+            FIRST_INFERENCE_TIME=$(grep "First inference took" tmp|tr -cd '0-9.')
+            THROUGHPUT=$(grep "Throughput" tmp|tr -cd '0-9.')
+            echo "openvino,$param,$COMPILE_TIME,$FIRST_INFERENCE_TIME,$THROUGHPUT" >> perf-baseline.csv
+          done
+
+      - name: Upload Performance Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf.csv
+          path: openvino/perf.csv     
+
+      - name: Upload Baseline Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-baseline.csv
+          path: openvino/perf-baseline.csv     

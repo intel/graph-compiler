@@ -125,6 +125,7 @@ build_llvm() {
         # build that would break 'git checkout ${LLVM_HASH}')
         git checkout -- .
     fi
+    mkdir -p "$LLVM_BUILD_DIR"
 
     git checkout ${LLVM_HASH}
     [ -z "$CLEANUP" ] || rm -rf "$LLVM_BUILD_DIR"
