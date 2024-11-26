@@ -381,8 +381,7 @@ private:
 
     auto function = rewriter.create<LLVM::LLVMFuncOp>(
         loc, funcName,
-        LLVM::LLVMFunctionType::get(helper.ptrType, {helper.ptrType}),
-        LLVM::Linkage::Internal);
+        LLVM::LLVMFunctionType::get(helper.ptrType, {helper.ptrType}));
     rewriter.setInsertionPointToStart(function.addEntryBlock(rewriter));
 
     auto ptr = mod.lookupSymbol<LLVM::GlobalOp>(str("Ptr"));

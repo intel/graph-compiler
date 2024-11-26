@@ -16,8 +16,10 @@
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/Support/Error.h"
 
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 
 namespace mlir::gc::gpu {
@@ -148,10 +150,12 @@ struct Kernel {
   }
 
   ~Kernel() {
-    CL_CHECKR(clReleaseKernel(kernel), "Failed to release OpenCL kernel.");
-    gcLogD("Released OpenCL kernel: ", kernel);
-    CL_CHECKR(clReleaseProgram(program), "Failed to release OpenCL program.");
-    gcLogD("Released OpenCL program: ", program);
+    if (kernel != nullptr) {
+      CL_CHECKR(clReleaseKernel(kernel), "Failed to release OpenCL kernel.");
+      gcLogD("Released OpenCL kernel: ", kernel);
+      CL_CHECKR(clReleaseProgram(program), "Failed to release OpenCL program.");
+      gcLogD("Released OpenCL program: ", program);
+    }
   }
 };
 
@@ -220,7 +224,14 @@ private:
     gcLogD("The program has been built: ", program);
 
     auto kernel = clCreateKernel(program, name, &err);
-    CL_CHECKR(err, "Failed to create OpenCL kernel from program: ", program);
+    if (err != CL_SUCCESS) {
+      // This is a special case, handled by OclModuleBuilder::build(), that
+      // allows rebuilding the kernel with different options in case of failure.
+      clReleaseProgram(program);
+      gcLogD("OpenCL error ", err,
+             ": Failed to create OpenCL kernel from program: ", program);
+      return new Kernel(nullptr, nullptr, gridSize, blockSize, argNum, argSize);
+    }
     gcLogD("Created new OpenCL kernel ", kernel, " from program ", program);
 
     cl_bool enable = CL_TRUE;
@@ -639,8 +650,7 @@ void OclContext::setLastEvent(cl_event event) {
   }
 }
 
-OclModule::~OclModule() {
-  assert(engine);
+static void destroyKernels(const std::unique_ptr<ExecutionEngine> &engine) {
   auto fn = engine->lookup(GPU_OCL_MOD_DESTRUCTOR);
   if (fn) {
     reinterpret_cast<void (*)()>(fn.get())();
@@ -649,13 +659,19 @@ OclModule::~OclModule() {
   }
 }
 
+OclModule::~OclModule() {
+  assert(engine);
+  destroyKernels(engine);
+}
+
 // If all arguments of 'origFunc' are memrefs with static shape, create a new
 // function called gcGpuOclStaticMain, that accepts 2 arguments: a pointer to
 // OclContext and a pointer to an array, containing pointers to aligned memory
 // buffers. The function will call the original function with the context,
 // buffers and the offset/shape/strides, statically created from the
 // memref descriptor.
-StringRef createStaticMain(ModuleOp &module, const StringRef &funcName,
+StringRef createStaticMain(OpBuilder &builder, ModuleOp &module,
+                           const StringRef &funcName,
                            const ArrayRef<Type> argTypes) {
   auto mainFunc = module.lookupSymbol<LLVM::LLVMFuncOp>(funcName);
   if (!mainFunc) {
@@ -670,11 +686,8 @@ StringRef createStaticMain(ModuleOp &module, const StringRef &funcName,
                 "' must have an least 3 arguments.");
   }
 
-  auto ctx = module.getContext();
-  ctx->getOrLoadDialect<LLVM::LLVMDialect>();
-  OpBuilder builder(ctx);
   auto i64Type = builder.getI64Type();
-  auto ptrType = LLVM::LLVMPointerType::get(ctx);
+  auto ptrType = LLVM::LLVMPointerType::get(builder.getContext());
 
   if (mainArgTypes[nargs - 3] != ptrType ||
       mainArgTypes[nargs - 2] != ptrType ||
@@ -722,7 +735,7 @@ StringRef createStaticMain(ModuleOp &module, const StringRef &funcName,
   auto loc = mainFunc.getLoc();
   auto newFuncType = LLVM::LLVMFunctionType::get(
       mainFunc.getNumResults() ? mainFunc->getResult(0).getType()
-                               : LLVM::LLVMVoidType::get(ctx),
+                               : LLVM::LLVMVoidType::get(builder.getContext()),
       {ptrType, ptrType});
   auto newFunc =
       OpBuilder::atBlockEnd(module.getBody())
@@ -848,17 +861,57 @@ OclModuleBuilder::build(cl_device_id device, cl_context context) {
 
 llvm::Expected<std::shared_ptr<const OclModule>>
 OclModuleBuilder::build(const OclRuntime::Ext &ext) {
-  auto mod = mlirModule.clone();
-  PassManager pm{mod.getContext()};
-  pipeline(pm);
-  CHECK(!pm.run(mod).failed(), "GPU pipeline failed!");
+  auto ctx = mlirModule.getContext();
+  ctx->getOrLoadDialect<DLTIDialect>();
+  ctx->getOrLoadDialect<LLVM::LLVMDialect>();
+  OpBuilder builder(ctx);
+  DataLayoutEntryInterface dltiAttrs[6];
 
-  auto staticMain = createStaticMain(mod, funcName, argTypes);
+  {
+    struct DevInfo {
+      cl_device_info key;
+      const char *attrName;
+    };
+    DevInfo devInfo[]{
+        {CL_DEVICE_MAX_COMPUTE_UNITS, "num_exec_units"},
+        {CL_DEVICE_NUM_EUS_PER_SUB_SLICE_INTEL, "num_exec_units_per_slice"},
+        {CL_DEVICE_NUM_THREADS_PER_EU_INTEL, "num_threads_per_eu"},
+        {CL_DEVICE_LOCAL_MEM_SIZE, "local_mem_size"},
+    };
 
-  if (printIr) {
-    mod.dump();
+    unsigned i = 0;
+    for (auto &[key, attrName] : devInfo) {
+      int64_t value = 0;
+      CL_CHECK(
+          clGetDeviceInfo(ext.device, key, sizeof(cl_ulong), &value, nullptr),
+          "Failed to get the device property ", attrName);
+      gcLogD("Device property ", attrName, "=", value);
+      dltiAttrs[i++] =
+          DataLayoutEntryAttr::get(ctx, builder.getStringAttr(attrName),
+                                   builder.getI64IntegerAttr(value));
+    }
+
+    // There is no a corresponding property in the OpenCL API, using the
+    // hardcoded value.
+    // TODO: Get the real value.
+    dltiAttrs[i] = DataLayoutEntryAttr::get(
+        ctx, builder.getStringAttr("max_vector_op_width"),
+        builder.getI64IntegerAttr(512));
   }
 
+  OclRuntime rt(ext);
+  auto expectedQueue = rt.createQueue();
+  CHECKE(expectedQueue, "Failed to create queue!");
+  struct OclQueue {
+    cl_command_queue queue;
+    ~OclQueue() { clReleaseCommandQueue(queue); }
+  } queue{*expectedQueue};
+  OclContext oclCtx{rt, queue.queue, false};
+
+  ModuleOp mod;
+  StringRef staticMain;
+  std::unique_ptr<ExecutionEngine> eng;
+  auto devStr = builder.getStringAttr("GPU" /* device ID*/);
   ExecutionEngineOptions opts;
   opts.jitCodeGenOptLevel = llvm::CodeGenOptLevel::Aggressive;
   opts.enableObjectDump = enableObjectDump;
@@ -868,18 +921,86 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
   opts.enablePerfNotificationListener = false;
 #endif
 
-  auto eng = ExecutionEngine::create(mod, opts);
-  CHECKE(eng, "Failed to create ExecutionEngine!");
-  eng->get()->registerSymbols(OclRuntime::Exports::symbolMap);
+  // Build the module and check the kernels workgroup size. If the workgroup
+  // size is different, rebuild the module with the new size.
+  for (size_t wgSize = 64, maxSize = std::numeric_limits<size_t>::max();;) {
+    dltiAttrs[sizeof(dltiAttrs) / sizeof(DataLayoutEntryInterface) - 1] =
+        DataLayoutEntryAttr::get(
+            ctx, builder.getStringAttr("max_work_group_size"),
+            builder.getI64IntegerAttr(static_cast<int64_t>(wgSize)));
+    TargetDeviceSpecInterface devSpec =
+        TargetDeviceSpecAttr::get(ctx, dltiAttrs);
+    auto sysSpec =
+        TargetSystemSpecAttr::get(ctx, ArrayRef(std::pair(devStr, devSpec)));
+    mod = mlirModule.clone();
+    mod.getOperation()->setAttr("#dlti.sys_spec", sysSpec);
+    PassManager pm{ctx};
+    pipeline(pm);
+    CHECK(!pm.run(mod).failed(), "GPU pipeline failed!");
+    staticMain = createStaticMain(builder, mod, funcName, argTypes);
+    auto expectedEng = ExecutionEngine::create(mod, opts);
+    CHECKE(expectedEng, "Failed to create ExecutionEngine!");
+    expectedEng->get()->registerSymbols(OclRuntime::Exports::symbolMap);
+
+    // Find all kernels and query the workgroup size
+    size_t minSize = maxSize;
+    mod.walk<>([&](LLVM::LLVMFuncOp func) {
+      auto name = func.getName();
+      if (!name.starts_with("createGcGpuOclKernel_")) {
+        return WalkResult::skip();
+      }
+      auto fn = expectedEng.get()->lookup(name);
+      if (!fn) {
+        gcLogE("Function not found: ", name.data());
+        return WalkResult::skip();
+      }
+
+      Kernel *kernel =
+          reinterpret_cast<Kernel *(*)(OclContext *)>(fn.get())(&oclCtx);
+
+      if (kernel->kernel == nullptr) {
+        maxSize = wgSize / 2;
+        if (maxSize == 0) {
+          gcReportErr("Failed to build the kernel.");
+        }
+        minSize = maxSize;
+        return WalkResult::interrupt();
+      }
+
+      size_t s = 0;
+      auto err = clGetKernelWorkGroupInfo(kernel->kernel, ext.device,
+                                          CL_KERNEL_WORK_GROUP_SIZE,
+                                          sizeof(size_t), &s, nullptr);
+      if (err == CL_SUCCESS) {
+        minSize = std::min(minSize, s);
+      } else {
+        gcLogE("Failed to get the kernel workgroup size: ", err);
+      }
+      return WalkResult::skip();
+    });
+
+    if (minSize == wgSize || minSize == std::numeric_limits<size_t>::max()) {
+      eng = std::move(*expectedEng);
+      break;
+    }
+
+    destroyKernels(expectedEng.get());
+    gcLogD("Changing the workgroup size from ", wgSize, " to ", minSize);
+    wgSize = minSize;
+  }
+
+  if (printIr) {
+    mod.dump();
+  }
 
   OclModule::MainFunc main = {nullptr};
 
   if (staticMain.empty()) {
-    auto expect = eng.get()->lookupPacked(funcName);
+    auto expect = eng->lookupPacked(funcName);
     CHECKE(expect, "Packed function '", funcName.begin(), "' not found!");
     main.wrappedMain = *expect;
   } else {
-    auto expect = eng.get()->lookup(staticMain);
+    auto expect = eng->lookup(staticMain);
     CHECKE(expect, "Compiled function '", staticMain.begin(), "' not found!");
     main.staticMain = reinterpret_cast<OclModule::StaticMainFunc>(*expect);
   }
@@ -889,8 +1010,7 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
     return it->second;
   }
   std::shared_ptr<const OclModule> ptr(
-      new OclModule(OclRuntime(ext), !staticMain.empty(), main, argTypes,
-                    std::move(eng.get())));
+      new OclModule(rt, !staticMain.empty(), main, argTypes, std::move(eng)));
   return cache.emplace(OclDevCtxPair(ext.device, ext.context), ptr)
       .first->second;
 }
