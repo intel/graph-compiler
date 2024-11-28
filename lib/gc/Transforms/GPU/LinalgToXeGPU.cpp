@@ -62,28 +62,6 @@ static Value createFullMask(PatternRewriter &rewriter, Location loc,
   return res.getResult();
 }
 
-// Extracts the offsets from a subview operation as values.
-// The differense from mlir::getMixedOffsets is that this function
-// returns the offsets as mlir::Value that can already be used as an argument
-// for other mlir::Operations.
-static SmallVector<Value> extractOffsetsAsValues(PatternRewriter &rewriter,
-                                                 Location loc,
-                                                 memref::SubViewOp subview) {
-  SmallVector<Value> offsetValues;
-  auto staticOffsets = subview.getStaticOffsets();
-  auto dynamicOffsets = subview.getOffsets();
-  size_t dynIdx = 0;
-  for (size_t i = 0; i < staticOffsets.size(); i++) {
-    if (staticOffsets[i] == ShapedType::kDynamic)
-      offsetValues.push_back(dynamicOffsets[dynIdx++]);
-    else
-      offsetValues.push_back(
-          rewriter.create<arith::ConstantIndexOp>(loc, staticOffsets[i]));
-  }
-
-  return offsetValues;
-}
-
 // Max number of elements to load/store from SLM
 constexpr int64_t maxSLMTileSize = 32;
 
@@ -214,7 +192,8 @@ static LogicalResult isValidMemrefOperand(linalg::LinalgOp linalgOp,
         linalgOp, "Expect memref operand for XeGPU lowering");
   }
 
-  if (type.getShape().size() > maxDims) {
+  if (type.getShape().size() > maxDims &&
+      !utils::canSqueezeDims(type.getShape(), maxDims)) {
     return rewriter.notifyMatchFailure(
         linalgOp, "Too high dimensionality for XeGPU operations");
   }
@@ -856,43 +835,31 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
   auto srcType = cast<MemRefType>(src.getType());
   assert(srcType.getRank() == 2 && "Expected a 2D memref");
 
-  SmallVector<int64_t> memrefStrides;
-  Value blockOffset;
-
   // 'imex::ConvertGPUXToSPIRVPass' doesn't allow 'memref.subview' ops in the
   // GPU kernel. We have to merge the subview offsets into the descriptor
   // offset.
-  if (auto subView = dyn_cast<memref::SubViewOp>(src.getDefiningOp())) {
-    auto offsets = extractOffsetsAsValues(rewriter, loc, subView);
-    assert(offsets.size() == 2 && "Expected 2D subview offsets");
+  auto [offsets, rootMemref] = utils::computeSubviewOffsets(rewriter, loc, src);
+  auto rootStridesFold = utils::getMemrefStrides(rewriter, loc, rootMemref);
+  auto rootStrides =
+      getValueOrCreateConstantIndexOp(rewriter, loc, rootStridesFold);
 
-    auto xIntOffs = offsets[0];
-    auto yIntOffs = offsets[1];
+  assert(rootStrides.size() == offsets.size() &&
+         "Expected same number of strides and offsets");
 
-    // compute 'blockOffset' (beginning of the subview block in the original
-    // flat memref)
-    auto rowStride =
-        cast<MemRefType>(subView.getOperand(0).getType()).getShape()[1];
-    auto rowStrideValue =
-        rewriter.create<arith::ConstantIndexOp>(loc, rowStride);
-
-    auto rowBlockOffset =
-        rewriter.create<arith::MulIOp>(loc, xIntOffs, rowStrideValue)
-            .getResult();
-    blockOffset = rewriter.create<arith::AddIOp>(loc, rowBlockOffset, yIntOffs)
-                      .getResult();
-
-    memrefStrides = {rowStride, 1};
-    src = subView.getOperand(0);
-  } else {
-    // If the source is not a subview, then the blockOffset is 0
-    blockOffset = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    memrefStrides = {srcType.getShape()[1], 1};
+  // blockOffset = sum(rootStrides[i] * offsets[i])
+  Value blockOffset = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  for (size_t i = 0; i < rootStrides.size(); i++) {
+    auto mul = rewriter.create<arith::MulIOp>(loc, rootStrides[i], offsets[i]);
+    blockOffset = rewriter.create<arith::AddIOp>(loc, blockOffset, mul);
   }
 
-  // Scatter descriptors only work with 1D memrefs
-  src = utils::flattenMemref(rewriter, loc, src);
+  auto memrefStridesFold = utils::getMemrefStrides(rewriter, loc, src);
+  auto [memrefStrides, memrefStridesDynamic] =
+      decomposeMixedValues(memrefStridesFold);
+  assert(memrefStridesDynamic.size() == 0 &&
+         "Expected all values to be resolved");
 
+  src = utils::flattenMemref(rewriter, loc, rootMemref);
   return createScatterDescriptorTiles(
       rewriter, loc, /*flatMemref=*/src, /*loadShape2D=*/loadShape,
       /*tileSize2D=*/descTile, /*memrefStrides=*/memrefStrides,
@@ -1839,6 +1806,11 @@ struct ConvertGemmLikeToXeGPU : public OpRewritePattern<LinalgOpTy> {
     if (failed(isOutputValid))
       return isOutputValid;
 
+    if (failed(mlir::utils::maybeSqueezeDims(rewriter, gemmLikeOp))) {
+      return rewriter.notifyMatchFailure(
+          gemmLikeOp, "Failed to squeeze dimensions of GEMM-like operation");
+    }
+
     // Ensure that reduction dimension tiling also works for smaller
     // workloads.
     auto aType = cast<ShapedType>(gemmLikeOp.getDpsInputs()[0].getType());
@@ -1893,6 +1865,12 @@ struct ConvertNamedEltwiseToXeGPU : public OpRewritePattern<LinalgOpTy> {
         isValidMemrefOperand(eltwiseOp, eltwiseOp.getDpsInits()[0], rewriter);
     if (failed(isOutputValid))
       return isOutputValid;
+
+    if (failed(utils::maybeSqueezeDims(rewriter, eltwiseOp))) {
+      return rewriter.notifyMatchFailure(
+          eltwiseOp,
+          "Could not squeeze dimensions of the elementwise operation");
+    }
 
     return createEltwiseKernel(eltwiseOp, rewriter);
   }
@@ -1987,6 +1965,12 @@ struct ConvertMemoryFillToXeGPU : public OpRewritePattern<LinalgOpTy> {
         isValidMemrefOperand(linalgOp, linalgOp.getDpsInits()[0], rewriter);
     if (failed(isOutputValid))
       return isOutputValid;
+
+    if (failed(utils::maybeSqueezeDims(rewriter, linalgOp))) {
+      return rewriter.notifyMatchFailure(
+          linalgOp,
+          "Could not squeeze dimensions of the memory fill operation");
+    }
 
     return createMemoryFillKernel(linalgOp, rewriter);
   }
