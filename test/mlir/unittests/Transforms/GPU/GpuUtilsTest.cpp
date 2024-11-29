@@ -15,7 +15,8 @@
 TEST(testAdjustTiles, GputUtilsTest) {
   bool print = false;
   auto testAdjust = [print](int64_t totalSize, SmallVector<int64_t> &tiles,
-                            const SmallVector<int64_t> &expected) {
+                            const SmallVector<int64_t> &expected,
+                            bool xeGpu = false) {
     if (print) {
       std::cout << totalSize << ": [";
       for (unsigned i = 0; i < tiles.size(); i++) {
@@ -24,7 +25,7 @@ TEST(testAdjustTiles, GputUtilsTest) {
       std::cout << "] -> [";
     }
 
-    gc::adjustTiles(totalSize, tiles);
+    gc::adjustTiles(totalSize, tiles, xeGpu);
 
     if (print) {
       for (unsigned i = 0; i < tiles.size(); i++) {
@@ -36,15 +37,15 @@ TEST(testAdjustTiles, GputUtilsTest) {
     EXPECT_EQ(tiles, expected);
   };
   auto test = [testAdjust](int64_t totalSize, SmallVector<int64_t> tiles,
-                           SmallVector<int64_t> expected) {
+                           SmallVector<int64_t> expected, bool xeGpu = false) {
     if (tiles.size() != 2 || tiles[0] == tiles[1]) {
-      testAdjust(totalSize, tiles, expected);
+      testAdjust(totalSize, tiles, expected, xeGpu);
       return;
     }
     SmallVector<int64_t> reversed(tiles.rbegin(), tiles.rend());
-    testAdjust(totalSize, tiles, expected);
+    testAdjust(totalSize, tiles, expected, xeGpu);
     std::reverse(expected.begin(), expected.end());
-    testAdjust(totalSize, reversed, expected);
+    testAdjust(totalSize, reversed, expected, xeGpu);
   };
 
   test(8, {1, 1}, {1, 1});
@@ -91,4 +92,8 @@ TEST(testAdjustTiles, GputUtilsTest) {
   test(16384, {60, 128, 512}, {4, 32, 128});
   test(16384, {119, 256, 512}, {7, 32, 64});
   test(16384, {109, 256, 512}, {109, 8, 16});
+
+  test(16384, {8, 16, 32, 256, 512}, {1, 1, 1, 128, 128}, true);
+  test(16384, {8, 16, 32, 1024, 256}, {1, 1, 1, 256, 64}, true);
+  test(16384, {8, 16, 32, 16, 4096}, {1, 1, 1, 8, 2048}, true);
 }

@@ -139,9 +139,20 @@ template <typename T> T findFactor(T number, T closeTo) {
   return closeTo;
 }
 
+namespace impl {
+// Controls the adjustment in case of more than 2 tiles.
+enum class AdjustTilesMode {
+  // Sort the input and switch to the First mode.
+  Sort,
+  // Adjust the first and call adjustTiles() recursively for the rest.
+  First,
+  // To allow for squeezing, set 1's for all tiles except the last 2.
+  XeGpu,
+};
+
 template <typename T>
 static void adjustTwoTiles(T totalSize, T *aPtr, T *bPtr,
-                           T minSize = static_cast<T>(1)) {
+                           AdjustTilesMode mode) {
   T a = *aPtr;
   T b = *bPtr;
   assert(a >= b);
@@ -150,6 +161,7 @@ static void adjustTwoTiles(T totalSize, T *aPtr, T *bPtr,
     return;
   }
 
+  T minSize = static_cast<T>(mode == AdjustTilesMode::XeGpu ? 8 : 1);
   bool aPow2 = isPow2(a);
   bool bPow2 = isPow2(b);
   double ratio = static_cast<double>(a) / static_cast<double>(b);
@@ -208,14 +220,14 @@ static void adjustTwoTiles(T totalSize, T *aPtr, T *bPtr,
 //    and, if possible, is a power of 2.
 template <typename T>
 static void adjustTiles(T totalSize, T *begin, T *end,
-                        T minSize = static_cast<T>(1), bool isSorted = false) {
-  assert((minSize & (minSize - 1)) == 0 && "minSize must be a power of 2");
+                        AdjustTilesMode mode = AdjustTilesMode::Sort) {
   auto count = end - begin;
   if (count == 0) {
     return;
   }
 
   if (count == 1) {
+    T minSize = static_cast<T>(mode == AdjustTilesMode::XeGpu ? 8 : 1);
     if (T a = *begin; isPow2(a)) {
       *begin = std::min(std::max(ceilPow2(a), minSize), floorPow2(totalSize));
     } else {
@@ -225,15 +237,29 @@ static void adjustTiles(T totalSize, T *begin, T *end,
   }
 
   if (count > 2) {
+    if (mode == AdjustTilesMode::XeGpu) {
+      for (unsigned i = 0; i < count - 2; ++i) {
+        *(begin + i) = 1;
+      }
+      T *aPtr = end - 2;
+      T *bPtr = end - 1;
+      if (*aPtr < *bPtr) {
+        std::swap(aPtr, bPtr);
+      }
+      adjustTwoTiles(totalSize, aPtr, bPtr, mode);
+      return;
+    }
+
     SmallVector<T> sorted;
     SmallVector<unsigned> indices;
     T *head;
     T *tail;
 
-    if (isSorted) {
+    if (mode == AdjustTilesMode::First) {
       head = begin;
       tail = end;
     } else {
+      assert(mode == AdjustTilesMode::Sort);
       SmallVector<std::pair<T, unsigned>> pairs;
       pairs.reserve(count);
       for (unsigned i = 0; i < count; ++i) {
@@ -254,26 +280,29 @@ static void adjustTiles(T totalSize, T *begin, T *end,
     // first one and the product of the rest. The second one is the rest.
     T first[] = {*head, std::accumulate(head + 2, tail, *(head + 1),
                                         std::multiplies<>())};
-    adjustTiles(totalSize, first, first + 2, minSize, true);
-    adjustTiles(totalSize / *first, head + 1, tail, minSize, true);
+    adjustTiles(totalSize, first, first + 2, AdjustTilesMode::First);
+    adjustTiles(totalSize / *first, head + 1, tail, AdjustTilesMode::First);
     *head = *first;
 
-    if (!isSorted) {
+    if (mode == AdjustTilesMode::Sort) {
       for (unsigned i = 0; i < count; ++i) {
         *(begin + indices[i]) = sorted[i];
       }
     }
   } else if (*begin >= *(end - 1)) {
-    adjustTwoTiles(totalSize, begin, end - 1, minSize);
+    adjustTwoTiles(totalSize, begin, end - 1, mode);
   } else {
-    adjustTwoTiles(totalSize, end - 1, begin, minSize);
+    adjustTwoTiles(totalSize, end - 1, begin, mode);
   }
 }
+} // namespace impl
 
 template <typename T, unsigned N>
 static void adjustTiles(T totalSize, SmallVector<T, N> &tiles,
-                        T minSize = static_cast<T>(1)) {
-  adjustTiles(totalSize, tiles.begin(), tiles.end(), minSize);
+                        bool xeGpuMode = false) {
+  impl::adjustTiles(totalSize, tiles.begin(), tiles.end(),
+                    xeGpuMode ? impl::AdjustTilesMode::XeGpu
+                              : impl::AdjustTilesMode::Sort);
 }
 
 // Check recursively if the specified operation has an operand that
