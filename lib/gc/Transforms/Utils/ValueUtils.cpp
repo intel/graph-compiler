@@ -216,7 +216,7 @@ computeSubviewOffsets(PatternRewriter &rewriter, Location loc, Value memref) {
     memref = subViewOp.getOperand(0);
   }
 
-  return std::make_tuple(resolvedOffsets, memref);
+  return std::make_tuple(std::move(resolvedOffsets), memref);
 }
 
 SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,
