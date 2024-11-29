@@ -285,10 +285,8 @@ LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,
     auto operand = operands[i];
     auto type = dyn_cast<MemRefType>(operand.getType());
     if (!type) {
-      // maybe should 'continue' here instead and skip non-memref operands?
-      // TODO: replace this with 'continue' if such case would appear someday
-      return rewriter.notifyMatchFailure(
-          linalgOp, "Expect memref operand for XeGPU lowering");
+      // Skip non-memref operands
+      continue;
     }
 
     if (type.getShape().size() <= maxDims)
