@@ -24,7 +24,8 @@ namespace {
 constexpr uint32_t subgroupSize = 16;
 
 template <typename Op> LogicalResult verifyMatrixInput(Op op) {
-  static_assert(llvm::is_one_of<Op, BlockLoad2dOp, BlockStore2dOp>::value,
+  static_assert(llvm::is_one_of<Op, BlockLoad2dOp, BlockStore2dOp,
+                                BlockPrefetch2dOp>::value,
                 "Unexpected template parameter");
 
   std::optional<int64_t> width = getConstantIntValue(op.getBaseWidth());
@@ -271,6 +272,34 @@ LogicalResult BlockStore2dOp::verify() {
     if (tileWidth != 16)
       return emitOpError("tile_width for 32 bit elements should be equal "
                          "to 16");
+    break;
+  default:
+    llvm_unreachable("unexpected element size");
+  }
+
+  return success();
+}
+
+LogicalResult BlockPrefetch2dOp::verify() {
+  if (verifyMatrixInput(*this).failed())
+    return failure();
+
+  uint32_t tileWidth = getTileWidth();
+  switch (getElemSizeInBits()) {
+  case 8:
+    if (tileWidth != 16 && tileWidth != 32)
+      return emitOpError("tile_width for 8 bit elements should be equal to "
+                         "16 or 32");
+    break;
+  case 16:
+    if (tileWidth != 16)
+      return emitOpError("tile_width for 16 bit elements should be equal "
+                         "to 16");
+    break;
+  case 32:
+    if (tileWidth != 8 && tileWidth != 16)
+      return emitOpError(
+          "tile_width for 32 bit elements should be equal to 8 or 16");
     break;
   default:
     llvm_unreachable("unexpected element size");
