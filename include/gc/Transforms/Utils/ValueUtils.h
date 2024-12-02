@@ -64,8 +64,8 @@ SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,
                                            Location loc, Value memref);
 
 // Squeeze the leading dimensions of a given memref up to 'maxDims'.
-FailureOr<Value> squeezeMemref(PatternRewriter &rewriter, Location loc,
-                               Value memref, size_t maxDims = 2);
+FailureOr<Value> reduceMemrefDims(PatternRewriter &rewriter, Location loc,
+                                  Value memref, size_t maxDims = 2);
 
 // Squeeze the leading dimensions of memref operands of a given 'linalgOp'.
 LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,

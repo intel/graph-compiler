@@ -202,7 +202,10 @@ void computeSubviewOffsets(PatternRewriter &rewriter, Location loc,
                            Value memref, SmallVector<Value> &resultOffsets,
                            Value &resultRootMemref) {
   auto fillVal = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-  auto origShape = dyn_cast<MemRefType>(memref.getType()).getShape();
+  auto type = dyn_cast<MemRefType>(memref.getType());
+  assert(type && "Expected a memref type");
+
+  auto origShape = type.getShape();
 
   resultOffsets.clear();
   resultOffsets.append(origShape.size(), fillVal);
@@ -235,8 +238,8 @@ SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,
   return strides;
 }
 
-FailureOr<Value> squeezeMemref(PatternRewriter &rewriter, Location loc,
-                               Value memref, size_t maxDims = 2) {
+FailureOr<Value> reduceMemrefDims(PatternRewriter &rewriter, Location loc,
+                                  Value memref, size_t maxDims = 2) {
   auto type = dyn_cast<MemRefType>(memref.getType());
   auto shape = type.getShape();
 
@@ -293,7 +296,7 @@ LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,
     if (type.getShape().size() <= maxDims)
       continue;
 
-    auto res = squeezeMemref(rewriter, loc, operand, maxDims);
+    auto res = reduceMemrefDims(rewriter, loc, operand, maxDims);
     if (failed(res)) {
       return rewriter.notifyMatchFailure(
           linalgOp, "Can't squeeze memref to the desired number of dimensions");
@@ -303,9 +306,10 @@ LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,
     newOperands.emplace_back(i, flatSubview);
   }
 
-  for (auto [i, operand] : newOperands)
-    linalgOp->setOperand(i, operand);
-
+  rewriter.modifyOpInPlace(linalgOp, [&] {
+    for (auto [i, operand] : newOperands)
+      linalgOp->setOperand(i, operand);
+  });
   return success();
 }
 
