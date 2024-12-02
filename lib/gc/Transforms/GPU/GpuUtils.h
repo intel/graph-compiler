@@ -144,7 +144,7 @@ namespace impl {
 enum class AdjustTilesMode {
   // Sort the input and switch to the First mode.
   Sort,
-  // Adjust the first and call adjustTiles() recursively for the rest.
+  // Adjust the first tile and call adjustTiles() recursively for the rest.
   First,
   // To allow for squeezing, set 1's for all tiles except the last 2.
   XeGpu,

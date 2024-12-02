@@ -101,7 +101,7 @@ private:
           auto sizePerThread = numIterations / numThreads * elementSize;
           auto totalSize = std::max(sizePerThread, cachePerThread);
           totalSize = std::max(totalSize / elementSize, 64L);
-          auto xeGpu = canLowerToXeGPU(op);
+          bool xeGpu = canLowerToXeGPU(op);
 
           // If the operation could be lowered to XeGPU, make the tiles
           // multiple of the vector width.
