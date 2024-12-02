@@ -198,25 +198,26 @@ bool hasSharedMemSpace(mlir::Value memref) {
   return false;
 }
 
-std::tuple<SmallVector<Value>, Value>
-computeSubviewOffsets(PatternRewriter &rewriter, Location loc, Value memref) {
+void computeSubviewOffsets(PatternRewriter &rewriter, Location loc,
+                           Value memref, SmallVector<Value> &resultOffsets,
+                           Value &resultRootMemref) {
   auto fillVal = rewriter.create<arith::ConstantIndexOp>(loc, 0);
   auto origShape = dyn_cast<MemRefType>(memref.getType()).getShape();
 
-  SmallVector<Value> resolvedOffsets(origShape.size(), fillVal);
+  resultOffsets.clear();
+  resultOffsets.append(origShape.size(), fillVal);
+  resultRootMemref = memref;
 
-  while (auto subViewOp = memref.getDefiningOp<memref::SubViewOp>()) {
-    auto currentOffsets = getAsOpFoldResult(resolvedOffsets);
-    resolvedOffsets.clear();
+  while (auto subViewOp = resultRootMemref.getDefiningOp<memref::SubViewOp>()) {
+    auto currentOffsets = getAsOpFoldResult(resultOffsets);
+    resultOffsets.clear();
 
     affine::resolveIndicesIntoOpWithOffsetsAndStrides(
-        rewriter, memref.getLoc(), subViewOp.getMixedOffsets(),
+        rewriter, resultRootMemref.getLoc(), subViewOp.getMixedOffsets(),
         subViewOp.getMixedStrides(), subViewOp.getDroppedDims(), currentOffsets,
-        resolvedOffsets);
-    memref = subViewOp.getOperand(0);
+        resultOffsets);
+    resultRootMemref = subViewOp.getOperand(0);
   }
-
-  return std::make_tuple(std::move(resolvedOffsets), memref);
 }
 
 SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,

@@ -835,10 +835,12 @@ static SmallVector<Value> createSLMDescTiles(PatternRewriter &rewriter,
   auto srcType = cast<MemRefType>(src.getType());
   assert(srcType.getRank() == 2 && "Expected a 2D memref");
 
+  SmallVector<Value> offsets;
+  Value rootMemref;
   // 'imex::ConvertGPUXToSPIRVPass' doesn't allow 'memref.subview' ops in the
   // GPU kernel. We have to merge the subview offsets into the descriptor
   // offset.
-  auto [offsets, rootMemref] = utils::computeSubviewOffsets(rewriter, loc, src);
+  utils::computeSubviewOffsets(rewriter, loc, src, offsets, rootMemref);
   auto rootStridesFold = utils::getMemrefStrides(rewriter, loc, rootMemref);
   auto rootStrides =
       getValueOrCreateConstantIndexOp(rewriter, loc, rootStridesFold);

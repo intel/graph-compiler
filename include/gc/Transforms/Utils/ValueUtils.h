@@ -55,8 +55,9 @@ bool hasSharedMemSpace(mlir::Value memref);
 
 // Go through all parent 'memref.subview' ops for the given `memref`
 // and return the folded offsets of all subviews and the root memref.
-std::tuple<SmallVector<Value>, Value>
-computeSubviewOffsets(PatternRewriter &rewriter, Location loc, Value memref);
+void computeSubviewOffsets(PatternRewriter &rewriter, Location loc,
+                           Value memref, SmallVector<Value> &resultOffsets,
+                           Value &resultRootMemref);
 
 // Return the strides of the memref
 SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,
