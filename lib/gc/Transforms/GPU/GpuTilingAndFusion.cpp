@@ -101,17 +101,16 @@ private:
           auto sizePerThread = numIterations / numThreads * elementSize;
           auto totalSize = std::max(sizePerThread, cachePerThread);
           totalSize = std::max(totalSize / elementSize, 64L);
-          int64_t minTileSize = 1;
+          bool xeGpu = canLowerToXeGPU(op);
 
           // If the operation could be lowered to XeGPU, make the tiles
-          // multiple of the vector width and the minimum tile size 8.
-          if (canLowerToXeGPU(op)) {
-            minTileSize = 8;
+          // multiple of the vector width.
+          if (xeGpu) {
             totalSize = std::max(totalSize / vectorWidth, 1L) * vectorWidth;
           }
 
           SmallVector<int64_t> tiles = sizes;
-          adjustTiles(totalSize, tiles, minTileSize);
+          adjustTiles(totalSize, tiles, xeGpu);
 
           // If the tiles are equal to the sizes, split the largest tile
           // to avoid loops elimination by the canonicalizer pass.
@@ -356,16 +355,12 @@ private:
         return false;
       }
 
-      auto shape = type.getShape();
-      if (isOutput) {
-        if (shape.size() != 2 || shape[0] * shape[1] < 16) {
-          return false;
-        }
-      } else if (shape.size() > 2) {
-        return false;
+      if (auto shape = type.getShape(); shape.size() >= 2) {
+        return !isOutput ||
+               std::accumulate(shape.begin() + 1, shape.end(), shape[0],
+                               std::multiplies<>()) >= 16;
       }
-
-      return true;
+      return false;
     };
 
     if (auto inits = op.getDpsInits();
