@@ -11,6 +11,8 @@
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Conversion/Passes.h"
+#include "gc/Target/LLVMIR/Dialect/XeVM/XeVMToLLVMIRTranslation.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -26,11 +28,13 @@ namespace gc {
 static DialectRegistry initDialects() {
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
+  mlir::registerGCConversionPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   mlir::registerAllDialects(registry);
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
+  mlir::registerConvertXeVMToLLVMInterface(registry);
 #ifdef GC_HAS_ONEDNN_DIALECT
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
 #endif
@@ -38,6 +42,7 @@ static DialectRegistry initDialects() {
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();
   mlir::registerAllToLLVMIRTranslations(registry);
+  mlir::registerXeVMDialectTranslation(registry);
   return registry;
 }
 

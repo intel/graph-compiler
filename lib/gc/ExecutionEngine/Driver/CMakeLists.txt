@@ -40,4 +40,5 @@ gc_add_mlir_library(GcJitWrapper
     ${conversion_libs}
     ${GC_PASSES}
     GcAnalysis
+    MLIRXeVMToLLVMIRTranslation
   )

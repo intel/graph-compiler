@@ -8,8 +8,8 @@
 
 #include <string>
 
+#include "gc/Conversion/Passes.h"
 #include "gc/Transforms/Passes.h"
-
 #include "imex/Conversion/Passes.h"
 #include "imex/Transforms/Passes.h"
 
@@ -110,7 +110,7 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertMathToLLVMPass());
-
+  pm.addPass(createConvertXeVMToLLVMPass());
   if (pipelineOpts.useGpuRuntime) {
     pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
   } else {

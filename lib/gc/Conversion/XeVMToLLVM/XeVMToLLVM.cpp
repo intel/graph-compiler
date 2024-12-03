@@ -226,8 +226,6 @@ class LoadStorePrefetchNdToOCLPattern : public OpConversionPattern<OpType> {
       }
     }
 
-    // !X = !{i32 %decoration_kind%, i32 %level%, i32 %control%, i32 %operand of
-    // the instruction to decorate%}
     funcName =
         llvm::formatv("{0}_{1}b_{2}r{3}x{4}c", funcName, op.getElemSizeInBits(),
                       op.getTileHeight(), op.getTileWidth(), op.getVBlocks())
