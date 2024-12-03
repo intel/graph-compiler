@@ -306,6 +306,9 @@ LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,
     newOperands.emplace_back(i, flatSubview);
   }
 
+  if (newOperands.empty())
+    return success();
+
   rewriter.modifyOpInPlace(linalgOp, [&] {
     for (auto [i, operand] : newOperands)
       linalgOp->setOperand(i, operand);
