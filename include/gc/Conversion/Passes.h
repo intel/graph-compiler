@@ -9,7 +9,7 @@
 #ifndef GC_CONVERSION_PASSES_H
 #define GC_CONVERSION_PASSES_H
 
-#include "gc/Conversion/XeVMToLLVM.h"
+#include "gc/Conversion/XeVMToLLVM/XeVMToLLVM.h"
 
 namespace mlir {
 

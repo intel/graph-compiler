@@ -17,6 +17,11 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
 
+#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Metadata.h"
+
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
@@ -46,11 +51,55 @@ public:
   amendOperation(Operation *op, ArrayRef<llvm::Instruction *> instructions,
                  NamedAttribute attribute,
                  LLVM::ModuleTranslation &moduleTranslation) const final {
+    StringRef attrName = attribute.getName().getValue();
+    if (attrName == xevm::XeVMDialect::getCacheControlsAttrName()) {
+      auto cacheControlsArray = dyn_cast<ArrayAttr>(attribute.getValue());
+      if (cacheControlsArray.size() != 2) {
+        return op->emitOpError(
+            "Expected both L1 and L3 cache control attributes!");
+      }
+      if (instructions.size() != 1) {
+        return op->emitOpError("Expecting a single instruction");
+      }
+      return handleDecorationCacheControl(op, instructions.front(),
+                                          cacheControlsArray.getValue());
+    }
     auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
     if (!func)
       return failure();
     /* TODO */
 
+    return success();
+  }
+
+private:
+  template <typename IntTy>
+  static llvm::Metadata *getConstantIntMD(llvm::Type *type, IntTy val) {
+    return llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(type, val));
+  }
+
+  static LogicalResult handleDecorationCacheControl(Operation *op,
+                                                    llvm::Instruction *inst,
+                                                    ArrayRef<Attribute> attrs) {
+    SmallVector<llvm::Metadata *> decorations;
+    llvm::LLVMContext &ctx = inst->getContext();
+    llvm::Type *i32Ty = llvm::IntegerType::getInt32Ty(ctx);
+    llvm::transform(attrs, std::back_inserter(decorations),
+                    [&ctx, i32Ty](Attribute attr) -> llvm::Metadata * {
+                      auto valuesArray = dyn_cast<ArrayAttr>(attr).getValue();
+                      std::array<llvm::Metadata *, 4> metadata;
+                      llvm::transform(
+                          valuesArray, metadata.begin(),
+                          [i32Ty](Attribute valueAttr) {
+                            return getConstantIntMD(
+                                i32Ty, cast<IntegerAttr>(valueAttr).getValue());
+                          });
+                      return llvm::MDNode::get(ctx, metadata);
+                    });
+    constexpr llvm::StringLiteral decorationCacheControlMDName =
+        "spirv.DecorationCacheControlINTEL";
+    inst->setMetadata(decorationCacheControlMDName,
+                      llvm::MDNode::get(ctx, decorations));
     return success();
   }
 };

@@ -24,6 +24,7 @@
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Conversion/Passes.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
@@ -56,6 +57,7 @@ int main(int argc, char *argv[]) {
   mlir::registerAllPasses();
   mlir::gc::registerCPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
+  mlir::registerGCConversionPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::microkernel::registerMicrokernelPasses();
 
@@ -72,6 +74,7 @@ int main(int argc, char *argv[]) {
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
+  mlir::registerConvertXeVMToLLVMInterface(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));
 }
