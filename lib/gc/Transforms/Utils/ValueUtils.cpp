@@ -6,10 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <numeric>
+
+#include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/MemRef/Utils/MemRefUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Matchers.h"
@@ -155,9 +159,10 @@ Value flattenMemref(PatternRewriter &rewriter, Location loc, Value srcMemref) {
   auto srcType = cast<MemRefType>(srcMemref.getType());
 
   assert(srcType && "Expected a memref type");
-  assert(srcType.getRank() == 2 && "Expected a 2D memref");
 
-  int64_t flatSize = srcType.getShape()[0] * srcType.getShape()[1];
+  auto shapeNd = srcType.getShape();
+  int64_t flatSize =
+      std::accumulate(shapeNd.begin(), shapeNd.end(), 1, std::multiplies<>());
 
   Value offset = rewriter.create<arith::ConstantIndexOp>(loc, 0);
   Value size = rewriter.create<arith::ConstantIndexOp>(loc, flatSize);
@@ -191,6 +196,135 @@ bool hasSharedMemSpace(mlir::Value memref) {
            static_cast<int64_t>(mlir::gpu::AddressSpace::Private);
 
   return false;
+}
+
+void computeSubviewOffsets(PatternRewriter &rewriter, Location loc,
+                           Value memref, SmallVector<Value> &resultOffsets,
+                           Value &resultRootMemref) {
+  auto fillVal = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  auto type = dyn_cast<MemRefType>(memref.getType());
+  assert(type && "Expected a memref type");
+
+  auto origShape = type.getShape();
+
+  resultOffsets.clear();
+  resultOffsets.append(origShape.size(), fillVal);
+  resultRootMemref = memref;
+
+  while (auto subViewOp = resultRootMemref.getDefiningOp<memref::SubViewOp>()) {
+    auto currentOffsets = getAsOpFoldResult(resultOffsets);
+    resultOffsets.clear();
+
+    affine::resolveIndicesIntoOpWithOffsetsAndStrides(
+        rewriter, resultRootMemref.getLoc(), subViewOp.getMixedOffsets(),
+        subViewOp.getMixedStrides(), subViewOp.getDroppedDims(), currentOffsets,
+        resultOffsets);
+    resultRootMemref = subViewOp.getOperand(0);
+  }
+}
+
+SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,
+                                           Location loc, Value memref) {
+  auto type = dyn_cast<MemRefType>(memref.getType());
+
+  auto stridedLayout = dyn_cast<StridedLayoutAttr>(type.getLayout());
+  if (stridedLayout) {
+    auto strides = stridedLayout.getStrides();
+    return getMixedValues(strides, {}, rewriter);
+  }
+
+  auto sizes = getMixedValues(type.getShape(), {}, rewriter);
+  auto strides = memref::computeStridesIRBlock(loc, rewriter, sizes);
+  return strides;
+}
+
+FailureOr<Value> reduceMemrefDims(PatternRewriter &rewriter, Location loc,
+                                  Value memref, size_t maxDims = 2) {
+  auto type = dyn_cast<MemRefType>(memref.getType());
+  auto shape = type.getShape();
+
+  if (shape.size() <= maxDims)
+    return memref;
+
+  for (size_t i = 0; i < shape.size() - maxDims; i++)
+    if (shape[i] != 1)
+      return failure();
+
+  auto offsets =
+      getMixedValues(SmallVector<int64_t>(shape.size(), 0), {}, rewriter);
+  auto sizes = getMixedValues(shape, {}, rewriter);
+  auto staticStrides = utils::getStaticStrides(memref).value();
+  auto strides =
+      getMixedValues(SmallVector<int64_t>(shape.size(), 1), {}, rewriter);
+
+  SmallVector<int64_t> newShape(shape.begin() + shape.size() - maxDims,
+                                shape.end());
+  SmallVector<int64_t> newStrides(
+      staticStrides.begin() + shape.size() - maxDims, staticStrides.end());
+
+  int64_t newOffset = 0;
+  if (auto memrefLayout = dyn_cast<StridedLayoutAttr>(type.getLayout()))
+    newOffset = memrefLayout.getOffset();
+
+  auto newLayout = StridedLayoutAttr::get(
+      rewriter.getContext(), /*offset=*/newOffset, /*strides=*/newStrides);
+  MemRefType newMemRefType = MemRefType::get(newShape, type.getElementType(),
+                                             newLayout, type.getMemorySpace());
+
+  auto squeezedSubview =
+      rewriter
+          .create<memref::SubViewOp>(loc, newMemRefType, memref, offsets, sizes,
+                                     strides)
+          .getResult();
+  return squeezedSubview;
+}
+
+LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,
+                               linalg::LinalgOp linalgOp, size_t maxDims) {
+  SmallVector<std::pair<size_t, Value>> newOperands;
+  auto operands = linalgOp->getOperands();
+  auto loc = linalgOp.getLoc();
+
+  for (size_t i = 0; i < operands.size(); i++) {
+    auto operand = operands[i];
+    auto type = dyn_cast<MemRefType>(operand.getType());
+    if (!type) {
+      // Skip non-memref operands
+      continue;
+    }
+
+    if (type.getShape().size() <= maxDims)
+      continue;
+
+    auto res = reduceMemrefDims(rewriter, loc, operand, maxDims);
+    if (failed(res)) {
+      return rewriter.notifyMatchFailure(
+          linalgOp, "Can't squeeze memref to the desired number of dimensions");
+    }
+
+    auto flatSubview = res.value();
+    newOperands.emplace_back(i, flatSubview);
+  }
+
+  if (newOperands.empty())
+    return success();
+
+  rewriter.modifyOpInPlace(linalgOp, [&] {
+    for (auto [i, operand] : newOperands)
+      linalgOp->setOperand(i, operand);
+  });
+  return success();
+}
+
+bool canSqueezeDims(llvm::ArrayRef<int64_t> shape, size_t maxDims) {
+  if (shape.size() <= maxDims)
+    return true;
+
+  for (size_t i = 0; i < shape.size() - maxDims; i++)
+    if (shape[i] != 1)
+      return false;
+
+  return true;
 }
 
 } // namespace utils

@@ -53,6 +53,28 @@ Value flattenMemref(PatternRewriter &rewriter, Location loc, Value srcMemref);
 // Return true if the memref has shared memory space.
 bool hasSharedMemSpace(mlir::Value memref);
 
+// Go through all parent 'memref.subview' ops for the given `memref`
+// and return the folded offsets of all subviews and the root memref.
+void computeSubviewOffsets(PatternRewriter &rewriter, Location loc,
+                           Value memref, SmallVector<Value> &resultOffsets,
+                           Value &resultRootMemref);
+
+// Return the strides of the memref
+SmallVector<OpFoldResult> getMemrefStrides(PatternRewriter &rewriter,
+                                           Location loc, Value memref);
+
+// Squeeze the leading dimensions of a given memref up to 'maxDims'.
+FailureOr<Value> reduceMemrefDims(PatternRewriter &rewriter, Location loc,
+                                  Value memref, size_t maxDims = 2);
+
+// Squeeze the leading dimensions of memref operands of a given 'linalgOp'.
+LogicalResult maybeSqueezeDims(PatternRewriter &rewriter,
+                               linalg::LinalgOp linalgOp, size_t maxDims = 2);
+
+// Return if a memref with the given shape can be squeezed to the shape of
+// 'maxDims'. Only leading dimensions are considered squeezable.
+bool canSqueezeDims(llvm::ArrayRef<int64_t> shape, size_t maxDims = 2);
+
 } // namespace utils
 } // namespace mlir
 
