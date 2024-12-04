@@ -15,21 +15,12 @@ get_property(GC_DNNL_INCLUDES GLOBAL PROPERTY GC_DNNL_INCLUDES)
 get_property(GC_DNNL_LIB_DEPS GLOBAL PROPERTY GC_DNNL_LIB_DEPS)
 
 gc_add_mlir_library(GcCpuRuntime
-    SHARED
     Parallel.cpp
     MemoryPool.cpp
     ${MICROKERNEL_RUNTIME_SOURCES}
 
-    DEPENDS
-    dnnl_brgemm
-
-    LINK_LIBS PRIVATE
-    ${GC_DNNL_LIB_DEPS}
-
     LINK_LIBS PUBLIC
     GcInterface
-
-    EXCLUDE_FROM_LIBMLIR
 )
 
 target_include_directories(GcCpuRuntime PRIVATE ${GC_DNNL_INCLUDES})
