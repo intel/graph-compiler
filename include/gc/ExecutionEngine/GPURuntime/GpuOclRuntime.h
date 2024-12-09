@@ -226,6 +226,7 @@ private:
 struct OclModuleBuilderOpts {
   StringRef funcName = {};
   bool printIr = false;
+  bool spirvDump = false;
   bool enableObjectDump = false;
   ArrayRef<StringRef> sharedLibPaths = {};
   void (*pipeline)(OpPassManager &) = nullptr;
@@ -254,6 +255,7 @@ struct OclModuleBuilder {
 private:
   ModuleOp mlirModule;
   const bool printIr;
+  const bool spirvDump;
   const bool enableObjectDump;
   const ArrayRef<StringRef> sharedLibPaths;
   void (*const pipeline)(OpPassManager &);
