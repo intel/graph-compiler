@@ -128,9 +128,10 @@ struct Kernel {
 
   explicit Kernel(cl_program program, cl_kernel kernel, const size_t *gridSize,
                   const size_t *blockSize, size_t argNum, const size_t *argSize)
-      : program(program), kernel(kernel),
-        globalSize{gridSize[0] * blockSize[0], gridSize[1] * blockSize[1],
-                   gridSize[2] * blockSize[2]},
+      : program(program),
+        kernel(kernel), globalSize{gridSize[0] * blockSize[0],
+                                   gridSize[1] * blockSize[1],
+                                   gridSize[2] * blockSize[2]},
         localSize{blockSize[0], blockSize[1], blockSize[2]},
         argSize(argSize, argSize + argNum) {
 #ifndef NDEBUG
