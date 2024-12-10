@@ -817,7 +817,7 @@ ArrayRef<Type> getArgTypes(const StringRef &funcName, ModuleOp &mod) {
 
 OclModuleBuilder::OclModuleBuilder(ModuleOp module,
                                    const OclModuleBuilderOpts &opts)
-    : mlirModule(module), printIr(opts.printIr),
+    : mlirModule(module), printIr(opts.printIr), spirvDump(opts.spirvDump),
       enableObjectDump(opts.enableObjectDump),
       sharedLibPaths(opts.sharedLibPaths),
       pipeline(opts.pipeline
@@ -991,6 +991,43 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
 
   if (printIr) {
     mod.dump();
+  }
+
+  if (spirvDump) {
+    mod->walk([&](LLVM::GlobalOp global) {
+      auto isaKernel = [&](LLVM::GlobalOp op) {
+        return op.getName().starts_with("gcGpuOclKernel_") &&
+               op.getName().ends_with("SPIRV");
+      };
+
+      if (!isaKernel(global))
+        return WalkResult::skip();
+
+      auto name = global.getName();
+      gcLogD("Found a kernel to dump (", name.str(), ")");
+
+      std::error_code ec;
+      std::string filename = "GC_" + name.str() + ".spv";
+      llvm::raw_fd_ostream spvStream(filename, ec);
+      if (ec) {
+        gcLogE("Failed to create a file `", filename,
+               "`, error message: ", ec.message());
+        return WalkResult::skip();
+      }
+
+      auto val = global.getValue();
+      assert(val && "unexpected empty kernel");
+      auto string = llvm::cast<mlir::StringAttr>(*val);
+      spvStream.write(string.data(), string.size());
+
+      if (spvStream.has_error()) {
+        gcLogE("An error occured while writing to `", filename, "`.");
+        return WalkResult::skip();
+      }
+
+      spvStream.flush();
+      return WalkResult::skip();
+    });
   }
 
   OclModule::MainFunc main = {nullptr};

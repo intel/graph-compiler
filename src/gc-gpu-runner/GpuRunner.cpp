@@ -61,6 +61,9 @@ struct Options {
       "print-ir",
       llvm::cl::desc("Print the resulting IR before the execution."),
       llvm::cl::init(false), llvm::cl::cat(runnerCategory)};
+  llvm::cl::opt<bool> dumpSpirv{
+      "dump-spirv", llvm::cl::desc("Dump spirv for generated kernels."),
+      llvm::cl::init(false), llvm::cl::cat(runnerCategory)};
   llvm::cl::opt<std::string> objDumpFile{
       "obj-dump-file",
       llvm::cl::desc("Dump the compiled object to the specified file."),
@@ -143,6 +146,7 @@ int main(int argc, char **argv) {
                                        opts.sharedLibs.end());
   builderOpts.funcName = opts.mainFuncName;
   builderOpts.printIr = opts.printIr;
+  builderOpts.spirvDump = opts.dumpSpirv;
   builderOpts.enableObjectDump = !opts.objDumpFile.getValue().empty();
   builderOpts.sharedLibPaths = sharedLibs;
   builderOpts.pipeline =
