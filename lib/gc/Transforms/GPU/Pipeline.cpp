@@ -37,6 +37,7 @@ void populateGPUPipeline(OpPassManager &pm,
 
   pm.addPass(createDecomposeTensorOperation());
   pm.addNestedPass<func::FuncOp>(createGpuTilingAndFusion());
+  pm.addPass(createCanonicalizerPass());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
