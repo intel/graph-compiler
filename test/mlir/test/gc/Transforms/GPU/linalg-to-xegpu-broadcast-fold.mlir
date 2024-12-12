@@ -77,6 +77,7 @@ func.func @complex_broadcast_3d() {
   %3 = memref.alloc() : memref<7x7x128xf16>
 
   gpu.launch blocks(%arg3, %arg4, %arg5) in (%arg11 = %c2, %arg12 = %c4, %arg13 = %c1) threads(%arg6, %arg7, %arg8) in (%arg14 = %c4, %arg15 = %c1, %arg16 = %c1) {
+    // This broadcast can't be replaced by a single memref.subview. Can't remove it
     // CHECK: linalg.broadcast
     linalg.broadcast ins(%0 : memref<7x128xf16>) outs(%1 : memref<7x7x128xf16>) dimensions = [0]
     linalg.add ins(%1, %2 : memref<7x7x128xf16>, memref<7x7x128xf16>) outs(%3 : memref<7x7x128xf16>)
@@ -99,6 +100,7 @@ func.func @single_broadcast() {
   %1 = memref.alloc() : memref<1x1x7x128xf16>
 
   gpu.launch blocks(%arg3, %arg4, %arg5) in (%arg11 = %c2, %arg12 = %c4, %arg13 = %c1) threads(%arg6, %arg7, %arg8) in (%arg14 = %c4, %arg15 = %c1, %arg16 = %c1) {
+    // broadcast result is not an input of any xegpu operation, we can't lower it
     // CHECK: linalg.broadcast
     linalg.broadcast ins(%0 : memref<7x128xf16>) outs(%1 : memref<1x1x7x128xf16>) dimensions = [0, 1]
     gpu.terminator
