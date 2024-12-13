@@ -32,5 +32,5 @@ if(GC_DEV_LINK_LLVM_DYLIB)
 endif()
 
 gc_add_mlir_tool(gc-cpu-runner gc-cpu-runner.cpp)
-target_link_libraries(gc-cpu-runner PRIVATE GcCpuRuntime)
+target_link_libraries(gc-cpu-runner PRIVATE GcJitWrapper GcCpuRuntime)
 mlir_check_all_link_libraries(gc-cpu-runner)

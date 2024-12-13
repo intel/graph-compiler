@@ -30,7 +30,8 @@ gc_add_mlir_library(GcPasses
 
   DEPENDS
     GraphCompilerPassIncGen
-
+    GCConversionPassIncGen
+    
   LINK_LIBS PUBLIC
     ${mlir_dialect_libs}
     ${mlir_conversion_libs}

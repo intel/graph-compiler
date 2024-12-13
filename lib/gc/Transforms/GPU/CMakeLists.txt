@@ -17,6 +17,7 @@ gc_add_mlir_library(GcGpuPasses
   GpuToGpuOcl.cpp
   LinalgToXeGPU.cpp
   Pipeline.cpp
+  XeVMAttachTarget.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
@@ -31,6 +32,7 @@ gc_add_mlir_library(GcGpuPasses
     MLIRMathToSPIRV
     MLIRControlFlowToSPIRV
     MLIRMemRefTransforms
+    MLIRXeVMToLLVMIRTranslation
     GcInterface
     GcUtilsIR
     ${IMEX_LIBS}
