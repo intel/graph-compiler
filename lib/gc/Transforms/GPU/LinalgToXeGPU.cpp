@@ -1327,9 +1327,8 @@ static Value findAndReplaceBroadcast(linalg::LinalgOp linalgOp,
   auto operandParent = operand;
 
   // walk over the 'Value' users and verify that it's only used by 'ops'
-  std::function<bool(Value, SmallVector<linalg::LinalgOp> &)> onlyUsedByOp;
-  onlyUsedByOp = [&onlyUsedByOp](Value value,
-                                 SmallVector<linalg::LinalgOp> &ops) -> bool {
+  std::function<bool(Value, SmallVector<linalg::LinalgOp> &)> onlyUsedByOp =
+      [&onlyUsedByOp](Value value, SmallVector<linalg::LinalgOp> &ops) -> bool {
     bool result = true;
     for (auto user : value.getUsers()) {
       if (auto linalgOpUser = dyn_cast<linalg::LinalgOp>(user))
