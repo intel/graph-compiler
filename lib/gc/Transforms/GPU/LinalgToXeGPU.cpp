@@ -1312,6 +1312,105 @@ static FailureOr<Value> findAndReplaceTranspose(const Value &matmulOperand,
       defOp, "No transpose operation producing the operand was found");
 }
 
+// Checks whether the given linalgOp operand is produced by a
+// `linalg::BroadcastOp` that can be replaced by a simple subview
+// (for example broadcast: 7x128 -> 1x1x7x128) and ensures that
+// the broadcast result is only used by linalgOp in question.
+//
+// If a valid `linalg::BroadcastOp` is found, the function removes it
+// and returns the operand of the `linalg::BroadcastOp` as the new
+// linalgOp operand. Otherwise returns the original operand.
+static Value findAndReplaceBroadcast(linalg::LinalgOp linalgOp,
+                                     size_t operandIdx,
+                                     PatternRewriter &rewriter) {
+  auto operand = linalgOp.getDpsInputs()[operandIdx];
+  auto operandParent = operand;
+
+  // walk over the 'Value' users and verify that it's only used by 'ops'
+  std::function<bool(Value, SmallVector<linalg::LinalgOp> &)> onlyUsedByOp =
+      [&onlyUsedByOp](Value value, SmallVector<linalg::LinalgOp> &ops) -> bool {
+    bool result = true;
+    for (auto user : value.getUsers()) {
+      if (auto linalgOpUser = dyn_cast<linalg::LinalgOp>(user))
+        result &= std::find(ops.begin(), ops.end(), linalgOpUser) !=
+                  ops.end(); // linalgOpUser == op;
+      else if (isa<memref::DeallocOp>(user))
+        continue; // allow deallocs as users
+      else if (auto subview = dyn_cast<memref::SubViewOp>(user))
+        result &= onlyUsedByOp(subview.getResult(), ops);
+      else
+        return false;
+    }
+    return result;
+  };
+
+  linalg::BroadcastOp broadcastOp = nullptr;
+  while (auto defOp = operandParent.getDefiningOp()) {
+    for (auto x : defOp->getUsers()) {
+      if (!isa<linalg::BroadcastOp>(x))
+        continue;
+
+      if (broadcastOp) {
+        rewriter.notifyMatchFailure(broadcastOp,
+                                    "Only one broadcast operation is allowed");
+        return operand;
+      }
+
+      broadcastOp = dyn_cast<linalg::BroadcastOp>(x);
+      auto broadcastRes = broadcastOp.getDpsInits()[0];
+      SmallVector<linalg::LinalgOp> ops({linalgOp, broadcastOp});
+
+      // verify that there are no other users of the broadcast result
+      // other than the linalgOp in question
+      if (!onlyUsedByOp(broadcastRes, ops)) {
+        rewriter.notifyMatchFailure(
+            broadcastOp, "Broadcast result is used by more than one operation");
+        return operand;
+      }
+      break;
+    }
+
+    if (defOp->getOperands().size() == 0)
+      break;
+
+    operandParent = defOp->getOperand(0);
+  }
+  if (!broadcastOp) {
+    rewriter.notifyMatchFailure(
+        linalgOp, "No broadcast operation producing the operand was found");
+    return operand;
+  }
+
+  auto brInp = broadcastOp.getDpsInputs()[0];
+  auto brOut = broadcastOp.getDpsInits()[0];
+
+  auto inpType = dyn_cast<MemRefType>(brInp.getType());
+  auto outType = dyn_cast<MemRefType>(brOut.getType());
+  if (!inpType || !outType)
+    return operand;
+
+  auto inpShape = inpType.getShape();
+  auto outShape = outType.getShape();
+
+  if (inpShape.size() < 2) {
+    rewriter.notifyMatchFailure(broadcastOp, "Only nD broadcast is supported");
+    return operand;
+  }
+
+  if (!utils::canSqueezeDims(inpShape) || !utils::canSqueezeDims(outShape)) {
+    rewriter.notifyMatchFailure(broadcastOp,
+                                "Can't squeeze broadcast operands to 2D");
+    return operand;
+  }
+
+  auto res = utils::reduceMemrefDims(rewriter, broadcastOp.getLoc(), brInp);
+  if (failed(res))
+    return operand;
+
+  rewriter.eraseOp(broadcastOp);
+  return res.value();
+}
+
 // Create XeGPU DPAS kernel out of GEMM-like operation.
 static LogicalResult createDPASKernel(linalg::LinalgOp linalgOp,
                                       ArrayRef<int64_t> dpasTile, int kTile,
@@ -1690,7 +1789,9 @@ LogicalResult createEltwiseKernel(linalg::LinalgOp linalgOp,
 
   // Create descriptors and load values for all inputs.
   SmallVector<SmallVector<Value>> loadedInputs;
+  size_t operandIdx = 0;
   for (auto input : linalgOp.getDpsInputs()) {
+    input = findAndReplaceBroadcast(linalgOp, operandIdx, rewriter);
     SmallVector<Value> inputTiles =
         createDescriptorTiles(rewriter, loc, input, outputShape, tileShape);
 
@@ -1699,6 +1800,7 @@ LogicalResult createEltwiseKernel(linalg::LinalgOp linalgOp,
                       /*vnniConf=*/std::nullopt,
                       /*transpose=*/nullptr, /*transpose_bit=*/nullptr);
     loadedInputs.push_back(loadedVals);
+    operandIdx++;
   }
 
   // Extract SIMD sized sub-tiles from loaded tiles.
