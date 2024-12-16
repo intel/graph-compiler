@@ -11,8 +11,12 @@
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Conversion/Passes.h"
+#include "gc/Target/LLVM/XeVM/Target.h"
+#include "gc/Target/LLVMIR/Dialect/XeVM/XeVMToLLVMIRTranslation.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
@@ -26,22 +30,29 @@ namespace gc {
 static DialectRegistry initDialects() {
   mlir::registerAllPasses();
   mlir::gc::registerGraphCompilerPasses();
+  mlir::registerGCConversionPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::DialectRegistry registry;
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   mlir::registerAllDialects(registry);
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
+  mlir::registerAllExtensions(registry);
+  // Adds missing `LLVMTranslationDialectInterface` registration for dialect for
+  // gpu.module op
+  mlir::registerAllToLLVMIRTranslations(registry);
+  mlir::registerConvertXeVMToLLVMInterface(registry);
+  mlir::registerXeVMDialectTranslation(registry);
+  mlir::xevm::registerXeVMTargetInterfaceExternalModels(registry);
 #ifdef GC_HAS_ONEDNN_DIALECT
   registry.insert<mlir::onednn_graph::OneDNNGraphDialect>();
 #endif
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();
-  mlir::registerAllToLLVMIRTranslations(registry);
   return registry;
 }
 
-const DialectRegistry &initCompilerAndGetDialects() {
+DialectRegistry &initCompilerAndGetDialects() {
   static DialectRegistry reg = initDialects();
   return reg;
 }

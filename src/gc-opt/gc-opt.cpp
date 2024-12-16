@@ -24,9 +24,15 @@
 #ifdef GC_HAS_ONEDNN_DIALECT
 #include "gc/Dialect/OneDNNGraph/OneDNNGraphDialect.h"
 #endif
+#include "gc/Conversion/Passes.h"
+#include "gc/Target/LLVM/XeVM/Target.h"
+#include "gc/Target/LLVMIR/Dialect/XeVM/XeVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
+
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
@@ -56,6 +62,7 @@ int main(int argc, char *argv[]) {
   mlir::registerAllPasses();
   mlir::gc::registerCPUPipeline();
   mlir::gc::registerGraphCompilerPasses();
+  mlir::registerGCConversionPasses();
   mlir::cpuruntime::registerCPURuntimePasses();
   mlir::microkernel::registerMicrokernelPasses();
 
@@ -72,6 +79,13 @@ int main(int argc, char *argv[]) {
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
 #endif
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
+  mlir::registerAllExtensions(registry);
+  // Adds missing `LLVMTranslationDialectInterface` registration for dialect for
+  // gpu.module op
+  mlir::registerAllToLLVMIRTranslations(registry);
+  mlir::registerConvertXeVMToLLVMInterface(registry);
+  mlir::registerXeVMDialectTranslation(registry);
+  mlir::xevm::registerXeVMTargetInterfaceExternalModels(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));
 }
