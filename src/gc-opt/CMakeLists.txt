@@ -29,6 +29,10 @@ if(GC_DEV_LINK_LLVM_DYLIB)
 else()
   set(MLIR_LINK_COMPONENTS
     MLIROptLib
+    MLIRBuiltinToLLVMIRTranslation
+    MLIRLLVMDialect
+    MLIRLLVMToLLVMIRTranslation
+    MLIRToLLVMIRTranslationRegistration
   )
   get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
   get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
@@ -38,9 +42,12 @@ add_llvm_executable(gc-opt gc-opt.cpp)
 llvm_update_compile_flags(gc-opt)
 mlir_check_all_link_libraries(gc-opt)
 
+get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
+
 target_link_libraries(gc-opt PUBLIC GcInterface)
 target_link_libraries(gc-opt PRIVATE
   ${dialect_libs}
+  ${extension_libs}
   ${conversion_libs}
   ${MLIR_LINK_COMPONENTS}
   GcPasses

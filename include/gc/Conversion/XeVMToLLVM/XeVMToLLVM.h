@@ -17,7 +17,7 @@ class RewritePatternSet;
 class Pass;
 
 #define GEN_PASS_DECL_CONVERTXEVMTOLLVMPASS
-#include "mlir/Conversion/Passes.h.inc"
+#include "gc/Conversion/Passes.h.inc"
 
 void populateXeVMToLLVMConversionPatterns(RewritePatternSet &patterns);
 

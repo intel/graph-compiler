@@ -19,6 +19,15 @@ def XeVM_Dialect : Dialect {
   let name = "xevm";
   let cppNamespace = "::mlir::xevm";
   let dependentDialects = ["LLVM::LLVMDialect"];
+
+  let extraClassDeclaration = [{
+    /// Get the name for the attribute used to specify cache control
+    /// decorations.
+    static constexpr ::llvm::StringRef getCacheControlsAttrName() {
+      return ::llvm::StringLiteral("xevm.DecorationCacheControl");
+    }
+  }];
+
   let useDefaultAttributePrinterParser = 1;
 }
 
@@ -97,6 +106,8 @@ def XeVM_BlockLoad2dOp : XeVM_Op<"blockload2d">,
       $cache_control - an enumerator that sets the L1 and L3 cache behaviour
 
     Notes:
+      - pitch is the physical stride between the first columns of the current row and the subsequent row,
+        this may include (possibly implicit) padding, alignment, or other factors.
       - the $transpose and $vnni_transform parameters are mutual exclusive
       - transposing the tile loaded is typically used for the B matrix operand
         (D = C + A * B), where A has row-major layout in registers and B should have column-major layout.
@@ -148,6 +159,8 @@ def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
       $stored_val - the tile to store
 
     Notes:
+      - pitch is the physical stride between the first columns of the current row and the subsequent row,
+        this may include (possibly implicit) padding, alignment, or other factors.
       - coordinate is provided in elements, while width and pitch are provided in bytes.
   }];
 
@@ -160,6 +173,54 @@ def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
 
   let hasVerifier = 1;
 }
+
+def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
+  Arguments<(ins
+    Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
+    I32:$base_width,
+    I32:$base_height,
+    I32:$base_pitch,
+    I32:$x,
+    I32:$y,
+    I32Attr:$elem_size_in_bits,
+    I32Attr:$tile_width,
+    I32Attr:$tile_height,
+    I32Attr:$v_blocks,
+    DefaultValuedAttr<XeVM_L1LoadCacheControl, "::mlir::xevm::L1LoadCacheControl::DEFAULT">:$l1_cache_control,
+    DefaultValuedAttr<XeVM_L3LoadCacheControl, "::mlir::xevm::L3LoadCacheControl::DEFAULT">:$l3_cache_control
+  )> {
+
+  let summary = "2D block prefetch";
+
+  let description = [{
+    The `xevm.blockprefetch2d` operation prefetches a two dimensional tile
+    from a larger matrix residing in memory. The parameters are:
+      $ptr - the base address of the matrix containing the tile to prefetch
+      $base_width, $base_height, $base_pitch - the shape of the matrix
+    $x, $y, $tile_width, $tile_height - the starting offsets and shape of tile to prefetch
+    $elem_size_in_bits - the size in bits of the matrix element
+      - 32 for f32, bf32
+      - 16 for f16, int16, bf16
+      - 8 for int8, int4, int2
+    $v_blocks - number of tiles to prefetch
+    $cache_control - an enumerator that sets the L1 and L3 cache behaviour
+
+    Notes:
+      - pitch is the physical stride between the first columns of the current row and the subsequent row,
+        this may include (possibly implicit) padding, alignment, or other factors.
+      - coordinate is provided in elements, while width and pitch are provided in bytes.
+  }];
+
+  let assemblyFormat = [{
+    operands ` ` `{` `elem_size_in_bits` `=` $elem_size_in_bits `,` `tile_width` `=` $tile_width `,`
+      `tile_height` `=` $tile_height `,` `v_blocks` `=` $v_blocks `,`  `l1_cache_control` `=` $l1_cache_control `,`
+      `l3_cache_control` `=` $l3_cache_control `}`
+      attr-dict `:` `(` type(operands) `)`
+  }];
+
+  let hasVerifier = 1;
+}
+
 
 def XeVM_TargetAttr : XeVM_Attr<"XeVMTarget", "target"> {
   let description = [{
