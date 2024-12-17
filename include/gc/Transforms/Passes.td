@@ -261,4 +261,12 @@ def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
   ];
 }
 
+def DistributeXeGPU : Pass<"distribute-to-simt", "func::FuncOp"> {
+  let summary = "Convert simd-like module to SIMT";
+  let dependentDialects = [
+    "::mlir::vector::VectorDialect",
+    "::mlir::gpu::GPUDialect",
+  ];
+}
+
 #endif // GC_DIALECT_GC_PASSES

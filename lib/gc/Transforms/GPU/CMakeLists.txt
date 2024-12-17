@@ -17,6 +17,7 @@ gc_add_mlir_library(GcGpuPasses
   GpuToGpuOcl.cpp
   LinalgToXeGPU.cpp
   Pipeline.cpp
+  XeGPUDistribute.cpp
 
   DEPENDS
     GraphCompilerPassIncGen
