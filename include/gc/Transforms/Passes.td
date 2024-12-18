@@ -150,6 +150,41 @@ def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
            "The maximum workgroup size.">
     ];
 }
+
+def GpuXeVMAttachTarget: Pass<"xevm-attach-target", ""> {
+  let summary = "Attaches a XeVM target attribute to a GPU Module.";
+  let description = [{
+    This pass searches for all GPU Modules in the immediate regions and attaches
+    a XeVM target if the module matches the name specified by the `module` argument.
+
+    Example:
+    ```
+    // File: in.mlir:
+    gpu.module @nvvm_module_1 {...}
+    gpu.module @rocdl_module_2 {...}
+    gpu.module @xevm_module_3 {...}
+    // mlir-opt --xevm-attach-target="module=xevm.* chip=pvc" in.mlir
+    gpu.module @nvvm_module_1 {...}
+    gpu.module @rocdl_module_2 {...}
+    gpu.module @xevm_module_3 [#xevm.target<chip = "pvc">] {...}
+    ```
+  }];
+  let options = [
+    Option<"moduleMatcher", "module", "std::string",
+           /*default=*/ [{""}],
+           "Regex used to identify the modules to attach the target to.">,
+    Option<"triple", "triple", "std::string",
+           /*default=*/ "\"spirv64-unknown-unknown\"",
+           "Target triple.">,
+    Option<"chip", "chip", "std::string",
+           /*default=*/"\"pvc\"",
+           "Target chip.">,
+    Option<"optLevel", "O", "unsigned",
+           /*default=*/"2",
+           "Optimization level.">
+  ];
+}
+
 #endif // GC_USE_IMEX
 
 def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",

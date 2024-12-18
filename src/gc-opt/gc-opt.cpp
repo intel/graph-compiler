@@ -27,11 +27,14 @@
 #include "gc/Conversion/Passes.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 
+#include "gc/Target/LLVM/XeVM/Target.h"
+#include "gc/Target/LLVMIR/Dialect/XeVM/XeVMToLLVMIRTranslation.h"
 #include "gc/Transforms/Microkernel/MicrokernelPasses.h"
 #include "gc/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 #ifdef GC_USE_IMEX
@@ -75,7 +78,11 @@ int main(int argc, char *argv[]) {
   mlir::registerAllDialects(registry);
 #ifdef GC_USE_IMEX
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
+  mlir::registerXeVMDialectTranslation(registry);
+  mlir::xevm::registerXeVMTargetInterfaceExternalModels(registry);
 #endif
+  mlir::registerAllExtensions(registry);
+  mlir::registerAllToLLVMIRTranslations(registry);
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
   mlir::registerAllExtensions(registry); // TODO: cleanup
   // Adds missing `LLVMTranslationDialectInterface` registration for dialect for
