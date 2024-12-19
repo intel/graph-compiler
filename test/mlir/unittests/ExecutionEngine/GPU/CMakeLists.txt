@@ -5,4 +5,5 @@ target_link_libraries(GCExecutionEngineGpuTests
   PRIVATE
   GcJitWrapper
   GcGpuOclRuntime
+  mlir_c_runner_utils
 )

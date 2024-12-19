@@ -38,6 +38,7 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createDecomposeTensorOperation());
   pm.addNestedPass<func::FuncOp>(createGpuTilingAndFusion());
   pm.addPass(createCanonicalizerPass());
+  // pm.addPass(createPrintIRPass());
 
   pm.addPass(bufferization::createEmptyTensorEliminationPass());
   pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
@@ -123,6 +124,8 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createLowerAffinePass());
   pm.addPass(createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
+
+  // pm.addPass(createPrintIRPass());
 }
 
 void registerGPUPipeline() {
