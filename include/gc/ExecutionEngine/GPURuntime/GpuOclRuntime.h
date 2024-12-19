@@ -229,7 +229,9 @@ struct OclModuleBuilderOpts {
   bool spirvDump = false;
   bool enableObjectDump = false;
   ArrayRef<StringRef> sharedLibPaths = {};
-  void (*pipeline)(OpPassManager &) = nullptr;
+  std::function<void(OpPassManager &)> pipeline;
+  std::function<void(llvm::orc::SymbolMap &, llvm::orc::MangleAndInterner &)>
+      symbolMaper;
 };
 
 struct OclModuleBuilder {
@@ -258,7 +260,8 @@ private:
   const bool spirvDump;
   const bool enableObjectDump;
   const ArrayRef<StringRef> sharedLibPaths;
-  void (*const pipeline)(OpPassManager &);
+  std::function<void(OpPassManager &)> pipeline;
+  std::function<llvm::orc::SymbolMap(llvm::orc::MangleAndInterner)> symbolMap;
   const StringRef funcName;
   const ArrayRef<Type> argTypes;
   std::shared_mutex mux;

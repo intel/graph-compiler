@@ -824,7 +824,18 @@ OclModuleBuilder::OclModuleBuilder(ModuleOp module,
                    ? opts.pipeline
                    : [](OpPassManager &pm) { populateGPUPipeline(pm, {}); }),
       funcName(getFuncName(opts, mlirModule)),
-      argTypes(getArgTypes(funcName, mlirModule)) {}
+      argTypes(getArgTypes(funcName, mlirModule)) {
+  if (opts.symbolMaper) {
+    symbolMap = [mapper =
+                     opts.symbolMaper](llvm::orc::MangleAndInterner interner) {
+      auto map = OclRuntime::Exports::symbolMap(interner);
+      mapper(map, interner);
+      return map;
+    };
+  } else {
+    symbolMap = OclRuntime::Exports::symbolMap;
+  }
+}
 
 llvm::Expected<std::shared_ptr<const OclModule>>
 OclModuleBuilder::build(const OclRuntime &runtime) {
@@ -940,7 +951,7 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
     staticMain = createStaticMain(builder, mod, funcName, argTypes);
     auto expectedEng = ExecutionEngine::create(mod, opts);
     CHECKE(expectedEng, "Failed to create ExecutionEngine!");
-    expectedEng->get()->registerSymbols(OclRuntime::Exports::symbolMap);
+    expectedEng->get()->registerSymbols(symbolMap);
 
     // Find all kernels and query the workgroup size
     size_t minSize = maxSize;
