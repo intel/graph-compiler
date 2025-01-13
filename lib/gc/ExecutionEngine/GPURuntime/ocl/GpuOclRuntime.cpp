@@ -218,20 +218,20 @@ private:
     CL_CHECKR(err, "Failed to create OpenCL program with IL.");
 
     gcLogD("Created new OpenCL program: ", program);
-    clBuildProgram(program, 1, &ctx->runtime.ext.device, nullptr, nullptr,
-                   nullptr);
-    CL_CHECKR(err, "Failed to build the program: ", program);
-    gcLogD("The program has been built: ", program);
+    err = clBuildProgram(program, 1, &ctx->runtime.ext.device, nullptr, nullptr,
+                         nullptr);
 
-    auto kernel = clCreateKernel(program, name, &err);
     if (err != CL_SUCCESS) {
       // This is a special case, handled by OclModuleBuilder::build(), that
       // allows rebuilding the kernel with different options in case of failure.
       clReleaseProgram(program);
-      gcLogD("OpenCL error ", err,
-             ": Failed to create OpenCL kernel from program: ", program);
+      gcLogD("OpenCL error ", err, ": Failed to build the program: ", program);
       return new Kernel(nullptr, nullptr, gridSize, blockSize, argNum, argSize);
     }
+
+    gcLogD("The program has been built: ", program);
+    auto kernel = clCreateKernel(program, name, &err);
+    CL_CHECKR(err, "Failed to create OpenCL kernel from program: ", program);
     gcLogD("Created new OpenCL kernel ", kernel, " from program ", program);
 
     cl_bool enable = CL_TRUE;
