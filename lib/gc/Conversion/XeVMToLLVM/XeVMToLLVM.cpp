@@ -11,6 +11,7 @@
 #include "gc/Dialect/LLVMIR/XeVMDialect.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
@@ -53,6 +54,8 @@ static constexpr LLVMFuncAttributeOptions noUnwindAttrs = {
     false, true, false, {}};
 static constexpr LLVMFuncAttributeOptions noUnwindWillReturnAttrs = {
     false, true, true, {}};
+static constexpr LLVMFuncAttributeOptions convergentNoUnwindWillReturnAttrs = {
+    true, true, true, {}};
 
 std::string getTypeMangling(Type ty, bool isUnsigned = false) {
   return TypeSwitch<Type, std::string>(ty)
@@ -77,6 +80,31 @@ std::string getTypeMangling(Type ty, bool isUnsigned = false) {
           llvm_unreachable("unhandled integer type");
         }
       });
+}
+
+std::string mangle(StringRef baseName, ArrayRef<Type> types,
+                   ArrayRef<bool> isUnsigned = {}) {
+  assert((isUnsigned.empty() || isUnsigned.size() == types.size()) &&
+         "Signedness info doesn't match");
+  std::string s;
+  llvm::raw_string_ostream os(s);
+  llvm::SmallDenseMap<Type, unsigned> substitutions;
+  os << "_Z" << baseName.size() << baseName;
+  for (auto [idx, type] : llvm::enumerate(types)) {
+    auto it = substitutions.find(type);
+    if (it != substitutions.end()) {
+      os << "S";
+      // First substitution is `S_`, second is `S0_`, and so on.
+      if (unsigned firstIdx = it->getSecond(); firstIdx > 0)
+        os << firstIdx - 1;
+      os << "_";
+    } else {
+      if (!type.isIntOrFloat())
+        substitutions[type] = substitutions.size();
+      os << getTypeMangling(type, isUnsigned.empty() ? false : isUnsigned[idx]);
+    }
+  }
+  return os.str();
 }
 
 template <typename OpType>
@@ -115,13 +143,15 @@ getCacheControlMetadata(ConversionPatternRewriter &rewriter, OpType op,
   return rewriter.getArrayAttr(combinedAttrs);
 }
 
-static LLVM::CallOp
-createDeviceFunctionCall(ConversionPatternRewriter &rewriter,
-                         StringRef funcName, Type retType,
-                         ArrayRef<Type> argTypes, ArrayRef<Value> args,
-                         ArrayRef<std::pair<unsigned, StringRef>> paramAttrs,
-                         LLVMFuncAttributeOptions funcAttributeOptions) {
-  auto moduleOp = rewriter.getBlock()->getParent()->getParentOfType<ModuleOp>();
+static LLVM::CallOp createDeviceFunctionCall(
+    ConversionPatternRewriter &rewriter, StringRef funcName, Type retType,
+    ArrayRef<Type> argTypes, ArrayRef<Value> args,
+    mlir::ArrayRef<std::pair<unsigned, mlir::StringRef>> paramAttrs,
+    LLVMFuncAttributeOptions funcAttributeOptions) {
+  auto moduleOp = rewriter.getBlock()
+                      ->getParentOp()
+                      ->getParentWithTrait<OpTrait::SymbolTable>();
+  assert(moduleOp && "Expecting module");
   MLIRContext *ctx = rewriter.getContext();
   Location loc = UnknownLoc::get(ctx);
 
@@ -143,6 +173,96 @@ createDeviceFunctionCall(ConversionPatternRewriter &rewriter,
 
   return callOp;
 }
+
+class DPASToOCLPattern : public OpConversionPattern<xevm::DPASOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(xevm::DPASOp op, xevm::DPASOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    constexpr uint32_t bitWidthPackedA{16};
+    constexpr uint32_t bitWidthPackedB{32};
+    auto loc = op.getLoc();
+
+    auto castIfNeeded = [&](Value val, Type packedType) -> Value {
+      VectorType origTy = cast<VectorType>(val.getType());
+      const uint32_t vecBitSize =
+          origTy.getNumElements() *
+          origTy.getElementType().getIntOrFloatBitWidth();
+      VectorType newTy = VectorType::get(
+          vecBitSize / packedType.getIntOrFloatBitWidth(), packedType);
+      if (origTy != newTy)
+        val = rewriter.create<LLVM::BitcastOp>(loc, newTy, val);
+      return val;
+    };
+
+    Value a = op.getA();
+    Type packedAType = (op.getPa() == xevm::PrecisionType::TF32)
+                           ? cast<Type>(rewriter.getF32Type())
+                           : rewriter.getIntegerType(bitWidthPackedA);
+    a = castIfNeeded(a, packedAType);
+
+    Value b = op.getB();
+    Type packedBType = (op.getPb() == xevm::PrecisionType::TF32)
+                           ? cast<Type>(rewriter.getF32Type())
+                           : rewriter.getIntegerType(bitWidthPackedB);
+    b = castIfNeeded(b, packedBType);
+
+    Value c = op.getC();
+    VectorType cOrigTy = cast<VectorType>(c.getType());
+    assert(cOrigTy == op->getResultTypes()[0] &&
+           "Accumulator and result type mismatch");
+    // OCL builtins encode bfloat16 as int16
+    VectorType cTy =
+        cOrigTy.getElementType().isBF16()
+            ? VectorType::get(cOrigTy.getShape(), rewriter.getIntegerType(16))
+            : cOrigTy;
+    if (cOrigTy != cTy)
+      c = rewriter.create<LLVM::BitcastOp>(loc, cTy, c);
+
+    constexpr int32_t systolicDepth{8};
+    std::string fnName =
+        llvm::formatv("intel_sub_group_{0}_{1}_matrix_mad_k{2}",
+                      stringifyPrecisionType(op.getPa()).str(),
+                      stringifyPrecisionType(op.getPb()).str(),
+                      systolicDepth * getNumOperandsPerDword(op.getPa()))
+            .str();
+    SmallVector<Type> argTypes{a.getType(), b.getType(), cTy};
+    fnName = mangle(fnName, argTypes);
+    SmallVector<Value> args{a, b, c};
+
+    auto memAttr = rewriter.getAttr<LLVM::MemoryEffectsAttr>(
+        /*other=*/LLVM::ModRefInfo::NoModRef,
+        /*argMem=*/LLVM::ModRefInfo::NoModRef,
+        /*inaccessibleMem=*/LLVM::ModRefInfo::NoModRef);
+    auto funcAttrs = convergentNoUnwindWillReturnAttrs;
+    funcAttrs.memEffectsAttr = memAttr;
+    Value result = createDeviceFunctionCall(rewriter, fnName, cTy, argTypes,
+                                            args, {}, funcAttrs)
+                       ->getResult(0);
+
+    if (cOrigTy != cTy)
+      result = rewriter.create<LLVM::BitcastOp>(loc, cOrigTy, result);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+private:
+  static unsigned getNumOperandsPerDword(xevm::PrecisionType pTy) {
+    switch (pTy) {
+    case xevm::PrecisionType::TF32:
+      return 1;
+    case xevm::PrecisionType::BF16:
+    case xevm::PrecisionType::FP16:
+      return 2;
+    case xevm::PrecisionType::U8:
+    case xevm::PrecisionType::S8:
+      return 4;
+    default:
+      llvm_unreachable("unsupported xevm::PrecisionType");
+    }
+  }
+};
 
 template <typename OpType>
 class LoadStorePrefetchToOCLPattern : public OpConversionPattern<OpType> {
@@ -291,10 +411,11 @@ struct ConvertXeVMToLLVMPass
 //===----------------------------------------------------------------------===//
 
 void mlir::populateXeVMToLLVMConversionPatterns(RewritePatternSet &patterns) {
-  patterns.add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
-               LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
-               LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>>(
-      patterns.getContext());
+  patterns
+      .add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
+           LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
+           LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>, DPASToOCLPattern>(
+          patterns.getContext());
 }
 
 //===----------------------------------------------------------------------===//

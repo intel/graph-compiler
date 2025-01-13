@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (C) 2024 Intel Corporation
+# Copyright (C) 2025 Intel Corporation
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,5 +32,5 @@ if(GC_DEV_LINK_LLVM_DYLIB)
 endif()
 
 gc_add_mlir_tool(gc-cpu-runner gc-cpu-runner.cpp)
-target_link_libraries(gc-cpu-runner PRIVATE GcCpuRuntime)
+target_link_libraries(gc-cpu-runner PRIVATE GcJitWrapper GcCpuRuntime)
 mlir_check_all_link_libraries(gc-cpu-runner)

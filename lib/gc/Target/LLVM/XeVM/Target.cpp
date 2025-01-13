@@ -144,9 +144,11 @@ SpirSerializer::moduleToObject(llvm::Module &llvmModule) {
     getOperation().emitError() << "Failed translating the module to Binary.";
     return std::nullopt;
   }
-
-  StringRef bin(serializedSPIRVBinary->c_str(),
-                serializedSPIRVBinary->size() + 1);
+  if (serializedSPIRVBinary->size() % 4) {
+    getOperation().emitError() << "SPIRV code size must be a multiple of 4.";
+    return std::nullopt;
+  }
+  StringRef bin(serializedSPIRVBinary->c_str(), serializedSPIRVBinary->size());
   return SmallVector<char, 0>(bin.begin(), bin.end());
 }
 
@@ -166,7 +168,7 @@ SpirSerializer::translateToSPIRVBinary(llvm::Module &llvmModule,
 
     codegenPasses.run(llvmModule);
   }
-  return stream.str();
+  return targetISA;
 }
 
 std::optional<SmallVector<char, 0>>

@@ -18,7 +18,7 @@ namespace mlir {
 class DialectRegistry;
 namespace gc {
 
-const DialectRegistry &initCompilerAndGetDialects();
+DialectRegistry &initCompilerAndGetDialects();
 
 // the pointers to XXXMemRefType
 using GeneralMemrefPtr = void *;

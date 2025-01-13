@@ -25,6 +25,7 @@ else()
     MLIRToLLVMIRTranslationRegistration
   )
 endif()
+get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
 
 set(GC_PASSES GcInterface GcPasses)
 if(GC_ENABLE_IMEX)
@@ -38,6 +39,8 @@ gc_add_mlir_library(GcJitWrapper
     ${MLIR_LINK_COMPONENTS}
     ${dialect_libs}
     ${conversion_libs}
+    ${extension_libs}
     ${GC_PASSES}
     GcAnalysis
+    MLIRXeVMToLLVMIRTranslation
   )
