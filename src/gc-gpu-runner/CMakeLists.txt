@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (C) 2024 Intel Corporation
+# Copyright (C) 2025 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-if(NOT GC_ENABLE_TOOLS OR NOT GC_ENABLE_IMEX)
+if(NOT GC_ENABLE_TOOLS OR NOT GC_ENABLE_GPU)
   message(STATUS "Gpu runner is not enabled.")
   return()
 endif()

@@ -40,8 +40,6 @@ gc_add_mlir_library(GcPasses
     MLIRMicrokernelTransforms
   )
 
-if(GC_ENABLE_IMEX)
-  add_subdirectory(GPU)
-endif()
+add_subdirectory(GPU)
 
 add_subdirectory(Microkernel)

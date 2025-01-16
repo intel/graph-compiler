@@ -8,10 +8,13 @@
 
 #include <string>
 
+#include "gc/Conversion/Passes.h"
 #include "gc/Transforms/Passes.h"
 
+#ifdef GC_USE_IMEX
 #include "imex/Conversion/Passes.h"
 #include "imex/Transforms/Passes.h"
+#endif
 
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
@@ -27,9 +30,9 @@
 #include "mlir/Transforms/Passes.h"
 
 namespace mlir::gc {
-
-void populateGPUPipeline(OpPassManager &pm,
-                         const GPUPipelineOptions &pipelineOpts) {
+#ifdef GC_USE_IMEX
+void populateIMEXPipeline(OpPassManager &pm,
+                          const GPUPipelineOptions &pipelineOpts) {
   if (pipelineOpts.useGpuRuntime) {
     // Add an argument for the GPU context
     pm.addNestedPass<func::FuncOp>(createAddContextArg());
@@ -125,10 +128,47 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createReconcileUnrealizedCastsPass());
 }
 
+void registerIMEXPipeline() {
+  PassPipelineRegistration<GPUPipelineOptions>(
+      "gc-imex-pipeline", "The GPU pipeline for Graph Compiler with IMEX",
+      populateIMEXPipeline);
+}
+#endif
+
+#ifdef GC_USE_GPU
+void populateGPUPipeline(OpPassManager &pm,
+                         const GPUPipelineOptions &pipelineOpts) {
+
+  pm.addNestedPass<func::FuncOp>(createAddContextArg());
+
+  pm.addPass(createConvertSCFToCFPass());
+  pm.addPass(createConvertControlFlowToLLVMPass());
+  pm.addPass(createConvertVectorToLLVMPass());
+  pm.addPass(createConvertIndexToLLVMPass());
+  pm.addPass(createArithToLLVMConversionPass());
+  pm.addPass(createConvertFuncToLLVMPass());
+  pm.addPass(createConvertMathToLLVMPass());
+  pm.addPass(createCSEPass());
+
+  pm.addPass(createGpuKernelOutliningPass());
+  pm.addPass(createConvertXeVMToLLVMPass());
+  pm.addPass(createGpuXeVMAttachTarget());
+  pm.addPass(createConvertGpuOpsToLLVMSPVOps());
+  pm.addPass(createGpuToLLVMConversionPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
+  pm.addPass(createCSEPass());
+  // Convert allocs, etc.
+  pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
+  pm.addPass(createGpuModuleToBinaryPass());
+  // Convert launch given a binary.
+  pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
+}
+
 void registerGPUPipeline() {
   PassPipelineRegistration<GPUPipelineOptions>(
-      "gc-gpu-pipeline", "The GPU pipeline for Graph Compiler with IMEX",
+      "gc-gpu-pipeline", "The GPU pipeline for Graph Compiler with GPU",
       populateGPUPipeline);
 }
+#endif
 
 } // namespace mlir::gc

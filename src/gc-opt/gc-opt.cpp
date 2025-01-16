@@ -44,9 +44,13 @@
 
 namespace mlir::gc {
 void registerCPUPipeline();
-#ifdef GC_USE_IMEX
+#ifdef GC_USE_GPU
 void registerGPUPipeline();
+#ifdef GC_USE_IMEX
+void registerIMEXPipeline();
 #endif
+#endif
+
 } // namespace mlir::gc
 
 int main(int argc, char *argv[]) {
@@ -58,7 +62,7 @@ int main(int argc, char *argv[]) {
   imex::registerConvertGPUXToSPIRV();
   imex::registerConvertXeGPUToVC();
   imex::registerConvertXeTileToXeGPU();
-  mlir::gc::registerGPUPipeline();
+  mlir::gc::registerIMEXPipeline();
 #endif
   mlir::registerAllPasses();
   mlir::gc::registerCPUPipeline();
@@ -74,21 +78,20 @@ int main(int argc, char *argv[]) {
   registry.insert<mlir::cpuruntime::CPURuntimeDialect>();
   registry.insert<mlir::linalgx::LinalgxDialect>();
   registry.insert<mlir::microkernel::MicrokernelDialect>();
-  registry.insert<mlir::xevm::XeVMDialect>();
   mlir::registerAllDialects(registry);
 #ifdef GC_USE_IMEX
   registry.insert<::imex::xetile::XeTileDialect, ::imex::gpux::GPUXDialect>();
+#endif
+  registry.insert<mlir::xevm::XeVMDialect>();
+  mlir::registerConvertXeVMToLLVMInterface(registry);
   mlir::registerXeVMDialectTranslation(registry);
   mlir::xevm::registerXeVMTargetInterfaceExternalModels(registry);
+#ifdef GC_USE_GPU
+  mlir::gc::registerGPUPipeline();
 #endif
-  mlir::registerAllExtensions(registry);
-  mlir::registerAllToLLVMIRTranslations(registry);
   mlir::cpuruntime::registerConvertCPURuntimeToLLVMInterface(registry);
   mlir::registerAllExtensions(registry); // TODO: cleanup
-  // Adds missing `LLVMTranslationDialectInterface` registration for dialect for
-  // gpu.module op
   mlir::registerAllToLLVMIRTranslations(registry);
-  mlir::registerConvertXeVMToLLVMInterface(registry);
   return mlir::asMainReturnCode(mlir::MlirOptMain(
       argc, argv, "Graph Compiler modular optimizer driver\n", registry));
 }

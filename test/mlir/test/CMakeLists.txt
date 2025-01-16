@@ -30,8 +30,10 @@ set(GC_OPT_TEST_DEPENDS
         GCUnitTests
 )
 
-if(GC_ENABLE_IMEX)
-        include(imex)
+if(GC_ENABLE_GPU)
+        if(GC_ENABLE_IMEX)
+                include(imex)
+        endif()
         list(APPEND GC_OPT_TEST_DEPENDS gc-gpu-runner)
 endif()
 

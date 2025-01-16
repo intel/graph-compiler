@@ -115,7 +115,6 @@ std::unique_ptr<Pass> createMergeAllocPass();
 void populateFrontendPasses(mlir::OpPassManager &);
 void populateCPUPipeline(mlir::OpPassManager &);
 
-#ifdef GC_USE_IMEX
 struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
   Option<bool> isUsmArgs{
       *this, "is-usm-args",
@@ -136,6 +135,8 @@ struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
       llvm::cl::init(false)};
 };
 void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
+#ifdef GC_USE_IMEX
+void populateIMEXPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
 #endif
 
 #define GEN_PASS_DECL

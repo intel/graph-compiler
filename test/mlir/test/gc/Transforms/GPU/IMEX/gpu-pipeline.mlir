@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --gc-gpu-pipeline -split-input-file | FileCheck %s
+// RUN: gc-opt %s --gc-imex-pipeline -split-input-file | FileCheck %s
 
 // Regression check for infinite loop in the linalg-to-xegpu pass
 // CHECK-DAG: @gcGpuOclKernel_corner_shape_matmul_f16_kernel_SPIRV

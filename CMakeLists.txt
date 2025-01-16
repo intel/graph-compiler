@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (C) 2024 Intel Corporation
+# Copyright (C) 2025 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,7 +45,8 @@ option(GC_ENABLE_TEST_DNNL_API "Build the dnnl tests" ${GC_ENABLE_DNNL_API})
 option(GC_ENABLE_TEST_MLIR "Build the mlir tests" ON)
 option(GC_ENABLE_TOOLS "Build the tools" ON)
 option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
-option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR" OFF)
+option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR (implicitly enables GPU compilation)" OFF)
+option(GC_ENABLE_GPU "Enable GPU runtime and tools components" OFF)
 option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
 option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
 option(GC_ENABLE_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend for debug purpose." OFF)
@@ -53,6 +54,10 @@ option(GC_BENCH_ENABLE "Build benchgc." ON)
 
 if(GC_ENABLE_LEGACY)
   add_subdirectory(legacy/core)
+endif()
+
+if (GC_ENABLE_GPU)
+  set(GC_ENABLE_GPU ON)
 endif()
 
 if (GC_ENABLE_IMEX)
@@ -70,6 +75,9 @@ endif()
 ############################## Targets #########################################
 # All common options, includes etc. are added to this interface target.
 add_library(GcInterface INTERFACE)
+if (GC_ENABLE_GPU)
+  target_compile_options(GcInterface INTERFACE -DGC_USE_GPU)
+endif()
 target_compile_features(GcInterface INTERFACE cxx_std_17)
 target_include_directories(GcInterface INTERFACE
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>

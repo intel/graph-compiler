@@ -18,7 +18,8 @@ $(basename "$0")
     [ -l | --dyn     ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
     [ -r | --release ] Release build, requires rebuild of LLVM in Release mode, activates 'dev' option
     [ -c | --clean   ] Delete the build artifacts from the previous build
-    [ -i | --imex    ] Compile with IMEX (used for GPU pipeline)
+    [ -i | --imex    ] Compile with IMEX (used for IMEX pipeline, implicitly enables GPU support)
+    [ -g | --gpu     ] Compile with GPU support (used for GPU pipeline)
     [ -s | --suffix  ] Build dir suffix
     [ -v | --llvm    ] Build llvm only
     [ -h | --help    ] Print this message
@@ -26,6 +27,7 @@ EOF
 }
 
 DYN_LINK=OFF
+ENABLE_GPU=false
 ENABLE_IMEX=false
 for arg in "$@"; do
     if [ ! -z "$ASSIGN_NEXT" ]; then
@@ -39,6 +41,9 @@ for arg in "$@"; do
             ;;
         -i | --imex)
             ENABLE_IMEX=true
+            ;;
+        -g | --gpu)
+            ENABLE_GPU=true
             ;;
         -l | --dyn)
             DYN_LINK=ON
@@ -93,6 +98,11 @@ if [ "$ENABLE_IMEX" = "true" ]; then
 else
     LLVM_HASH=$(cat cmake/llvm-version.txt)
 fi
+
+if [ "$ENABLE_IMEX" = "true" ]; then
+    ENABLE_GPU=true
+fi
+
 
 load_llvm() {
     if [ "$ENABLE_IMEX"  = "true" ]; then
@@ -221,6 +231,7 @@ cmake -S . -G Ninja -B "$BUILD_DIR" \
     -DLLVM_EXTERNAL_LIT=$LIT_PATH \
     -DFETCHCONTENT_BASE_DIR=$FETCH_DIR \
     -DGC_DEV_LINK_LLVM_DYLIB=$DYN_LINK \
-    -DGC_ENABLE_IMEX=$ENABLE_IMEX
+    -DGC_ENABLE_IMEX=$ENABLE_IMEX \
+    -DGC_ENABLE_GPU=$ENABLE_GPU
 
 cmake --build "$BUILD_DIR" --parallel $MAX_JOBS

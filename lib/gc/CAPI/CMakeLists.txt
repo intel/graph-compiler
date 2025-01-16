@@ -4,9 +4,7 @@ set(GC_ALL_LIBS
   GcAnalysis
   MLIRCPURuntimeTransforms)
 
-if(GC_ENABLE_IMEX)
-  list(APPEND GC_ALL_LIBS GcGpuPasses)
-endif()
+list(APPEND GC_ALL_LIBS GcGpuPasses)
 
 add_mlir_public_c_api_library(GcCAPI
   Dialects.cpp

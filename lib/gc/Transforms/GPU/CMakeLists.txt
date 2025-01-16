@@ -1,21 +1,19 @@
-include(imex)
-get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
-get_property(IMEX_DIALECT_LIBS GLOBAL PROPERTY IMEX_DIALECT_LIBS)
-get_property(IMEX_CONVERSION_LIBS GLOBAL PROPERTY IMEX_CONVERSION_LIBS)
-set(IMEX_LIBS
-  ${IMEX_CONVERSION_LIBS}
-  IMEXUtil
-  IMEXTransforms
-  ${IMEX_DIALECT_LIBS}
-)
-set_property(GLOBAL APPEND PROPERTY IMEX_LIBS ${IMEX_LIBS})
+set(IMEX_LIBS "")
+if(GC_ENABLE_IMEX)
+add_subdirectory(IMEX)
+set(IMEX_LIBS GcGpuIMEXPasses)
+endif()
+
+set(OCL_PASSES_LIBS "")
+if(GC_ENABLE_GPU)
+add_subdirectory(OCL)
+set(OCL_PASSES_LIBS GcGpuOCLPasses)
+endif()
 
 gc_add_mlir_library(GcGpuPasses
   AddContextArg.cpp
   AllocsToSLM.cpp
   GpuTilingAndFusion.cpp
-  GpuToGpuOcl.cpp
-  LinalgToXeGPU.cpp
   Pipeline.cpp
   XeVMAttachTarget.cpp
 
@@ -36,9 +34,5 @@ gc_add_mlir_library(GcGpuPasses
     GcInterface
     GcUtilsIR
     ${IMEX_LIBS}
+    ${OCL_PASSES_LIBS}
 )
-
-foreach (include_dir IN LISTS IMEX_INCLUDES)
-  list(APPEND IMEX_BUILD_INCLUDES $<BUILD_INTERFACE:${include_dir}>)
-endforeach ()
-target_include_directories(GcGpuPasses PUBLIC ${IMEX_BUILD_INCLUDES})

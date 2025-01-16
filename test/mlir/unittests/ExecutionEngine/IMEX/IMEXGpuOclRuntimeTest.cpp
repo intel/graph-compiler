@@ -11,6 +11,7 @@
 
 #include "gc/ExecutionEngine/Driver/Driver.h"
 #include "gc/ExecutionEngine/GPURuntime/GpuOclRuntime.h"
+#include "gc/Transforms/Passes.h"
 #include "gc/Utils/Error.h"
 
 #include "mlir/ExecutionEngine/MemRefUtils.h"
@@ -117,7 +118,11 @@ template <unsigned N, unsigned M = N> struct TestAdd : TestBase {
   }
 
   void test(const char *code) {
-    OclModuleBuilder builder(parse(code));
+    OclModuleBuilderOpts opts;
+    opts.pipeline = [](OpPassManager &pm) {
+      mlir::gc::populateIMEXPipeline(pm, {});
+    };
+    OclModuleBuilder builder(parse(code), opts);
     auto mod = gcGetOrReport(builder.build(runtime));
     exec(mod);
 
@@ -160,7 +165,11 @@ template <unsigned N, unsigned M = N> struct TestMatmulAdd : TestBase {
   }
 
   void test(const char *code) {
-    OclModuleBuilder builder(parse(code));
+    OclModuleBuilderOpts opts;
+    opts.pipeline = [](OpPassManager &pm) {
+      mlir::gc::populateIMEXPipeline(pm, {});
+    };
+    OclModuleBuilder builder(parse(code), opts);
     auto mod = gcGetOrReport(builder.build(runtime));
     exec(mod);
 
