@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2020-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "brgemm_common.hpp"
 #include "brgemm_range_handle.hpp"
@@ -880,7 +881,7 @@ SC_API void dnnl_brgemm_call(brgemm_kernel_info *brg_desc, const void *A,
         new brgemm_batch_element_t[num]);
     brgemm_batch_element_t *batch = batch_v.get();
 #else
-    brgemm_batch_element_t batch[num];       // NOLINT
+    brgemm_batch_element_t batch[num]; // NOLINT
 #endif
 #endif
     if (top_pad) {
@@ -937,7 +938,7 @@ SC_API void dnnl_brgemm_call_postops(brgemm_kernel_info *brg_desc,
         new brgemm_batch_element_t[num]);
     brgemm_batch_element_t *batch = batch_v.get();
 #else
-    brgemm_batch_element_t batch[num];       // NOLINT
+    brgemm_batch_element_t batch[num]; // NOLINT
 #endif
 #endif
     if (top_pad) {
@@ -1000,7 +1001,7 @@ SC_API void dnnl_brgemm_list_call(brgemm_kernel_info *brg_desc,
       new brgemm_batch_element_t[batch_num]);
   brgemm_batch_element_t *batch = batch_v.get();
 #else
-  brgemm_batch_element_t batch[batch_num];   // NOLINT
+  brgemm_batch_element_t batch[batch_num]; // NOLINT
 #endif
 #endif
 
@@ -1066,7 +1067,7 @@ SC_API void dnnl_brgemm_list_call_postops(
       new brgemm_batch_element_t[batch_num]);
   brgemm_batch_element_t *batch = batch_v.get();
 #else
-  brgemm_batch_element_t batch[batch_num];   // NOLINT
+  brgemm_batch_element_t batch[batch_num]; // NOLINT
 #endif
 #endif
 
@@ -1292,7 +1293,7 @@ static int dnnl_brgemm_list_update_func(
       new brgemm_batch_element_t[batch_num]);
   brgemm_batch_element_t *batch = batch_v.get();
 #else
-  brgemm_batch_element_t batch[batch_num];   // NOLINT
+  brgemm_batch_element_t batch[batch_num]; // NOLINT
 #endif
 #endif
   int sizeofA = get_dtype_sizeof(dtypeA);

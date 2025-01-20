@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "mixed_partition.hpp"
 #include "binding_axis.hpp"
@@ -1849,8 +1850,8 @@ static bool try_merge_mixed_parti_parallel(mixed_parti_t *A, mixed_parti_t *B) {
 
   auto append_parti = (dep == parti_dep::l_dep_r) ? A : B,
        target_parti = (dep == parti_dep::l_dep_r) ? B : A;
-  SC_MODULE_INFO << "Start try_merge_mixed_parti_parallel: "
-                 << "Target: " << target_parti->func_->name_
+  SC_MODULE_INFO << "Start try_merge_mixed_parti_parallel: " << "Target: "
+                 << target_parti->func_->name_
                  << ", Append: " << append_parti->func_->name_;
 
   auto outer_loops_target = target_parti->get_outer_loops(),
@@ -4028,7 +4029,7 @@ static void
 crossover_dispatcher(const std::vector<mixed_parti_t::ptr> &parti_vec,
                      parti_merge_kind merge_kind) {
   // select merger by merge kind
-  bool (*merger)(mixed_parti_t * A, mixed_parti_t * B);
+  bool (*merger)(mixed_parti_t *A, mixed_parti_t *B);
   switch (merge_kind) {
   case parti_merge_kind::vertical: {
     merger = try_merge_mixed_parti_vertically;

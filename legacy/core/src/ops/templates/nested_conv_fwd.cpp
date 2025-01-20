@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <algorithm>
 #include <functional>
@@ -184,7 +185,7 @@ config_ptr gen_nested_conv_fwd_t::get_default_config(context_ptr ctx) const {
     cfg.bs_threads = mb_ > num_threads || (mb_ == num_threads && oc_ <= 128)
       ? num_threads
       : *(std::find_if(thread_split.rbegin(), thread_split.rend(),
-        [&](int split) { return split == 1 || split < mb_; }));
+          [&](int split) { return split == 1 || split < mb_; }));
     cfg.oc_threads = num_threads / cfg.bs_threads;
     cfg.h_threads = 1;
     cfg.w_threads = 1;
@@ -306,12 +307,12 @@ config_ptr gen_nested_conv_fwd_t::get_default_config(context_ptr ctx) const {
           ? oh_
           : (utils::divide_and_ceil(
                utils::divide_and_ceil(oh_, cfg.im_h_block), cfg.h_threads)
-            * cfg.im_h_block);
+              * cfg.im_h_block);
         cfg.w_block = cfg.w_threads == 1
           ? ow_
           : (utils::divide_and_ceil(
                utils::divide_and_ceil(ow_, cfg.im_w_block), cfg.w_threads)
-            * cfg.im_w_block);
+              * cfg.im_w_block);
       }
     } else {
       if (!is_1x1_conv_ && has_pad) {
@@ -335,7 +336,7 @@ config_ptr gen_nested_conv_fwd_t::get_default_config(context_ptr ctx) const {
               ? oh_
               : (utils::divide_and_ceil(
                    utils::divide_and_ceil(oh_, cfg.im_h_block), cfg.h_threads)
-                * cfg.im_h_block);
+                  * cfg.im_h_block);
           }
         }
       }
@@ -403,7 +404,7 @@ config_ptr gen_nested_conv_fwd_t::get_default_config(context_ptr ctx) const {
         ? oh_
         : (utils::divide_and_ceil(
              utils::divide_and_ceil(oh_, cfg.im_h_block), cfg.h_threads)
-          * cfg.im_h_block);
+            * cfg.im_h_block);
     }
 
     if (!is_1x1_conv_ && oc_ > 128 && cfg.im_oc_block % 32 != 0) {
@@ -1235,15 +1236,15 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
                                         = blocking_input_
                                         ? std::vector<expr> {n, ic, h, w, 0}
                                         : std::vector<expr> {
-                                          n, h, w, ic * im_ic_block};
+                                            n, h, w, ic * im_ic_block};
 
                                       A_list[i_c]
                                         = tensor_ptr(input1, input_pos);
                                       B_list[i_c] = tensor_ptr(weight,
                                         kpack > 1 ? std::vector<expr> {oc, ic,
-                                          0, 0, 0, 0, 0}
+                                                      0, 0, 0, 0, 0}
                                                   : std::vector<expr> {
-                                                    oc, ic, 0, 0, 0, 0});
+                                                      oc, ic, 0, 0, 0, 0});
                                     }
                                   }
                                   const auto hint_A_size
@@ -1273,9 +1274,9 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
                                   std::vector<expr> output_pos
                                     = blocking_output_
                                     ? std::vector<expr> {pic * mb_ + n, oc, h,
-                                      w, 0}
+                                        w, 0}
                                     : std::vector<expr> {
-                                      pic * mb_ + n, h, w, oc * im_oc_block};
+                                        pic * mb_ + n, h, w, oc * im_oc_block};
 
                                   if (ic_num_block_pt > 1) {
                                     _if_(o_ic == 0) {
@@ -1327,11 +1328,11 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
                                         owner_->get_outputs()[0],
                                         blocking_output_
                                           ? slice_range {{n, 1UL}, {oc, 1},
-                                            {h, im_h_block}, {w, im_w_block},
-                                            {0, im_oc_block}}
+                                              {h, im_h_block}, {w, im_w_block},
+                                              {0, im_oc_block}}
                                           : slice_range {{n, 1UL},
-                                            {h, im_h_block}, {w, im_w_block},
-                                            {oc * im_oc_block, im_oc_block}});
+                                              {h, im_h_block}, {w, im_w_block},
+                                              {oc * im_oc_block, im_oc_block}});
                                     }
                                   }
                                 }
@@ -1346,11 +1347,11 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
                                     owner_->get_outputs()[0],
                                     blocking_output_
                                       ? slice_range {{n, 1UL}, {anch_c, 1},
-                                        {h, im_h_block}, {w, im_w_block},
-                                        {0, im_oc_block}}
+                                          {h, im_h_block}, {w, im_w_block},
+                                          {0, im_oc_block}}
                                       : slice_range {{n, 1UL}, {h, im_h_block},
-                                        {w, im_w_block},
-                                        {anch_c * im_oc_block, oc_block}});
+                                          {w, im_w_block},
+                                          {anch_c * im_oc_block, oc_block}});
                                 }
                               }
                             }
@@ -1371,11 +1372,11 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
                                 owner_->get_outputs()[0],
                                 blocking_output_
                                   ? slice_range {{n, 1UL}, {anch_c, 1},
-                                    {h, im_h_block}, {anch_w, w_block},
-                                    {0, im_oc_block}}
+                                      {h, im_h_block}, {anch_w, w_block},
+                                      {0, im_oc_block}}
                                   : slice_range {{n, 1UL}, {h, im_h_block},
-                                    {anch_w, w_block},
-                                    {anch_c * im_oc_block, oc_block}});
+                                      {anch_w, w_block},
+                                      {anch_c * im_oc_block, oc_block}});
                             }
                           }
                         }
@@ -1401,11 +1402,11 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
                           create_fusion_anchor(fusion, owner_->get_outputs()[0],
                             blocking_output_
                               ? slice_range {{n, 1UL}, {anch_c, 1},
-                                {anch_h, h_block}, {anch_w, w_block},
-                                {0, im_oc_block}}
+                                  {anch_h, h_block}, {anch_w, w_block},
+                                  {0, im_oc_block}}
                               : slice_range {{n, 1UL}, {anch_h, h_block},
-                                {anch_w, w_block},
-                                {anch_c * im_oc_block, oc_block}});
+                                  {anch_w, w_block},
+                                  {anch_c * im_oc_block, oc_block}});
                         }
                       }
                     }
@@ -1421,16 +1422,16 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
               create_fusion_anchor(fusion, owner_->get_outputs()[0],
                 blocking_output_
                   ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block},
-                    {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
+                      {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
                   : slice_range {
-                    {pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
+                      {pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
             }
           }
           if (oc_threads == 1 && h_threads == 1 && w_threads == 1) {
             create_fusion_anchor(fusion, owner_->get_outputs()[0],
               blocking_output_
                 ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block},
-                  {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
+                    {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
                 : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
           }
         }
@@ -1438,7 +1439,7 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
           create_fusion_anchor(fusion, owner_->get_outputs()[0],
             blocking_output_
               ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block}, {0, oh_expr_},
-                {0, ow_}, {0, im_oc_block}}
+                  {0, ow_}, {0, im_oc_block}}
               : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
         }
       }
@@ -1447,7 +1448,7 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
         create_fusion_anchor(fusion, owner_->get_outputs()[0],
           blocking_output_
             ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block}, {0, oh_expr_},
-              {0, ow_}, {0, im_oc_block}}
+                {0, ow_}, {0, im_oc_block}}
             : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
       }
     }
@@ -1455,7 +1456,7 @@ void gen_nested_conv_fwd_t::compute_1x1_pack_input_nested(CONV_ARG_LIST) const {
       create_fusion_anchor(fusion, owner_->get_outputs()[0],
         blocking_output_
           ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block}, {0, oh_expr_},
-            {0, ow_}, {0, im_oc_block}}
+              {0, ow_}, {0, im_oc_block}}
           : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
     }
   }
@@ -1616,9 +1617,9 @@ void gen_nested_conv_fwd_t::dynamic_compute_1x1_pack_input_nested(
                                         = tensor_ptr(input1, input_pos);
                                       B_list[i_c] = tensor_ptr(weight,
                                         kpack > 1 ? std::vector<expr> {oc, ic,
-                                          0, 0, 0, 0, 0}
+                                                      0, 0, 0, 0, 0}
                                                   : std::vector<expr> {
-                                                    oc, ic, 0, 0, 0, 0});
+                                                      oc, ic, 0, 0, 0, 0});
                                     }
                                   }
                                   auto LDA = ic_;
@@ -1628,7 +1629,7 @@ void gen_nested_conv_fwd_t::dynamic_compute_1x1_pack_input_nested(
                                     = blocking_output_
                                     ? std::vector<expr> {n, oc, h, w, 0}
                                     : std::vector<expr> {
-                                      n, h, w, oc * im_oc_block};
+                                        n, h, w, oc * im_oc_block};
                                   auto im_w_tail_block = builder::make_cast(
                                     datatypes::s32, ow_expr_ - w);
                                   im_w_block = builder::make_select(
@@ -1861,18 +1862,18 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                                         std::vector<expr> input_pos
                                           = blocking_input_
                                           ? std::vector<expr> {n, ic,
-                                            (h + im_h_i) * sh_, w * sw_, 0}
+                                              (h + im_h_i) * sh_, w * sw_, 0}
                                           : std::vector<expr> {n,
-                                            (h + im_h_i) * sh_, w * sw_,
-                                            ic * im_ic_block};
+                                              (h + im_h_i) * sh_, w * sw_,
+                                              ic * im_ic_block};
 
                                         A_list[i_c]
                                           = tensor_ptr(input, input_pos);
                                         B_list[i_c] = tensor_ptr(weight,
                                           kpack > 1 ? std::vector<expr> {oc, ic,
-                                            0, 0, 0, 0, 0}
+                                                        0, 0, 0, 0, 0}
                                                     : std::vector<expr> {
-                                                      oc, ic, 0, 0, 0, 0});
+                                                        oc, ic, 0, 0, 0, 0});
                                       }
                                     }
                                     const auto hint_A_size
@@ -1904,9 +1905,9 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                                     std::vector<expr> output_pos
                                       = blocking_output_
                                       ? std::vector<expr> {pic * mb_ + n, oc,
-                                        h + im_h_i, w, 0}
+                                          h + im_h_i, w, 0}
                                       : std::vector<expr> {pic * mb_ + n,
-                                        h + im_h_i, w, oc * im_oc_block};
+                                          h + im_h_i, w, oc * im_oc_block};
 
                                     if (ic_num_block_pt > 1) {
                                       _if_(o_ic == 0) {
@@ -1956,11 +1957,14 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                                           owner_->get_outputs()[0],
                                           blocking_output_
                                             ? slice_range {{n, 1UL}, {oc, 1},
-                                              {h + im_h_i, 1}, {w, im_w_block},
-                                              {0, im_oc_block}}
+                                                {h + im_h_i, 1},
+                                                {w, im_w_block},
+                                                {0, im_oc_block}}
                                             : slice_range {{n, 1UL},
-                                              {h + im_h_i, 1}, {w, im_w_block},
-                                              {oc * im_oc_block, im_oc_block}});
+                                                {h + im_h_i, 1},
+                                                {w, im_w_block},
+                                                {oc * im_oc_block,
+                                                  im_oc_block}});
                                       }
                                     }
                                   }
@@ -1972,11 +1976,11 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                                       owner_->get_outputs()[0],
                                       blocking_output_
                                         ? slice_range {{n, 1UL}, {oc, 1},
-                                          {h, im_h_block}, {w, im_w_block},
-                                          {0, im_oc_block}}
+                                            {h, im_h_block}, {w, im_w_block},
+                                            {0, im_oc_block}}
                                         : slice_range {{n, 1UL},
-                                          {h, im_h_block}, {w, im_w_block},
-                                          {oc * im_oc_block, im_oc_block}});
+                                            {h, im_h_block}, {w, im_w_block},
+                                            {oc * im_oc_block, im_oc_block}});
                                   }
                                 }
                               }
@@ -1991,11 +1995,11 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                                   owner_->get_outputs()[0],
                                   blocking_output_
                                     ? slice_range {{n, 1UL}, {anch_c, 1},
-                                      {h, im_h_block}, {w, im_w_block},
-                                      {0, im_oc_block}}
+                                        {h, im_h_block}, {w, im_w_block},
+                                        {0, im_oc_block}}
                                     : slice_range {{n, 1UL}, {h, im_h_block},
-                                      {w, im_w_block},
-                                      {anch_c * im_oc_block, oc_block}});
+                                        {w, im_w_block},
+                                        {anch_c * im_oc_block, oc_block}});
                               }
                             }
                           }
@@ -2016,11 +2020,11 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                               owner_->get_outputs()[0],
                               blocking_output_
                                 ? slice_range {{n, 1UL}, {anch_c, 1},
-                                  {h, im_h_block}, {anch_w, w_block},
-                                  {0, im_oc_block}}
+                                    {h, im_h_block}, {anch_w, w_block},
+                                    {0, im_oc_block}}
                                 : slice_range {{n, 1UL}, {h, im_h_block},
-                                  {anch_w, w_block},
-                                  {anch_c * im_oc_block, oc_block}});
+                                    {anch_w, w_block},
+                                    {anch_c * im_oc_block, oc_block}});
                           }
                         }
                       }
@@ -2044,11 +2048,11 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
                           create_fusion_anchor(fusion, owner_->get_outputs()[0],
                             blocking_output_
                               ? slice_range {{n, 1UL}, {anch_c, 1},
-                                {anch_h, h_block}, {anch_w, w_block},
-                                {0, im_oc_block}}
+                                  {anch_h, h_block}, {anch_w, w_block},
+                                  {0, im_oc_block}}
                               : slice_range {{n, 1UL}, {anch_h, h_block},
-                                {anch_w, w_block},
-                                {anch_c * im_oc_block, oc_block}});
+                                  {anch_w, w_block},
+                                  {anch_c * im_oc_block, oc_block}});
                         }
                       }
                     }
@@ -2064,16 +2068,16 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
               create_fusion_anchor(fusion, owner_->get_outputs()[0],
                 blocking_output_
                   ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block},
-                    {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
+                      {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
                   : slice_range {
-                    {pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
+                      {pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
             }
           }
           if (oc_threads == 1 && h_threads == 1 && w_threads == 1) {
             create_fusion_anchor(fusion, owner_->get_outputs()[0],
               blocking_output_
                 ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block},
-                  {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
+                    {0, oh_expr_}, {0, ow_}, {0, im_oc_block}}
                 : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
           }
         }
@@ -2082,7 +2086,7 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
           create_fusion_anchor(fusion, owner_->get_outputs()[0],
             blocking_output_
               ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block}, {0, oh_expr_},
-                {0, ow_}, {0, im_oc_block}}
+                  {0, ow_}, {0, im_oc_block}}
               : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
         }
       }
@@ -2091,7 +2095,7 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
         create_fusion_anchor(fusion, owner_->get_outputs()[0],
           blocking_output_
             ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block}, {0, oh_expr_},
-              {0, ow_}, {0, im_oc_block}}
+                {0, ow_}, {0, im_oc_block}}
             : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
       }
     }
@@ -2099,7 +2103,7 @@ void gen_nested_conv_fwd_t::compute_1x1_no_pack_input_nested(
       create_fusion_anchor(fusion, owner_->get_outputs()[0],
         blocking_output_
           ? slice_range {{pbs, 1UL}, {0, oc_ / im_oc_block}, {0, oh_expr_},
-            {0, ow_}, {0, im_oc_block}}
+              {0, ow_}, {0, im_oc_block}}
           : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_}, {0, oc_}});
     }
   }
@@ -2234,12 +2238,12 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_os_blocking_nested(
                           auto out_tsr = tensor_ptr(output,
                             blocking_output_
                               ? std::vector<expr> {n, oc,
-                                (im_s_block_idx * im_s_block) / ow_,
-                                im_s_block_idx * im_s_block % ow_, 0}
+                                  (im_s_block_idx * im_s_block) / ow_,
+                                  im_s_block_idx * im_s_block % ow_, 0}
                               : std::vector<expr> {n,
-                                (im_s_block_idx * im_s_block) / ow_,
-                                (im_s_block_idx * im_s_block) % ow_,
-                                oc * im_oc_block});
+                                  (im_s_block_idx * im_s_block) / ow_,
+                                  (im_s_block_idx * im_s_block) % ow_,
+                                  oc * im_oc_block});
 
                           int adj_ow = ow_ + num_elems_skip_per_ow_;
 
@@ -2248,15 +2252,15 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_os_blocking_nested(
                               blocking_output_
                                 ? std::vector<expr> {n, oc, 0, 0, 0}
                                 : std::vector<expr> {
-                                  n, 0, 0, oc * config.im_oc_block});
+                                    n, 0, 0, oc * config.im_oc_block});
                           } else {
                             auto acc_m = os_acc_size[{im_s_block_idx}];
                             out_tsr = tensor_ptr(output,
                               blocking_output_
                                 ? std::vector<expr> {n, oc, acc_m / ow_,
-                                  acc_m % ow_, 0}
+                                    acc_m % ow_, 0}
                                 : std::vector<expr> {n, acc_m / ow_,
-                                  acc_m % ow_, oc * im_oc_block});
+                                    acc_m % ow_, oc * im_oc_block});
                           }
 
                           _for_(i_c, 0, ic_block / im_ic_block) {
@@ -2273,15 +2277,15 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_os_blocking_nested(
                                     = ((im_s_block_idx * im_s_block) % adj_ow);
                                   std::vector<expr> input_pos = blocking_input_
                                     ? std::vector<expr> {n, ic,
-                                      h * sh_ + dh_ * r, w * sw_ + dw_ * s, 0}
+                                        h * sh_ + dh_ * r, w * sw_ + dw_ * s, 0}
                                     : std::vector<expr> {n, h * sh_ + dh_ * r,
-                                      w * sw_ + dw_ * s, ic * im_ic_block};
+                                        w * sw_ + dw_ * s, ic * im_ic_block};
 
                                   A_list[idx] = tensor_ptr(input, input_pos);
                                   B_list[idx] = tensor_ptr(weight,
                                     kpack > 1
                                       ? std::vector<expr> {oc, ic, r, s, 0, 0,
-                                        0}
+                                          0}
                                       : std::vector<expr> {oc, ic, r, s, 0, 0});
                                 }
                               }
@@ -2321,14 +2325,14 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_os_blocking_nested(
                                   owner_->get_outputs()[0],
                                   blocking_output_
                                     ? slice_range {{n, 1UL}, {oc, 1},
-                                      {im_s_block_idx * (oh_ / os_num_block),
-                                        (oh_ / os_num_block)},
-                                      {0, ow_}, {0, im_oc_block}}
+                                        {im_s_block_idx * (oh_ / os_num_block),
+                                          (oh_ / os_num_block)},
+                                        {0, ow_}, {0, im_oc_block}}
                                     : slice_range {{n, 1UL},
-                                      {im_s_block_idx * (oh_ / os_num_block),
-                                        (oh_ / os_num_block)},
-                                      {0, ow_},
-                                      {oc * im_oc_block, im_oc_block}});
+                                        {im_s_block_idx * (oh_ / os_num_block),
+                                          (oh_ / os_num_block)},
+                                        {0, ow_},
+                                        {oc * im_oc_block, im_oc_block}});
                               }
                             }
                           }
@@ -2342,43 +2346,44 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_os_blocking_nested(
 
             if (oc_threads == 1 && ic_threads == 1 && s_threads == 1) {
               create_fusion_anchor(fusion, owner_->get_outputs()[0],
-                blocking_output_ ? slice_range {{pbs, 1UL},
-                  {outer_k * oc_ / im_oc_block / oc_split,
-                    oc_ / im_oc_block / oc_split},
-                  {0, oh_}, {0, ow_}, {0, im_oc_block}}
-                                 : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                                   {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                blocking_output_
+                  ? slice_range {{pbs, 1UL},
+                      {outer_k * oc_ / im_oc_block / oc_split,
+                        oc_ / im_oc_block / oc_split},
+                      {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                  : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
+                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
             }
           }
 
           if (oc_threads == 1 && s_threads == 1) {
             create_fusion_anchor(fusion, owner_->get_outputs()[0],
               blocking_output_ ? slice_range {{pbs, 1UL},
-                {outer_k * oc_ / im_oc_block / oc_split,
-                  oc_ / im_oc_block / oc_split},
-                {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                                   {outer_k * oc_ / im_oc_block / oc_split,
+                                     oc_ / im_oc_block / oc_split},
+                                   {0, oh_}, {0, ow_}, {0, im_oc_block}}
                                : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                                 {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                                   {outer_k * oc_ / oc_split, oc_ / oc_split}});
           }
         }
         if (s_threads == 1) {
           create_fusion_anchor(fusion, owner_->get_outputs()[0],
             blocking_output_ ? slice_range {{pbs, 1UL},
-              {outer_k * oc_ / im_oc_block / oc_split,
-                oc_ / im_oc_block / oc_split},
-              {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                                 {outer_k * oc_ / im_oc_block / oc_split,
+                                   oc_ / im_oc_block / oc_split},
+                                 {0, oh_}, {0, ow_}, {0, im_oc_block}}
                              : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                               {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                                 {outer_k * oc_ / oc_split, oc_ / oc_split}});
         }
       }
       if (mb_ > 1) {
         create_fusion_anchor(fusion, owner_->get_outputs()[0],
           blocking_output_ ? slice_range {{pbs, 1UL},
-            {outer_k * oc_ / im_oc_block / oc_split,
-              oc_ / im_oc_block / oc_split},
-            {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                               {outer_k * oc_ / im_oc_block / oc_split,
+                                 oc_ / im_oc_block / oc_split},
+                               {0, oh_}, {0, ow_}, {0, im_oc_block}}
                            : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                             {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                               {outer_k * oc_ / oc_split, oc_ / oc_split}});
       }
     }
   }
@@ -2482,7 +2487,7 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
   auto L2_cache_size = ctx->machine_.cpu_flags_.getDCacheSize(2);
   int oc_split = (oc_threads == 1 && oc_num_block_pt == 1)
     ? get_oc_split_factor(
-      -1, weight_size, L2_cache_size, oc_block / im_oc_block)
+        -1, weight_size, L2_cache_size, oc_block / im_oc_block)
     : 1;
 
   auto LDA = blocking_input_ ? sw_ * im_ic_block : sw_ * ic_;
@@ -2574,14 +2579,14 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                                   std::vector<expr> input_pos
                                                     = blocking_input_
                                                     ? std::vector<expr> {n, ic,
-                                                      (h + im_h_i) * sh_
-                                                        + dh_ * r,
-                                                      w * sw_ + dw_ * s, 0}
+                                                        (h + im_h_i) * sh_
+                                                          + dh_ * r,
+                                                        w * sw_ + dw_ * s, 0}
                                                     : std::vector<expr> {n,
-                                                      (h + im_h_i) * sh_
-                                                        + dh_ * r,
-                                                      w * sw_ + dw_ * s,
-                                                      ic * im_ic_block};
+                                                        (h + im_h_i) * sh_
+                                                          + dh_ * r,
+                                                        w * sw_ + dw_ * s,
+                                                        ic * im_ic_block};
 
                                                   A_list[idx] = tensor_ptr(
                                                     input, input_pos);
@@ -2589,9 +2594,9 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                                     = tensor_ptr(weight,
                                                       kpack > 1
                                                         ? std::vector<expr> {oc,
-                                                          ic, r, s, 0, 0, 0}
-                                                        : std::vector<expr> {
-                                                          oc, ic, r, s, 0, 0});
+                                                            ic, r, s, 0, 0, 0}
+                                                        : std::vector<expr> {oc,
+                                                            ic, r, s, 0, 0});
                                                 }
                                               }
                                             }
@@ -2599,11 +2604,11 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                           std::vector<expr> output_pos
                                             = blocking_output_
                                             ? std::vector<expr> {pic * mb_expr_
-                                                + n,
-                                              oc, h + im_h_i, w, 0}
+                                                  + n,
+                                                oc, h + im_h_i, w, 0}
                                             : std::vector<expr> {
-                                              pic * mb_expr_ + n, h + im_h_i, w,
-                                              oc * im_oc_block};
+                                                pic * mb_expr_ + n, h + im_h_i,
+                                                w, oc * im_oc_block};
 
                                           generate_brgemm(real_im_w_block,
                                             im_ic_block, im_oc_block, ic_block,
@@ -2619,14 +2624,14 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                                 owner_->get_outputs()[0],
                                                 blocking_output_
                                                   ? slice_range {{n, 1UL},
-                                                    {oc, 1}, {h + im_h_i, 1},
-                                                    {w, real_im_w_block},
-                                                    {0, im_oc_block}}
+                                                      {oc, 1}, {h + im_h_i, 1},
+                                                      {w, real_im_w_block},
+                                                      {0, im_oc_block}}
                                                   : slice_range {{n, 1UL},
-                                                    {h + im_h_i, 1},
-                                                    {w, real_im_w_block},
-                                                    {oc * im_oc_block,
-                                                      im_oc_block}});
+                                                      {h + im_h_i, 1},
+                                                      {w, real_im_w_block},
+                                                      {oc * im_oc_block,
+                                                        im_oc_block}});
                                             }
                                           } // im_h_i
                                         }
@@ -2638,14 +2643,14 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                             owner_->get_outputs()[0],
                                             blocking_output_
                                               ? slice_range {{n, 1UL}, {oc, 1},
-                                                {h, real_im_h_block},
-                                                {w, real_im_w_block},
-                                                {0, im_oc_block}}
+                                                  {h, real_im_h_block},
+                                                  {w, real_im_w_block},
+                                                  {0, im_oc_block}}
                                               : slice_range {{n, 1UL},
-                                                {h, real_im_h_block},
-                                                {w, real_im_w_block},
-                                                {oc * im_oc_block,
-                                                  im_oc_block}});
+                                                  {h, real_im_h_block},
+                                                  {w, real_im_w_block},
+                                                  {oc * im_oc_block,
+                                                    im_oc_block}});
                                         }
                                       }
                                     } // i_oc
@@ -2663,14 +2668,14 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                         owner_->get_outputs()[0],
                                         blocking_output_
                                           ? slice_range {{n, 1UL}, {anch_c, 1},
-                                            {h, real_im_h_block},
-                                            {w, real_im_w_block},
-                                            {0, im_oc_block}}
+                                              {h, real_im_h_block},
+                                              {w, real_im_w_block},
+                                              {0, im_oc_block}}
                                           : slice_range {{n, 1UL},
-                                            {h, real_im_h_block},
-                                            {w, real_im_w_block},
-                                            {anch_c * im_oc_block,
-                                              im_oc_block}});
+                                              {h, real_im_h_block},
+                                              {w, real_im_w_block},
+                                              {anch_c * im_oc_block,
+                                                im_oc_block}});
                                     }
                                   }
                                 } // i_w
@@ -2693,11 +2698,12 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                     owner_->get_outputs()[0],
                                     blocking_output_
                                       ? slice_range {{n, 1UL}, {anch_c, 1},
-                                        {h, real_im_h_block}, {anch_w, w_block},
-                                        {0, im_oc_block}}
+                                          {h, real_im_h_block},
+                                          {anch_w, w_block}, {0, im_oc_block}}
                                       : slice_range {{n, 1UL},
-                                        {h, real_im_h_block}, {anch_w, w_block},
-                                        {anch_c * im_oc_block, oc_block}});
+                                          {h, real_im_h_block},
+                                          {anch_w, w_block},
+                                          {anch_c * im_oc_block, oc_block}});
                                 }
                               }
                             } // i_h
@@ -2725,13 +2731,13 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                                 owner_->get_outputs()[0],
                                 blocking_output_
                                   ? slice_range {{n, 1UL}, {anch_c, 1},
-                                    {anch_h, oh_ / oh_used_threads},
-                                    {anch_w, ow_ / ow_used_threads},
-                                    {0, im_oc_block}}
+                                      {anch_h, oh_ / oh_used_threads},
+                                      {anch_w, ow_ / ow_used_threads},
+                                      {0, im_oc_block}}
                                   : slice_range {{n, 1UL},
-                                    {anch_h, oh_ / oh_used_threads},
-                                    {anch_w, ow_ / ow_used_threads},
-                                    {anch_c * im_oc_block, oc_block}});
+                                      {anch_h, oh_ / oh_used_threads},
+                                      {anch_w, ow_ / ow_used_threads},
+                                      {anch_c * im_oc_block, oc_block}});
                             }
                           }
                         } // o_ic
@@ -2747,11 +2753,11 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
                 create_fusion_anchor(fusion, owner_->get_outputs()[0],
                   blocking_output_
                     ? slice_range {{pbs, 1UL},
-                      {outer_k * oc_ / im_oc_block / oc_split,
-                        oc_ / im_oc_block / oc_split},
-                      {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                        {outer_k * oc_ / im_oc_block / oc_split,
+                          oc_ / im_oc_block / oc_split},
+                        {0, oh_}, {0, ow_}, {0, im_oc_block}}
                     : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                        {outer_k * oc_ / oc_split, oc_ / oc_split}});
               }
             }
 
@@ -2759,22 +2765,22 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
               create_fusion_anchor(fusion, owner_->get_outputs()[0],
                 blocking_output_
                   ? slice_range {{pbs, 1UL},
-                    {outer_k * oc_ / im_oc_block / oc_split,
-                      oc_ / im_oc_block / oc_split},
-                    {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                      {outer_k * oc_ / im_oc_block / oc_split,
+                        oc_ / im_oc_block / oc_split},
+                      {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
                   : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                    {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
             }
           }
           if (h_threads == 1 && w_threads == 1) {
             create_fusion_anchor(fusion, owner_->get_outputs()[0],
               blocking_output_
                 ? slice_range {{pbs, 1UL},
-                  {outer_k * oc_ / im_oc_block / oc_split,
-                    oc_ / im_oc_block / oc_split},
-                  {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                    {outer_k * oc_ / im_oc_block / oc_split,
+                      oc_ / im_oc_block / oc_split},
+                    {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
                 : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                  {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                    {outer_k * oc_ / oc_split, oc_ / oc_split}});
           }
         }
 
@@ -2782,22 +2788,22 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_no_padding_nested(
           create_fusion_anchor(fusion, owner_->get_outputs()[0],
             blocking_output_
               ? slice_range {{pbs, 1UL},
-                {outer_k * oc_ / im_oc_block / oc_split,
-                  oc_ / im_oc_block / oc_split},
-                {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                  {outer_k * oc_ / im_oc_block / oc_split,
+                    oc_ / im_oc_block / oc_split},
+                  {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
               : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                  {outer_k * oc_ / oc_split, oc_ / oc_split}});
         }
       }
 
       create_fusion_anchor(fusion, owner_->get_outputs()[0],
         blocking_output_
           ? slice_range {{pbs, 1UL},
-            {outer_k * oc_ / im_oc_block / oc_split,
-              oc_ / im_oc_block / oc_split},
-            {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+              {outer_k * oc_ / im_oc_block / oc_split,
+                oc_ / im_oc_block / oc_split},
+              {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
           : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-            {outer_k * oc_ / oc_split, oc_ / oc_split}});
+              {outer_k * oc_ / oc_split, oc_ / oc_split}});
     }
   }
   bind_output_loop_axis(lpbs, "N");
@@ -2961,21 +2967,21 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                                               std::vector<expr> input_pos
                                                 = blocking_input_
                                                 ? std::vector<expr> {n, ic,
-                                                  (h + im_h_i) * sh_ + r,
-                                                  w * sw_ + s, 0}
+                                                    (h + im_h_i) * sh_ + r,
+                                                    w * sw_ + s, 0}
                                                 : std::vector<expr> {n,
-                                                  (h + im_h_i) * sh_ + r,
-                                                  w * sw_ + s,
-                                                  ic * im_ic_block};
+                                                    (h + im_h_i) * sh_ + r,
+                                                    w * sw_ + s,
+                                                    ic * im_ic_block};
 
                                               A_list[idx]
                                                 = tensor_ptr(input, input_pos);
                                               B_list[idx] = tensor_ptr(weight,
                                                 kpack > 1
                                                   ? std::vector<expr> {oc, ic,
-                                                    r, s, 0, 0, 0}
+                                                      r, s, 0, 0, 0}
                                                   : std::vector<expr> {
-                                                    oc, ic, r, s, 0, 0});
+                                                      oc, ic, r, s, 0, 0});
                                             }
                                           }
                                         }
@@ -3005,9 +3011,9 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                                       std::vector<expr> output_pos
                                         = blocking_output_
                                         ? std::vector<expr> {pic * mb_ + n, oc,
-                                          h + im_h_i, w, 0}
+                                            h + im_h_i, w, 0}
                                         : std::vector<expr> {pic * mb_ + n,
-                                          h + im_h_i, w, oc * im_oc_block};
+                                            h + im_h_i, w, oc * im_oc_block};
 
                                       if (ic_num_block_pt > 1) {
                                         _if_(o_ic == 0) {
@@ -3059,14 +3065,14 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                                             owner_->get_outputs()[0],
                                             blocking_output_
                                               ? slice_range {{n, 1UL}, {oc, 1},
-                                                {h + im_h_i, 1},
-                                                {w, im_w_block},
-                                                {0, im_oc_block}}
+                                                  {h + im_h_i, 1},
+                                                  {w, im_w_block},
+                                                  {0, im_oc_block}}
                                               : slice_range {{n, 1UL},
-                                                {h + im_h_i, 1},
-                                                {w, im_w_block},
-                                                {oc * im_oc_block,
-                                                  im_oc_block}});
+                                                  {h + im_h_i, 1},
+                                                  {w, im_w_block},
+                                                  {oc * im_oc_block,
+                                                    im_oc_block}});
                                         }
                                       }
                                     }
@@ -3078,11 +3084,11 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                                         owner_->get_outputs()[0],
                                         blocking_output_
                                           ? slice_range {{n, 1UL}, {oc, 1},
-                                            {h, im_h_block}, {w, im_w_block},
-                                            {0, im_oc_block}}
+                                              {h, im_h_block}, {w, im_w_block},
+                                              {0, im_oc_block}}
                                           : slice_range {{n, 1UL},
-                                            {h, im_h_block}, {w, im_w_block},
-                                            {oc * im_oc_block, im_oc_block}});
+                                              {h, im_h_block}, {w, im_w_block},
+                                              {oc * im_oc_block, im_oc_block}});
                                     }
                                   }
                                 }
@@ -3099,11 +3105,11 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                                     owner_->get_outputs()[0],
                                     blocking_output_
                                       ? slice_range {{n, 1UL}, {anch_c, 1},
-                                        {h, im_h_block}, {w, im_w_block},
-                                        {0, im_oc_block}}
+                                          {h, im_h_block}, {w, im_w_block},
+                                          {0, im_oc_block}}
                                       : slice_range {{n, 1UL}, {h, im_h_block},
-                                        {w, im_w_block},
-                                        {anch_c * im_oc_block, oc_block}});
+                                          {w, im_w_block},
+                                          {anch_c * im_oc_block, oc_block}});
                                 }
                               }
                             }
@@ -3125,11 +3131,11 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                                 owner_->get_outputs()[0],
                                 blocking_output_
                                   ? slice_range {{n, 1UL}, {anch_c, 1},
-                                    {h, im_h_block}, {anch_w, w_block},
-                                    {0, im_oc_block}}
+                                      {h, im_h_block}, {anch_w, w_block},
+                                      {0, im_oc_block}}
                                   : slice_range {{n, 1UL}, {h, im_h_block},
-                                    {anch_w, w_block},
-                                    {anch_c * im_oc_block, oc_block}});
+                                      {anch_w, w_block},
+                                      {anch_c * im_oc_block, oc_block}});
                             }
                           }
                         }
@@ -3155,11 +3161,11 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                               owner_->get_outputs()[0],
                               blocking_output_
                                 ? slice_range {{n, 1UL}, {anch_c, 1},
-                                  {anch_h, h_block}, {anch_w, w_block},
-                                  {0, im_oc_block}}
+                                    {anch_h, h_block}, {anch_w, w_block},
+                                    {0, im_oc_block}}
                                 : slice_range {{n, 1UL}, {anch_h, h_block},
-                                  {anch_w, w_block},
-                                  {anch_c * im_oc_block, oc_block}});
+                                    {anch_w, w_block},
+                                    {anch_c * im_oc_block, oc_block}});
                           }
                         }
                       }
@@ -3175,53 +3181,54 @@ void gen_nested_conv_fwd_t::compute_conv_no_padding_nested(
                 create_fusion_anchor(fusion, owner_->get_outputs()[0],
                   blocking_output_
                     ? slice_range {{pbs, 1UL},
-                      {outer_k * oc_ / im_oc_block / oc_split,
-                        oc_ / im_oc_block / oc_split},
-                      {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                        {outer_k * oc_ / im_oc_block / oc_split,
+                          oc_ / im_oc_block / oc_split},
+                        {0, oh_}, {0, ow_}, {0, im_oc_block}}
                     : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                        {outer_k * oc_ / oc_split, oc_ / oc_split}});
               }
             }
 
             if (oc_threads == 1 && h_threads == 1 && w_threads == 1) {
               create_fusion_anchor(fusion, owner_->get_outputs()[0],
-                blocking_output_ ? slice_range {{pbs, 1UL},
-                  {outer_k * oc_ / im_oc_block / oc_split,
-                    oc_ / im_oc_block / oc_split},
-                  {0, oh_}, {0, ow_}, {0, im_oc_block}}
-                                 : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                                   {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                blocking_output_
+                  ? slice_range {{pbs, 1UL},
+                      {outer_k * oc_ / im_oc_block / oc_split,
+                        oc_ / im_oc_block / oc_split},
+                      {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                  : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
+                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
             }
           }
           if (h_threads == 1 && w_threads == 1) {
             create_fusion_anchor(fusion, owner_->get_outputs()[0],
               blocking_output_ ? slice_range {{pbs, 1UL},
-                {outer_k * oc_ / im_oc_block / oc_split,
-                  oc_ / im_oc_block / oc_split},
-                {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                                   {outer_k * oc_ / im_oc_block / oc_split,
+                                     oc_ / im_oc_block / oc_split},
+                                   {0, oh_}, {0, ow_}, {0, im_oc_block}}
                                : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                                 {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                                   {outer_k * oc_ / oc_split, oc_ / oc_split}});
           }
         }
 
         if (h_threads == 1) {
           create_fusion_anchor(fusion, owner_->get_outputs()[0],
             blocking_output_ ? slice_range {{pbs, 1UL},
-              {outer_k * oc_ / im_oc_block / oc_split,
-                oc_ / im_oc_block / oc_split},
-              {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                                 {outer_k * oc_ / im_oc_block / oc_split,
+                                   oc_ / im_oc_block / oc_split},
+                                 {0, oh_}, {0, ow_}, {0, im_oc_block}}
                              : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                               {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                                 {outer_k * oc_ / oc_split, oc_ / oc_split}});
         }
       }
       if (mb_ > 1) {
         create_fusion_anchor(fusion, owner_->get_outputs()[0],
           blocking_output_ ? slice_range {{pbs, 1UL},
-            {outer_k * oc_ / im_oc_block / oc_split,
-              oc_ / im_oc_block / oc_split},
-            {0, oh_}, {0, ow_}, {0, im_oc_block}}
+                               {outer_k * oc_ / im_oc_block / oc_split,
+                                 oc_ / im_oc_block / oc_split},
+                               {0, oh_}, {0, ow_}, {0, im_oc_block}}
                            : slice_range {{pbs, 1UL}, {0, oh_}, {0, ow_},
-                             {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                               {outer_k * oc_ / oc_split, oc_ / oc_split}});
       }
     }
   }
@@ -3308,9 +3315,9 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                         _if_(h + im_h_i < oh_) {
                           std::vector<expr> output_pos = blocking_output_
                             ? std::vector<expr> {pic * mb_ + n, oc, h + im_h_i,
-                              w, 0}
+                                w, 0}
                             : std::vector<expr> {
-                              pic * mb_ + n, h + im_h_i, w, oc * im_oc_block};
+                                pic * mb_ + n, h + im_h_i, w, oc * im_oc_block};
 
                           if (ic_num_block_pt > 1) {
                             _if_(o_ic == 0) {
@@ -3410,18 +3417,18 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                             lanes)]
                                             = input[blocking_input_
                                                 ? span_t(
-                                                  {n, ic,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_, k},
-                                                  lanes)
+                                                    {n, ic,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_, k},
+                                                    lanes)
                                                 : span_t(
-                                                  {n,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_,
-                                                    ic * im_ic_block + k},
-                                                  lanes)];
+                                                    {n,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_,
+                                                      ic * im_ic_block + k},
+                                                    lanes)];
                                         }
                                       }
                                     }
@@ -3471,18 +3478,18 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                             lanes)]
                                             = input[blocking_input_
                                                 ? span_t(
-                                                  {n, ic,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_, k},
-                                                  lanes)
+                                                    {n, ic,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_, k},
+                                                    lanes)
                                                 : span_t(
-                                                  {n,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_,
-                                                    ic * im_ic_block + k},
-                                                  lanes)];
+                                                    {n,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_,
+                                                      ic * im_ic_block + k},
+                                                    lanes)];
                                         }
                                       }
 
@@ -3520,12 +3527,12 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                         A_list[idx] = tensor_ptr(input,
                                           blocking_input_
                                             ? std::vector<expr> {n, ic,
-                                              (h + im_h_i) * sh_ + r - ph_b_,
-                                              w * sw_ + s - pw_b_, 0}
+                                                (h + im_h_i) * sh_ + r - ph_b_,
+                                                w * sw_ + s - pw_b_, 0}
                                             : std::vector<expr> {n,
-                                              (h + im_h_i) * sh_ + r - ph_b_,
-                                              w * sw_ + s - pw_b_,
-                                              ic * im_ic_block});
+                                                (h + im_h_i) * sh_ + r - ph_b_,
+                                                w * sw_ + s - pw_b_,
+                                                ic * im_ic_block});
                                       }
                                     }
                                   }
@@ -3548,18 +3555,18 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                             lanes)]
                                             = input[blocking_input_
                                                 ? span_t(
-                                                  {n, ic,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_, k},
-                                                  lanes)
+                                                    {n, ic,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_, k},
+                                                    lanes)
                                                 : span_t(
-                                                  {n,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_,
-                                                    ic * im_ic_block + k},
-                                                  lanes)];
+                                                    {n,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_,
+                                                      ic * im_ic_block + k},
+                                                    lanes)];
                                         }
                                       }
                                       builtin::brgemm_init(
@@ -3600,7 +3607,7 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                   B_list[idx] = tensor_ptr(weight,
                                     kpack > 1
                                       ? std::vector<expr> {oc, ic, r, s, 0, 0,
-                                        0}
+                                          0}
                                       : std::vector<expr> {oc, ic, r, s, 0, 0});
                                 }
                               }
@@ -3635,11 +3642,11 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                 owner_->get_outputs()[0],
                                 blocking_output_
                                   ? slice_range {{n, 1UL}, {oc, 1},
-                                    {h + im_h_i, 1}, {w, im_w_block},
-                                    {0, im_oc_block}}
+                                      {h + im_h_i, 1}, {w, im_w_block},
+                                      {0, im_oc_block}}
                                   : slice_range {{n, 1UL}, {h + im_h_i, 1},
-                                    {w, im_w_block},
-                                    {oc * im_oc_block, im_oc_block}});
+                                      {w, im_w_block},
+                                      {oc * im_oc_block, im_oc_block}});
                             }
                           }
                         } // im_h_i
@@ -3649,10 +3656,10 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                           create_fusion_anchor(fusion, owner_->get_outputs()[0],
                             blocking_output_
                               ? slice_range {{n, 1UL}, {oc, 1}, {h, im_h_block},
-                                {w, im_w_block}, {0, im_oc_block}}
+                                  {w, im_w_block}, {0, im_oc_block}}
                               : slice_range {{n, 1UL}, {h, im_h_block},
-                                {w, im_w_block},
-                                {oc * im_oc_block, im_oc_block}});
+                                  {w, im_w_block},
+                                  {oc * im_oc_block, im_oc_block}});
                         }
                       }
                     } // i_w
@@ -3665,11 +3672,12 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                                       + o_w * w_block / im_w_block)
                         * im_w_block;
                       create_fusion_anchor(fusion, owner_->get_outputs()[0],
-                        blocking_output_ ? slice_range {{n, 1UL}, {oc, 1},
-                          {h, im_h_block}, {anch_w, w_block}, {0, im_oc_block}}
-                                         : slice_range {{n, 1UL},
-                                           {h, im_h_block}, {anch_w, w_block},
-                                           {oc * im_oc_block, im_oc_block}});
+                        blocking_output_
+                          ? slice_range {{n, 1UL}, {oc, 1}, {h, im_h_block},
+                              {anch_w, w_block}, {0, im_oc_block}}
+                          : slice_range {{n, 1UL}, {h, im_h_block},
+                              {anch_w, w_block},
+                              {oc * im_oc_block, im_oc_block}});
                     }
                   }
                 } // i_h
@@ -3687,9 +3695,10 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                     create_fusion_anchor(fusion, owner_->get_outputs()[0],
                       blocking_output_
                         ? slice_range {{n, 1UL}, {oc, 1}, {anch_h, h_block},
-                          {anch_w, w_block}, {0, im_oc_block}}
+                            {anch_w, w_block}, {0, im_oc_block}}
                         : slice_range {{n, 1UL}, {anch_h, h_block},
-                          {anch_w, w_block}, {oc * im_oc_block, im_oc_block}});
+                            {anch_w, w_block},
+                            {oc * im_oc_block, im_oc_block}});
                   }
                 }
               } // ioc
@@ -3711,9 +3720,10 @@ void gen_nested_conv_fwd_t::single_thread_conv_padding_call(expr &output,
                 create_fusion_anchor(fusion, owner_->get_outputs()[0],
                   blocking_output_
                     ? slice_range {{n, 1UL}, {anch_oc, 1}, {anch_h, h_block},
-                      {anch_w, w_block}, {0, im_oc_block}}
+                        {anch_w, w_block}, {0, im_oc_block}}
                     : slice_range {{n, 1UL}, {anch_h, h_block},
-                      {anch_w, w_block}, {anch_oc * im_oc_block, im_oc_block}});
+                        {anch_w, w_block},
+                        {anch_oc * im_oc_block, im_oc_block}});
               }
             } // o_ic
           }
@@ -3810,9 +3820,9 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                           _var_(copy_width, datatypes::index);
                           std::vector<expr> output_pos = blocking_output_
                             ? std::vector<expr> {pic * mb_ + n, oc, h + im_h_i,
-                              w, 0}
+                                w, 0}
                             : std::vector<expr> {
-                              pic * mb_ + n, h + im_h_i, w, oc * im_oc_block};
+                                pic * mb_ + n, h + im_h_i, w, oc * im_oc_block};
 
                           if (ic_num_block_pt > 1) {
                             _if_(o_ic == 0) {
@@ -3914,18 +3924,18 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                                             lanes)]
                                             = input[blocking_input_
                                                 ? span_t(
-                                                  {n, ic,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_, k},
-                                                  lanes)
+                                                    {n, ic,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_, k},
+                                                    lanes)
                                                 : span_t(
-                                                  {n,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_,
-                                                    ic * im_ic_block + k},
-                                                  lanes)];
+                                                    {n,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_,
+                                                      ic * im_ic_block + k},
+                                                    lanes)];
                                         }
                                       }
                                     }
@@ -3975,18 +3985,18 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                                             lanes)]
                                             = input[blocking_input_
                                                 ? span_t(
-                                                  {n, ic,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_, k},
-                                                  lanes)
+                                                    {n, ic,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_, k},
+                                                    lanes)
                                                 : span_t(
-                                                  {n,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_,
-                                                    ic * im_ic_block + k},
-                                                  lanes)];
+                                                    {n,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_,
+                                                      ic * im_ic_block + k},
+                                                    lanes)];
                                         }
                                       }
 
@@ -4025,12 +4035,12 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                                         A_list[idx] = tensor_ptr(input,
                                           blocking_input_
                                             ? std::vector<expr> {n, ic,
-                                              (h + im_h_i) * sh_ + r - ph_b_,
-                                              w * sw_ + s - pw_b_, 0}
+                                                (h + im_h_i) * sh_ + r - ph_b_,
+                                                w * sw_ + s - pw_b_, 0}
                                             : std::vector<expr> {n,
-                                              (h + im_h_i) * sh_ + r - ph_b_,
-                                              w * sw_ + s - pw_b_,
-                                              ic * im_ic_block});
+                                                (h + im_h_i) * sh_ + r - ph_b_,
+                                                w * sw_ + s - pw_b_,
+                                                ic * im_ic_block});
                                       }
                                     }
                                   }
@@ -4054,18 +4064,18 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                                             lanes)]
                                             = input[blocking_input_
                                                 ? span_t(
-                                                  {n, ic,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_, k},
-                                                  lanes)
+                                                    {n, ic,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_, k},
+                                                    lanes)
                                                 : span_t(
-                                                  {n,
-                                                    (h + im_h_i) * sh_ + i
-                                                      - ph_b_,
-                                                    w * sw_ + j - pw_b_,
-                                                    ic * im_ic_block + k},
-                                                  lanes)];
+                                                    {n,
+                                                      (h + im_h_i) * sh_ + i
+                                                        - ph_b_,
+                                                      w * sw_ + j - pw_b_,
+                                                      ic * im_ic_block + k},
+                                                    lanes)];
                                         }
                                       }
                                       builtin::brgemm_init(
@@ -4106,7 +4116,7 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                                   B_list[idx] = tensor_ptr(weight,
                                     kpack > 1
                                       ? std::vector<expr> {oc, ic, r, s, 0, 0,
-                                        0}
+                                          0}
                                       : std::vector<expr> {oc, ic, r, s, 0, 0});
                                 }
                               }
@@ -4132,11 +4142,11 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                                 owner_->get_outputs()[0],
                                 blocking_output_
                                   ? slice_range {{n, 1}, {oc, 1},
-                                    {h + im_h_i, 1}, {w, real_im_w_block},
-                                    {0, im_oc_block}}
+                                      {h + im_h_i, 1}, {w, real_im_w_block},
+                                      {0, im_oc_block}}
                                   : slice_range {{n, 1UL}, {h + im_h_i, 1},
-                                    {w, real_im_w_block},
-                                    {oc * im_oc_block, im_oc_block}});
+                                      {w, real_im_w_block},
+                                      {oc * im_oc_block, im_oc_block}});
                             }
                           } // im_h_i
                         }
@@ -4146,11 +4156,11 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                           create_fusion_anchor(fusion, owner_->get_outputs()[0],
                             blocking_output_
                               ? slice_range {{n, 1UL}, {oc, 1},
-                                {h, real_im_h_block}, {w, real_im_w_block},
-                                {0, im_oc_block}}
+                                  {h, real_im_h_block}, {w, real_im_w_block},
+                                  {0, im_oc_block}}
                               : slice_range {{n, 1UL}, {h, real_im_h_block},
-                                {w, real_im_w_block},
-                                {oc * im_oc_block, im_oc_block}});
+                                  {w, real_im_w_block},
+                                  {oc * im_oc_block, im_oc_block}});
                         }
                       } // i_w
                     }
@@ -4167,11 +4177,11 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                       create_fusion_anchor(fusion, owner_->get_outputs()[0],
                         blocking_output_
                           ? slice_range {{n, 1UL}, {oc, 1},
-                            {h, real_im_h_block}, {anch_w, w_block},
-                            {0, im_oc_block}}
+                              {h, real_im_h_block}, {anch_w, w_block},
+                              {0, im_oc_block}}
                           : slice_range {{n, 1UL}, {h, real_im_h_block},
-                            {anch_w, w_block},
-                            {oc * im_oc_block, im_oc_block}});
+                              {anch_w, w_block},
+                              {oc * im_oc_block, im_oc_block}});
                     }
                   }
                 } // i_h
@@ -4188,9 +4198,10 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                     create_fusion_anchor(fusion, owner_->get_outputs()[0],
                       blocking_output_
                         ? slice_range {{n, 1UL}, {oc, 1}, {anch_h, h_block},
-                          {anch_w, w_block}, {0, im_oc_block}}
+                            {anch_w, w_block}, {0, im_oc_block}}
                         : slice_range {{n, 1UL}, {anch_h, h_block},
-                          {anch_w, w_block}, {oc * im_oc_block, im_oc_block}});
+                            {anch_w, w_block},
+                            {oc * im_oc_block, im_oc_block}});
                   }
                 } // i_oc
               }
@@ -4212,9 +4223,10 @@ void gen_nested_conv_fwd_t::single_thread_dynamic_conv_padding_call(
                 create_fusion_anchor(fusion, owner_->get_outputs()[0],
                   blocking_output_
                     ? slice_range {{n, 1UL}, {anch_oc, 1}, {anch_h, h_block},
-                      {anch_w, w_block}, {0, im_oc_block}}
+                        {anch_w, w_block}, {0, im_oc_block}}
                     : slice_range {{n, 1UL}, {anch_h, h_block},
-                      {anch_w, w_block}, {anch_oc * im_oc_block, im_oc_block}});
+                        {anch_w, w_block},
+                        {anch_oc * im_oc_block, im_oc_block}});
               }
             }
           }
@@ -4358,7 +4370,7 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_padding_nested(
   auto L2_cache_size = ctx->machine_.cpu_flags_.getDCacheSize(2);
   int oc_split = (oc_threads == 1 && oc_num_block_pt == 1)
     ? get_oc_split_factor(
-      -1, weight_size, L2_cache_size, oc_block / im_oc_block)
+        -1, weight_size, L2_cache_size, oc_block / im_oc_block)
     : 1;
 
   // create a global shared zero-buffer referenced by padding
@@ -4410,11 +4422,11 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_padding_nested(
                 create_fusion_anchor(fusion, owner_->get_outputs()[0],
                   blocking_output_
                     ? slice_range {{pbs, 1UL},
-                      {outer_k * oc_ / im_oc_block / oc_split,
-                        oc_ / im_oc_block / oc_split},
-                      {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                        {outer_k * oc_ / im_oc_block / oc_split,
+                          oc_ / im_oc_block / oc_split},
+                        {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
                     : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                        {outer_k * oc_ / oc_split, oc_ / oc_split}});
               }
             }
 
@@ -4422,22 +4434,22 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_padding_nested(
               create_fusion_anchor(fusion, owner_->get_outputs()[0],
                 blocking_output_
                   ? slice_range {{pbs, 1UL},
-                    {outer_k * oc_ / im_oc_block / oc_split,
-                      oc_ / im_oc_block / oc_split},
-                    {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                      {outer_k * oc_ / im_oc_block / oc_split,
+                        oc_ / im_oc_block / oc_split},
+                      {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
                   : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                    {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                      {outer_k * oc_ / oc_split, oc_ / oc_split}});
             }
           }
           if (h_threads == 1 && w_threads == 1) {
             create_fusion_anchor(fusion, owner_->get_outputs()[0],
               blocking_output_
                 ? slice_range {{pbs, 1UL},
-                  {outer_k * oc_ / im_oc_block / oc_split,
-                    oc_ / im_oc_block / oc_split},
-                  {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                    {outer_k * oc_ / im_oc_block / oc_split,
+                      oc_ / im_oc_block / oc_split},
+                    {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
                 : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                  {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                    {outer_k * oc_ / oc_split, oc_ / oc_split}});
           }
         }
 
@@ -4445,21 +4457,21 @@ void gen_nested_conv_fwd_t::dynamic_compute_conv_padding_nested(
           create_fusion_anchor(fusion, owner_->get_outputs()[0],
             blocking_output_
               ? slice_range {{pbs, 1UL},
-                {outer_k * oc_ / im_oc_block / oc_split,
-                  oc_ / im_oc_block / oc_split},
-                {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+                  {outer_k * oc_ / im_oc_block / oc_split,
+                    oc_ / im_oc_block / oc_split},
+                  {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
               : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-                {outer_k * oc_ / oc_split, oc_ / oc_split}});
+                  {outer_k * oc_ / oc_split, oc_ / oc_split}});
         }
       }
       create_fusion_anchor(fusion, owner_->get_outputs()[0],
         blocking_output_
           ? slice_range {{pbs, 1UL},
-            {outer_k * oc_ / im_oc_block / oc_split,
-              oc_ / im_oc_block / oc_split},
-            {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
+              {outer_k * oc_ / im_oc_block / oc_split,
+                oc_ / im_oc_block / oc_split},
+              {0, oh_expr_}, {0, ow_expr_}, {0, im_oc_block}}
           : slice_range {{pbs, 1UL}, {0, oh_expr_}, {0, ow_expr_},
-            {outer_k * oc_ / oc_split, oc_ / oc_split}});
+              {outer_k * oc_ / oc_split, oc_ / oc_split}});
     }
   }
   bind_output_loop_axis(lpbs, "N");

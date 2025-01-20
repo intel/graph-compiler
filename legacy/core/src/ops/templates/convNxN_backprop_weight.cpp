@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "convNxN_backprop_weight.hpp"
 #include <memory>
@@ -287,11 +288,11 @@ bool gen_convNxN_backprop_weight::generate_reduce_N(const context_ptr &ctx,
                             output, {n_o, k_o, p_o, output_q_start, 0, 0}),
                           tensor_ptr(data,
                             dtype_block > 1 ? std::vector<expr> {n_o, c_o,
-                              p_o * stride_h + r - padding_h, q_start_valid, 0,
-                              0, 0}
+                                                p_o * stride_h + r - padding_h,
+                                                q_start_valid, 0, 0, 0}
                                             : std::vector<expr> {n_o, c_o,
-                                              p_o * stride_h + r - padding_h,
-                                              q_start_valid, 0, 0}),
+                                                p_o * stride_h + r - padding_h,
+                                                q_start_valid, 0, 0}),
                           tensor_ptr(
                             N_num_block > 1 ? del_weight_tmp_buf : del_weight,
                             {n_o * K_num_block + k_o, c_o, r, s, 0, 0}),
@@ -309,11 +310,11 @@ bool gen_convNxN_backprop_weight::generate_reduce_N(const context_ptr &ctx,
                             output, {n_o, k_o, p_o, output_q_start, 0, 0}),
                           tensor_ptr(data,
                             dtype_block > 1 ? std::vector<expr> {n_o, c_o,
-                              p_o * stride_h + r - padding_h, q_start_valid, 0,
-                              0, 0}
+                                                p_o * stride_h + r - padding_h,
+                                                q_start_valid, 0, 0, 0}
                                             : std::vector<expr> {n_o, c_o,
-                                              p_o * stride_h + r - padding_h,
-                                              q_start_valid, 0, 0}),
+                                                p_o * stride_h + r - padding_h,
+                                                q_start_valid, 0, 0}),
                           tensor_ptr(
                             N_num_block > 1 ? del_weight_tmp_buf : del_weight,
                             {n_o * K_num_block + k_o, c_o, r, s, 0, 0}),

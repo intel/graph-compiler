@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "nested_convNxN_backprop_weight.hpp"
 #include <algorithm>
@@ -236,25 +237,25 @@ void gen_nested_convNXN_bwd_weight_t::inner_loop_call(const context_ptr &ctx,
   // full shape based on delta_output's reorder result
   std::vector<expr> temp_output_delta_shape_full = dtype_block > 1
     ? std::vector<expr> {BS / im_bs_block_, OC / im_oc_block_, OH, OW,
-      im_bs_block_ / 2, im_oc_block_, 2}
-    : std::vector<expr> {
-      BS / im_bs_block_, OC / im_oc_block_, OH, OW, im_bs_block_, im_oc_block_};
+        im_bs_block_ / 2, im_oc_block_, 2}
+    : std::vector<expr> {BS / im_bs_block_, OC / im_oc_block_, OH, OW,
+        im_bs_block_, im_oc_block_};
   _tensor_(temp_output_delta, dtype, temp_output_delta_shape_full);
   _for_(i_ic, 0, ic_block / im_ic_block_) {
     // shrinked_shape
     std::vector<expr> temp_output_delta_shape_shr = dtype_block > 1
       ? std::vector<expr> {bs_block / im_bs_block_, oc_block / im_oc_block_,
-        oh_block, ow_block, im_bs_block_ / 2, im_oc_block_, 2}
+          oh_block, ow_block, im_bs_block_ / 2, im_oc_block_, 2}
       : std::vector<expr> {bs_block / im_bs_block_, oc_block / im_oc_block_,
-        oh_block, ow_block, im_bs_block_, im_oc_block_};
+          oh_block, ow_block, im_bs_block_, im_oc_block_};
     // f32 --> vectorized; bf16 --> vnni_reorder
     std::vector<expr> shrink_offset = dtype_block > 1
       ? std::vector<expr> {obs_offset / im_bs_block_, oc_offset / im_oc_block_,
-        oh_offset, ow_offset, obs_offset % im_bs_block_ / 2,
-        oc_offset % im_oc_block_, obs_offset % im_bs_block_ % 2}
+          oh_offset, ow_offset, obs_offset % im_bs_block_ / 2,
+          oc_offset % im_oc_block_, obs_offset % im_bs_block_ % 2}
       : std::vector<expr> {obs_offset / im_bs_block_, oc_offset / im_oc_block_,
-        oh_offset, ow_offset, obs_offset % im_bs_block_,
-        oc_offset % im_oc_block_};
+          oh_offset, ow_offset, obs_offset % im_bs_block_,
+          oc_offset % im_oc_block_};
     // reorder temp_output_delta
     _if_(i_ic == 0) {
       trace_guard_t trg(ctx, "output_delta_reorder");
@@ -267,12 +268,12 @@ void gen_nested_convNXN_bwd_weight_t::inner_loop_call(const context_ptr &ctx,
           shrink_offset, temp_output_delta_shape_shr, stmts()};
       slice_range tmp_output_slice_range = dtype_block > 1
         ? slice_range {{obs_offset, bs_block / im_bs_block_},
-          {oc_offset, oc_block / im_oc_block_}, {oh_offset, oh_block},
-          {ow_offset, ow_block}, {0, im_bs_block_ / 2}, {0, im_oc_block_},
-          {0, 2}}
+            {oc_offset, oc_block / im_oc_block_}, {oh_offset, oh_block},
+            {ow_offset, ow_block}, {0, im_bs_block_ / 2}, {0, im_oc_block_},
+            {0, 2}}
         : slice_range {{obs_offset, bs_block / im_bs_block_},
-          {oc_offset, oc_block / im_oc_block_}, {oh_offset, oh_block},
-          {ow_offset, ow_block}, {0, im_bs_block_}, {0, im_oc_block_}};
+            {oc_offset, oc_block / im_oc_block_}, {oh_offset, oh_block},
+            {ow_offset, ow_block}, {0, im_bs_block_}, {0, im_oc_block_}};
       // TODO(yifei): figure out why expand loop based on output doesn't work
       ops::commit_op(ctx, "reorder",
         {tensor_slice(delta_output,
@@ -285,9 +286,9 @@ void gen_nested_convNXN_bwd_weight_t::inner_loop_call(const context_ptr &ctx,
         {{"out_format",
           dtype_block > 1
             ? sc_data_format_t(sc_data_format_kind_t(0, 1, 2, 3, 0, 1, 0),
-              {im_bs_block_, im_oc_block_, 2})
+                {im_bs_block_, im_oc_block_, 2})
             : sc_data_format_t(sc_data_format_kind_t(0, 1, 2, 3, 0, 1),
-              {im_bs_block_, im_oc_block_})}});
+                {im_bs_block_, im_oc_block_})}});
     }
     _for_(i_oc, 0, oc_block / im_oc_block_) {
       _for_(i_bs, 0, bs_block / im_bs_block_) {
@@ -298,21 +299,21 @@ void gen_nested_convNXN_bwd_weight_t::inner_loop_call(const context_ptr &ctx,
                 trace_guard_t trg(ctx, "brgemm");
                 auto temp_output_delta_brgemm_index = dtype_block > 1
                   ? std::vector<expr> {shrink_offset[0] + i_bs,
-                    shrink_offset[1] + i_oc, shrink_offset[2] + i_oh,
-                    shrink_offset[3], shrink_offset[4], shrink_offset[5],
-                    shrink_offset[6]}
+                      shrink_offset[1] + i_oc, shrink_offset[2] + i_oh,
+                      shrink_offset[3], shrink_offset[4], shrink_offset[5],
+                      shrink_offset[6]}
                   : std::vector<expr> {shrink_offset[0] + i_bs,
-                    shrink_offset[1] + i_oc, shrink_offset[2] + i_oh,
-                    shrink_offset[3], shrink_offset[4], shrink_offset[5]};
+                      shrink_offset[1] + i_oc, shrink_offset[2] + i_oh,
+                      shrink_offset[3], shrink_offset[4], shrink_offset[5]};
                 COMPILE_ASSERT(
                   temp_weight_idx.size() == 2 || temp_weight_idx.size() == 3,
                   "temp_weight_idx shall have length 2 or 3");
                 auto real_delta_weight_buf_index = temp_weight_idx.size() == 4
                   ? std::vector<expr> {temp_weight_idx[0] + i_ic,
-                    temp_weight_idx[1] + i_oc, lr, ls, 0, 0}
+                      temp_weight_idx[1] + i_oc, lr, ls, 0, 0}
                   : std::vector<expr> {temp_weight_idx[0],
-                    temp_weight_idx[1] + i_ic, temp_weight_idx[2] + i_oc, lr,
-                    ls, 0, 0};
+                      temp_weight_idx[1] + i_ic, temp_weight_idx[2] + i_oc, lr,
+                      ls, 0, 0};
                 _if_(o_bs == 0 && o_od == 0 && o_oh == 0 && o_ow == 0
                   && i_bs == 0 && i_od == 0 && i_oh == 0) {
                   // ic x bs matmul bs x oc
@@ -486,12 +487,12 @@ bool gen_nested_convNXN_bwd_weight_t::generate(context_ptr ctx,
                               // so extra division needed
                               auto temp_weight_idx = use_temp_weight
                                 ? std::vector<expr> {p_bs * oh_threads
-                                      * od_threads
-                                    + p_od * oh_threads + p_oh,
-                                  ic_offset / im_ic_block_,
-                                  oc_offset / im_oc_block_}
+                                        * od_threads
+                                      + p_od * oh_threads + p_oh,
+                                    ic_offset / im_ic_block_,
+                                    oc_offset / im_oc_block_}
                                 : std::vector<expr> {ic_offset / im_ic_block_,
-                                  oc_offset / im_oc_block_};
+                                    oc_offset / im_oc_block_};
                               inner_loop_call(ctx, temp_forward_input,
                                 temp_forward_idx_non_block, in_tensors_[1],
                                 delta_output, real_delta_weight_buf,

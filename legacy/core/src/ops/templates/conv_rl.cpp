@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2023-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include "conv_rl.hpp"
 #include <algorithm>
 #include <utility>
@@ -96,16 +97,16 @@ void gen_conv_fwd_rl_t::create_anchor(fusion_anchor_mgr_t *fusion,
       fusion->create_fusion_anchor(slice_map {{output_gt.get(),
         blocking_output_
           ? slice_range_list {{{n, n_len}, {g, g_len}, {k, k_len}, {p, p_len},
-            {q, q_len}, {0, K_block}}}
+              {q, q_len}, {0, K_block}}}
           : slice_range_list {{{n, n_len}, {p, p_len}, {q, q_len}, {g, g_len},
-            {k * K_block, k_len * K_block}}}}});
+              {k * K_block, k_len * K_block}}}}});
 
     } else {
       fusion->create_fusion_anchor(slice_map {{output_gt.get(),
         blocking_output_ ? slice_range_list {{{n, n_len}, {k, k_len},
-          {p, p_len}, {q, q_len}, {0, K_block}}}
+                             {p, p_len}, {q, q_len}, {0, K_block}}}
                          : slice_range_list {{{n, n_len}, {p, p_len},
-                           {q, q_len}, {k * K_block, k_len * K_block}}}}});
+                             {q, q_len}, {k * K_block, k_len * K_block}}}}});
     }
   }
 }
@@ -192,8 +193,8 @@ gen_conv_fwd_rl_t::gen_conv_fwd_rl_t(sc_op *owner, const sc_dims &stride,
   parallel_axis_ = (mb_ >= num_threads)
     ? parallel_kind::BATCH
     : ((int)utils::divide_and_ceil(oh_, num_threads) > height_threshold
-        ? parallel_kind::HEIGHT
-        : parallel_kind::BATCH);
+          ? parallel_kind::HEIGHT
+          : parallel_kind::BATCH);
 
   num_brgemm_k_ = attrs_.get<int>("num_brgemm_k");
   brgemm_k_ = attrs_.get<int>("brgemm_k");
@@ -457,19 +458,19 @@ bool gen_conv_fwd_rl_t::generate(context_ptr ctx,
         create_fusion_anchor(fusion, owner_->get_outputs()[0],
           is_group_conv_
             ? (blocking_output_
-                ? slice_range {{n_o, 1}, {g, 1}, {0, 1}, {p, 1},
-                  {q * config.brgemm_m, config.brgemm_m},
-                  {k_o * config.brgemm_n, config.brgemm_n}}
-                : slice_range {{n_o, 1}, {p, 1},
-                  {q * config.brgemm_m, config.brgemm_m}, {g, 1},
-                  {k_o * config.brgemm_n, config.brgemm_n}})
+                  ? slice_range {{n_o, 1}, {g, 1}, {0, 1}, {p, 1},
+                      {q * config.brgemm_m, config.brgemm_m},
+                      {k_o * config.brgemm_n, config.brgemm_n}}
+                  : slice_range {{n_o, 1}, {p, 1},
+                      {q * config.brgemm_m, config.brgemm_m}, {g, 1},
+                      {k_o * config.brgemm_n, config.brgemm_n}})
             : (blocking_output_ ? slice_range {{n_o, 1}, {g, 1}, {p, 1},
-                 {q * config.brgemm_m, config.brgemm_m},
-                 {k_o * config.brgemm_n, config.brgemm_n}}
+                                    {q * config.brgemm_m, config.brgemm_m},
+                                    {k_o * config.brgemm_n, config.brgemm_n}}
                                 : slice_range {{n_o, 1}, {p, 1},
-                                  {q * config.brgemm_m, config.brgemm_m},
-                                  {(g * K_num_block + k_o) * config.brgemm_n,
-                                    config.brgemm_n}}));
+                                    {q * config.brgemm_m, config.brgemm_m},
+                                    {(g * K_num_block + k_o) * config.brgemm_n,
+                                      config.brgemm_n}}));
       }
       // brgemm_m * oc_
       create_anchor(fusion, owner_->get_outputs()[0], n_o, 1, g, 1, 0, 1, 0, 1,

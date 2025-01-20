@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "nested_convNxN_backprop_data.hpp"
 #include <algorithm>
@@ -267,9 +268,9 @@ void gen_nested_convNxN_backprop_data_t::inner_loop_call(const context_ptr &ctx,
                     i_bs, oh_idx - oh_offset, ow_start, 0};
                   auto weight_index = dtype_block > 1
                     ? std::vector<expr> {ic_offset / im_ic_block_ + i_ic, 0, r,
-                      s, 0, 0, 0}
+                        s, 0, 0, 0}
                     : std::vector<expr> {
-                      ic_offset / im_ic_block_ + i_ic, 0, r, s, 0, 0};
+                        ic_offset / im_ic_block_ + i_ic, 0, r, s, 0, 0};
                   A_list[len]
                     = tensor_ptr(temp_delta_output, tmp_delta_output_index);
                   B_list[len] = tensor_ptr(weight, weight_index);

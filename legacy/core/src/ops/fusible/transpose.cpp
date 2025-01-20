@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2023-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include "compiler/ir/graph/fusible_op_utils.hpp"
 #include "reorder.hpp"
 #include "util/math_utils.hpp"
@@ -348,23 +349,25 @@ bool can_be_fast_transpose(
 
 #define TRANS2D_ASSIGN(dst, src)                                               \
   cur_list.emplace_back(                                                       \
-      builder::make_assign_unattached(rows[((dst)-1)], rows[((src)-1)]));
+      builder::make_assign_unattached(rows[((dst) - 1)], rows[((src) - 1)]));
 // unpack and interleave
 #define TRANS2D_UNPACK_ASSIGN(option, dst, src1, src2, elem_bits)              \
   cur_list.emplace_back(builder::make_assign_unattached(                       \
-      rows[((dst)-1)], builder::make_unpack_##option(                          \
-                           rows[((src1)-1)], rows[((src2)-1)], elem_bits)));
+      rows[((dst) - 1)],                                                       \
+      builder::make_unpack_##option(rows[((src1) - 1)], rows[((src2) - 1)],    \
+                                    elem_bits)));
 #define TRANS2D_SHUFFLE_PERMUTE_ASSIGN_F32(command, dst, src1, src2, imm,      \
                                            elem_bits)                          \
   cur_list.emplace_back(builder::make_assign_unattached(                       \
-      rows[((dst)-1)],                                                         \
-      builder::make_##command(rows[((src1)-1)], rows[((src2)-1)], imm,         \
+      rows[((dst) - 1)],                                                       \
+      builder::make_##command(rows[((src1) - 1)], rows[((src2) - 1)], imm,     \
                               elem_bits)));
 
 #define PERMUTEX_ASSIGN_F32(dst, src1, src2, imm, mask)                        \
   cur_list.emplace_back(builder::make_assign_unattached(                       \
-      rows[((dst)-1)],                                                         \
-      builder::make_permute(rows[((src1)-1)], rows[((src2)-1)], imm, mask)));
+      rows[((dst) - 1)],                                                       \
+      builder::make_permute(rows[((src1) - 1)], rows[((src2) - 1)], imm,       \
+                            mask)));
 
 #define TRANS2D_REG_CALCULATION_F32(type_bits)                                 \
   TRANS2D_UNPACK_ASSIGN(low, 9, 1, 2, 32)                                      \

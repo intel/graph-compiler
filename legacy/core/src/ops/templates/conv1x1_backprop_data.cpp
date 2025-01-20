@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "conv1x1_backprop_data.hpp"
 #include <memory>
@@ -198,18 +199,18 @@ bool gen_conv1x1_backprop_data_t::generate(context_ptr ctx,
       assert(tile_d == 1 && tile_p == 1 && tile_q == 1);
       int C_shift_d = padding_d > 0
         ? (padding_d > stride_d
-            ? (stride_d == 1 ? 0 : stride_d - padding_d % stride_d)
-            : stride_d - padding_d)
+              ? (stride_d == 1 ? 0 : stride_d - padding_d % stride_d)
+              : stride_d - padding_d)
         : 0;
       int C_shift_h = padding_h > 0
         ? (padding_h > stride_h
-            ? (stride_h == 1 ? 0 : stride_h - padding_h % stride_h)
-            : stride_h - padding_h)
+              ? (stride_h == 1 ? 0 : stride_h - padding_h % stride_h)
+              : stride_h - padding_h)
         : 0;
       int C_shift_w = padding_w > 0
         ? (padding_w > stride_w
-            ? (stride_w == 1 ? 0 : stride_w - padding_w % stride_w)
-            : stride_w - padding_w)
+              ? (stride_w == 1 ? 0 : stride_w - padding_w % stride_w)
+              : stride_w - padding_w)
         : 0;
       C_shift_d = C_shift_d < 0 ? 0 : C_shift_d;
       C_shift_h = C_shift_h < 0 ? 0 : C_shift_h;
@@ -246,17 +247,17 @@ bool gen_conv1x1_backprop_data_t::generate(context_ptr ctx,
                   stride_a = is_3d ? O * P * Q * K_block : P * Q * K_block;
                   a_idx = is_3d
                     ? std::vector<expr> {n, 0, d_o * tile_d + A_shift_d,
-                      p_o * tile_p + A_shift_h, q_o * tile_q + A_shift_w, 0}
+                        p_o * tile_p + A_shift_h, q_o * tile_q + A_shift_w, 0}
                     : std::vector<expr> {n, 0, p_o * tile_p + A_shift_h,
-                      q_o * tile_q + A_shift_w, 0};
+                        q_o * tile_q + A_shift_w, 0};
                 } else {
                   LDA = K;
                   stride_a = K_block;
                   a_idx = is_3d
                     ? std::vector<expr> {n, d_o * tile_d + A_shift_d,
-                      p_o * tile_p + A_shift_h, q_o * tile_q + A_shift_w, 0}
-                    : std::vector<expr> {
-                      n, p_o * tile_p + A_shift_h, q_o * tile_q + A_shift_w, 0};
+                        p_o * tile_p + A_shift_h, q_o * tile_q + A_shift_w, 0}
+                    : std::vector<expr> {n, p_o * tile_p + A_shift_h,
+                        q_o * tile_q + A_shift_w, 0};
                 }
                 b_idx = std::vector<expr> {c_o, 0, 0, 0, 0, 0};
                 if (is_3d) b_idx.emplace_back(0);
@@ -264,22 +265,22 @@ bool gen_conv1x1_backprop_data_t::generate(context_ptr ctx,
                 if (is_out_blocking) {
                   LDC = C_block * stride_w;
                   c_idx = is_3d ? std::vector<expr> {n, c_o,
-                            d_o * tile_d * stride_d + C_shift_d,
-                            p_o * tile_p * stride_h + C_shift_h,
-                            q_o * tile_q * stride_w + C_shift_w, 0}
+                                    d_o * tile_d * stride_d + C_shift_d,
+                                    p_o * tile_p * stride_h + C_shift_h,
+                                    q_o * tile_q * stride_w + C_shift_w, 0}
                                 : std::vector<expr> {n, c_o,
-                                  p_o * tile_p * stride_h + C_shift_h,
-                                  q_o * tile_q * stride_w + C_shift_w, 0};
+                                    p_o * tile_p * stride_h + C_shift_h,
+                                    q_o * tile_q * stride_w + C_shift_w, 0};
                 } else {
                   LDC = C * stride_w;
                   LDC->attr().set("N_axis",
                     is_3d ? std::vector<size_t> {4} : std::vector<size_t> {3});
                   c_idx = is_3d
                     ? std::vector<expr> {n, d_o * tile_d * stride_d + C_shift_d,
-                      p_o * tile_p * stride_h + C_shift_h,
-                      q_o * tile_q * stride_w + C_shift_w, c_o * C_block}
+                        p_o * tile_p * stride_h + C_shift_h,
+                        q_o * tile_q * stride_w + C_shift_w, c_o * C_block}
                     : std::vector<expr> {n, p_o * tile_p * stride_h + C_shift_h,
-                      q_o * tile_q * stride_w + C_shift_w, c_o * C_block};
+                        q_o * tile_q * stride_w + C_shift_w, c_o * C_block};
                 }
                 LDC->attr().set("stride_w", stride_w);
                 builtin::brgemm_init_update(tensor_ptr(output, a_idx),

@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2021-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <algorithm>
 #include <cassert>
@@ -210,8 +211,8 @@ std::string stack_frame_model::one_line_summary() const {
 
 #define LOG_LINE(S1, ...)                                                      \
   if (logging_enabled_) {                                                      \
-    cout << "[" << utils::brief_lineloc(__FILE__, __LINE__) << "]"             \
-         << " " << S1 __VA_ARGS__ << endl;                                     \
+    cout << "[" << utils::brief_lineloc(__FILE__, __LINE__) << "]" << " "      \
+         << S1 __VA_ARGS__ << endl;                                            \
   }
 
 #define LOG_FUNC_ENTRY                                                         \
@@ -309,10 +310,9 @@ void stack_frame_model::push_named_object(const std::string &name,
                                           x86_64::cpu_data_type val_type,
                                           size_t num_bytes,
                                           const std::string &debug_comment) {
-  LOG_FUNC_ENTRY_WITH_TEXT("name=\"" << name << "\""
-                                     << " num_bytes=" << num_bytes
-                                     << " debug_comment=\"" << debug_comment
-                                     << "\"")
+  LOG_FUNC_ENTRY_WITH_TEXT("name=\""
+                           << name << "\"" << " num_bytes=" << num_bytes
+                           << " debug_comment=\"" << debug_comment << "\"")
   assert_unused_name(name);
   COMPILE_ASSERT(!name.empty(), "named objects cannot have blank name");
   COMPILE_ASSERT(num_bytes > 0,
@@ -328,11 +328,10 @@ void stack_frame_model::push_named_object(const std::string &name,
 void stack_frame_model::push_named_tensor_buffer_object(
     const std::string &name, x86_64::cpu_data_type val_type,
     size_t num_elements, size_t num_bytes, const std::string &debug_comment) {
-  LOG_FUNC_ENTRY_WITH_TEXT("name=\"" << name << "\""
-                                     << " num_elements=" << num_elements
-                                     << " num_bytes=" << num_bytes
-                                     << " debug_comment=\"" << debug_comment
-                                     << "\"")
+  LOG_FUNC_ENTRY_WITH_TEXT("name=\""
+                           << name << "\"" << " num_elements=" << num_elements
+                           << " num_bytes=" << num_bytes << " debug_comment=\""
+                           << debug_comment << "\"")
   assert_unused_name(name);
   COMPILE_ASSERT(!name.empty(), "named objects cannot have blank name");
   COMPILE_ASSERT(num_bytes > 0,
@@ -455,10 +454,9 @@ void stack_frame_model::assert_unused_name(const std::string &name) {
 }
 
 void stack_frame_model::add_caller_param_slot(const caller_param_slot &s) {
-  LOG_FUNC_ENTRY_WITH_TEXT("name=\"" << s.name_ << "\""
-                                     << " slot_size=" << s.slot_size_
-                                     << " debug_comment=\"" << s.debug_comment_
-                                     << "\"")
+  LOG_FUNC_ENTRY_WITH_TEXT("name=\""
+                           << s.name_ << "\"" << " slot_size=" << s.slot_size_
+                           << " debug_comment=\"" << s.debug_comment_ << "\"")
   COMPILE_ASSERT(!s.name_.empty(), "named objects cannot have blank name");
   COMPILE_ASSERT(s.slot_size_ > 0,
                  "stack_frame_model items must have positive sizes");

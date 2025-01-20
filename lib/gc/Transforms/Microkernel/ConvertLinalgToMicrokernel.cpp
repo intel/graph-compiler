@@ -175,8 +175,7 @@ static FailureOr<BrgemmDims> inferBrgemmDims(linalg::LinalgOp linalgOp) {
     }
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] Candidate dims: "
-                          << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] Candidate dims: " << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] m pos in affine: " << mAffinePos
                           << "\n");
   LLVM_DEBUG(llvm::dbgs() << "[inferBrgemmDims] n pos in affine: " << nAffinePos
