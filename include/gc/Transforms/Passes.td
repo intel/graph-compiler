@@ -74,7 +74,6 @@ def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::Func
       "cpuruntime::CPURuntimeDialect"
   ];
 }
-#ifdef GC_USE_GPU
 
 #ifdef GC_USE_IMEX
 def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
@@ -96,6 +95,7 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
 }
 #endif
 
+#ifdef GC_USE_GPU
 def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
   let summary = "Convert the GPU operations to GpuOclRuntime calls.";
   let description = [{

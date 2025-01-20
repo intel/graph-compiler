@@ -25,7 +25,11 @@ module @test attributes {gpu.container_module} {
     llvm.return
   }
 
-  gpu.binary @entry_kernel  [#gpu.object<#xevm.target, "\03\02#\07\00\04\01\00\14\00+\00\0F\00\00\00\00\00\00\00\11\00\02\00\06\00\00\00\11\00\02\00\04\00\00\00\11\00\02\00\0B\00\00\00\0B\00\05\00\01\00\00\00OpenCL.std\00\00\0E\00\03\00\02\00\00\00\02\00\00\00\0F\00\07\00\06\00\00\00\05\00\00\00entry_kernel\00\00\00\00\10\00\03\00\05\00\00\00\1F\00\00\00\03\00\03\00\04\00\00\00\A0\86\01\00\05\00\06\00\05\00\00\00entry_kernel\00\00\00\00\15\00\04\00\02\00\00\00@\00\00\00\00\00\00\00\13\00\02\00\03\00\00\00!\00\04\00\04\00\00\00\03\00\00\00\02\00\00\006\00\05\00\03\00\00\00\05\00\00\00\04\00\00\00\04\00\00\007\00\03\00\02\00\00\00\06\00\00\00\F8\00\02\00\07\00\00\00\FD\00\01\008\00\01\00">]
+  gpu.module @entry_kernel attributes {gpu.binary = "Some SPIRV here \00"} {
+    gpu.func @entry_kernel(%arg0: index, %arg1: memref<64x64xf32>) kernel attributes {} {
+      gpu.return
+    }
+  }
 }
 
 // CHECK: llvm.mlir.global internal constant @gcGpuOclKernel_entry_kernel_SPIRV

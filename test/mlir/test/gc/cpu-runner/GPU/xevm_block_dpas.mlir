@@ -6,7 +6,7 @@ module @gemm attributes {gpu.container_module} {
     //   The *minimum supported* sub-group size should be used to call `matrix_mad` intrinsics.
     // https://registry.khronos.org/OpenCL/extensions/intel/cl_intel_subgroup_matrix_multiply_accumulate.html
     
-    gpu.func @block_dpas(%a: !llvm.ptr<1>, %b: !llvm.ptr<1>, %c: !llvm.ptr<1>) kernel attributes {intel_reqd_sub_group_size = 16 : i32} {
+    gpu.func @block_dpas(%a: !llvm.ptr<1>, %b: !llvm.ptr<1>, %c: !llvm.ptr<1>) kernel {
       %base_width_a = arith.constant 32 : i32
       %base_height_a = arith.constant 8 : i32
       %base_pitch_a = arith.constant 32 : i32

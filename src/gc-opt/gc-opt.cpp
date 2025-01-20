@@ -46,9 +46,10 @@ namespace mlir::gc {
 void registerCPUPipeline();
 #ifdef GC_USE_GPU
 void registerGPUPipeline();
+#endif
+
 #ifdef GC_USE_IMEX
 void registerIMEXPipeline();
-#endif
 #endif
 
 } // namespace mlir::gc

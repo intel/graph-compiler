@@ -13,7 +13,7 @@ module @gemm attributes {gpu.container_module} {
     // https://registry.khronos.org/OpenCL/extensions/intel/cl_intel_required_subgroup_size.html
     // https://registry.khronos.org/OpenCL/extensions/intel/cl_intel_subgroups.html
 
-    gpu.func @block_load_store(%src: !llvm.ptr<1>, %dst: !llvm.ptr<1>) kernel attributes {intel_reqd_sub_group_size = 16 : i32} {
+    gpu.func @block_load_store(%src: !llvm.ptr<1>, %dst: !llvm.ptr<1>) kernel  {
       %base_width = arith.constant 64 : i32 // bytewidth of the block
       %base_height = arith.constant 8 : i32 // number of rows
       %base_pitch = arith.constant 64 : i32 // bytewidth of the base row

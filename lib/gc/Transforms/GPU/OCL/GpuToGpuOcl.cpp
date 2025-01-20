@@ -250,6 +250,8 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
           isa<MemRefType>(type)) {
         MemRefDescriptor desc(arg);
         args.emplace_back(desc.alignedPtr(rewriter, loc));
+      } else if (isa<LLVM::LLVMPointerType>(type)) {
+        args.emplace_back(arg);
       } else {
         // Store the arg on the stack and pass the pointer
         auto ptr = rewriter.create<LLVM::AllocaOp>(
@@ -352,6 +354,42 @@ private:
         .getResult();
   }
 
+  StringAttr getBinaryAttr(ConversionPatternRewriter &rewriter,
+                           gpu::LaunchFuncOp &gpuLaunch,
+                           StringAttr kernelModName) const {
+    StringAttr binaryAttr;
+    Operation *binaryStorageOp;
+#ifdef GC_USE_IMEX
+    binaryStorageOp = SymbolTable::lookupNearestSymbolFrom<gpu::GPUModuleOp>(
+        gpuLaunch, kernelModName);
+    if (!binaryStorageOp) {
+      gpuLaunch.emitOpError() << "Module " << kernelModName << " not found!";
+      return {};
+    }
+    binaryAttr = binaryStorageOp->getAttrOfType<StringAttr>("gpu.binary");
+    rewriter.eraseOp(binaryStorageOp);
+#else
+    binaryStorageOp = SymbolTable::lookupNearestSymbolFrom<gpu::BinaryOp>(
+        gpuLaunch, kernelModName);
+    if (!binaryStorageOp) {
+      gpuLaunch.emitOpError() << "Binary " << kernelModName << " not found!";
+      return {};
+    }
+    auto objects = cast<gpu::BinaryOp>(binaryStorageOp).getObjects();
+    if (objects.size() != 1) {
+      gpuLaunch.emitOpError() << "Many targets present in " << kernelModName
+                              << ", please use xevm only.";
+      return {};
+    }
+    binaryAttr = cast<gpu::ObjectAttr>(objects[0]).getObject();
+#endif
+    if (!binaryAttr) {
+      binaryStorageOp->emitOpError() << "missing binary.";
+      return {};
+    }
+    return binaryAttr;
+  }
+
   // Create a new kernel and save the pointer to the global variable
   // ...name_Ptr.
   bool createKernel(
@@ -360,24 +398,14 @@ private:
       StringRef funcName,
       const std::function<SmallString<128> &(const char *chars)> &str) const {
     auto kernelModName = gpuLaunch.getKernelModuleName();
-    auto kernelMod = SymbolTable::lookupNearestSymbolFrom<gpu::GPUModuleOp>(
-        gpuLaunch, kernelModName);
-    if (!kernelMod) {
-      gpuLaunch.emitOpError() << "Module " << kernelModName << " not found!";
+    auto binaryAttr = getBinaryAttr(rewriter, gpuLaunch, kernelModName);
+    if (!binaryAttr)
       return false;
-    }
-    const auto binaryAttr = kernelMod->getAttrOfType<StringAttr>("gpu.binary");
-    if (!binaryAttr) {
-      kernelMod.emitOpError() << "missing 'gpu.binary' attribute";
-      return false;
-    }
-
     rewriter.setInsertionPointToStart(mod.getBody());
     // The kernel pointer is stored here
     rewriter.create<LLVM::GlobalOp>(loc, helper.ptrType, /*isConstant=*/false,
                                     LLVM::Linkage::Internal, str("Ptr"),
                                     rewriter.getZeroAttr(helper.ptrType));
-    rewriter.eraseOp(kernelMod);
 
     auto function = rewriter.create<LLVM::LLVMFuncOp>(
         loc, funcName,
@@ -415,7 +443,7 @@ private:
     for (auto arg : gpuLaunch.getKernelOperands()) {
       auto type = arg.getType();
       size_t size;
-      if (isa<MemRefType>(type)) {
+      if (isa<MemRefType>(type) || isa<LLVM::LLVMPointerType>(type)) {
         size = 0; // A special case for pointers
       } else if (type.isIndex()) {
         size = helper.idxType.getIntOrFloatBitWidth() / 8;
@@ -452,6 +480,8 @@ private:
           assert(getConstantIntValue(cast.getOperand(0)));
           value = helper.idxConstant(
               rewriter, loc, getConstantIntValue(cast.getOperand(0)).value());
+        } else {
+          value = rewriter.clone(*value.getDefiningOp())->getResult(0);
         }
         rewriter.create<LLVM::StoreOp>(loc, value, elementPtr);
       }
@@ -527,6 +557,8 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
       return;
     }
 
+    if (!helper.kernelNames.size())
+      return;
     // Add gpuOclDestructor() function that destroys all the kernels
     auto mod = llvm::dyn_cast<ModuleOp>(getOperation());
     assert(mod);

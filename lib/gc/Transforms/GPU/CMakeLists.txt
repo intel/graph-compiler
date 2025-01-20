@@ -7,7 +7,7 @@ endif()
 set(OCL_PASSES_LIBS "")
 if(GC_ENABLE_GPU)
 add_subdirectory(OCL)
-set(OCL_PASSES_LIBS GcGpuOCLPasses)
+set(OCL_PASSES_LIBS GcGpuOclPasses)
 endif()
 
 gc_add_mlir_library(GcGpuPasses

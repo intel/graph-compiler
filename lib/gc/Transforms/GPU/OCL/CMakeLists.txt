@@ -1,4 +1,4 @@
-gc_add_mlir_library(GcGpuOCLPasses
+gc_add_mlir_library(GcGpuOclPasses
   GpuToGpuOcl.cpp
 
   DEPENDS

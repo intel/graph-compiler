@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --gpu-to-gpuocl | FileCheck %s
+// RUN: gc-opt %s --gc-gpu-pipeline | FileCheck %s
 
 module @test attributes {gpu.container_module} {
   llvm.func @entry(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4: i64, %arg5: i64, %arg6: i64, %arg7: !llvm.ptr, %arg8: !llvm.ptr, %arg9: i64) attributes {llvm.emit_c_interface} {
@@ -19,13 +19,21 @@ module @test attributes {gpu.container_module} {
     %12 = builtin.unrealized_conversion_cast %11 : i64 to index
     %13 = llvm.mlir.constant(1 : index) : i64
     %14 = builtin.unrealized_conversion_cast %13 : i64 to index
-    gpu.launch_func  @entry_kernel::@entry_kernel blocks in (%12, %12, %14) threads in (%14, %14, %14)  args(%10 : index, %gpu_mem : memref<64x64xf32>)
+
+    %floaat = llvm.mlir.constant(1.1 : f32) : f32
+    %a_ptr_as_idx = memref.extract_aligned_pointer_as_index %gpu_mem : memref<64x64xf32> -> index
+    %a_ptr_as_i64 = arith.index_cast %a_ptr_as_idx : index to i64
+    %a_ptr = llvm.inttoptr %a_ptr_as_i64 : i64 to !llvm.ptr
+    %a_ptr_casted = llvm.addrspacecast %a_ptr : !llvm.ptr to !llvm.ptr<1>
+
+    gpu.launch blocks(%arg10, %arg11, %arg12) in (%arg16 = %12, %arg17 = %12, %arg18 = %12) threads(%arg13, %arg14, %arg15) in (%arg19 = %14, %arg20 = %14, %arg21 = %14) {
+      llvm.store %floaat, %a_ptr_casted : f32, !llvm.ptr<1>
+      gpu.terminator
+    }
     gpu.memcpy  %8, %gpu_mem : memref<64x64xf32>, memref<64x64xf32>
     gpu.dealloc  %gpu_mem : memref<64x64xf32>
     llvm.return
   }
-
-  gpu.binary @entry_kernel  [#gpu.object<#xevm.target, "\03\02#\07\00\04\01\00\14\00+\00\0F\00\00\00\00\00\00\00\11\00\02\00\06\00\00\00\11\00\02\00\04\00\00\00\11\00\02\00\0B\00\00\00\0B\00\05\00\01\00\00\00OpenCL.std\00\00\0E\00\03\00\02\00\00\00\02\00\00\00\0F\00\07\00\06\00\00\00\05\00\00\00entry_kernel\00\00\00\00\10\00\03\00\05\00\00\00\1F\00\00\00\03\00\03\00\04\00\00\00\A0\86\01\00\05\00\06\00\05\00\00\00entry_kernel\00\00\00\00\15\00\04\00\02\00\00\00@\00\00\00\00\00\00\00\13\00\02\00\03\00\00\00!\00\04\00\04\00\00\00\03\00\00\00\02\00\00\006\00\05\00\03\00\00\00\05\00\00\00\04\00\00\00\04\00\00\007\00\03\00\02\00\00\00\06\00\00\00\F8\00\02\00\07\00\00\00\FD\00\01\008\00\01\00">]
 }
 
 // CHECK: llvm.mlir.global internal constant @gcGpuOclKernel_entry_kernel_SPIRV

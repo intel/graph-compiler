@@ -138,7 +138,6 @@ void registerIMEXPipeline() {
 #ifdef GC_USE_GPU
 void populateGPUPipeline(OpPassManager &pm,
                          const GPUPipelineOptions &pipelineOpts) {
-
   pm.addNestedPass<func::FuncOp>(createAddContextArg());
 
   pm.addPass(createConvertSCFToCFPass());
@@ -148,20 +147,22 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createArithToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(createCSEPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
 
+  // Convert allocs, etc.
+  pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createConvertXeVMToLLVMPass());
   pm.addPass(createGpuXeVMAttachTarget());
-  pm.addPass(createConvertGpuOpsToLLVMSPVOps());
-  pm.addPass(createGpuToLLVMConversionPass());
+  pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuOpsToLLVMSPVOps());
+  pm.addNestedPass<gpu::GPUModuleOp>(createConvertIndexToLLVMPass());
+  pm.addNestedPass<gpu::GPUModuleOp>(createArithToLLVMConversionPass());
   pm.addPass(createReconcileUnrealizedCastsPass());
-  pm.addPass(createCSEPass());
-  // Convert allocs, etc.
-  pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
   pm.addPass(createGpuModuleToBinaryPass());
   // Convert launch given a binary.
   pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
+  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
 }
 
 void registerGPUPipeline() {

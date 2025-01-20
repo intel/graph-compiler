@@ -182,6 +182,14 @@ XeVMTargetAttrImpl::serializeToObject(Attribute attribute, Operation *module,
     return std::nullopt;
   }
 
+  gpuMod.walk([&](LLVM::LLVMFuncOp funcOp) {
+    if (funcOp->hasAttr(gpu::GPUDialect::getKernelFuncAttrName())) {
+      funcOp.setIntelReqdSubGroupSize(16);
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+
   // TODO: reroute to another serializer for a different target?
   SpirSerializer serializer(*module, cast<XeVMTargetAttr>(attribute), options);
   serializer.init();
