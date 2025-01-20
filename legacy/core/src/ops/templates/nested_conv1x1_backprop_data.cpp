@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "nested_conv1x1_backprop_data.hpp"
 #include <algorithm>
@@ -355,11 +356,11 @@ void gen_nested_conv1x1_backprop_data_t::
                   m_start_idx / ori_W, m_start_idx % ori_W, k_start_idx};
                 std::vector<expr> bidx = dtype_block > 1
                   ? std::vector<expr> {n_start_idx / im_ic_block_,
-                    k_start_idx / im_oc_block_ / 2, 0, 0, 0, 0, 0}
+                      k_start_idx / im_oc_block_ / 2, 0, 0, 0, 0, 0}
                   : !tb.get_format().is_blocking()
                   ? std::vector<expr> {k_start_idx, n_start_idx, 0, 0}
                   : std::vector<expr> {n_start_idx / im_ic_block_,
-                    k_start_idx / im_oc_block_, 0, 0, 0, 0};
+                      k_start_idx / im_oc_block_, 0, 0, 0, 0};
                 std::vector<expr> cidx
                   = {bs_start_idx, m_start_idx / ori_W * stride_h,
                     m_start_idx % ori_W * stride_w * ori_W, n_start_idx};

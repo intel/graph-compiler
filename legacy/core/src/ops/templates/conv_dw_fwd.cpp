@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2023-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "conv_dw_fwd.hpp"
 #include <utility>
@@ -71,7 +72,7 @@ config_ptr gen_conv_dw_fwd_t::get_default_config(context_ptr ctx) const {
   cfg.bs_threads = mb_ > num_threads
     ? num_threads
     : *(std::find_if(thread_split.rbegin(), thread_split.rend(),
-      [&](int split) { return split == 1 || split < mb_; }));
+        [&](int split) { return split == 1 || split < mb_; }));
   cfg.h_threads = num_threads / cfg.bs_threads;
   cfg.w_threads = 1;
   cfg.g_threads = 1;
@@ -608,7 +609,7 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                       builtin::brgemm_init(
                         tensor_ptr(global_aux_buffer,
                           is_3d_ ? std::vector<expr> {tid, aux_buf_d, aux_buf_h,
-                            0, 0}
+                                     0, 0}
                                  : std::vector<expr> {tid, aux_buf_h, 0, 0}),
                         builder::make_cast(datatypes::s32, left_pad), g_block,
                         LDA, dtype_input, padding_value);
@@ -640,9 +641,9 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                       builtin::brgemm_init(
                         tensor_ptr(global_aux_buffer,
                           is_3d_ ? std::vector<expr> {tid, aux_buf_d, aux_buf_h,
-                            w_block_size_without_pad, 0}
+                                     w_block_size_without_pad, 0}
                                  : std::vector<expr> {tid, aux_buf_h,
-                                   w_block_size_without_pad, 0}),
+                                     w_block_size_without_pad, 0}),
                         builder::make_cast(datatypes::s32,
                           aux_w_block_size - w_block_size_without_pad),
                         g_block, LDA, dtype_input, padding_value);
@@ -654,8 +655,8 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                         auto valid_kh
                           = (h_nopad_end_idx - h_nopad_begin_idx - 1) / dh_ + 1;
                         idx = builder::make_cast(datatypes::u32,
-                          use_var_bs ? (
-                            aux_buf_d * valid_kh * kw_ + aux_buf_h * kw_ + kw)
+                          use_var_bs ? (aux_buf_d * valid_kh * kw_
+                                         + aux_buf_h * kw_ + kw)
                                      : (kd * kh_ * kw_ + kh * kw_ + kw));
                       } else {
                         idx = builder::make_cast(datatypes::u32,
@@ -668,7 +669,7 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                       A_list[idx] = tensor_ptr(global_aux_buffer,
                         is_3d_
                           ? std::vector<expr> {tid, aux_buf_d, aux_buf_h,
-                            kw * dw_, 0}
+                              kw * dw_, 0}
                           : std::vector<expr> {tid, aux_buf_h, kw * dw_, 0});
                     }
                   }
@@ -848,7 +849,7 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
               if (is_3d_) {
                 auto cond = large_pad
                   ? (((cur_iw + aux_w_block_size <= 0) || (cur_iw > iw_))
-                    || (num_d_pad >= kd_ || num_h_pad >= kh_))
+                      || (num_d_pad >= kd_ || num_h_pad >= kh_))
                   : (num_d_pad >= kd_ || num_h_pad >= kh_);
                 _if_(cond && padding_value == 0) {
                   zero_out_aux_buffer();
@@ -891,7 +892,7 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
                           expr idx = builder::make_cast(datatypes::u32,
                             use_var_bs
                               ? ((kd - d_nopad_begin_idx) * valid_kh * kw_
-                                + (kh - h_nopad_begin_idx) * kw_ + kw)
+                                  + (kh - h_nopad_begin_idx) * kw_ + kw)
                               : (kd * kh_ * kw_ + kh * kw_ + kw));
                           A_list[idx] = tensor_ptr(input,
                             std::vector<expr> {n, cur_id + kd * dd_,
@@ -962,7 +963,7 @@ void gen_conv_dw_fwd_t::compute_conv_physical_padding(CONV_ARG_LIST) const {
               } else {
                 auto cond = large_pad
                   ? (((cur_iw + aux_w_block_size <= 0) || (cur_iw > iw_))
-                    || (num_h_pad >= kh_))
+                      || (num_h_pad >= kh_))
                   : (num_h_pad >= kh_);
                 _if_(cond && padding_value == 0) {
                   zero_out_aux_buffer();

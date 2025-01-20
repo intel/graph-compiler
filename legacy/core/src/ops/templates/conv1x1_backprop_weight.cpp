@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "conv1x1_backprop_weight.hpp"
 #include <algorithm>
@@ -498,7 +499,7 @@ bool gen_conv1x1_backprop_weight_t::generate_reduce_ALL(const context_ptr &ctx,
             _tensor_(output_tmp, dtype,
               dtype_block > 1
                 ? std::vector<expr> {NPQ_tile, NPQ_block_pad / dtype_block,
-                  K_block, dtype_block}
+                    K_block, dtype_block}
                 : std::vector<expr> {NPQ_tile, NPQ_block, K_block});
             _named_for_(lnt, nt_i, 0, NPQ_tile) {
               _named_for_(lnpq, npq_i, 0, NPQ_block_pad) {
@@ -572,9 +573,9 @@ bool gen_conv1x1_backprop_weight_t::generate_reduce_ALL(const context_ptr &ctx,
                                   : std::vector<expr> {0, 0, 0}),
                 tensor_ptr(del_weight_tmp_buf,
                   is_3d ? std::vector<expr> {n_o * K_num_block + k_o, c_o, 0, 0,
-                    0, 0, 0}
+                            0, 0, 0}
                         : std::vector<expr> {n_o * K_num_block + k_o, c_o, 0, 0,
-                          0, 0}),
+                            0, 0}),
                 NPQ_tile, C_block, K_block, NPQ_block_pad, NPQ_block_pad,
                 K_block, K_block, C_block * NPQ_block_pad,
                 K_block
@@ -589,9 +590,9 @@ bool gen_conv1x1_backprop_weight_t::generate_reduce_ALL(const context_ptr &ctx,
                                   : std::vector<expr> {0, 0, 0}),
                 tensor_ptr(del_weight_tmp_buf,
                   is_3d ? std::vector<expr> {n_o * K_num_block + k_o, c_o, 0, 0,
-                    0, 0, 0}
+                            0, 0, 0}
                         : std::vector<expr> {n_o * K_num_block + k_o, c_o, 0, 0,
-                          0, 0}),
+                            0, 0}),
                 NPQ_tile, C_block, K_block, NPQ_block_pad, NPQ_block_pad,
                 K_block, K_block, C_block * NPQ_block_pad,
                 K_block

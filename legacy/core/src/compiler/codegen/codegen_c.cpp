@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2020-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "codegen_c.hpp"
 #include "../ir/viewer.hpp"
@@ -1219,9 +1220,8 @@ void c_generator_pass_t::operator()(func_t f) {
 c_generator_pass_t::c_generator_pass_t(std::ostream &source,
                                        const context_ptr &ctx, bool gen_wrapper,
                                        c_generator_optional_out_t *optional_out)
-    : source_(source), context_(ctx),
-      gen_wrapper_(gen_wrapper), pre_passes_{get_default_precodegen_passes(
-                                     ctx, gen_wrapper)},
+    : source_(source), context_(ctx), gen_wrapper_(gen_wrapper),
+      pre_passes_{get_default_precodegen_passes(ctx, gen_wrapper)},
       optional_out_(optional_out) {
   prepare_include(&source_);
   if (optional_out_) {

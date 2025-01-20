@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2024 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "managed_matmul_core.hpp"
 #include <algorithm>
@@ -954,28 +955,28 @@ void gen_managed_matmul_core_t::single_thread_matmul_call(
             std::vector<expr> aidx = ta.get_format() == sc_data_format_t::MK()
               ? std::vector<expr> {m_start_idx, k_start_idx}
               : std::vector<expr> {
-                m_start_idx / iim_block_, k_start_idx / iik_block_, 0, 0};
+                  m_start_idx / iim_block_, k_start_idx / iik_block_, 0, 0};
             std::vector<expr> bidx = dtype_block > 1
               ? std::vector<expr> {n_start_idx / iin_block_,
-                k_start_idx / iik_block_, 0, 0, 0}
+                  k_start_idx / iik_block_, 0, 0, 0}
               : (!tb.get_format().is_blocking()
-                  ? std::vector<expr> {k_start_idx, n_start_idx}
-                  : std::vector<expr> {
-                    n_start_idx / iin_block_, k_start_idx / iik_block_, 0, 0});
+                    ? std::vector<expr> {k_start_idx, n_start_idx}
+                    : std::vector<expr> {n_start_idx / iin_block_,
+                        k_start_idx / iik_block_, 0, 0});
             std::vector<expr> cidx;
             if (is_partial) {
               cidx = !tc.get_format().is_blocking()
                 ? std::vector<expr> {m_b_idx * iim_block_
-                    + (doroll(m_o, m_o_end)) * iim_block_,
-                  n_b_idx * iin_block_ + (doroll(n_o, n_o_end)) * iin_block_}
+                      + (doroll(m_o, m_o_end)) * iim_block_,
+                    n_b_idx * iin_block_ + (doroll(n_o, n_o_end)) * iin_block_}
                 : std::vector<expr> {m_b_idx + doroll(m_o, m_o_end),
-                  n_b_idx + doroll(n_o, n_o_end), 0, 0};
+                    n_b_idx + doroll(n_o, n_o_end), 0, 0};
               cidx.insert(cidx.begin(), k_s);
             } else {
               cidx = !tc.get_format().is_blocking()
                 ? std::vector<expr> {m_start_idx, n_start_idx}
                 : std::vector<expr> {
-                  m_start_idx / iim_block_, n_start_idx / iin_block_, 0, 0};
+                    m_start_idx / iim_block_, n_start_idx / iin_block_, 0, 0};
             }
             expr LDA = ta.get_format() == sc_data_format_t::MK()
               ? graph.dim_to_expr(ori_K)
@@ -1046,11 +1047,11 @@ void gen_managed_matmul_core_t::single_thread_matmul_call(
                   !tc.get_format().is_blocking()
                     ? std::vector<std::pair<expr, expr>> {{m_start_idx,
                                                             expr(iim_block_)},
-                      {n_start_idx, expr(iin_block_)}}
+                        {n_start_idx, expr(iin_block_)}}
                     : std::vector<std::pair<expr, expr>> {
-                      {m_start_idx / iim_block_, 1},
-                      {n_start_idx / iin_block_, 1}, {0, expr(iim_block_)},
-                      {0, expr(iin_block_)}});
+                        {m_start_idx / iim_block_, 1},
+                        {n_start_idx / iin_block_, 1}, {0, expr(iim_block_)},
+                        {0, expr(iin_block_)}});
               }
             }
           }
@@ -1066,14 +1067,14 @@ void gen_managed_matmul_core_t::single_thread_matmul_call(
                                                                 m_o, m_o_end)
                                                               * iim_block_,
                                                           expr(iim_block_)},
-                    {0, utils::rnd_up(ori_N, iin_block_)}}
+                      {0, utils::rnd_up(ori_N, iin_block_)}}
                   : std::vector<std::pair<expr, expr>> {
-                    {(m_idx + m_b_idx * iim_block_
-                       + (doroll(m_o, m_o_end)) * iim_block_)
-                        / iim_block_,
-                      1},
-                    {0, utils::divide_and_ceil(ori_N, iin_block_)},
-                    {0, expr(iim_block_)}, {0, expr(iin_block_)}});
+                      {(m_idx + m_b_idx * iim_block_
+                         + (doroll(m_o, m_o_end)) * iim_block_)
+                          / iim_block_,
+                        1},
+                      {0, utils::divide_and_ceil(ori_N, iin_block_)},
+                      {0, expr(iim_block_)}, {0, expr(iin_block_)}});
             }
           }
         }
@@ -1092,14 +1093,14 @@ void gen_managed_matmul_core_t::single_thread_matmul_call(
                                                         + m_b_idx * iim_block_,
                                                       M_anchor_info[1]
                                                         / config.M_sub_block},
-                {n_idx + n_b_idx * iin_block_,
-                  N_anchor_info[1] / config.N_sub_block}}
+                  {n_idx + n_b_idx * iin_block_,
+                    N_anchor_info[1] / config.N_sub_block}}
               : std::vector<std::pair<expr, expr>> {
-                {(m_idx + m_b_idx * iim_block_) / expr(iim_block_),
-                  M_anchor_info[1] / iim_block_ / config.M_sub_block},
-                {(n_idx + n_b_idx * iin_block_) / expr(iin_block_),
-                  N_anchor_info[1] / iin_block_ / config.N_sub_block},
-                {0, expr(iim_block_)}, {0, expr(iin_block_)}});
+                  {(m_idx + m_b_idx * iim_block_) / expr(iim_block_),
+                    M_anchor_info[1] / iim_block_ / config.M_sub_block},
+                  {(n_idx + n_b_idx * iin_block_) / expr(iin_block_),
+                    N_anchor_info[1] / iin_block_ / config.N_sub_block},
+                  {0, expr(iim_block_)}, {0, expr(iin_block_)}});
         } else {
           slice_range_list mm_multi_slice;
           // order:X_anchor_info[1] -> X_anchor_info[2]
@@ -1407,26 +1408,27 @@ func_t gen_managed_matmul_core_t::get_single_core_func(context_ptr ctx,
                 std::vector<expr> aidx = input_plain
                   ? std::vector<expr> {m_start_idx, k_start_idx}
                   : std::vector<expr> {
-                    m_start_idx / iim_block_, k_start_idx / iik_block_, 0, 0};
+                      m_start_idx / iim_block_, k_start_idx / iik_block_, 0, 0};
                 std::vector<expr> bidx = dtype_block > 1
                   ? std::vector<expr> {n_start_idx / iin_block_,
-                    k_start_idx / iik_block_, 0, 0, 0}
+                      k_start_idx / iik_block_, 0, 0, 0}
                   : (!tb.get_format().is_blocking()
-                      ? std::vector<expr> {k_start_idx, n_start_idx}
-                      : std::vector<expr> {n_start_idx / iin_block_,
-                        k_start_idx / iik_block_, 0, 0});
+                        ? std::vector<expr> {k_start_idx, n_start_idx}
+                        : std::vector<expr> {n_start_idx / iin_block_,
+                            k_start_idx / iik_block_, 0, 0});
                 std::vector<expr> partial_cidx, full_cidx;
                 partial_cidx = !tc.get_format().is_blocking()
                   ? std::vector<expr> {m_b_idx * iim_block_
-                      + (doroll(m_o, m_o_end)) * iim_block_,
-                    n_b_idx * iin_block_ + (doroll(n_o, n_o_end)) * iin_block_}
+                        + (doroll(m_o, m_o_end)) * iim_block_,
+                      n_b_idx * iin_block_
+                        + (doroll(n_o, n_o_end)) * iin_block_}
                   : std::vector<expr> {m_b_idx + doroll(m_o, m_o_end),
-                    n_b_idx + doroll(n_o, n_o_end), 0, 0};
+                      n_b_idx + doroll(n_o, n_o_end), 0, 0};
                 partial_cidx.insert(partial_cidx.begin(), k_s);
                 full_cidx = !tc.get_format().is_blocking()
                   ? std::vector<expr> {m_start_idx, n_start_idx}
                   : std::vector<expr> {
-                    m_start_idx / iim_block_, n_start_idx / iin_block_, 0, 0};
+                      m_start_idx / iim_block_, n_start_idx / iin_block_, 0, 0};
                 auto partial_C_ptr = tensor_ptr(C_tptr, partial_cidx);
                 auto full_C_ptr = tensor_ptr(C_tptr, full_cidx);
                 expr LDA = input_plain ? ori_K_expr : expr(iik_block_);
@@ -1434,7 +1436,7 @@ func_t gen_managed_matmul_core_t::get_single_core_func(context_ptr ctx,
                                                           : expr(iin_block_);
                 expr partial_LDC = !tc.get_format().is_blocking()
                   ? do_cast_and_fold(
-                    divide_and_ceil(N / iin_block_, N_split_num) * iin_block_)
+                      divide_and_ceil(N / iin_block_, N_split_num) * iin_block_)
                   : iin_block_;
                 expr full_LDC
                   = !tc.get_format().is_blocking() ? ori_N_expr : iin_block_;
@@ -1517,11 +1519,11 @@ func_t gen_managed_matmul_core_t::get_single_core_func(context_ptr ctx,
                   std::vector<expr> tail_aidx = {m_start_idx, k_tail_idx};
                   std::vector<expr> tail_bidx = dtype_block > 1
                     ? std::vector<expr> {n_start_idx / iin_block_,
-                      k_tail_idx / iik_block_, 0, 0, 0}
+                        k_tail_idx / iik_block_, 0, 0, 0}
                     : (!tb.get_format().is_blocking()
-                        ? std::vector<expr> {k_tail_idx, n_start_idx}
-                        : std::vector<expr> {n_start_idx / iin_block_,
-                          k_tail_idx / iik_block_, 0, 0});
+                          ? std::vector<expr> {k_tail_idx, n_start_idx}
+                          : std::vector<expr> {n_start_idx / iin_block_,
+                              k_tail_idx / iik_block_, 0, 0});
                   _if_(K_tail_cond) {
                     _if_(k_b == 0 && bs == 0) {
                       call_init_update_brgemm(1, K_tail, tail_aidx, tail_bidx);
@@ -1538,11 +1540,11 @@ func_t gen_managed_matmul_core_t::get_single_core_func(context_ptr ctx,
                       !tc.get_format().is_blocking()
                         ? std::vector<std::pair<expr, expr>> {{m_start_idx,
                                                                 expr(m_block)},
-                          {n_start_idx, expr(n_block)}}
+                            {n_start_idx, expr(n_block)}}
                         : std::vector<std::pair<expr, expr>> {
-                          {m_start_idx / iim_block_, 1},
-                          {n_start_idx / iin_block_, 1}, {0, expr(iim_block_)},
-                          {0, expr(iin_block_)}});
+                            {m_start_idx / iim_block_, 1},
+                            {n_start_idx / iin_block_, 1},
+                            {0, expr(iim_block_)}, {0, expr(iin_block_)}});
                   }
                 }
               }
@@ -1674,15 +1676,15 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
   expr M_real_split = is_dynamic
     ? M_split_num
     : do_cast_and_fold(
-      builder::make_min(divide_and_ceil(M_expr, iim_block_), M_split_num));
+        builder::make_min(divide_and_ceil(M_expr, iim_block_), M_split_num));
   expr N_real_split = is_dynamic
     ? N_split_num
     : do_cast_and_fold(
-      builder::make_min(divide_and_ceil(N_expr, iin_block_), N_split_num));
+        builder::make_min(divide_and_ceil(N_expr, iin_block_), N_split_num));
   expr K_real_split = is_dynamic
     ? K_split_num
     : do_cast_and_fold(
-      builder::make_min(divide_and_ceil(K_expr, iik_block_), K_split_num));
+        builder::make_min(divide_and_ceil(K_expr, iik_block_), K_split_num));
 
   if (K_split_num == 1) {
     expr m_idx, n_idx, M_single_thr_size, N_single_thr_size, X_bigger_num;
@@ -1958,7 +1960,7 @@ bool gen_managed_matmul_core_t::generate(context_ptr ctx,
     std::vector<expr> out_tmp_buf_shape_expr
       = out_tensors_[0].get_format().is_blocking()
       ? std::vector<expr> {K_real_split, M_block_size_expr / iim_block_,
-        N_block_size_expr / iin_block_, iim_block_, iin_block_}
+          N_block_size_expr / iin_block_, iim_block_, iin_block_}
       : std::vector<expr> {K_real_split, M_block_size_expr, N_block_size_expr};
     if (is_dynamic) {
       out_tmp_buf_shape_expr = std::vector<expr> {K_real_split,

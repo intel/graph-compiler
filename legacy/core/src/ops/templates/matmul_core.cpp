@@ -1,18 +1,19 @@
-/*******************************************************************************
- * Copyright 2022-2023 Intel Corporation
+/*
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *******************************************************************************/
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "matmul_core.hpp"
 #include <algorithm>
@@ -389,22 +390,22 @@ void gen_matmul_core_t::get_and_check_blocks(sc_graph_t &graph,
   // divide and ceil(x, 1) to convert x to index datatype.
   M_num_blocks = blocking_axis_.A_m.size() == 1
     ? divide_and_ceil(
-      A_dims[blocking_axis_.A_m.at(0)], graph.dim_to_expr(M_block))
+        A_dims[blocking_axis_.A_m.at(0)], graph.dim_to_expr(M_block))
     : A_dims[blocking_axis_.A_m.at(0)];
 
   K_num_blocks = blocking_axis_.A_k.size() == 1
     ? divide_and_ceil(
-      A_dims[blocking_axis_.A_k.at(0)], graph.dim_to_expr(K_block))
+        A_dims[blocking_axis_.A_k.at(0)], graph.dim_to_expr(K_block))
     : A_dims[blocking_axis_.A_k.at(0)];
 
   B_K_num_blocks = blocking_axis_.B_k.size() == 1
     ? divide_and_ceil(
-      B_dims[blocking_axis_.B_k.at(0)], graph.dim_to_expr(K_block))
+        B_dims[blocking_axis_.B_k.at(0)], graph.dim_to_expr(K_block))
     : B_dims[blocking_axis_.B_k.at(0)];
 
   N_num_blocks = blocking_axis_.B_n.size() == 1
     ? divide_and_ceil(
-      B_dims[blocking_axis_.B_n.at(0)], graph.dim_to_expr(N_block))
+        B_dims[blocking_axis_.B_n.at(0)], graph.dim_to_expr(N_block))
     : B_dims[blocking_axis_.B_n.at(0)];
 
   COMPILE_ASSERT(
@@ -734,9 +735,9 @@ bool gen_matmul_core_t::generate(context_ptr ctx,
       std::vector<std::pair<expr, expr>> fidx3
         = blocking_axis_.C_m.size() == 1 && blocking_axis_.C_n.size() == 1
         ? concat_vec(batch_tensor_slice_ranges,
-          {{0, M_num_blocks * M_block}, {0, N_num_blocks * N_block}})
+            {{0, M_num_blocks * M_block}, {0, N_num_blocks * N_block}})
         : concat_vec(batch_tensor_slice_ranges,
-          {{0, M_num_blocks}, {0, N_num_blocks}, {0, M_block}, {0, N_block}});
+            {{0, M_num_blocks}, {0, N_num_blocks}, {0, M_block}, {0, N_block}});
 
       _named_for_(lm_c, m_o, 0, M_num_blocks) {
         _named_for_(ln_c, n_o, 0, N_num_blocks) {
@@ -757,15 +758,15 @@ bool gen_matmul_core_t::generate(context_ptr ctx,
           fidx1
             = blocking_axis_.C_m.size() == 1 && blocking_axis_.C_n.size() == 1
             ? concat_vec(batch_tensor_slice_ranges,
-              {{m_o * M_block, M_block}, {n_o * N_block, N_block}})
+                {{m_o * M_block, M_block}, {n_o * N_block, N_block}})
             : concat_vec(batch_tensor_slice_ranges,
-              {{m_o, 1}, {n_o, 1}, {0, M_block}, {0, N_block}});
+                {{m_o, 1}, {n_o, 1}, {0, M_block}, {0, N_block}});
           fidx2
             = blocking_axis_.C_m.size() == 1 && blocking_axis_.C_n.size() == 1
             ? concat_vec(batch_tensor_slice_ranges,
-              {{m_o * M_block, M_block}, {0, N_num_blocks * N_block}})
+                {{m_o * M_block, M_block}, {0, N_num_blocks * N_block}})
             : concat_vec(batch_tensor_slice_ranges,
-              {{m_o, 1}, {0, N_num_blocks}, {0, M_block}, {0, N_block}});
+                {{m_o, 1}, {0, N_num_blocks}, {0, M_block}, {0, N_block}});
 
           if (dtype_block > 1) bidx.emplace_back(0);
           expr LDA = K_block, LDB = N_block, LDC = N_block,
@@ -820,8 +821,8 @@ bool gen_matmul_core_t::generate(context_ptr ctx,
           tensor_ptr(B,
             dtype_block > 1 ? std::vector<expr> {n_o, 0, 0, 0, 0}
                             : (!in_tensors_[1].get_format().is_blocking()
-                                ? std::vector<expr> {0, n_o * N_block}
-                                : std::vector<expr> {n_o, 0, 0, 0})),
+                                  ? std::vector<expr> {0, n_o * N_block}
+                                  : std::vector<expr> {n_o, 0, 0, 0})),
           tensor_ptr(C,
             !out_tensors_[0].get_format().is_blocking()
               ? std::vector<expr> {m_o * M_block, n_o * N_block}
@@ -842,9 +843,9 @@ bool gen_matmul_core_t::generate(context_ptr ctx,
         create_fusion_anchor(fusion, owner_->get_outputs()[0],
           !out_tensors_[0].get_format().is_blocking()
             ? slice_range {{m_o * M_block, M_block},
-              {0, N_num_blocks * N_block}}
+                {0, N_num_blocks * N_block}}
             : slice_range {
-              {m_o, 1}, {0, N_num_blocks}, {0, M_block}, {0, N_block}});
+                {m_o, 1}, {0, N_num_blocks}, {0, M_block}, {0, N_block}});
       }
     }
   }

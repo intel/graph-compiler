@@ -612,8 +612,8 @@ LogicalResult BrgemmExecuteOp::verify() {
   // inputs for BRGEMM: kernel id, A memref, B memref, C memref, batch_size,
   // addr_len
   if (inputs.size() != 6)
-    return brgemmOp.emitOpError() << "expect 6"
-                                  << " inputs but got " << inputs.size();
+    return brgemmOp.emitOpError()
+           << "expect 6" << " inputs but got " << inputs.size();
   // Verify the dispatch to be an i64.
   Value dispatch = brgemmOp.getDispatch();
   if (!dispatch.getType().isInteger(64))
