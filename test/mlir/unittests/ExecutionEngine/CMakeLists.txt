@@ -13,5 +13,5 @@ target_link_libraries(GCExecutionEngineTests
 )
 
 if(GC_ENABLE_IMEX)
-  add_subdirectory(GPU)
+  add_subdirectory(IMEX)
 endif()

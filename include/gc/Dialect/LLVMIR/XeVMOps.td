@@ -221,6 +221,76 @@ def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
   let hasVerifier = 1;
 }
 
+def XeVM_MatrixElemType : AnyTypeOf<[AnyI8, AnyI16, AnyI32, F32, F16, BF16]>;
+
+/// Enum attribute of the different precision types.
+def XeVM_PrecisionTypeAttr : I32EnumAttr<"PrecisionType",
+  "XeVM precision type",
+  [
+    I32EnumAttrCase<"UNUSED", 0,  "unused">,
+    I32EnumAttrCase<"U8",     1,  "u8">,
+    I32EnumAttrCase<"U4",     2,  "u4">,
+    I32EnumAttrCase<"U2",     3,  "u2">,
+    I32EnumAttrCase<"S8",     4,  "i8">,
+    I32EnumAttrCase<"S4",     5,  "i4">,
+    I32EnumAttrCase<"S2",     6,  "i2">,
+    I32EnumAttrCase<"BF8",    7,  "bf8">,
+    I32EnumAttrCase<"TF32",   8,  "tf32">,
+    I32EnumAttrCase<"BF16",   9,  "bf16">,
+    I32EnumAttrCase<"FP16",   10, "f16">
+  ]> {
+  let cppNamespace = "::mlir::xevm";
+}
+
+def XeVM_DPASOp : XeVM_Op<"dpas">,
+  Results<(outs FixedVectorOf<[XeVM_MatrixElemType]>:$d)>,
+  Arguments<(ins
+    FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$c,
+    FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$a,
+    FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$b,
+    XeVM_PrecisionTypeAttr:$pa,
+    XeVM_PrecisionTypeAttr:$pb,
+    I32Attr:$rc
+  )> {
+
+  let summary = "Matrix multiply-add";
+
+  let description = [{
+    The `xevm.dpas` operation is a matrix multiplication plus accumulation:
+
+      D = C + A x B
+
+      where the A, B, C input matrices and the result D have shapes:
+        D : MxN
+        C : MxN
+        A : MxK
+        B : KxN
+        
+        Shape restrictions:
+        M : must be 1, 2, 4, or 8
+        N : fixed execution size, must be 16
+        K : systolic_depth * OPS_PER_CHAN
+            OPS_PER_CHAN
+              1 : for TF32
+              2 : for 16-bit precision(BF, HF)
+              4 : for 8-bit precision (FP8, UB, B)
+              8 : for less-then 8 bit precision (U4/S4, U2/S2).
+
+            If systolic_depth is 8, K would be 8, 16, 32, or 64 (based on OPS_PER_CHAN).
+    $a, $b, $c, $d - matrix A, B, C, D, respectively
+    $pa, $pb - precision of matrix A and B resepectively
+    $rc - repeat count
+
+    Further restrictions as well as more details can be found here:
+    https://registry.khronos.org/OpenCL/extensions/intel/cl_intel_subgroup_matrix_multiply_accumulate.html
+  }];
+
+  let assemblyFormat = [{
+    operands ` ` `{` `pa` `=` $pa `,` `pb` `=` $pb `,` `rc` `=` $rc `}` attr-dict `:` functional-type(operands, results)
+  }];
+
+  // let hasVerifier = 1;
+}
 
 def XeVM_TargetAttr : XeVM_Attr<"XeVMTarget", "target"> {
   let description = [{

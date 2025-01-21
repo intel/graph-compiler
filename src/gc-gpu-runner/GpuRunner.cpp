@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Intel Corporation
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -154,7 +154,11 @@ int main(int argc, char **argv) {
         gc::GPUPipelineOptions pipelineOpts;
         pipelineOpts.isUsmArgs = false;
         pipelineOpts.callFinish = true;
+#ifdef GC_USE_IMEX
+        populateIMEXPipeline(pm, pipelineOpts);
+#else
         populateGPUPipeline(pm, pipelineOpts);
+#endif
       };
 
   gc::gpu::OclModuleBuilder builder{mlirMod, builderOpts};

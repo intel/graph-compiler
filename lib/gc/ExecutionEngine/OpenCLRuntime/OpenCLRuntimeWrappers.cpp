@@ -23,12 +23,79 @@
 #define OCL_RUNTIME_EXPORT GC_DLL_EXPORT
 
 namespace {
+/* clang-format off */
+#define CaseToString(x) case x: return #x;
+const char* opencl_errstr(cl_int err) {
+  switch (err){
+    CaseToString(CL_SUCCESS)
+    CaseToString(CL_DEVICE_NOT_FOUND)
+    CaseToString(CL_DEVICE_NOT_AVAILABLE)
+    CaseToString(CL_COMPILER_NOT_AVAILABLE) 
+    CaseToString(CL_MEM_OBJECT_ALLOCATION_FAILURE)
+    CaseToString(CL_OUT_OF_RESOURCES)
+    CaseToString(CL_OUT_OF_HOST_MEMORY)
+    CaseToString(CL_PROFILING_INFO_NOT_AVAILABLE)
+    CaseToString(CL_MEM_COPY_OVERLAP)
+    CaseToString(CL_IMAGE_FORMAT_MISMATCH)
+    CaseToString(CL_IMAGE_FORMAT_NOT_SUPPORTED)
+    CaseToString(CL_BUILD_PROGRAM_FAILURE)
+    CaseToString(CL_MAP_FAILURE)
+    CaseToString(CL_MISALIGNED_SUB_BUFFER_OFFSET)
+    CaseToString(CL_COMPILE_PROGRAM_FAILURE)
+    CaseToString(CL_LINKER_NOT_AVAILABLE)
+    CaseToString(CL_LINK_PROGRAM_FAILURE)
+    CaseToString(CL_DEVICE_PARTITION_FAILED)
+    CaseToString(CL_KERNEL_ARG_INFO_NOT_AVAILABLE)
+    CaseToString(CL_INVALID_VALUE)
+    CaseToString(CL_INVALID_DEVICE_TYPE)
+    CaseToString(CL_INVALID_PLATFORM)
+    CaseToString(CL_INVALID_DEVICE)
+    CaseToString(CL_INVALID_CONTEXT)
+    CaseToString(CL_INVALID_QUEUE_PROPERTIES)
+    CaseToString(CL_INVALID_COMMAND_QUEUE)
+    CaseToString(CL_INVALID_HOST_PTR)
+    CaseToString(CL_INVALID_MEM_OBJECT)
+    CaseToString(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR)
+    CaseToString(CL_INVALID_IMAGE_SIZE)
+    CaseToString(CL_INVALID_SAMPLER)
+    CaseToString(CL_INVALID_BINARY)
+    CaseToString(CL_INVALID_BUILD_OPTIONS)
+    CaseToString(CL_INVALID_PROGRAM)
+    CaseToString(CL_INVALID_PROGRAM_EXECUTABLE)
+    CaseToString(CL_INVALID_KERNEL_NAME)
+    CaseToString(CL_INVALID_KERNEL_DEFINITION)
+    CaseToString(CL_INVALID_KERNEL)
+    CaseToString(CL_INVALID_ARG_INDEX)
+    CaseToString(CL_INVALID_ARG_VALUE)
+    CaseToString(CL_INVALID_ARG_SIZE)
+    CaseToString(CL_INVALID_KERNEL_ARGS)
+    CaseToString(CL_INVALID_WORK_DIMENSION)
+    CaseToString(CL_INVALID_WORK_GROUP_SIZE)
+    CaseToString(CL_INVALID_WORK_ITEM_SIZE)
+    CaseToString(CL_INVALID_GLOBAL_OFFSET)
+    CaseToString(CL_INVALID_EVENT_WAIT_LIST)
+    CaseToString(CL_INVALID_EVENT)
+    CaseToString(CL_INVALID_OPERATION)
+    CaseToString(CL_INVALID_GL_OBJECT)
+    CaseToString(CL_INVALID_BUFFER_SIZE)
+    CaseToString(CL_INVALID_MIP_LEVEL)
+    CaseToString(CL_INVALID_GLOBAL_WORK_SIZE)
+    CaseToString(CL_INVALID_PROPERTY)
+    CaseToString(CL_INVALID_IMAGE_DESCRIPTOR)
+    CaseToString(CL_INVALID_COMPILER_OPTIONS)
+    CaseToString(CL_INVALID_LINKER_OPTIONS)
+    CaseToString(CL_INVALID_DEVICE_PARTITION_COUNT)
+    default : return "Unknown OpenCL error code";
+  }
+}
+/* clang-format on */
 
 #define CL_SAFE_CALL2(a)                                                       \
   do {                                                                         \
     (a);                                                                       \
     if (err != CL_SUCCESS) {                                                   \
-      fprintf(stderr, "FAIL: err=%d @ line=%d (%s)\n", err, __LINE__, (#a));   \
+      fprintf(stderr, "FAIL: err=%d (%s) @ line=%d (%s)\n", err,               \
+              opencl_errstr(err), __LINE__, (#a));                             \
       abort();                                                                 \
     }                                                                          \
   } while (0)
@@ -37,8 +104,8 @@ namespace {
   {                                                                            \
     auto status = (call);                                                      \
     if (status != CL_SUCCESS) {                                                \
-      fprintf(stderr, "CL error %d @ line=%d (%s)\n", status, __LINE__,        \
-              (#call));                                                        \
+      fprintf(stderr, "CL error %d (%s) @ line=%d (%s)\n", status,             \
+              opencl_errstr(status), __LINE__, (#call));                       \
       abort();                                                                 \
     }                                                                          \
   }
@@ -159,7 +226,8 @@ static cl_device_id getDevice(cl_device_type *devtype) {
     }
 
     std::vector<cl_device_id> devices(uintValue);
-    clGetDeviceIDs(platform, *devtype, uintValue, devices.data(), nullptr);
+    CL_SAFE_CALL(
+        clGetDeviceIDs(platform, *devtype, uintValue, devices.data(), nullptr));
 
     for (auto &device : devices) {
       CL_SAFE_CALL(clGetDeviceInfo(device, CL_DEVICE_VENDOR_ID, sizeof(cl_uint),
@@ -290,7 +358,18 @@ static cl_program loadModule(GPUCLQUEUE *queue, const unsigned char *data,
         "-DPASTokenReduction -Xfinalizer -SWSBDepReduction -Xfinalizer "
         "'-printregusage -enableBCR' -cl-kernel-arg-info -x spir";
   }
-  CL_SAFE_CALL(clBuildProgram(program, 0, NULL, build_flags, NULL, NULL));
+  err = clBuildProgram(program, 1, &queue->device_, build_flags, NULL, NULL);
+  if (err != CL_SUCCESS) {
+    size_t logLen;
+    CL_SAFE_CALL(clGetProgramBuildInfo(
+        program, queue->device_, CL_PROGRAM_BUILD_LOG, 0, nullptr, &logLen));
+    std::string log(logLen, '\0');
+    CL_SAFE_CALL(clGetProgramBuildInfo(program, queue->device_,
+                                       CL_PROGRAM_BUILD_LOG, logLen, log.data(),
+                                       nullptr));
+    fprintf(stderr, "Build failed: %s\n", log.c_str());
+    abort();
+  }
   if (takeOwnership)
     queue->programs_.push_back(program);
   return program;
@@ -447,12 +526,19 @@ extern "C" OCL_RUNTIME_EXPORT void gpuWait(GPUCLQUEUE *queue) {
 
 // a silly workaround for mgpuModuleLoad. OCL needs context and device to load
 // the module. We remember the last call to any mgpu* APIs
-static thread_local GPUCLQUEUE *lastQueue;
+static thread_local GPUCLQUEUE *lastQueue{nullptr};
 extern "C" OCL_RUNTIME_EXPORT GPUCLQUEUE *mgpuStreamCreate() {
   auto ret =
       new GPUCLQUEUE(static_cast<cl_device_id>(nullptr), nullptr, nullptr);
   lastQueue = ret;
   return ret;
+}
+
+GPUCLQUEUE *getOrCreateStaticQueue() {
+  if (!lastQueue) {
+    return mgpuStreamCreate();
+  }
+  return lastQueue;
 }
 
 extern "C" OCL_RUNTIME_EXPORT void mgpuStreamDestroy(GPUCLQUEUE *queue) {
@@ -462,14 +548,13 @@ extern "C" OCL_RUNTIME_EXPORT void mgpuStreamDestroy(GPUCLQUEUE *queue) {
 
 extern "C" OCL_RUNTIME_EXPORT void *
 mgpuMemAlloc(uint64_t size, GPUCLQUEUE *queue, bool isShared) {
-  lastQueue = queue;
-  return allocDeviceMemory(queue, size, /*alignment*/ 64, isShared);
+  return allocDeviceMemory(queue ? queue : getOrCreateStaticQueue(), size,
+                           /*alignment*/ 64, isShared);
 }
 
 extern "C" OCL_RUNTIME_EXPORT void mgpuMemFree(void *ptr, GPUCLQUEUE *queue) {
-  lastQueue = queue;
   if (ptr) {
-    deallocDeviceMemory(queue, ptr);
+    deallocDeviceMemory(queue ? queue : getOrCreateStaticQueue(), ptr);
   }
 }
 
@@ -498,8 +583,8 @@ mgpuLaunchKernel(cl_kernel kernel, size_t gridX, size_t gridY, size_t gridZ,
                  size_t sharedMemBytes, GPUCLQUEUE *queue, void **params,
                  void ** /*extra*/, size_t paramsCount) {
   launchKernel(
-      queue, kernel, gridX, gridY, gridZ, blockX, blockY, blockZ,
-      sharedMemBytes,
+      queue ? queue : getOrCreateStaticQueue(), kernel, gridX, gridY, gridZ,
+      blockX, blockY, blockZ, sharedMemBytes,
       [&]() {
         // todo (yijie): do we need to handle shared mem? If there is dynamic
         // shared mem required, which value should paramsCount be?
@@ -512,5 +597,5 @@ mgpuLaunchKernel(cl_kernel kernel, size_t gridX, size_t gridY, size_t gridZ,
 }
 
 extern "C" OCL_RUNTIME_EXPORT void mgpuStreamSynchronize(GPUCLQUEUE *queue) {
-  CL_SAFE_CALL(clFinish(queue->queue_));
+  CL_SAFE_CALL(clFinish((queue ? queue : getOrCreateStaticQueue())->queue_));
 }

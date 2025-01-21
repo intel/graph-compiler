@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) 2024 Intel Corporation
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+#include "gc/ExecutionEngine/Driver/Driver.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -34,13 +36,8 @@ int main(int argc, char **argv) {
   // keeps GCCPURuntime linked
   gc_runtime_keep_alive = 0;
   llvm::InitLLVM y(argc, argv);
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
-
-  mlir::DialectRegistry registry;
+  mlir::DialectRegistry &registry{mlir::gc::initCompilerAndGetDialects()};
   registry.insert<mlir::arith::ArithDialect>();
-  mlir::registerAllToLLVMIRTranslations(registry);
 
   return mlir::JitRunnerMain(argc, argv, registry);
 }

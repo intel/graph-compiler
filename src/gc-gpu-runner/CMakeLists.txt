@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (C) 2024 Intel Corporation
+# Copyright (C) 2025 Intel Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,14 +15,16 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-if(NOT GC_ENABLE_TOOLS OR NOT GC_ENABLE_IMEX)
+if(GC_ENABLE_TOOLS AND GC_ENABLE_GPU)
+  gc_add_mlir_tool(gc-gpu-runner GpuRunner.cpp)
+  target_link_libraries(gc-gpu-runner PRIVATE
+    GcJitWrapper
+    GcGpuOclRuntime
+  )
+  mlir_check_all_link_libraries(gc-gpu-runner)
+else()
   message(STATUS "Gpu runner is not enabled.")
   return()
 endif()
 
-gc_add_mlir_tool(gc-gpu-runner GpuRunner.cpp)
-target_link_libraries(gc-gpu-runner PRIVATE
-  GcJitWrapper
-  GcGpuOclRuntime
-)
-mlir_check_all_link_libraries(gc-gpu-runner)
+

@@ -5,6 +5,6 @@ target_link_libraries(GCTransformsTests
   PRIVATE
   GcPasses)
 
-if(GC_ENABLE_IMEX)
+if(GC_ENABLE_GPU)
   add_subdirectory(GPU)
 endif()

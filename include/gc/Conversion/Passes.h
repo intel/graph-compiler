@@ -10,6 +10,7 @@
 #define GC_CONVERSION_PASSES_H
 
 #include "gc/Conversion/XeVMToLLVM/XeVMToLLVM.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 

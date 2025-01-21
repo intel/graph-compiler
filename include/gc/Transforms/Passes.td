@@ -93,6 +93,21 @@ def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
                "DPAS register block sizes MxNxK">,
   ];
 }
+#endif
+
+#ifdef GC_USE_GPU
+def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
+  let summary = "Convert the GPU operations to GpuOclRuntime calls.";
+  let description = [{
+    Convert the gpu alloc, dealloc, memcpy and launch operations to GpuOclRuntime calls.
+  }];
+  let options = [
+    Option<"callFinish", "call-finish", "bool",
+           /*default=*/"false",
+           "Call finish() after each kernel launch.">
+    ];
+}
+#endif // GC_USE_GPU
 
 def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
   let summary = "Add a context argument.";
@@ -109,17 +124,6 @@ def AllocsToSLM : Pass<"allocs-to-slm", "func::FuncOp"> {
   ];
 }
 
-def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
-  let summary = "Convert the GPU operations to GpuOclRuntime calls.";
-  let description = [{
-    Convert the gpu alloc, dealloc, memcpy and launch operations to GpuOclRuntime calls.
-  }];
-  let options = [
-    Option<"callFinish", "call-finish", "bool",
-           /*default=*/"false",
-           "Call finish() after each kernel launch.">
-    ];
-}
 
 def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
   let summary = "GPU tiling and fusion path.";
@@ -185,7 +189,6 @@ def GpuXeVMAttachTarget: Pass<"xevm-attach-target", ""> {
   ];
 }
 
-#endif // GC_USE_IMEX
 
 def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
                                         "func::FuncOp"> {
