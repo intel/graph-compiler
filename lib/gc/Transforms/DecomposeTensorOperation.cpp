@@ -170,8 +170,7 @@ struct DecomposeTensorOperationPass
     patterns.add<DecomposeGatherOp>(patterns.getContext());
     tensor::populateDecomposeTensorConcatPatterns(patterns);
 
-    if (failed(applyPatternsAndFoldGreedily(getOperation(),
-                                            std::move(patterns)))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       return signalPassFailure();
     }
   }

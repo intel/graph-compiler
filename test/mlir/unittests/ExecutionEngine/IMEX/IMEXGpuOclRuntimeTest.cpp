@@ -62,7 +62,7 @@ module @test {
 )mlir";
 
 constexpr char matmulAddStatic[] = R"mlir(
-module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" : #dlti.target_device_spec<#dlti.dl_entry<"max_work_group_size", 16 : i64>>>} {
+module @fragment_name attributes {"#dlti.sys_spec" = #dlti.target_system_spec<"GPU" = #dlti.target_device_spec<"max_work_group_size" = 16 : i64>>} {
   func.func @entry(%arg0: memref<128x256xf16>, %arg1: memref<256x256xf16>, %arg2: memref<128x256xf16>) {
     %0 = bufferization.to_tensor %arg0 restrict : memref<128x256xf16>
     %1 = bufferization.to_tensor %arg1 restrict : memref<256x256xf16>

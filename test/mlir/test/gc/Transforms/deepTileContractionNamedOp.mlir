@@ -150,12 +150,12 @@ func.func @matmul_2Dx4D_bf16(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<128x12
 
 module attributes {
   dlti.target_system_spec = #dlti.target_system_spec<
-    "CPU": #dlti.target_device_spec<
-      #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : i32>,
-      #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : i32>,
-      #dlti.dl_entry<"L3_cache_size_in_bytes", 110100480 : i32>,
-      #dlti.dl_entry<"num_threads", 56 : i32>,
-      #dlti.dl_entry<"max_vector_width", 512 : i32>>
+    "CPU" = #dlti.target_device_spec<
+      "L1_cache_size_in_bytes" = 49152 : i32,
+      "L2_cache_size_in_bytes" = 2097152 : i32,
+      "L3_cache_size_in_bytes" = 110100480 : i32,
+      "num_threads" = 56 : i32,
+      "max_vector_width" = 512 : i32>
   >} {
     // CHECK: #[[mapA:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3 * 2 + d4)>
     // CHECK: #[[mapB:.+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d2, d4)>

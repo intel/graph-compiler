@@ -813,7 +813,7 @@ void iterativeTilingAndFusionUntilExhaustion(
               defaultTilingOfType(rewriter, op, isaOpTy, cfg);
           if (succeeded(tilingResult)) {
             tiledOps.insert(tilingResult->tiledOps[0]);
-            rewriter.replaceOp(op, tilingResult->replacements);
+            rewriter.replaceOp(op, tilingResult->mergeResult.replacements);
             break;
           }
         }

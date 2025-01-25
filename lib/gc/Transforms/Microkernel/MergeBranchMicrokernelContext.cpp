@@ -296,7 +296,7 @@ public:
     patterns.add<ScfIndexSwitchRewriter>(&getContext(), dispatchAnalysis);
     FrozenRewritePatternSet patternSet(std::move(patterns));
 
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
       signalPassFailure();
     }
   }
