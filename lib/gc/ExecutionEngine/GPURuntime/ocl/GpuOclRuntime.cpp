@@ -718,7 +718,7 @@ StringRef createStaticMain(OpBuilder &builder, ModuleOp &module,
       auto offsetPtr = constArgs.end();
       constArgs.emplace_back(0);
       constArgs.append(shape.begin(), shape.end());
-      if (failed(getStridesAndOffset(type, constArgs, *offsetPtr))) {
+      if (failed(type.getStridesAndOffset(constArgs, *offsetPtr))) {
         gcLogD("Failed to get strides and offset of arg", i,
                " of the function ", funcName.begin());
         return {};
@@ -929,8 +929,9 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
             builder.getI64IntegerAttr(static_cast<int64_t>(wgSize)));
     TargetDeviceSpecInterface devSpec =
         TargetDeviceSpecAttr::get(ctx, dltiAttrs);
-    auto sysSpec =
-        TargetSystemSpecAttr::get(ctx, ArrayRef(std::pair(devStr, devSpec)));
+    DataLayoutEntryInterface dl =
+        DataLayoutEntryAttr::get(ctx, devStr, devSpec);
+    auto sysSpec = TargetSystemSpecAttr::get(ctx, ArrayRef(dl));
     mod = mlirModule.clone();
     mod.getOperation()->setAttr("#dlti.sys_spec", sysSpec);
     PassManager pm{ctx};

@@ -163,7 +163,7 @@ struct HasStaticStrides {
     SmallVector<int64_t> strides;
     if (auto memRefType = dyn_cast_or_null<MemRefType>(operandType)) {
       int64_t offset;
-      if (failed(getStridesAndOffset(memRefType, strides, offset)))
+      if (failed(memRefType.getStridesAndOffset(strides, offset)))
         return false;
       if (llvm::any_of(strides, [](int64_t stride) {
             return stride == ShapedType::kDynamic;
@@ -244,7 +244,8 @@ struct NumDpsInits {
 // Callable object to validate number of input operands for `op`.
 struct NumDpsInputs {
   NumDpsInputs() = delete;
-  explicit NumDpsInputs(std::function<bool(size_t)> fun) : fun(std::move(fun)){};
+  explicit NumDpsInputs(std::function<bool(size_t)> fun)
+      : fun(std::move(fun)){};
 
   bool operator()(Operation *op) {
     if (auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(op))

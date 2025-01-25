@@ -551,11 +551,11 @@ static LogicalResult verifyBrgemmDataTypes(ArrayAttr dtypes,
 
   auto context = op.getContext();
 
-#define FTAttr(t) TypeAttr::get(FloatType::get##t(context))
+#define FTAttr(t) TypeAttr::get(t::get(context))
 #define ITAttr(s, w) TypeAttr::get(IntegerType::get(context, w, IntegerType::s))
   SmallVector<std::pair<TypeAttr, TypeAttr>> validDataTypes = {
-      {FTAttr(F32), FTAttr(F32)},
-      {FTAttr(BF16), FTAttr(BF16)},
+      {FTAttr(Float32Type), FTAttr(Float32Type)},
+      {FTAttr(BFloat16Type), FTAttr(BFloat16Type)},
       {ITAttr(Unsigned, 8), ITAttr(Signed, 8)},
       {ITAttr(Signed, 8), ITAttr(Unsigned, 8)},
       {ITAttr(Unsigned, 8), ITAttr(Unsigned, 8)},

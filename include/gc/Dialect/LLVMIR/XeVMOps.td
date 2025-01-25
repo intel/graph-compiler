@@ -70,7 +70,7 @@ def XeVM_L1StoreCacheControl : XeVM_StoreCacheControl<"L1">;
 def XeVM_L3StoreCacheControl : XeVM_StoreCacheControl<"L3">;
 
 def XeVM_BlockLoad2dOp : XeVM_Op<"blockload2d">,
-  Results<(outs FixedVectorOf<[XeVM_ElemType]>:$res)>,
+  Results<(outs FixedVectorOfRankAndType<[1,2,3], [XeVM_ElemType]>:$res)>,
   Arguments<(ins
     Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
     I32:$base_width,
@@ -137,7 +137,7 @@ def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
     I32Attr:$tile_width,
     I32Attr:$tile_height,
     I32Attr:$v_blocks,
-    FixedVectorOf<[XeVM_ElemType]>:$stored_val,
+    FixedVectorOfRankAndType<[1, 2, 3], [XeVM_ElemType]>:$stored_val,
     DefaultValuedAttr<XeVM_L1StoreCacheControl, "::mlir::xevm::L1StoreCacheControl::DEFAULT">:$l1_cache_control,
     DefaultValuedAttr<XeVM_L3StoreCacheControl, "::mlir::xevm::L3StoreCacheControl::DEFAULT">:$l3_cache_control
   )> {
@@ -243,7 +243,7 @@ def XeVM_PrecisionTypeAttr : I32EnumAttr<"PrecisionType",
 }
 
 def XeVM_DPASOp : XeVM_Op<"dpas">,
-  Results<(outs FixedVectorOf<[XeVM_MatrixElemType]>:$d)>,
+  Results<(outs FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$d)>,
   Arguments<(ins
     FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$c,
     FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$a,

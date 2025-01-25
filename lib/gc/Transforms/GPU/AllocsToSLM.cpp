@@ -152,7 +152,7 @@ struct AllocsToSLM : public gc::impl::AllocsToSLMBase<AllocsToSLM> {
 
     RewritePatternSet patterns(ctx);
     patterns.add<ConvertAlloc>(patterns.getContext());
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 };
 

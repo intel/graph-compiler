@@ -2124,17 +2124,17 @@ struct LinalgToXeGPU : public gc::impl::LinalgToXeGPUBase<LinalgToXeGPU> {
     // Run GEMM pattern first to allow fusion with its consumers.
     RewritePatternSet gemmPatterns(&getContext());
     populateLinalgGemmToXeGPUPatterns(gemmPatterns, options);
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(gemmPatterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(gemmPatterns));
 
     // Convert memory fill ops.
     RewritePatternSet fillPatterns(&getContext());
     populateLinalgMemoryFillToXeGPUPatterns(fillPatterns, options);
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(fillPatterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(fillPatterns));
 
     // Convert other remaining ops.
     RewritePatternSet patterns(&getContext());
     populateLinalgEltwiseToXeGPUPatterns(patterns, options);
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 };
 
