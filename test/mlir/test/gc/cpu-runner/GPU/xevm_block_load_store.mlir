@@ -23,7 +23,7 @@ module @gemm attributes {gpu.container_module} {
       %loaded = xevm.blockload2d %src, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=32, tile_width=16, tile_height=8, v_blocks=1, transpose=false, vnni_transform=false, l1_cache_control=Default, l3_cache_control=Default} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<8xi32>
       %loaded_f32 = vector.bitcast %loaded : vector<8xi32> to vector<8xf32>
       %c0 = arith.constant 0 : i32
-    %thread_x = gpu.thread_id x
+      %thread_x = gpu.thread_id x
       %thread_x_i64 = arith.index_cast %thread_x : index to i64
       %thread_x_i32 = llvm.trunc %thread_x_i64 : i64 to i32
       %thread_x_f32 = arith.sitofp %thread_x_i32 : i32 to f32
