@@ -45,6 +45,16 @@ enum class NdDescI32Layout : uint32_t {
   TensorOffsetH = 5
 };
 
+static int32_t getNumericXeVMAddrSpace(xegpu::MemorySpace xeGpuMemspace) {
+  switch (xeGpuMemspace) {
+  case xegpu::MemorySpace::Global:
+    return static_cast<int>(mlir::xevm::XeVMMemorySpace::kCrossWorkgroup);
+  case xegpu::MemorySpace::SLM:
+    return static_cast<int>(mlir::xevm::XeVMMemorySpace::kWorkgroup);
+  }
+  llvm_unreachable("Unknown XeGPU memory space.");
+}
+
 template <typename T>
 std::tuple<bool, int32_t, int32_t> checkAllLinear(ArrayRef<T> denseAttr) {
   assert(!denseAttr.empty());
@@ -162,10 +172,12 @@ class CreateNdDescToXeVMPattern : public OpConversionPattern<CreateNdDescOp> {
   }
 };
 
-class LoadNdToXeVMPattern : public OpConversionPattern<LoadNdOp> {
-  using OpConversionPattern::OpConversionPattern;
+template <typename OpType, typename = std::enable_if_t<llvm::is_one_of<
+                               OpType, LoadNdOp, StoreNdOp>::value>>
+class LoadStoreNdToXeVMPattern : public OpConversionPattern<OpType> {
+  using OpConversionPattern<OpType>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(LoadNdOp op, LoadNdOp::Adaptor adaptor,
+  matchAndRewrite(OpType op, typename OpType::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto ctxt = rewriter.getContext();
@@ -175,7 +187,6 @@ class LoadNdToXeVMPattern : public OpConversionPattern<LoadNdOp> {
 
     VectorType payloadI64Ty = VectorType::get(4, rewriter.getI64Type());
     VectorType payloadI32Ty = VectorType::get(8, rewriter.getI32Type());
-
     Value payLoadAsI64 =
         rewriter.create<vector::BitCastOp>(loc, payloadI64Ty, tdesc);
     Value basePtr = rewriter.create<vector::ExtractOp>(
@@ -189,12 +200,10 @@ class LoadNdToXeVMPattern : public OpConversionPattern<LoadNdOp> {
         loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetW));
     Value offsetH = rewriter.create<vector::ExtractOp>(
         loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetH));
-
     auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
-        ctxt, 1); // TODO : proper address space selection
+        ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtr);
-
     auto elemType = tdescTy.getElementType();
     const uint32_t elemBitSize = elemType.getIntOrFloatBitWidth();
     Value elemByteSize = rewriter.create<arith::ConstantIntOp>(
@@ -204,83 +213,44 @@ class LoadNdToXeVMPattern : public OpConversionPattern<LoadNdOp> {
 
     auto tileW = tdescTy.getDimSize(1);
     auto tileH = tdescTy.getDimSize(0);
-
-    const bool vnni = op.getPacked().value_or(false);
-    auto transposeValue = op.getTranspose();
-    bool transpose =
-        transposeValue.has_value() && transposeValue.value()[0] == 1;
     int32_t vblocks = 1;
+    if (elemBitSize == 16) {
+      vblocks = (tileW + 16 - 1) / 16;
+      tileW = 16;
+    }
+    VectorType srcOrDstVecTy = cast<VectorType>(op.getValue().getType());
+    if constexpr (std::is_same_v<OpType, LoadNdOp>) {
+      const bool vnni = op.getPacked().value_or(false);
+      auto transposeValue = op.getTranspose();
+      bool transpose =
+          transposeValue.has_value() && transposeValue.value()[0] == 1;
+      VectorType loadedTy = encodeVectorTypeTo(
+          srcOrDstVecTy,
+          vnni ? rewriter.getI32Type() : rewriter.getIntegerType(elemBitSize));
+      Value resultFlatVec = rewriter.create<xevm::BlockLoad2dOp>(
+          loc, loadedTy, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW,
+          offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni);
+      resultFlatVec = rewriter.create<vector::BitCastOp>(
+          loc, encodeVectorTypeTo(loadedTy, srcOrDstVecTy.getElementType()),
+          resultFlatVec);
+      auto newOp = rewriter.create<vector::ShapeCastOp>(loc, srcOrDstVecTy,
+                                                        resultFlatVec);
+      rewriter.replaceOp(op, newOp);
+    } else {
+      VectorType srcFlatVecTy = VectorType::get(srcOrDstVecTy.getNumElements(),
+                                                srcOrDstVecTy.getElementType());
+      Value srcFlatVec = rewriter.create<vector::ShapeCastOp>(loc, srcFlatVecTy,
+                                                              op.getValue());
+      srcFlatVecTy = encodeVectorTypeTo(srcFlatVecTy,
+                                        rewriter.getIntegerType(elemBitSize));
+      srcFlatVec =
+          rewriter.create<vector::BitCastOp>(loc, srcFlatVecTy, srcFlatVec);
+      rewriter.create<xevm::BlockStore2dOp>(
+          loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
+          elemBitSize, tileW, tileH, vblocks, srcFlatVec);
+      rewriter.eraseOp(op);
+    }
 
-    VectorType resultTy = cast<VectorType>(op.getValue().getType());
-    VectorType loadedTy = encodeVectorTypeTo(
-        resultTy,
-        vnni ? rewriter.getI32Type() : rewriter.getIntegerType(elemBitSize));
-    Value resultFlatVec = rewriter.create<xevm::BlockLoad2dOp>(
-        loc, loadedTy, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW,
-        offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni);
-    resultFlatVec = rewriter.create<vector::BitCastOp>(
-        loc, encodeVectorTypeTo(loadedTy, resultTy.getElementType()),
-        resultFlatVec);
-    Value resultVec =
-        rewriter.create<vector::ShapeCastOp>(loc, resultTy, resultFlatVec);
-    rewriter.replaceOp(op, resultVec);
-    return success();
-  }
-};
-
-class StoreNdToXeVMPattern : public OpConversionPattern<StoreNdOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(StoreNdOp op, StoreNdOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto loc = op.getLoc();
-    auto ctxt = rewriter.getContext();
-
-    auto tdesc = adaptor.getTensorDesc();
-    auto tdescTy = op.getTensorDescType();
-
-    VectorType payloadI64Ty = VectorType::get(4, rewriter.getI64Type());
-    Value payLoadAsI64 =
-        rewriter.create<vector::BitCastOp>(loc, payloadI64Ty, tdesc);
-    Value basePtr = rewriter.create<vector::ExtractOp>(
-        loc, payLoadAsI64, static_cast<int>(NdDescI32Layout::BasePtr));
-    Value baseShapeX = rewriter.create<vector::ExtractOp>(
-        loc, tdesc, static_cast<int>(NdDescI32Layout::BaseShapeW));
-    Value baseShapeY = rewriter.create<vector::ExtractOp>(
-        loc, tdesc, static_cast<int>(NdDescI32Layout::BaseShapeH));
-    Value offsetX = rewriter.create<vector::ExtractOp>(
-        loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetW));
-    Value offsetY = rewriter.create<vector::ExtractOp>(
-        loc, tdesc, static_cast<int>(NdDescI32Layout::TensorOffsetH));
-
-    auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
-        ctxt, 1); // TODO : proper address space selection
-    Value basePtrLLVM =
-        rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtr);
-
-    auto elemType = tdescTy.getElementType();
-    const uint32_t elemBitSize = elemType.getIntOrFloatBitWidth();
-    Value elemByteSize = rewriter.create<arith::ConstantIntOp>(
-        loc, elemBitSize / 8, rewriter.getI32Type());
-    Value surfaceW =
-        rewriter.create<arith::MulIOp>(loc, baseShapeX, elemByteSize);
-
-    auto tileW = tdescTy.getDimSize(1);
-    auto tileH = tdescTy.getDimSize(0);
-
-    int32_t vblocks = 1;
-    VectorType sourceVecTy = cast<VectorType>(op.getValue().getType());
-    VectorType sourceFlatVecTy = VectorType::get(sourceVecTy.getNumElements(),
-                                                 sourceVecTy.getElementType());
-    Value sourceFlatVec = rewriter.create<vector::ShapeCastOp>(
-        loc, sourceFlatVecTy, op.getValue());
-    VectorType sourceFlatAsVecI32Ty =
-        encodeVectorTypeTo(sourceFlatVecTy, rewriter.getI32Type());
-    Value sourceFlatAsVecI32 = rewriter.create<vector::BitCastOp>(
-        loc, sourceFlatAsVecI32Ty, sourceFlatVec);
-    rewriter.replaceOpWithNewOp<xevm::BlockStore2dOp>(
-        op, basePtrLLVM, surfaceW, baseShapeY, surfaceW, offsetX, offsetY,
-        elemBitSize, tileW, tileH, vblocks, sourceFlatAsVecI32);
     return success();
   }
 };
@@ -337,62 +307,37 @@ class CreateDescToXeVMPattern : public OpConversionPattern<CreateDescOp> {
   }
 };
 
-class LoadGatherToXeVMPattern : public OpConversionPattern<LoadGatherOp> {
-  using OpConversionPattern::OpConversionPattern;
+template <typename OpType, typename = std::enable_if_t<llvm::is_one_of<
+                               OpType, LoadGatherOp, StoreScatterOp>::value>>
+class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
+  using OpConversionPattern<OpType>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(LoadGatherOp op, LoadGatherOp::Adaptor adaptor,
+  matchAndRewrite(OpType op, typename OpType::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto ctxt = rewriter.getContext();
-
-    auto ptrTypeLLVM = LLVM::LLVMPointerType::get(ctxt, 1);
+    auto tdesc = op.getTensorDescType();
+    auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
+        ctxt, getNumericXeVMAddrSpace(tdesc.getMemorySpace()));
     Value basePtrI64 = rewriter.create<arith::IndexCastOp>(
         loc, rewriter.getI64Type(), adaptor.getTensorDesc());
     Value basePtrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
-
-    VectorType resType = cast<VectorType>(op.getValue().getType());
-    VectorType resFlatType =
-        VectorType::get(resType.getNumElements(), resType.getElementType());
-    VectorType resFlatI32Ty =
-        encodeVectorTypeTo(resFlatType, rewriter.getI32Type());
-    Value loaded =
-        rewriter.create<LLVM::LoadOp>(loc, resFlatI32Ty, basePtrLLVM);
-    Value sourceFlatVec =
-        rewriter.create<vector::BitCastOp>(loc, resFlatType, loaded);
-    sourceFlatVec =
-        rewriter.create<vector::ShapeCastOp>(loc, resType, sourceFlatVec);
-
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-class StoreScatterToXeVMPattern : public OpConversionPattern<StoreScatterOp> {
-  using OpConversionPattern::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(StoreScatterOp op, StoreScatterOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto loc = op.getLoc();
-    auto ctxt = rewriter.getContext();
-
-    auto ptrTypeLLVM = LLVM::LLVMPointerType::get(ctxt, 1);
-    Value basePtrI64 = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getI64Type(), adaptor.getTensorDesc());
-    Value basePtrLLVM =
-        rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
-
-    VectorType srcType = cast<VectorType>(op.getValue().getType());
-    VectorType srcFlatType =
-        VectorType::get(srcType.getNumElements(), srcType.getElementType());
-    Value srcFlatVec =
-        rewriter.create<vector::ShapeCastOp>(loc, srcFlatType, op.getValue());
-    VectorType srcFlatI32Ty =
-        encodeVectorTypeTo(srcFlatType, rewriter.getI32Type());
-    Value sourceFlatVec =
-        rewriter.create<vector::BitCastOp>(loc, srcFlatI32Ty, srcFlatVec);
-    rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, sourceFlatVec, basePtrLLVM);
-    return success();
+    VectorType srcOrDstVecTy = cast<VectorType>(op.getValue().getType());
+    VectorType srcOrDstFlatVecTy = VectorType::get(
+        srcOrDstVecTy.getNumElements(), srcOrDstVecTy.getElementType());
+    if constexpr (std::is_same_v<OpType, LoadGatherOp>) {
+      Value loaded =
+          rewriter.create<LLVM::LoadOp>(loc, srcOrDstFlatVecTy, basePtrLLVM);
+      auto newOp =
+          rewriter.create<vector::ShapeCastOp>(loc, srcOrDstVecTy, loaded);
+      rewriter.replaceOp(op, newOp);
+    } else {
+      Value srcFlatVec = rewriter.create<vector::ShapeCastOp>(
+          loc, srcOrDstFlatVecTy, op.getValue());
+      rewriter.create<LLVM::StoreOp>(loc, srcFlatVec, basePtrLLVM);
+      rewriter.eraseOp(op);
+    }
   }
 };
 
@@ -442,9 +387,13 @@ struct ConvertXeGPUToXeVMPass
 namespace mlir {
 void populateXeGPUToXeVMConversionPatterns(RewritePatternSet &patterns,
                                            LLVMTypeConverter &typeConverter) {
-  patterns.add<CreateNdDescToXeVMPattern, LoadNdToXeVMPattern,
-               StoreNdToXeVMPattern>(typeConverter, patterns.getContext());
-  patterns.add<CreateDescToXeVMPattern, LoadGatherToXeVMPattern,
-               StoreScatterToXeVMPattern>(typeConverter, patterns.getContext());
+  patterns
+      .add<CreateNdDescToXeVMPattern, LoadStoreNdToXeVMPattern<xegpu::LoadNdOp>,
+           LoadStoreNdToXeVMPattern<xegpu::StoreNdOp>>(typeConverter,
+                                                       patterns.getContext());
+  patterns
+      .add<CreateDescToXeVMPattern, LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
+           LoadStoreToXeVMPattern<xegpu::StoreScatterOp>>(
+          typeConverter, patterns.getContext());
 }
 } // namespace mlir
