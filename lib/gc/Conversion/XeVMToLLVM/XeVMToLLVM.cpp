@@ -264,6 +264,52 @@ private:
   }
 };
 
+class MemfenceToOCLPattern : public OpConversionPattern<MemfenceOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(MemfenceOp op, MemfenceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    const std::string fnName{"atomic_work_item_fence"};
+    int memScopeOcl, addrSpaceOcl;
+    switch (op.getAddrspace()) {
+    case xevm::FenceAddrSpace::SHARED:
+      addrSpaceOcl = 1;
+      break;
+    case xevm::FenceAddrSpace::GLOBAL:
+      addrSpaceOcl = 2;
+      break;
+    default:
+      // GENERIC is not supported in OpenCL
+      llvm_unreachable("unsupported xevm::FenceAddrSpace");
+    }
+    switch (op.getScope()) {
+    case xevm::MemoryScope::WORKGROUP:
+      memScopeOcl = 1;
+      break;
+    case xevm::MemoryScope::GPU:
+      memScopeOcl = 2;
+      break;
+    default:
+      // CLUSTER and SYSTEM are not supported in OpenCL
+      llvm_unreachable("unsupported xevm::MemoryScope");
+    }
+    Value acqRel = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(4));
+    Value memScope = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(memScopeOcl));
+    Value addrSpace = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(addrSpaceOcl));
+    SmallVector<Value> args{addrSpace, acqRel, memScope};
+    SmallVector<Type> argTypes{3, rewriter.getI32Type()};
+    LLVM::CallOp call =
+        createDeviceFunctionCall(rewriter, mangle(fnName, argTypes),
+                                 LLVM::LLVMVoidType::get(rewriter.getContext()),
+                                 argTypes, args, {}, noUnwindAttrs);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 template <typename OpType>
 class LoadStorePrefetchToOCLPattern : public OpConversionPattern<OpType> {
   using OpConversionPattern<OpType>::OpConversionPattern;
@@ -411,11 +457,10 @@ struct ConvertXeVMToLLVMPass
 //===----------------------------------------------------------------------===//
 
 void mlir::populateXeVMToLLVMConversionPatterns(RewritePatternSet &patterns) {
-  patterns
-      .add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
-           LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
-           LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>, DPASToOCLPattern>(
-          patterns.getContext());
+  patterns.add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
+               LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
+               LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>,
+               DPASToOCLPattern, MemfenceToOCLPattern>(patterns.getContext());
 }
 
 //===----------------------------------------------------------------------===//

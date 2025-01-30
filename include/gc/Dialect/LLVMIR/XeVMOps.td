@@ -174,6 +174,64 @@ def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
   let hasVerifier = 1;
 }
 
+def XeVM_MemoryScope : I32EnumAttr<"MemoryScope", "Memory scope for memory operations",
+    [
+      I32EnumAttrCase<"WORKGROUP", 0, "workgroup">,
+      I32EnumAttrCase<"CLUSTER", 1, "cluster">,
+      I32EnumAttrCase<"GPU", 2, "gpu">,
+      I32EnumAttrCase<"SYSTEM", 3, "system">
+    ]>{
+  let cppNamespace = "mlir::xevm";
+  let genSpecializedAttr = 0;
+}
+
+def XeVM_MemoryScopeAttr:
+  EnumAttr<XeVM_Dialect, XeVM_MemoryScope, "mem_scope"> {
+    let summary = [{Describes the memory visibility scope:
+                    "workgroup" - All work-items in the same work-group.
+                    "cluster" - All work-items in the same cluster (a group of workgroups sharing SLM).
+                    "gpu" - All work-items in the global NDrange.
+                    "system" - All work-items in the global NDrange and the host program. }];
+    let assemblyFormat = "$value";
+}
+
+def XeVM_FenceAddrSpace : I32EnumAttr<"FenceAddrSpace", "Address space for MemfenceOp",
+    [
+      I32EnumAttrCase<"SHARED", 0, "shared">,
+      I32EnumAttrCase<"GLOBAL", 1, "global">,
+      I32EnumAttrCase<"GENERIC", 2, "generic">
+    ]>{
+  let cppNamespace = "mlir::xevm";
+  let genSpecializedAttr = 0;
+}
+
+def XeVM_FenceAddrSpaceAttr:
+  EnumAttr<XeVM_Dialect, XeVM_FenceAddrSpace, "fence_addrspace"> {
+    let summary = [{Specifies the address space for memory operations affected by a fence:
+                    "shared" - workgroup (SLM).
+                    "global" - GPU.
+                    "generic" - both "shared" and "global".}];
+    let assemblyFormat = "$value";
+}
+
+def XeVM_MemfenceOp : XeVM_Op<"memfence">,
+  Arguments<(ins
+    XeVM_MemoryScopeAttr:$scope,
+    DefaultValuedAttr<XeVM_FenceAddrSpaceAttr, "mlir::xevm::FenceAddrSpace::GENERIC"> :$addrspace
+  )> {
+  let summary = "Work-item's memory fence.";
+  let description = [{ 
+    This operation ensures that all prior memory accesses of this 
+    work-item to `addrspace` are visible to all other work-items in `scope`.
+    Parameters description:
+    $scope - specify the memory scope at which all other work-items should observe
+                memory operations prior to the fence.
+    $addrspace - specify the address space of work-item's memory accesses 
+                to be affected by the fence.
+  }];
+  let assemblyFormat = [{`addrspace` `=` `` $addrspace `,` `scope` `=` `` $scope attr-dict}];
+}
+
 def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
   Arguments<(ins
     Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,

@@ -341,6 +341,38 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
   }
 };
 
+class FenceToXeVMPattern : public OpConversionPattern<FenceOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(FenceOp op, FenceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto ctxt = rewriter.getContext();
+    xevm::MemoryScope memScope;
+    switch (op.getFenceScope()) {
+    case xegpu::FenceScope::Workgroup:
+      memScope = xevm::MemoryScope::WORKGROUP;
+      break;
+    case xegpu::FenceScope::GPU:
+      memScope = xevm::MemoryScope::GPU;
+      break;
+      llvm_unreachable("Unknown XeGPU fence scope.");
+    }
+    xevm::FenceAddrSpace addrSpace;
+    switch (op.getMemoryKind()) {
+    case xegpu::MemorySpace::Global:
+      addrSpace = xevm::FenceAddrSpace::GLOBAL;
+      break;
+    case xegpu::MemorySpace::SLM:
+      addrSpace = xevm::FenceAddrSpace::SHARED;
+      break;
+      llvm_unreachable("Unknown XeGPU fence scope.");
+    }
+    rewriter.create<xevm::MemfenceOp>(loc, memScope, addrSpace);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 //===----------------------------------------------------------------------===//
 // Pass Definition
 //===----------------------------------------------------------------------===//
@@ -395,5 +427,6 @@ void populateXeGPUToXeVMConversionPatterns(RewritePatternSet &patterns,
       .add<CreateDescToXeVMPattern, LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
            LoadStoreToXeVMPattern<xegpu::StoreScatterOp>>(
           typeConverter, patterns.getContext());
+  patterns.add<FenceToXeVMPattern>(typeConverter, patterns.getContext());
 }
 } // namespace mlir
