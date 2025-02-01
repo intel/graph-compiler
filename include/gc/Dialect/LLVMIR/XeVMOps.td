@@ -41,33 +41,41 @@ class XeVM_Op<string mnemonic, list<Trait> traits = []> :
 
 def XeVM_ElemType : AnyTypeOf<[AnyI8, AnyI16, AnyI32, F32, F16, BF16]>;
 
-class XeVM_LoadCacheControl<string cacheMnemonic> : I32EnumAttr<!strconcat(cacheMnemonic, "LoadCacheControl"), "XeVM load ops cache control",
+def XeVM_LoadCacheControl : I32EnumAttr<"LoadCacheControl", "XeVM load ops cache control",
   [
     I32EnumAttrCase<"DEFAULT",     0,  "Default">,
-    I32EnumAttrCase<"UC",          1,  !strconcat(cacheMnemonic, "UC")>,     // uncached
-    I32EnumAttrCase<"C",           2,  !strconcat(cacheMnemonic, "C")>,      // cached
-    I32EnumAttrCase<"S",           3,  !strconcat(cacheMnemonic, "S")>,      // streaming
-    I32EnumAttrCase<"IAR",         4,  !strconcat(cacheMnemonic, "IAR")>,    // invalidate-after-read
+    I32EnumAttrCase<"UC",          1,  "UC">,     // uncached
+    I32EnumAttrCase<"C",           2,  "C">,      // cached
+    I32EnumAttrCase<"S",           3,  "S">,      // streaming
+    I32EnumAttrCase<"IAR",         4,  "IAR">,    // invalidate-after-read
   ]> {
   let cppNamespace = "::mlir::xevm";
+  let genSpecializedAttr = 0;
 }
 
-def XeVM_L1LoadCacheControl : XeVM_LoadCacheControl<"L1">;
-def XeVM_L3LoadCacheControl : XeVM_LoadCacheControl<"L3">;
+def XeVM_LoadCacheControlAttr:
+  EnumAttr<XeVM_Dialect, XeVM_LoadCacheControl, "load_cache_control"> {
+    let summary = [{ }];
+    let assemblyFormat = "$value";
+}
 
-class XeVM_StoreCacheControl<string cacheMnemonic> : I32EnumAttr<!strconcat(cacheMnemonic, "StoreCacheControl"), "XeVM store ops cache control",
+def XeVM_StoreCacheControl : I32EnumAttr<"StoreCacheControl", "XeVM store ops cache control",
   [
     I32EnumAttrCase<"DEFAULT",     0,  "Default">,
-    I32EnumAttrCase<"UC",          1,  !strconcat(cacheMnemonic, "UC")>,    // uncached
-    I32EnumAttrCase<"WT",          2,  !strconcat(cacheMnemonic, "WT")>,    // write-through
-    I32EnumAttrCase<"S",           3,  !strconcat(cacheMnemonic, "S")>,     // streaming
-    I32EnumAttrCase<"WB",          4,  !strconcat(cacheMnemonic, "WB")>,    // write back
+    I32EnumAttrCase<"UC",          1,  "UC">,    // uncached
+    I32EnumAttrCase<"WT",          2,  "WT">,    // write-through
+    I32EnumAttrCase<"S",           3,  "S">,     // streaming
+    I32EnumAttrCase<"WB",          4,  "WB">,    // write back
   ]> {
   let cppNamespace = "::mlir::xevm";
+  let genSpecializedAttr = 0;
 }
 
-def XeVM_L1StoreCacheControl : XeVM_StoreCacheControl<"L1">;
-def XeVM_L3StoreCacheControl : XeVM_StoreCacheControl<"L3">;
+def XeVM_StoreCacheControlAttr:
+  EnumAttr<XeVM_Dialect, XeVM_StoreCacheControl, "store_cache_control"> {
+    let summary = [{ }];
+    let assemblyFormat = "$value";
+}
 
 def XeVM_BlockLoad2dOp : XeVM_Op<"blockload2d">,
   Results<(outs FixedVectorOfRankAndType<[1,2,3], [XeVM_ElemType]>:$res)>,
@@ -84,8 +92,8 @@ def XeVM_BlockLoad2dOp : XeVM_Op<"blockload2d">,
     I32Attr:$v_blocks,
     I1Attr:$transpose,
     I1Attr:$vnni_transform,
-    DefaultValuedAttr<XeVM_L1LoadCacheControl, "::mlir::xevm::L1LoadCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_L3LoadCacheControl, "::mlir::xevm::L3LoadCacheControl::DEFAULT">:$l3_cache_control
+    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
+    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control
   )> {
 
   let summary = "2D block load";
@@ -138,8 +146,8 @@ def XeVM_BlockStore2dOp : XeVM_Op<"blockstore2d">,
     I32Attr:$tile_height,
     I32Attr:$v_blocks,
     FixedVectorOfRankAndType<[1, 2, 3], [XeVM_ElemType]>:$stored_val,
-    DefaultValuedAttr<XeVM_L1StoreCacheControl, "::mlir::xevm::L1StoreCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_L3StoreCacheControl, "::mlir::xevm::L3StoreCacheControl::DEFAULT">:$l3_cache_control
+    DefaultValuedAttr<XeVM_StoreCacheControlAttr, "::mlir::xevm::StoreCacheControl::DEFAULT">:$l1_cache_control,
+    DefaultValuedAttr<XeVM_StoreCacheControlAttr, "::mlir::xevm::StoreCacheControl::DEFAULT">:$l3_cache_control
   )> {
 
   let summary = "2D block store";
@@ -195,7 +203,7 @@ def XeVM_MemoryScopeAttr:
     let assemblyFormat = "$value";
 }
 
-def XeVM_FenceAddrSpace : I32EnumAttr<"FenceAddrSpace", "Address space for MemfenceOp",
+def XeVM_AddrSpace : I32EnumAttr<"AddrSpace", "Address spaces",
     [
       I32EnumAttrCase<"SHARED", 0, "shared">,
       I32EnumAttrCase<"GLOBAL", 1, "global">,
@@ -205,8 +213,8 @@ def XeVM_FenceAddrSpace : I32EnumAttr<"FenceAddrSpace", "Address space for Memfe
   let genSpecializedAttr = 0;
 }
 
-def XeVM_FenceAddrSpaceAttr:
-  EnumAttr<XeVM_Dialect, XeVM_FenceAddrSpace, "fence_addrspace"> {
+def XeVM_AddrSpaceAttr:
+  EnumAttr<XeVM_Dialect, XeVM_AddrSpace, "fence_addrspace"> {
     let summary = [{Specifies the address space for memory operations affected by a fence:
                     "shared" - workgroup (SLM).
                     "global" - GPU.
@@ -217,7 +225,7 @@ def XeVM_FenceAddrSpaceAttr:
 def XeVM_MemfenceOp : XeVM_Op<"memfence">,
   Arguments<(ins
     XeVM_MemoryScopeAttr:$scope,
-    DefaultValuedAttr<XeVM_FenceAddrSpaceAttr, "mlir::xevm::FenceAddrSpace::GENERIC"> :$addrspace
+    DefaultValuedAttr<XeVM_AddrSpaceAttr, "mlir::xevm::AddrSpace::GENERIC"> :$addrspace
   )> {
   let summary = "Work-item's memory fence.";
   let description = [{ 
@@ -232,6 +240,28 @@ def XeVM_MemfenceOp : XeVM_Op<"memfence">,
   let assemblyFormat = [{`addrspace` `=` `` $addrspace `,` `scope` `=` `` $scope attr-dict}];
 }
 
+def XeVM_PrefetchOp : XeVM_Op<"prefetch">,
+  Arguments<(ins
+    Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
+    XeVM_AddrSpaceAttr:$addrspace,
+    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
+    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control
+  )> {
+  let summary = "Prefetch data into a cache subsystem.";
+  let description = [{ 
+    Work-item issues a prefetch from global memory to L1/L3 cache:
+    $ptr - memory pointer.
+    $addrspace - address space of a pointer, must be generic or global.
+    $cache_control - specify caching options (e.g., L1c, L3uc).
+  }];
+  let assemblyFormat = [{
+    operands ` ` `{` `addrspace` `=` $addrspace `,`  `l1_cc` `=` $l1_cache_control `,`  `l3_cc` `=` $l3_cache_control `}`
+      attr-dict `:` `(` type(operands) `)`
+  }];
+
+  // let hasVerifier = 1;
+}
+
 def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
   Arguments<(ins
     Arg<LLVM_AnyPointer, "", [MemRead]>:$ptr,
@@ -244,8 +274,8 @@ def XeVM_BlockPrefetch2dOp : XeVM_Op<"blockprefetch2d">,
     I32Attr:$tile_width,
     I32Attr:$tile_height,
     I32Attr:$v_blocks,
-    DefaultValuedAttr<XeVM_L1LoadCacheControl, "::mlir::xevm::L1LoadCacheControl::DEFAULT">:$l1_cache_control,
-    DefaultValuedAttr<XeVM_L3LoadCacheControl, "::mlir::xevm::L3LoadCacheControl::DEFAULT">:$l3_cache_control
+    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l1_cache_control,
+    DefaultValuedAttr<XeVM_LoadCacheControlAttr, "::mlir::xevm::LoadCacheControl::DEFAULT">:$l3_cache_control
   )> {
 
   let summary = "2D block prefetch";

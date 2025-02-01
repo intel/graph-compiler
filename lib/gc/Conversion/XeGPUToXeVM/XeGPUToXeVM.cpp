@@ -56,7 +56,7 @@ static int32_t getNumericXeVMAddrSpace(xegpu::MemorySpace xeGpuMemspace) {
 }
 
 template <typename T>
-std::tuple<bool, int32_t, int32_t> checkAllLinear(ArrayRef<T> denseAttr) {
+std::tuple<bool, int32_t, int32_t> checkAllLinear(SmallVector<T> denseAttr) {
   assert(!denseAttr.empty());
   const int32_t intercept{static_cast<int32_t>(denseAttr[0])};
   if (denseAttr.size() < 2)
@@ -172,6 +172,39 @@ class CreateNdDescToXeVMPattern : public OpConversionPattern<CreateNdDescOp> {
   }
 };
 
+class UpdateNdOffsetToXeVMPattern
+    : public OpConversionPattern<UpdateNdOffsetOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(UpdateNdOffsetOp op, UpdateNdOffsetOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto ctxt = rewriter.getContext();
+    auto offsets = op.getOffsets();
+    auto tdesc = adaptor.getTensorDesc();
+    for (size_t offsetDim = 0; offsetDim < offsets.size(); offsetDim++) {
+      auto offset = offsets[offsetDim];
+      if (auto cst =
+              dyn_cast_if_present<arith::ConstantOp>(offset.getDefiningOp()))
+        if (auto attr = dyn_cast_if_present<mlir::IntegerAttr>(cst.getValue());
+            attr && !attr.getInt())
+          continue;
+      const int offsetPos =
+          static_cast<int>(offsetDim ? NdDescI32Layout::TensorOffsetW
+                                     : NdDescI32Layout::TensorOffsetH);
+      auto oldOffset =
+          rewriter.create<vector::ExtractOp>(loc, tdesc, offsetPos);
+      offset = rewriter.create<arith::IndexCastUIOp>(loc, rewriter.getI32Type(),
+                                                     offset);
+      auto newOffset = rewriter.create<arith::AddIOp>(loc, oldOffset, offset);
+      tdesc =
+          rewriter.create<vector::InsertOp>(loc, newOffset, tdesc, offsetPos);
+    }
+    rewriter.replaceOp(op, tdesc);
+    return success();
+  }
+};
+
 template <typename OpType, typename = std::enable_if_t<llvm::is_one_of<
                                OpType, LoadNdOp, StoreNdOp>::value>>
 class LoadStoreNdToXeVMPattern : public OpConversionPattern<OpType> {
@@ -250,7 +283,6 @@ class LoadStoreNdToXeVMPattern : public OpConversionPattern<OpType> {
           elemBitSize, tileW, tileH, vblocks, srcFlatVec);
       rewriter.eraseOp(op);
     }
-
     return success();
   }
 };
@@ -267,21 +299,25 @@ class CreateDescToXeVMPattern : public OpConversionPattern<CreateDescOp> {
     int32_t slope{0};
     int32_t intercept{0};
     if (auto cstOp = dyn_cast<arith::ConstantOp>(offsets.getDefiningOp())) {
-      if (auto denseAttr = cstOp->getAttrOfType<DenseI32ArrayAttr>(
+      if (auto denseAttr = cstOp->getAttrOfType<DenseElementsAttr>(
               cstOp.getValueAttrName())) {
-        std::tie(allLinear, slope, intercept) =
-            checkAllLinear(denseAttr.asArrayRef());
-      } else if (auto denseAttr = cstOp->getAttrOfType<DenseI64ArrayAttr>(
-                     cstOp.getValueAttrName())) {
-        std::tie(allLinear, slope, intercept) =
-            checkAllLinear(denseAttr.asArrayRef());
+        SmallVector<int32_t> intValues;
+        for (APInt val : denseAttr.getValues<APInt>())
+          intValues.push_back(static_cast<int32_t>(val.getSExtValue()));
+        std::tie(allLinear, slope, intercept) = checkAllLinear(intValues);
       } else {
-        op.emitError()
-            << "Unknown offsets source, must be a compile-time constant array.";
+        op.emitError() << "Unknown offsets source, expected a dense array.";
+        return failure();
       }
+    } else {
+      op.emitError()
+          << "Unknown offsets source, must be a compile-time constant array.";
+      return failure();
     }
-    if (!allLinear)
+    if (!allLinear) {
       op.emitError() << "Expected linear offsets pattern.";
+      return failure();
+    }
 
     auto memrefTy = cast<MemRefType>(op.getSource().getType());
     Value subGroupAddr =
@@ -296,13 +332,44 @@ class CreateDescToXeVMPattern : public OpConversionPattern<CreateDescOp> {
     Value offsetSlope = rewriter.create<arith::ConstantIndexOp>(loc, slope);
     offsetSlope =
         rewriter.create<arith::MulIOp>(loc, elemByteWidth, offsetSlope);
-    Value laneId = rewriter.create<gpu::LaneIdOp>(loc, /*upperBound=*/nullptr);
+    Value sgSize = rewriter.create<arith::ConstantIndexOp>(
+        loc, 16); // LaneIdOp doesn't work in llvm-spv
+    Value threadId = rewriter.create<gpu::ThreadIdOp>(loc, gpu::Dimension::x);
+    Value laneId = rewriter.create<arith::RemUIOp>(loc, threadId, sgSize);
     Value laneOffset = rewriter.create<arith::MulIOp>(loc, laneId, offsetSlope);
     laneOffset =
         rewriter.create<arith::AddIOp>(loc, laneOffset, offsetIntercept);
     auto laneAddr =
         rewriter.create<arith::AddIOp>(loc, subGroupAddr, laneOffset);
     rewriter.replaceOp(op, laneAddr);
+    return success();
+  }
+};
+
+class UpdateOffsetToXeVMPattern : public OpConversionPattern<UpdateOffsetOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(UpdateOffsetOp op, UpdateOffsetOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto ctxt = rewriter.getContext();
+    auto elemByteSize =
+        op.getTensorDesc().getType().getElementType().getIntOrFloatBitWidth() /
+        8;
+    // Value laneId = rewriter.create<gpu::LaneIdOp>(loc,
+    // /*upperBound=*/nullptr);
+    Value sgSize = rewriter.create<arith::ConstantIndexOp>(loc, 16);
+    Value threadId = rewriter.create<gpu::ThreadIdOp>(loc, gpu::Dimension::x);
+    Value laneId = rewriter.create<arith::RemUIOp>(loc, threadId, sgSize);
+    Value offsetForLane =
+        rewriter.create<vector::ExtractOp>(loc, adaptor.getOffsets(), laneId);
+    Value factor = rewriter.create<arith::ConstantIndexOp>(loc, elemByteSize);
+    offsetForLane = rewriter.create<arith::IndexCastOp>(
+        loc, rewriter.getIndexType(), offsetForLane);
+    offsetForLane = rewriter.create<arith::MulIOp>(loc, factor, offsetForLane);
+    Value newOffsetForLane = rewriter.create<arith::AddIOp>(
+        loc, adaptor.getTensorDesc(), offsetForLane);
+    rewriter.replaceOp(op, newOffsetForLane);
     return success();
   }
 };
@@ -338,9 +405,45 @@ class LoadStoreToXeVMPattern : public OpConversionPattern<OpType> {
       rewriter.create<LLVM::StoreOp>(loc, srcFlatVec, basePtrLLVM);
       rewriter.eraseOp(op);
     }
+    return success();
   }
 };
 
+class PrefetchToXeVMPattern : public OpConversionPattern<PrefetchOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(PrefetchOp op, PrefetchOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto ctxt = rewriter.getContext();
+    auto tdescTy = op.getTensorDescType();
+    auto ptrTypeLLVM = LLVM::LLVMPointerType::get(
+        ctxt, getNumericXeVMAddrSpace(tdescTy.getMemorySpace()));
+    Value basePtrI64 = rewriter.create<arith::IndexCastOp>(
+        loc, rewriter.getI64Type(), adaptor.getTensorDesc());
+    Value ptrLLVM =
+        rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
+    auto translateCacheHint = [&](std::optional<xegpu::CachePolicy> hint) {
+      auto hintVal =
+          hint.has_value() ? hint.value() : xegpu::CachePolicy::UNCACHED;
+      switch (hintVal) {
+      case xegpu::CachePolicy::CACHED:
+        return xevm::LoadCacheControl::C;
+      case xegpu::CachePolicy::UNCACHED:
+        return xevm::LoadCacheControl::UC;
+      case xegpu::CachePolicy::STREAMING:
+        return xevm::LoadCacheControl::S;
+      case xegpu::CachePolicy::READ_INVALIDATE:
+        return xevm::LoadCacheControl::IAR;
+        llvm_unreachable("Unsupported cache control.");
+      }
+    };
+    xevm::LoadCacheControl l1 = translateCacheHint(op.getL1Hint());
+    xevm::LoadCacheControl l3 = translateCacheHint(op.getL3Hint());
+    rewriter.create<xevm::PrefetchOp>(loc, ptrLLVM, xevm::AddrSpace::GLOBAL, l1,
+                                      l3);
+  }
+};
 class FenceToXeVMPattern : public OpConversionPattern<FenceOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -358,13 +461,13 @@ class FenceToXeVMPattern : public OpConversionPattern<FenceOp> {
       break;
       llvm_unreachable("Unknown XeGPU fence scope.");
     }
-    xevm::FenceAddrSpace addrSpace;
+    xevm::AddrSpace addrSpace;
     switch (op.getMemoryKind()) {
     case xegpu::MemorySpace::Global:
-      addrSpace = xevm::FenceAddrSpace::GLOBAL;
+      addrSpace = xevm::AddrSpace::GLOBAL;
       break;
     case xegpu::MemorySpace::SLM:
-      addrSpace = xevm::FenceAddrSpace::SHARED;
+      addrSpace = xevm::AddrSpace::SHARED;
       break;
       llvm_unreachable("Unknown XeGPU fence scope.");
     }
@@ -373,6 +476,7 @@ class FenceToXeVMPattern : public OpConversionPattern<FenceOp> {
     return success();
   }
 };
+
 //===----------------------------------------------------------------------===//
 // Pass Definition
 //===----------------------------------------------------------------------===//
@@ -384,12 +488,25 @@ struct ConvertXeGPUToXeVMPass
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<LLVM::LLVMDialect, XeGPUDialect, xevm::XeVMDialect,
                     vector::VectorDialect, arith::ArithDialect,
-                    memref::MemRefDialect>();
+                    memref::MemRefDialect, gpu::GPUDialect>();
   }
 
   void runOnOperation() override {
     LLVMTypeConverter typeConverter(&getContext());
-    typeConverter.addConversion([&](IndexType type) { return type; });
+    typeConverter.addConversion([&](IndexType type) -> Type { return type; });
+    typeConverter.addConversion([&](VectorType type) -> Type {
+      unsigned rank = type.getRank();
+      auto elemType = type.getElementType();
+      if (llvm::isa<mlir::IndexType>(elemType))
+        elemType = mlir::IntegerType::get(&getContext(), 64);
+      if (rank < 1 || type.getNumElements() == 1)
+        return elemType;
+      unsigned sum = 1;
+      for (unsigned i = 0; i < rank; i++) {
+        sum *= type.getShape()[i];
+      }
+      return VectorType::get(sum, elemType);
+    });
     typeConverter.addConversion([&](xegpu::TensorDescType type) -> Type {
       if (type.isScattered()) {
         return IndexType::get(&getContext());
@@ -401,7 +518,7 @@ struct ConvertXeGPUToXeVMPass
     ConversionTarget target(getContext());
     target.addLegalDialect<xevm::XeVMDialect, LLVM::LLVMDialect,
                            vector::VectorDialect, arith::ArithDialect,
-                           memref::MemRefDialect>();
+                           memref::MemRefDialect, gpu::GPUDialect>();
     target.addIllegalDialect<XeGPUDialect>();
 
     RewritePatternSet patterns(&getContext());
@@ -419,14 +536,14 @@ struct ConvertXeGPUToXeVMPass
 namespace mlir {
 void populateXeGPUToXeVMConversionPatterns(RewritePatternSet &patterns,
                                            LLVMTypeConverter &typeConverter) {
-  patterns
-      .add<CreateNdDescToXeVMPattern, LoadStoreNdToXeVMPattern<xegpu::LoadNdOp>,
-           LoadStoreNdToXeVMPattern<xegpu::StoreNdOp>>(typeConverter,
-                                                       patterns.getContext());
-  patterns
-      .add<CreateDescToXeVMPattern, LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
-           LoadStoreToXeVMPattern<xegpu::StoreScatterOp>>(
-          typeConverter, patterns.getContext());
+  patterns.add<CreateNdDescToXeVMPattern, UpdateNdOffsetToXeVMPattern,
+               LoadStoreNdToXeVMPattern<xegpu::LoadNdOp>,
+               LoadStoreNdToXeVMPattern<xegpu::StoreNdOp>>(
+      typeConverter, patterns.getContext());
+  patterns.add<CreateDescToXeVMPattern, UpdateOffsetToXeVMPattern,
+               LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
+               LoadStoreToXeVMPattern<xegpu::StoreScatterOp>>(
+      typeConverter, patterns.getContext());
   patterns.add<FenceToXeVMPattern>(typeConverter, patterns.getContext());
 }
 } // namespace mlir
