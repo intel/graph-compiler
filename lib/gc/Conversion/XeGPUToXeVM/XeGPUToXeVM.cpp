@@ -78,6 +78,38 @@ mlir::VectorType encodeVectorTypeTo(mlir::VectorType currentVecType,
   return mlir::VectorType::get(size, toElemType);
 }
 
+xevm::LoadCacheControl
+translateLoadXeGPUCacheHint(std::optional<xegpu::CachePolicy> hint) {
+  auto hintVal = hint.has_value() ? hint.value() : xegpu::CachePolicy::UNCACHED;
+  switch (hintVal) {
+  case xegpu::CachePolicy::CACHED:
+    return xevm::LoadCacheControl::C;
+  case xegpu::CachePolicy::UNCACHED:
+    return xevm::LoadCacheControl::UC;
+  case xegpu::CachePolicy::STREAMING:
+    return xevm::LoadCacheControl::S;
+  case xegpu::CachePolicy::READ_INVALIDATE:
+    return xevm::LoadCacheControl::IAR;
+    llvm_unreachable("Unsupported cache control.");
+  }
+};
+
+xevm::StoreCacheControl
+translateStoreXeGPUCacheHint(std::optional<xegpu::CachePolicy> hint) {
+  auto hintVal = hint.has_value() ? hint.value() : xegpu::CachePolicy::UNCACHED;
+  switch (hintVal) {
+  case xegpu::CachePolicy::UNCACHED:
+    return xevm::StoreCacheControl::UC;
+  case xegpu::CachePolicy::STREAMING:
+    return xevm::StoreCacheControl::S;
+  case xegpu::CachePolicy::WRITE_BACK:
+    return xevm::StoreCacheControl::WB;
+  case xegpu::CachePolicy::WRITE_THROUGH:
+    return xevm::StoreCacheControl::WT;
+    llvm_unreachable("Unsupported cache control.");
+  }
+};
+
 class CreateNdDescToXeVMPattern : public OpConversionPattern<CreateNdDescOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -205,9 +237,10 @@ class UpdateNdOffsetToXeVMPattern
   }
 };
 
-template <typename OpType, typename = std::enable_if_t<llvm::is_one_of<
-                               OpType, LoadNdOp, StoreNdOp>::value>>
-class LoadStoreNdToXeVMPattern : public OpConversionPattern<OpType> {
+template <typename OpType,
+          typename = std::enable_if_t<llvm::is_one_of<
+              OpType, LoadNdOp, StoreNdOp, PrefetchNdOp>::value>>
+class LoadStorePrefetchNdToXeVMPattern : public OpConversionPattern<OpType> {
   using OpConversionPattern<OpType>::OpConversionPattern;
   LogicalResult
   matchAndRewrite(OpType op, typename OpType::Adaptor adaptor,
@@ -251,27 +284,13 @@ class LoadStoreNdToXeVMPattern : public OpConversionPattern<OpType> {
       vblocks = (tileW + 16 - 1) / 16;
       tileW = 16;
     }
-    VectorType srcOrDstVecTy = cast<VectorType>(op.getValue().getType());
-    if constexpr (std::is_same_v<OpType, LoadNdOp>) {
-      const bool vnni = op.getPacked().value_or(false);
-      auto transposeValue = op.getTranspose();
-      bool transpose =
-          transposeValue.has_value() && transposeValue.value()[0] == 1;
-      VectorType loadedTy = encodeVectorTypeTo(
-          srcOrDstVecTy,
-          vnni ? rewriter.getI32Type() : rewriter.getIntegerType(elemBitSize));
-      Value resultFlatVec = rewriter.create<xevm::BlockLoad2dOp>(
-          loc, loadedTy, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW,
-          offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni);
-      resultFlatVec = rewriter.create<vector::BitCastOp>(
-          loc, encodeVectorTypeTo(loadedTy, srcOrDstVecTy.getElementType()),
-          resultFlatVec);
-      auto newOp = rewriter.create<vector::ShapeCastOp>(loc, srcOrDstVecTy,
-                                                        resultFlatVec);
-      rewriter.replaceOp(op, newOp);
-    } else {
-      VectorType srcFlatVecTy = VectorType::get(srcOrDstVecTy.getNumElements(),
-                                                srcOrDstVecTy.getElementType());
+
+    if constexpr (std::is_same_v<OpType, StoreNdOp>) {
+      VectorType srcVecTy = cast<VectorType>(op.getValue().getType());
+      auto l1 = translateStoreXeGPUCacheHint(op.getL1Hint());
+      auto l3 = translateStoreXeGPUCacheHint(op.getL3Hint());
+      VectorType srcFlatVecTy =
+          VectorType::get(srcVecTy.getNumElements(), srcVecTy.getElementType());
       Value srcFlatVec = rewriter.create<vector::ShapeCastOp>(loc, srcFlatVecTy,
                                                               op.getValue());
       srcFlatVecTy = encodeVectorTypeTo(srcFlatVecTy,
@@ -280,8 +299,37 @@ class LoadStoreNdToXeVMPattern : public OpConversionPattern<OpType> {
           rewriter.create<vector::BitCastOp>(loc, srcFlatVecTy, srcFlatVec);
       rewriter.create<xevm::BlockStore2dOp>(
           loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
-          elemBitSize, tileW, tileH, vblocks, srcFlatVec);
+          elemBitSize, tileW, tileH, vblocks, srcFlatVec, l1, l3);
       rewriter.eraseOp(op);
+    } else {
+      auto l1 = translateLoadXeGPUCacheHint(op.getL1Hint());
+      auto l3 = translateLoadXeGPUCacheHint(op.getL3Hint());
+      if constexpr (std::is_same_v<OpType, PrefetchNdOp>) {
+        rewriter.create<xevm::BlockPrefetch2dOp>(
+            loc, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW, offsetH,
+            elemBitSize, tileW, tileH, vblocks, l1, l3);
+        rewriter.eraseOp(op);
+      } else {
+        VectorType dstVecTy = cast<VectorType>(op.getValue().getType());
+        const bool vnni = op.getPacked().value_or(false);
+        auto transposeValue = op.getTranspose();
+        bool transpose =
+            transposeValue.has_value() && transposeValue.value()[0] == 1;
+        VectorType loadedTy = encodeVectorTypeTo(
+            dstVecTy, vnni ? rewriter.getI32Type()
+                           : rewriter.getIntegerType(elemBitSize));
+
+        Value resultFlatVec = rewriter.create<xevm::BlockLoad2dOp>(
+            loc, loadedTy, basePtrLLVM, surfaceW, baseShapeH, surfaceW, offsetW,
+            offsetH, elemBitSize, tileW, tileH, vblocks, transpose, vnni, l1,
+            l3);
+        resultFlatVec = rewriter.create<vector::BitCastOp>(
+            loc, encodeVectorTypeTo(loadedTy, dstVecTy.getElementType()),
+            resultFlatVec);
+        auto newOp =
+            rewriter.create<vector::ShapeCastOp>(loc, dstVecTy, resultFlatVec);
+        rewriter.replaceOp(op, newOp);
+      }
     }
     return success();
   }
@@ -423,25 +471,10 @@ class PrefetchToXeVMPattern : public OpConversionPattern<PrefetchOp> {
         loc, rewriter.getI64Type(), adaptor.getTensorDesc());
     Value ptrLLVM =
         rewriter.create<LLVM::IntToPtrOp>(loc, ptrTypeLLVM, basePtrI64);
-    auto translateCacheHint = [&](std::optional<xegpu::CachePolicy> hint) {
-      auto hintVal =
-          hint.has_value() ? hint.value() : xegpu::CachePolicy::UNCACHED;
-      switch (hintVal) {
-      case xegpu::CachePolicy::CACHED:
-        return xevm::LoadCacheControl::C;
-      case xegpu::CachePolicy::UNCACHED:
-        return xevm::LoadCacheControl::UC;
-      case xegpu::CachePolicy::STREAMING:
-        return xevm::LoadCacheControl::S;
-      case xegpu::CachePolicy::READ_INVALIDATE:
-        return xevm::LoadCacheControl::IAR;
-        llvm_unreachable("Unsupported cache control.");
-      }
-    };
-    xevm::LoadCacheControl l1 = translateCacheHint(op.getL1Hint());
-    xevm::LoadCacheControl l3 = translateCacheHint(op.getL3Hint());
-    rewriter.create<xevm::PrefetchOp>(loc, ptrLLVM, xevm::AddrSpace::GLOBAL, l1,
-                                      l3);
+    rewriter.create<xevm::PrefetchOp>(
+        loc, ptrLLVM, xevm::AddrSpace::GLOBAL,
+        translateLoadXeGPUCacheHint(op.getL1Hint()),
+        translateLoadXeGPUCacheHint(op.getL3Hint()));
   }
 };
 class FenceToXeVMPattern : public OpConversionPattern<FenceOp> {
@@ -473,6 +506,71 @@ class FenceToXeVMPattern : public OpConversionPattern<FenceOp> {
     }
     rewriter.create<xevm::MemfenceOp>(loc, memScope, addrSpace);
     rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class DpasToXeVMPattern : public OpConversionPattern<DpasOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(DpasOp op, DpasOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto ctxt = rewriter.getContext();
+    auto aTy = mlir::cast<VectorType>(op.getLhs().getType());
+    auto bTy = mlir::cast<VectorType>(op.getRhs().getType());
+    auto resultType = mlir::cast<VectorType>(op.getResultType());
+
+    auto encodePrecision = [&](Type type) -> xevm::PrecisionType {
+      if (type == rewriter.getBF16Type())
+        return xevm::PrecisionType::BF16;
+      else if (type == rewriter.getF16Type())
+        return xevm::PrecisionType::FP16;
+      else if (type == rewriter.getTF32Type())
+        return xevm::PrecisionType::TF32;
+      else if (type.isInteger(8)) {
+        if (type.isUnsignedInteger())
+          return xevm::PrecisionType::U8;
+        return xevm::PrecisionType::S8;
+      }
+      llvm_unreachable("add more support for PrecisionType");
+      return xevm::PrecisionType::UNUSED;
+    };
+    xevm::PrecisionType precATy = encodePrecision(aTy.getElementType());
+    xevm::PrecisionType precBTy = encodePrecision(bTy.getElementType());
+    auto precA = xevm::PrecisionTypeAttr::get(ctxt, precATy);
+    auto precB = xevm::PrecisionTypeAttr::get(ctxt, precBTy);
+    Value c = op.getAcc();
+    if (!c) {
+      auto elementTy = resultType.getElementType();
+      Attribute initValueAttr;
+      if (isa<FloatType>(elementTy))
+        initValueAttr = FloatAttr::get(elementTy, 0.0);
+      else
+        initValueAttr = IntegerAttr::get(elementTy, 0);
+      c = rewriter.create<arith::ConstantOp>(
+          loc, DenseElementsAttr::get(resultType, initValueAttr));
+    }
+    auto rc = IntegerAttr::get(rewriter.getI32Type(), 8);
+
+    VectorType aNty =
+        VectorType::get(aTy.getNumElements(), aTy.getElementType());
+    Value aVec = rewriter.create<vector::ShapeCastOp>(loc, aNty, op.getLhs());
+
+    VectorType bNty =
+        VectorType::get(bTy.getNumElements(), bTy.getElementType());
+    Value bVec = rewriter.create<vector::ShapeCastOp>(loc, bNty, op.getRhs());
+
+    auto cvecty = cast<VectorType>(c.getType());
+    VectorType cNty =
+        VectorType::get(cvecty.getNumElements(), cvecty.getElementType());
+    if (cvecty != cNty)
+      c = rewriter.create<vector::ShapeCastOp>(loc, cNty, c);
+    Value dpasRes = rewriter.create<xevm::DpasOp>(loc, cNty, c, aVec, bVec,
+                                                  precA, precB, rc);
+    if (cvecty != cNty)
+      dpasRes = rewriter.create<vector::ShapeCastOp>(loc, resultType, dpasRes);
+    rewriter.replaceOp(op, dpasRes);
     return success();
   }
 };
@@ -537,13 +635,15 @@ namespace mlir {
 void populateXeGPUToXeVMConversionPatterns(RewritePatternSet &patterns,
                                            LLVMTypeConverter &typeConverter) {
   patterns.add<CreateNdDescToXeVMPattern, UpdateNdOffsetToXeVMPattern,
-               LoadStoreNdToXeVMPattern<xegpu::LoadNdOp>,
-               LoadStoreNdToXeVMPattern<xegpu::StoreNdOp>>(
+               LoadStorePrefetchNdToXeVMPattern<xegpu::LoadNdOp>,
+               LoadStorePrefetchNdToXeVMPattern<xegpu::StoreNdOp>,
+               LoadStorePrefetchNdToXeVMPattern<xegpu::PrefetchNdOp>>(
       typeConverter, patterns.getContext());
   patterns.add<CreateDescToXeVMPattern, UpdateOffsetToXeVMPattern,
                LoadStoreToXeVMPattern<xegpu::LoadGatherOp>,
                LoadStoreToXeVMPattern<xegpu::StoreScatterOp>>(
       typeConverter, patterns.getContext());
-  patterns.add<FenceToXeVMPattern>(typeConverter, patterns.getContext());
+  patterns.add<FenceToXeVMPattern, DpasToXeVMPattern, PrefetchToXeVMPattern>(
+      typeConverter, patterns.getContext());
 }
 } // namespace mlir

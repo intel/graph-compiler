@@ -170,10 +170,10 @@ static LLVM::CallOp createDeviceFunctionCall(
   return callOp;
 }
 
-class DPASToOCLPattern : public OpConversionPattern<xevm::DPASOp> {
+class DpasToOCLPattern : public OpConversionPattern<xevm::DpasOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(xevm::DPASOp op, xevm::DPASOp::Adaptor adaptor,
+  matchAndRewrite(xevm::DpasOp op, xevm::DpasOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     constexpr uint32_t bitWidthPackedA{16};
     constexpr uint32_t bitWidthPackedB{32};
@@ -488,7 +488,7 @@ void mlir::populateXeVMToLLVMConversionPatterns(RewritePatternSet &patterns) {
   patterns.add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
                LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
                LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>,
-               DPASToOCLPattern, MemfenceToOCLPattern, PrefetchToOCLPattern>(
+               DpasToOCLPattern, MemfenceToOCLPattern, PrefetchToOCLPattern>(
       patterns.getContext());
 }
 

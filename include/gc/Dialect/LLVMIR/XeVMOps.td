@@ -330,7 +330,7 @@ def XeVM_PrecisionTypeAttr : I32EnumAttr<"PrecisionType",
   let cppNamespace = "::mlir::xevm";
 }
 
-def XeVM_DPASOp : XeVM_Op<"dpas">,
+def XeVM_DpasOp : XeVM_Op<"dpas">,
   Results<(outs FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$d)>,
   Arguments<(ins
     FixedVectorOfRankAndType<[1], [XeVM_MatrixElemType]>:$c,
