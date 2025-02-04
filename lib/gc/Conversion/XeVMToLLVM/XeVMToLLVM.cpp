@@ -107,24 +107,18 @@ std::string mangle(StringRef baseName, ArrayRef<Type> types,
   return os.str();
 }
 
-template <typename OpType>
+template <bool isLoad, typename OpType>
 static std::optional<ArrayAttr>
 getCacheControlMetadata(ConversionPatternRewriter &rewriter, OpType op,
-                        const bool isLoad, const std::string &chip) {
-  if ((op.getL1CacheControlAttr() ==
-           L1StoreCacheControlAttr::get(rewriter.getContext(),
-                                        L1StoreCacheControl::DEFAULT) &&
-       op.getL3CacheControlAttr() ==
-           L3StoreCacheControlAttr::get(rewriter.getContext(),
-                                        L3StoreCacheControl::DEFAULT)) ||
-
-      (op.getL1CacheControlAttr() ==
-           L1LoadCacheControlAttr::get(rewriter.getContext(),
-                                       L1LoadCacheControl::DEFAULT) &&
-       op.getL3CacheControlAttr() ==
-           L3LoadCacheControlAttr::get(rewriter.getContext(),
-                                       L3LoadCacheControl::DEFAULT))) {
-    return {};
+                        const std::string &chip) {
+  if constexpr (isLoad) {
+    if (op.getL1CacheControl() == LoadCacheControl::DEFAULT &&
+        op.getL3CacheControl() == LoadCacheControl::DEFAULT)
+      return {};
+  } else {
+    if (op.getL1CacheControl() == StoreCacheControl::DEFAULT &&
+        op.getL3CacheControl() == StoreCacheControl::DEFAULT)
+      return {};
   }
   constexpr int32_t decorationCacheControlArity{4};
   constexpr int32_t loadCacheControlKey{6442};
@@ -155,8 +149,10 @@ static LLVM::CallOp createDeviceFunctionCall(
   MLIRContext *ctx = rewriter.getContext();
   Location loc = UnknownLoc::get(ctx);
 
-  LLVM::LLVMFuncOp funcOp =
+  auto funcOpRes =
       LLVM::lookupOrCreateFn(moduleOp, funcName, argTypes, retType);
+  assert(!failed(funcOpRes));
+  LLVM::LLVMFuncOp funcOp = funcOpRes.value();
   funcOp.setCConv(LLVM::cconv::CConv::SPIR_FUNC);
   funcOp.setConvergent(funcAttributeOptions.isConvergent);
   funcOp.setNoUnwind(funcAttributeOptions.isNoUnwind);
@@ -174,10 +170,10 @@ static LLVM::CallOp createDeviceFunctionCall(
   return callOp;
 }
 
-class DPASToOCLPattern : public OpConversionPattern<xevm::DPASOp> {
+class DpasToOCLPattern : public OpConversionPattern<xevm::DpasOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(xevm::DPASOp op, xevm::DPASOp::Adaptor adaptor,
+  matchAndRewrite(xevm::DpasOp op, xevm::DpasOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     constexpr uint32_t bitWidthPackedA{16};
     constexpr uint32_t bitWidthPackedB{32};
@@ -264,6 +260,83 @@ private:
   }
 };
 
+class PrefetchToOCLPattern : public OpConversionPattern<PrefetchOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(PrefetchOp op, PrefetchOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    const std::string fnName{"_Z8prefetchPU3AS1Kcm"};
+    Value one = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI64Type(), rewriter.getI64IntegerAttr(1));
+    SmallVector<Value> args{op.getPtr(), one};
+    SmallVector<Type> argTypes;
+    for (auto arg : args)
+      argTypes.push_back(arg.getType());
+    auto funcAttr = noUnwindAttrs;
+    auto memAttr = rewriter.getAttr<LLVM::MemoryEffectsAttr>(
+        /*other=*/LLVM::ModRefInfo::NoModRef,
+        /*argMem=*/LLVM::ModRefInfo::Ref,
+        /*inaccessibleMem=*/LLVM::ModRefInfo::NoModRef);
+    funcAttr.memEffectsAttr = memAttr;
+
+    const std::string chip{"pvc"};
+    LLVM::CallOp call = createDeviceFunctionCall(
+        rewriter, fnName, LLVM::LLVMVoidType::get(rewriter.getContext()),
+        argTypes, args, {}, funcAttr);
+    if (std::optional<ArrayAttr> optCacheControls =
+            getCacheControlMetadata<true>(rewriter, op, chip))
+      call->setAttr(XeVMDialect::getCacheControlsAttrName(), *optCacheControls);
+    rewriter.eraseOp(op);
+  }
+};
+
+class MemfenceToOCLPattern : public OpConversionPattern<MemfenceOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(MemfenceOp op, MemfenceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    const std::string fnName{"atomic_work_item_fence"};
+    int memScopeOcl, addrSpaceOcl;
+    switch (op.getAddrspace()) {
+    case xevm::AddrSpace::SHARED:
+      addrSpaceOcl = 1;
+      break;
+    case xevm::AddrSpace::GLOBAL:
+      addrSpaceOcl = 2;
+      break;
+    default:
+      // GENERIC is not supported in OpenCL
+      llvm_unreachable("unsupported xevm::FenceAddrSpace");
+    }
+    switch (op.getScope()) {
+    case xevm::MemoryScope::WORKGROUP:
+      memScopeOcl = 1;
+      break;
+    case xevm::MemoryScope::GPU:
+      memScopeOcl = 2;
+      break;
+    default:
+      // CLUSTER and SYSTEM are not supported in OpenCL
+      llvm_unreachable("unsupported xevm::MemoryScope");
+    }
+    Value acqRel = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(4));
+    Value memScope = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(memScopeOcl));
+    Value addrSpace = rewriter.create<LLVM::ConstantOp>(
+        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(addrSpaceOcl));
+    SmallVector<Value> args{addrSpace, acqRel, memScope};
+    SmallVector<Type> argTypes{3, rewriter.getI32Type()};
+    LLVM::CallOp call =
+        createDeviceFunctionCall(rewriter, mangle(fnName, argTypes),
+                                 LLVM::LLVMVoidType::get(rewriter.getContext()),
+                                 argTypes, args, {}, noUnwindAttrs);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 template <typename OpType>
 class LoadStorePrefetchToOCLPattern : public OpConversionPattern<OpType> {
   using OpConversionPattern<OpType>::OpConversionPattern;
@@ -311,8 +384,8 @@ class LoadStorePrefetchToOCLPattern : public OpConversionPattern<OpType> {
           /*other=*/LLVM::ModRefInfo::NoModRef,
           /*argMem=*/LLVM::ModRefInfo::Ref,
           /*inaccessibleMem=*/LLVM::ModRefInfo::NoModRef);
-      auto funcAttrs = noUnwindAttrs;
-      funcAttrs.memEffectsAttr = memAttr;
+      funcAttr = noUnwindAttrs;
+      funcAttr.memEffectsAttr = memAttr;
     } else {
       auto vecElemType = vecType.getElementType();
       auto vecElemBitWidth = vecElemType.getIntOrFloatBitWidth();
@@ -369,7 +442,8 @@ class LoadStorePrefetchToOCLPattern : public OpConversionPattern<OpType> {
     // TODO: extract chip from the attached target
     const std::string chip{"pvc"};
     if (std::optional<ArrayAttr> optCacheControls =
-            getCacheControlMetadata(rewriter, op, isLoad || isPrefetch, chip)) {
+            getCacheControlMetadata < isLoad ||
+            isPrefetch > (rewriter, op, chip)) {
       call->setAttr(XeVMDialect::getCacheControlsAttrName(), *optCacheControls);
     }
     if constexpr (isLoad)
@@ -411,11 +485,11 @@ struct ConvertXeVMToLLVMPass
 //===----------------------------------------------------------------------===//
 
 void mlir::populateXeVMToLLVMConversionPatterns(RewritePatternSet &patterns) {
-  patterns
-      .add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
-           LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
-           LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>, DPASToOCLPattern>(
-          patterns.getContext());
+  patterns.add<LoadStorePrefetchToOCLPattern<BlockLoad2dOp>,
+               LoadStorePrefetchToOCLPattern<BlockStore2dOp>,
+               LoadStorePrefetchToOCLPattern<BlockPrefetch2dOp>,
+               DpasToOCLPattern, MemfenceToOCLPattern, PrefetchToOCLPattern>(
+      patterns.getContext());
 }
 
 //===----------------------------------------------------------------------===//

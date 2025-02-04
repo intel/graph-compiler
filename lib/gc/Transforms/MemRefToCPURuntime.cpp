@@ -51,7 +51,7 @@ uint64_t getMemRefSizeInBytes(MemRefType memrefType) {
   if (!layout.isIdentity()) {
     int64_t offset;
     SmallVector<int64_t, 4> strides;
-    if (failed(getStridesAndOffset(memrefType, strides, offset))) {
+    if (failed(memrefType.getStridesAndOffset(strides, offset))) {
       return UINT64_MAX;
     }
 

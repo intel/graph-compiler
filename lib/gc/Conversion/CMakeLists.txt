@@ -1,1 +1,2 @@
 add_subdirectory(XeVMToLLVM)
+add_subdirectory(XeGPUToXeVM)

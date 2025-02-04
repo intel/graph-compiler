@@ -14,6 +14,9 @@
 
 namespace mlir {
 
+#define GEN_PASS_DECL
+#include "gc/Conversion/Passes.h.inc"
+
 /// Generate the code for registering conversion passes.
 #define GEN_PASS_REGISTRATION
 #include "gc/Conversion/Passes.h.inc"

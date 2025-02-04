@@ -63,7 +63,7 @@ public:
     SmallVector<Value, 10> operands;
     SmallVector<Type, 10> operandTypes;
     IntegerType integer64 = IntegerType::get(rewriter.getContext(), 64);
-    FloatType float32 = FloatType::getF32(rewriter.getContext());
+    FloatType float32 = Float32Type::get(rewriter.getContext());
 
     // M, N, K, LDA, LDB, LDC, stride_a, stride_b
     // they are in the same order with BrgemmDispatchOp inputs
@@ -215,7 +215,7 @@ public:
             &getContext());
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), patternSet)))
+    if (failed(applyPatternsGreedily(getOperation(), patternSet)))
       signalPassFailure();
   }
 };

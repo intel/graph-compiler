@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 Intel Corporation
+ * Copyright (C) 2025 Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions
  * and limitations under the License.
- *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -179,8 +178,8 @@ class JsonParser {
       GC_DTYPE("u8", b.getIntegerType(8, true)),
       GC_DTYPE("f64", b.getF64Type()),
       GC_DTYPE("boolean", b.getI1Type()),
-      GC_DTYPE("f8_e5m2", b.getFloat8E5M2Type()),
-      GC_DTYPE("f8_e4m3", b.getFloat8E4M3FNType()),
+      GC_DTYPE("f8_e5m2", mlir::Float8E5M2Type::get(b.getContext())),
+      GC_DTYPE("f8_e4m3", mlir::Float8E4M3Type::get(b.getContext())),
       GC_DTYPE("s4", b.getIntegerType(4, false)),
       GC_DTYPE("u4", b.getIntegerType(4, true)),
   };

@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --convert-xevm-to-llvm --xevm-attach-target --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm --convert-gpu-to-llvm-spv --gpu-to-llvm --reconcile-unrealized-casts --cse --gpu-module-to-binary | gc-cpu-runner -e main -entry-point-result=void --shared-libs=%mlir_runner_utils,%mlir_c_runner_utils,%opencl_runtime | FileCheck %s
+// RUN: gc-opt %s --convert-xevm-to-llvm --xevm-attach-target --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm --convert-gpu-to-llvm-spv='use-64bit-index=true' --gpu-to-llvm --reconcile-unrealized-casts --cse --gpu-module-to-binary | gc-cpu-runner -e main -entry-point-result=void --shared-libs=%mlir_runner_utils,%mlir_c_runner_utils,%opencl_runtime | FileCheck %s
 
 module @gemm attributes {gpu.container_module} {
 
@@ -24,7 +24,8 @@ module @gemm attributes {gpu.container_module} {
       %loaded_f32 = vector.bitcast %loaded : vector<8xi32> to vector<8xf32>
       %c0 = arith.constant 0 : i32
       %thread_x = gpu.thread_id x
-      %thread_x_i32 = arith.index_cast %thread_x : index to i32
+      %thread_x_i64 = arith.index_cast %thread_x : index to i64
+      %thread_x_i32 = llvm.trunc %thread_x_i64 : i64 to i32
       %thread_x_f32 = arith.sitofp %thread_x_i32 : i32 to f32
       %loaded_f32_modified = vector.insertelement %thread_x_f32, %loaded_f32[%c0 : i32] : vector<8xf32>
       %loaded_modified = vector.bitcast %loaded_f32_modified : vector<8xf32> to vector<8xi32>
