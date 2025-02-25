@@ -385,7 +385,7 @@ bool isGenericAttrEquivalent(linalg::GenericOp op, ShapedType shapeA,
     DenseMap<AffineExpr, AffineExpr> replaceMap;
     std::map<unsigned, utils::IteratorType> iterMap;
     // get shape-to-loop map
-    AffineMap inverse = inversePermutation(concatAffineMaps(inMaps));
+    AffineMap inverse = inversePermutation(concatAffineMaps(inMaps, context));
     assert(inverse && "shape-to-loops map to be non-null");
     assert(dimSize == inverse.getResults().size());
     // renumber the dim id based on shape-to-loop map
@@ -492,8 +492,10 @@ bool isGenericPackedMatmulOpImpl(linalg::GenericOp genericOp,
     return false;
   }
   // Check for packing
-  ValueRange inputs = genericOp.getDpsInputs();
-  ValueRange outputs = genericOp.getDpsInits();
+  auto inputsVec = genericOp.getDpsInputs();
+  ValueRange inputs = inputsVec;
+  auto outputsVec = genericOp.getDpsInits();
+  ValueRange outputs = outputsVec;
   auto shapeA = cast<ShapedType>(inputs.front().getType());
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());

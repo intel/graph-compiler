@@ -26,12 +26,12 @@ using namespace mlir;
 static const char code1[] = R"mlir(
 module attributes {
 dlti.target_system_spec = #dlti.target_system_spec<
-"CPU": #dlti.target_device_spec<
-    #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : ui32>,
-    #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : ui64>,
-    #dlti.dl_entry<"L3_cache_size_in_bytes", "110100480">,
-    #dlti.dl_entry<"num_threads", 56 : i32>,
-    #dlti.dl_entry<"max_vector_width", 512 : i64>>
+"CPU" = #dlti.target_device_spec<
+    "L1_cache_size_in_bytes" = 49152 : ui32,
+    "L2_cache_size_in_bytes" = 2097152 : ui64,
+    "L3_cache_size_in_bytes" = "110100480",
+    "num_threads" = 56 : i32,
+    "max_vector_width" = 512 : i64>
 >} {}
 )mlir";
 
@@ -56,9 +56,9 @@ TEST(TargetDescriptionAnalysis, CPUNormal) {
 static const char code2[] = R"mlir(
 module attributes {
 dlti.target_system_spec = #dlti.target_system_spec<
-"CPU": #dlti.target_device_spec<
-    #dlti.dl_entry<"L1_cache_size_in_bytes", 49152 : ui32>,
-    #dlti.dl_entry<"L2_cache_size_in_bytes", 2097152 : ui32>>
+"CPU" = #dlti.target_device_spec<
+    "L1_cache_size_in_bytes" = 49152 : ui32>,
+    "L2_cache_size_in_bytes" = 2097152 : ui32>
 >} {}
 )mlir";
 

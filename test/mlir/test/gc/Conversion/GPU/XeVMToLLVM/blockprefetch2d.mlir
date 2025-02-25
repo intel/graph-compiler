@@ -11,7 +11,7 @@ llvm.func @xevm.blockprefetch2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_he
   // CHECK-NEXT: llvm.call spir_funccc @_Z44intel_sub_group_2d_block_prefetch_8b_8r32x1cPU3AS1viiiDv2_i(%arg0, %arg1, %arg2, %arg3, [[COORD1]])
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 1 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 1 : i32, 0 : i32{{\]\]}}
   // CHECK: (!llvm.ptr<1>, i32, i32, i32, vector<2xi32>) -> ()
-  xevm.blockprefetch2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=1, l1_cache_control=L1UC, l3_cache_control=L3UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32)
+  xevm.blockprefetch2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=1, l1_cache_control=UC, l3_cache_control=UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32)
   llvm.return
 }
 }

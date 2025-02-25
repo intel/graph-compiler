@@ -374,7 +374,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 1 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 1 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1UC, l3_cache_control=L3UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=UC, l3_cache_control=UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }
@@ -386,7 +386,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 1 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 2 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1UC, l3_cache_control=L3C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=UC, l3_cache_control=C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }
@@ -398,7 +398,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 2 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 1 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1C, l3_cache_control=L3UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=C, l3_cache_control=UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }
@@ -410,7 +410,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 2 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 2 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1C, l3_cache_control=L3C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=C, l3_cache_control=C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }
@@ -422,7 +422,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 3 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 1 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1S, l3_cache_control=L3UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=S, l3_cache_control=UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }
@@ -434,7 +434,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 3 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 2 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1S, l3_cache_control=L3C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=S, l3_cache_control=C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }
@@ -446,7 +446,7 @@ llvm.func @xevm.blockload2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_height
   // CHECK:        llvm.func @xevm.blockload2d(
   // CHECK:          llvm.call spir_funccc @_Z40intel_sub_group_2d_block_read_8b_8r32x2cPU3AS1viiiDv2_iPt(
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6442 : i32, 0 : i32, 4 : i32, 0 : i32{{\]}}, {{\[}}6442 : i32, 1 : i32, 2 : i32, 0 : i32{{\]\]}}
-  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=L1IAR, l3_cache_control=L3C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
+  %0 = xevm.blockload2d %ptr, %base_width, %base_height, %base_pitch, %x, %y {elem_size_in_bits=8, tile_width=32, tile_height=8, v_blocks=2, transpose=false, vnni_transform=false, l1_cache_control=IAR, l3_cache_control=C} : (!llvm.ptr<1>, i32, i32, i32, i32, i32) -> vector<16xi16>
   llvm.return
 }
 }

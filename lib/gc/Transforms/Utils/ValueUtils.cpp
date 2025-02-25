@@ -110,7 +110,7 @@ FailureOr<SmallVector<int64_t>> getStrides(Value value) {
   auto memrefType = cast<MemRefType>(valueType);
   SmallVector<int64_t> strides;
   int64_t offset;
-  if (failed(getStridesAndOffset(memrefType, strides, offset)))
+  if (failed(memrefType.getStridesAndOffset(strides, offset)))
     return failure();
   return strides;
 }

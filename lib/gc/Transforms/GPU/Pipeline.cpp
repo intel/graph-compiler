@@ -154,7 +154,8 @@ void populateGPUPipeline(OpPassManager &pm,
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createConvertXeVMToLLVMPass());
   pm.addPass(createGpuXeVMAttachTarget());
-  pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuOpsToLLVMSPVOps());
+  pm.addNestedPass<gpu::GPUModuleOp>(
+      createConvertGpuOpsToLLVMSPVOps({.use64bitIndex = true}));
   pm.addNestedPass<gpu::GPUModuleOp>(createConvertIndexToLLVMPass());
   pm.addNestedPass<gpu::GPUModuleOp>(createArithToLLVMConversionPass());
   pm.addPass(createReconcileUnrealizedCastsPass());

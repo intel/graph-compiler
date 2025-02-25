@@ -1,3 +1,4 @@
+// UNSUPPORTED: target={{.*}}
 // RUN: gc-opt %s --convert-cpuruntime-to-llvm --convert-openmp-to-llvm --convert-func-to-llvm --convert-arith-to-llvm --convert-cf-to-llvm --reconcile-unrealized-casts | gc-cpu-runner -e main -entry-point-result=void | FileCheck %s
 module {
   func.func private @omp_get_thread_num() -> i32

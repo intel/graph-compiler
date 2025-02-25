@@ -27,13 +27,13 @@ static inline int64_t getDnnlDataTypeVal(RewriterBase &rewriter,
   auto context = rewriter.getContext();
   auto tattr = dyn_cast_or_null<TypeAttr>(attr);
   assert(tattr);
-  if (tattr == TypeAttr::get(FloatType::getF32(context))) {
+  if (tattr == TypeAttr::get(Float32Type::get(context))) {
     return static_cast<int64_t>(dnnl_f32);
-  } else if (tattr == TypeAttr::get(FloatType::getF64(context))) {
+  } else if (tattr == TypeAttr::get(Float64Type::get(context))) {
     return static_cast<int64_t>(dnnl_f64);
-  } else if (tattr == TypeAttr::get(FloatType::getBF16(context))) {
+  } else if (tattr == TypeAttr::get(BFloat16Type::get(context))) {
     return static_cast<int64_t>(dnnl_bf16);
-  } else if (tattr == TypeAttr::get(FloatType::getF16(context))) {
+  } else if (tattr == TypeAttr::get(Float16Type::get(context))) {
     return static_cast<int64_t>(dnnl_f16);
   } else if (tattr == TypeAttr::get(
                           IntegerType::get(context, 32, IntegerType::Signed))) {

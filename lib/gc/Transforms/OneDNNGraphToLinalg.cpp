@@ -515,8 +515,7 @@ struct ConvertOneDNNGraphToLinalg
         MatMulOpBatchFlatten
         // clang-format on
         >(ctx);
-    if (failed(applyPatternsAndFoldGreedily(getOperation(),
-                                            std::move(patternsPre)))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patternsPre)))) {
       signalPassFailure();
     }
     // ==========================================

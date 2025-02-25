@@ -44,8 +44,7 @@ struct FoldTensorOperationPass
     // Use to remove useless tensor operation like extract or
     // insert slice.
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(pattern),
-                                       config);
+    (void)applyPatternsGreedily(getOperation(), std::move(pattern), config);
   }
 };
 } // namespace

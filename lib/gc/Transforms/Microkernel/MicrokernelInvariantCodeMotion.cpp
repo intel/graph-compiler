@@ -421,8 +421,7 @@ public:
     // Ignore newly created Ops
     GreedyRewriteConfig config;
     config.strictMode = GreedyRewriteStrictness::ExistingOps;
-    if (failed(
-            applyPatternsAndFoldGreedily(getOperation(), patternSet, config))) {
+    if (failed(applyPatternsGreedily(getOperation(), patternSet, config))) {
       signalPassFailure();
     }
   }

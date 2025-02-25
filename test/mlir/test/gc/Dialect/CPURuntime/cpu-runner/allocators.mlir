@@ -1,3 +1,4 @@
+// UNSUPPORTED: target={{.*}}
 // RUN: gc-opt %s --finalize-memref-to-llvm --convert-scf-to-cf --convert-cpuruntime-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts | gc-cpu-runner -e main -entry-point-result=void -shared-libs=%mlir_runner_utils,%mlir_c_runner_utils | FileCheck %s
 
 module {

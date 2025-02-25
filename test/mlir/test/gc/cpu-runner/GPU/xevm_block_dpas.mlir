@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --convert-xevm-to-llvm --xevm-attach-target --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm --convert-gpu-to-llvm-spv --gpu-to-llvm --reconcile-unrealized-casts --cse --gpu-module-to-binary | gc-cpu-runner -e main -entry-point-result=void --shared-libs=%mlir_runner_utils,%mlir_c_runner_utils,%opencl_runtime | FileCheck %s
+// RUN: gc-opt %s --convert-xevm-to-llvm --xevm-attach-target --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm --convert-gpu-to-llvm-spv='use-64bit-index=true' --gpu-to-llvm --reconcile-unrealized-casts --cse --gpu-module-to-binary | gc-cpu-runner -e main -entry-point-result=void --shared-libs=%mlir_runner_utils,%mlir_c_runner_utils,%opencl_runtime | FileCheck %s
 
 module @gemm attributes {gpu.container_module} {
   gpu.module @kernel {

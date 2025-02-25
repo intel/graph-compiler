@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --gpu-to-llvm --convert-gpu-to-llvm-spv --gpu-module-to-binary | FileCheck %s
+// RUN: gc-opt %s --gpu-to-llvm --convert-gpu-to-llvm-spv='use-64bit-index=true' --gpu-module-to-binary | FileCheck %s
 
 module attributes {gpu.container_module} {
   // CHECK-LABEL:gpu.binary @entry_kernel

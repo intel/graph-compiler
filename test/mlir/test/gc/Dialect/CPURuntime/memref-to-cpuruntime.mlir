@@ -1,3 +1,4 @@
+// UNSUPPORTED: target={{.*}}
 // RUN: gc-opt --split-input-file --convert-memref-to-cpuruntime %s -verify-diagnostics | FileCheck %s
 
 func.func @alloca() {

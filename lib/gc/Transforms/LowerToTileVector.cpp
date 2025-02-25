@@ -614,8 +614,7 @@ struct LowerToTileVectorPass
     // Init patterns use to remove useless tensor operation like extract or
     // insert slice.
     configInit.strictMode = GreedyRewriteStrictness::ExistingOps;
-    (void)applyPatternsAndFoldGreedily(funcOp, std::move(patternsInit),
-                                       configInit);
+    (void)applyPatternsGreedily(funcOp, std::move(patternsInit), configInit);
 
     RewritePatternSet firstPatterns(ctx);
     // All the dynamic shape will reject to lower.
@@ -623,8 +622,8 @@ struct LowerToTileVectorPass
     GreedyRewriteConfig configFirstPn;
     // We only apply the lowering pattern on existing operations
     configFirstPn.strictMode = GreedyRewriteStrictness::ExistingOps;
-    (void)applyPatternsAndFoldGreedily(funcOp, std::move(firstPatterns),
-                                       configFirstPn);
+    (void)applyPatternsGreedily(funcOp, std::move(firstPatterns),
+                                configFirstPn);
     // Error case:
     // ```
     // linalg.copy : <1x32xf32>
@@ -649,10 +648,10 @@ struct LowerToTileVectorPass
     vector::populateVectorTransferPermutationMapLoweringPatterns(secondPattern);
     // Remove unnessary broadcast operation
     vector::populateSinkVectorOpsPatterns(secondPattern);
-    // Second fold (with the help of the `applyPatternsAndFoldGreedily`
+    // Second fold (with the help of the `applyPatternsGreedily`
     // function) can help us to eliminate redundant operation like consecutive
     // read and write.
-    (void)applyPatternsAndFoldGreedily(funcOp, std::move(secondPattern));
+    (void)applyPatternsGreedily(funcOp, std::move(secondPattern));
     // may need other patterns to reduce redundant operations
   }
 };

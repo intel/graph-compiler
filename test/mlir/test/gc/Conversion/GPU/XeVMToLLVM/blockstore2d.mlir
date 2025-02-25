@@ -15,7 +15,7 @@ llvm.func @xevm.blockstore2d(%ptr : !llvm.ptr<1>, %base_width : i32, %base_heigh
   // CHECK-NEXT:  llvm.call spir_funccc @_Z41intel_sub_group_2d_block_write_8b_8r16x1cPU3AS1viiiDv2_iPh(%arg0, %arg1, %arg2, %arg3, [[COORD1]], [[STOREVALPTR]])
   // CHECK: xevm.DecorationCacheControl = {{\[\[}}6443 : i32, 0 : i32, 1 : i32, 0 : i32{{\]}}, {{\[}}6443 : i32, 1 : i32, 1 : i32, 0 : i32{{\]\]}}
   // CHECK:       : (!llvm.ptr<1>, i32, i32, i32, vector<2xi32>, !llvm.ptr) -> ()
-  xevm.blockstore2d %ptr, %base_width, %base_height, %base_pitch, %x, %y, %stored_val {elem_size_in_bits=8, tile_width=16, tile_height=8, v_blocks=1, l1_cache_control=L1UC, l3_cache_control=L3UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32, vector<8xi8>)
+  xevm.blockstore2d %ptr, %base_width, %base_height, %base_pitch, %x, %y, %stored_val {elem_size_in_bits=8, tile_width=16, tile_height=8, v_blocks=1, l1_cache_control=UC, l3_cache_control=UC} : (!llvm.ptr<1>, i32, i32, i32, i32, i32, vector<8xi8>)
   llvm.return
 }
 }

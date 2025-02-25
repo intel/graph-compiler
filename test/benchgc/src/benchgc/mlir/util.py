@@ -187,12 +187,12 @@ def attach_dlti(flags: argparse.Namespace, module: ir.Module):
     dlti_template = f"""
     module attributes {{
         dlti.target_system_spec = #dlti.target_system_spec<
-        "CPU": #dlti.target_device_spec<
-            #dlti.dl_entry<"L1_cache_size_in_bytes", {l1_data_cache_size} : ui32>,
-            #dlti.dl_entry<"L2_cache_size_in_bytes", {l2_cache_size} : ui64>,
-            #dlti.dl_entry<"L3_cache_size_in_bytes", {l3_cache_size} : ui64>,
-            #dlti.dl_entry<"num_threads", {num_threads} : i32>,
-            #dlti.dl_entry<"max_vector_width", {max_vector_width} : i64>>
+        "CPU" = #dlti.target_device_spec<
+            "L1_cache_size_in_bytes" = {l1_data_cache_size} : ui32,
+            "L2_cache_size_in_bytes" = {l2_cache_size} : ui64,
+            "L3_cache_size_in_bytes" = {l3_cache_size} : ui64,
+            "num_threads" = {num_threads} : i32>,
+            "max_vector_width" = {max_vector_width} : i64>
         >}} {{}}
     """
     with module.context:
