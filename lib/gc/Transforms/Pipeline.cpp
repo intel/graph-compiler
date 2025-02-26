@@ -52,6 +52,8 @@ void populateFrontendPasses(mlir::OpPassManager &pm) {
 void populateTensorPasses(mlir::OpPassManager &pm) {
   // todo: padding propagation pass
   // todo: layout propagation pass
+  pm.addPass(createPropagateLayoutOnNamedOps());
+  pm.addPass(createPostProcessPackUnpack());
   // todo: tensor constant propagation pass
   // linalg.matmul lowering to (scf.loop + linalg.brgemm) pass
   pm.addNestedPass<func::FuncOp>(createDeepTileContractionOp());
@@ -72,6 +74,8 @@ void populateTensorPasses(mlir::OpPassManager &pm) {
   pm.addPass(createFoldTensorOperation());
   pm.addPass(createLoopInvariantCodeMotionPass());
   pm.addPass(createControlFlowSinkPass());
+  // TODO(yifei): remove lower pack here
+  pm.addPass(createLowerPackUnpack());
   populateCleanUpPasses(pm);
 }
 
