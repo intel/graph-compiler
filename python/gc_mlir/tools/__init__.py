@@ -5,3 +5,5 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
 # ===-----------------------------------------------------------------------===#
+
+from .._mlir_libs._tools import validate_matmul_config

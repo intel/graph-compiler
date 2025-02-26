@@ -117,21 +117,22 @@ def batch_py_timeit_bench(
     ir_modules: List[ir.Module],
     entry_name: str,
     pipeline: str,
-    mlir_args: list,
+    mlir_args: List[Any],
     ir_printing=False,
     repeat_time=5,
     warm_up=2,
 ) -> List[Tuple[float, float]]:
     """benchmark a batch of mlir with python timeit."""
     compiler = GraphCompiler(pipeline)
+    engines = []
     funcs = []
     compile_costs = []
     for m in ir_modules:
         compile_begin = timeit.default_timer()
         engine = compiler.compile_and_jit(m, ir_printing=ir_printing)
+        engines.append(engine)
         compile_cost = (timeit.default_timer() - compile_begin) * 1000
         compile_costs.append(compile_cost)
-        funcs.append(engine.lookup(entry_name))
 
     # Copied from execution_engine.py so that the cost of cast does not affect perf result.
     packed_args = (ctypes.c_void_p * len(mlir_args))()
@@ -141,11 +142,11 @@ def batch_py_timeit_bench(
     def run_bench(func, arg):
         func(arg)
 
-    for func in funcs:
+    for func in [engine.lookup(entry_name) for engine in engines]:
         timeit.timeit(lambda: run_bench(func, packed_args), number=warm_up)
 
     execute_costs = []
-    for func in funcs:
+    for func in [engine.lookup(entry_name) for engine in engines]:
         total_time = timeit.timeit(
             lambda: run_bench(func, packed_args), number=repeat_time
         )
@@ -158,7 +159,7 @@ def batch_mlir_wrapper_bench(
     ir_modules: ir.Module,
     entry_name: str,
     pipeline: str,
-    mlir_args: list,
+    mlir_args: List[Any],
     ir_printing=False,
     repeat_time=5,
     warm_up=2,
