@@ -492,8 +492,8 @@ bool isGenericPackedMatmulOpImpl(linalg::GenericOp genericOp,
     return false;
   }
   // Check for packing
-  ValueRange inputs = genericOp.getDpsInputs();
-  ValueRange outputs = genericOp.getDpsInits();
+  ValueRange inputs = genericOp.getInputs();
+  ValueRange outputs = genericOp.getOutputs();
   auto shapeA = cast<ShapedType>(inputs.front().getType());
   auto shapeB = cast<ShapedType>(inputs.back().getType());
   auto shapeC = cast<ShapedType>(outputs.back().getType());
