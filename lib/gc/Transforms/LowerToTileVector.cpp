@@ -34,8 +34,7 @@ namespace {
 #define SAFE_EXPAND(X) X
 #define LDBG(X) LLVM_DEBUG(DBGS() << SAFE_EXPAND(X) << "\n")
 
-#define SUPPORT_TENSOR_OP                                                      \
-  tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::ConcatOp
+#define SUPPORT_TENSOR_OP tensor::ConcatOp
 
 template <typename T, typename U>
 struct decay_equiv : std::is_same<typename std::decay<T>::type, U>::type {};
@@ -559,6 +558,38 @@ struct TensorUnpackConvertVectorPass : public RewritePattern {
   }
 };
 
+struct TensorPackConvertVectorPass : public RewritePattern {
+
+  explicit TensorPackConvertVectorPass(MLIRContext *context)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, context) {}
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+
+    auto tensorPackOp = dyn_cast<tensor::PackOp>(op);
+    if (!tensorPackOp)
+      return rewriter.notifyMatchFailure(op, "Not expected operations.");
+
+    auto resultTy = cast<ShapedType>(op->getResultTypes()[0]);
+    ArrayRef<int64_t> retShape = resultTy.getShape();
+
+    if (ShapedType::isDynamicShape(retShape))
+      return rewriter.notifyMatchFailure(
+          op, "Pack operation result is dynamic shape.");
+
+    SmallVector<int64_t> inputVectorSize(
+        retShape.take_front(tensorPackOp.getSourceRank()));
+    SmallVector<bool, 5> targetVecDims(inputVectorSize.size(), false);
+
+    if (failed(linalg::vectorize(rewriter, op,
+                                 /*inputVectorSizes=*/inputVectorSize,
+                                 /*inputScalableVecDims=*/targetVecDims, false,
+                                 false)))
+      return rewriter.notifyMatchFailure(op, "Fail to vectorize.");
+
+    return success();
+  }
+};
+
 /// Some tensor operation lowering to vector.
 ///
 /// Currently support expand_shape, collapse_shape and concat_shape.
@@ -590,10 +621,8 @@ public:
 /// Patterns that lower to tile (virtual) vector.
 void populateLowerToTileVectorPatterns(RewritePatternSet &patterns) {
   patterns.add<OperationConvertTileVectorPass<linalg::LinalgOp>,
-               OperationConvertTileVectorPass<tensor::PackOp>>(
-      patterns.getContext());
-  patterns.add<TensorUnpackConvertVectorPass>(patterns.getContext());
-  patterns.add<TensorOpConvertVectorPass>(patterns.getContext());
+               TensorPackConvertVectorPass, TensorUnpackConvertVectorPass,
+               TensorOpConvertVectorPass>(patterns.getContext());
 }
 
 /// LowerToTileVectorPass is a pass that lowers operations to tile (virtual)
