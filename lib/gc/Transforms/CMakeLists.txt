@@ -16,6 +16,7 @@ gc_add_mlir_library(GcPasses
   TileUsingInterfaceX.cpp
   IterativeTilingAndFusion.cpp
   VerifyTargetDescription.cpp
+  ConstantTensorFolding.cpp
   DecomposeAggregatedOps.cpp
   DeepTileContractionOp.cpp
   TilingUtil.cpp
@@ -37,6 +38,7 @@ gc_add_mlir_library(GcPasses
     ${MLIR_LINK_COMPONENTS}
     ${GC_ONEDNN_DIALECT_LIB_NAME}
     GcInterface
+    GcAnalysis
     MLIRMicrokernelTransforms
   )
 
