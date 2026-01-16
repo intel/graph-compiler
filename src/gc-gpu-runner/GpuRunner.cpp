@@ -16,7 +16,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "gc/ExecutionEngine/Driver/Driver.h"
 #include "gc/ExecutionEngine/GPURuntime/GpuOclRuntime.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Utils/Error.h"
@@ -57,9 +56,9 @@ struct Options {
       llvm::cl::desc("Comma separated library paths to link dynamically."),
       llvm::cl::MiscFlags::CommaSeparated, llvm::cl::desc("<lib1,lib2,...>"),
       llvm::cl::cat(runnerCategory)};
-  llvm::cl::opt<bool> printIr{
-      "print-ir",
-      llvm::cl::desc("Print the resulting IR before the execution."),
+  llvm::cl::opt<bool> dumpIr{
+      "dump-ir",
+      llvm::cl::desc("Dump the resulting IR before the execution."),
       llvm::cl::init(false), llvm::cl::cat(runnerCategory)};
   llvm::cl::opt<bool> dumpSpirv{
       "dump-spirv", llvm::cl::desc("Dump spirv for generated kernels."),
@@ -72,7 +71,7 @@ struct Options {
 } // namespace
 
 void findFunc(Options &opts, ModuleOp mod) {
-  bool (*matcher)(ArrayRef<Type>, ModuleOp &);
+  std::function<bool(ArrayRef<Type>, ModuleOp &)> matcher;
 
   if (opts.skipPipeline) {
     matcher = [](ArrayRef<Type> args, ModuleOp &mod) {
@@ -137,7 +136,7 @@ int main(int argc, char **argv) {
 
   auto srcMgr = std::make_shared<llvm::SourceMgr>();
   srcMgr->AddNewSourceBuffer(std::move(file), SMLoc());
-  MLIRContext mlirCtx{gc::initCompilerAndGetDialects()};
+  MLIRContext mlirCtx{gc::getDialectRegistry()};
   auto mlirMod = parseSourceFile<ModuleOp>(srcMgr, {&mlirCtx});
   findFunc(opts, *mlirMod);
 
@@ -145,21 +144,17 @@ int main(int argc, char **argv) {
   SmallVector<StringRef, 4> sharedLibs(opts.sharedLibs.begin(),
                                        opts.sharedLibs.end());
   builderOpts.funcName = opts.mainFuncName;
-  builderOpts.printIr = opts.printIr;
-  builderOpts.spirvDump = opts.dumpSpirv;
+  builderOpts.dumpIr = opts.dumpIr;
+  builderOpts.dumpSpirv = opts.dumpSpirv;
   builderOpts.enableObjectDump = !opts.objDumpFile.getValue().empty();
   builderOpts.sharedLibPaths = sharedLibs;
   builderOpts.pipeline =
-      opts.skipPipeline ? [](OpPassManager &) {} : [](OpPassManager &pm) {
-        gc::GPUPipelineOptions pipelineOpts;
-        pipelineOpts.isUsmArgs = false;
-        pipelineOpts.callFinish = true;
-#ifdef GC_USE_IMEX
-        populateIMEXPipeline(pm, pipelineOpts);
-#else
-        populateGPUPipeline(pm, pipelineOpts);
-#endif
-      };
+      opts.skipPipeline ? [](OpPassManager &, gc::GPUPipelineOptions &) {}
+                        : [](OpPassManager &pm, gc::GPUPipelineOptions &opts) {
+                            opts.isUsmArgs = false;
+                            opts.callFinish = true;
+                            populateGPUPipeline(pm, opts);
+                          };
 
   gc::gpu::OclModuleBuilder builder{mlirMod, builderOpts};
   auto runtime = gcGetOrReport(gc::gpu::OclRuntime::get());

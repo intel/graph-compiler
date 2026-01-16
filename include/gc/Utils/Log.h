@@ -15,7 +15,7 @@
 #endif
 
 namespace mlir::gc::log {
-static void insertArgs(std::ostream &stream) { stream << std::endl; }
+static inline void insertArgs(std::ostream &stream) { stream << std::endl; }
 
 template <typename T, typename... Args>
 static void insertArgs(std::ostream &stream, T first, Args... args) {
@@ -38,7 +38,7 @@ static void log(
 
 #ifdef NDEBUG
 #define gcLogD(...)
-#define gcLogE(...) mlir::gc::log::insetLog(std::cerr, "ERROR", __VA_ARGS__)
+#define gcLogE(...) mlir::gc::log::log(std::cerr, "ERROR", __VA_ARGS__)
 #else
 
 // The debug logs are enabled by setting the environment variable GC_DEBUG to a
@@ -47,7 +47,7 @@ static void log(
 //   GC_DEBUG=.*  - Enable all debug logs.
 //   GC_DEBUG=/(CPU|GPU)Runtime/  - Enable debug logs in files containing
 //   CPURuntime or GPURuntime in the path.
-static bool isDebugEnabled(const char *fileName) {
+static inline bool isDebugEnabled(const char *fileName) {
   static std::regex pattern = []() {
     auto env = std::getenv("GC_DEBUG");
     return env ? std::regex(env, std::regex::extended)

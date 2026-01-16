@@ -5,16 +5,8 @@ gc_add_mlir_library(GcGpuOclPasses
     GraphCompilerPassIncGen
 
   LINK_LIBS PUBLIC
-    MLIRGPUDialect
-    MLIRXeGPUDialect
-    MLIRGPUTransforms
-    MLIRGPUToSPIRV
-    MLIRSCFToGPU
-    MLIRSCFToSPIRV
-    MLIRMathToSPIRV
-    MLIRControlFlowToSPIRV
-    MLIRMemRefTransforms
-    MLIRXeVMToLLVMIRTranslation
+    ${MLIR_LINK_COMPONENTS}
+    ${MLIR_DIALECT_LIBS}
+    ${MLIR_CONVERSION_LIBS}
     GcInterface
-    GcUtilsIR
 )

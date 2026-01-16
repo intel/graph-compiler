@@ -18,16 +18,29 @@
 cmake_minimum_required(VERSION 3.20)
 project(GraphCompiler VERSION "0.1.0" LANGUAGES C CXX)
 
+############################ Build options #####################################
+option(GC_ENABLE_TEST "Build the tests" ON)
+option(GC_ENABLE_TOOLS "Build the tools" ON)
+option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
+option(GC_ENABLE_GPU_RUNNER "Build GPU runner" ${GC_ENABLE_TOOLS})
+option(GC_ENABLE_PYTHON_BINDINGS "Build Python bindings" ON)
+option(GC_DYLINK "Link dynamic libraries of LLVM and MLIR" OFF)
+set(GC_EXTERNALS_DIR "${PROJECT_SOURCE_DIR}/externals" CACHE PATH "Directory for external dependencies")
+set(MLIR_DIR "${GC_EXTERNALS_DIR}/llvm-project/build/lib/cmake/mlir" CACHE PATH "MLIR cmake directory")
+################################################################################
+
 ############################# Cmake options ####################################
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
 
-# Silence a false positive GCC -Wunused-but-set-parameter warning in constexpr
-# cases, by marking SelectedCase as used. See
-# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85827 for details. The issue is
-# fixed in GCC 10.
+if (NOT GC_DYLINK)
+  add_compile_options(-fvisibility=hidden)
+endif()
+
+# Silence a false positive GCC -Wunused-but-set-parameter warning
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "10.0")
   include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag("-Wno-unused-but-set-parameter" CXX_SUPPORTS_WNO_UNUSED_BUT_SET_PARAMETER)
@@ -37,47 +50,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LE
 endif()
 ################################################################################
 
-############################ Build options #####################################
-option(GC_ENABLE_LEGACY ON)
-option(GC_ENABLE_DNNL_API "Enable the oneDNN library API integration" ON)
-option(GC_ENABLE_TEST "Build the tests" ON)
-option(GC_ENABLE_TEST_DNNL_API "Build the dnnl tests" ${GC_ENABLE_DNNL_API})
-option(GC_ENABLE_TEST_MLIR "Build the mlir tests" ON)
-option(GC_ENABLE_TOOLS "Build the tools" ON)
-option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
-option(GC_ENABLE_IMEX "Enable Intel® Extension for MLIR (implicitly enables GPU compilation)" OFF)
-option(GC_ENABLE_GPU "Enable GPU runtime and tools components" OFF)
-option(GC_ENABLE_BINDINGS_PYTHON "Enable Graph Complier Python Binding" ON)
-option(GC_DEV_LINK_LLVM_DYLIB "Link dynamic libraries of LLVM and MLIR. For developers only. Do not use it in packing the library." OFF)
-option(GC_ENABLE_RUNTIME_NAIVE_BRGEMM "Use naive BRGEMM as runtime backend for debug purpose." OFF)
-option(GC_BENCH_ENABLE "Build benchgc." ON)
-
-if(GC_ENABLE_LEGACY)
-  add_subdirectory(legacy/core)
-endif()
-
-if (GC_ENABLE_GPU)
-  set(GC_ENABLE_GPU ON)
-endif()
-
-if (GC_ENABLE_IMEX)
-  # normalize the value for lit config
-  set(GC_ENABLE_IMEX ON)
-endif()
-
-if(GC_ENABLE_DNNL_API)
-  set(GC_ONEDNN_DIALECT_LIB_NAME MLIROneDNNGraph)
-  # normalize the value for lit config
-  set(GC_ENABLE_DNNL_API ON)
-endif()
-################################################################################
-
 ############################## Targets #########################################
 # All common options, includes etc. are added to this interface target.
 add_library(GcInterface INTERFACE)
-if (GC_ENABLE_GPU)
-  target_compile_options(GcInterface INTERFACE -DGC_USE_GPU)
-endif()
 target_compile_features(GcInterface INTERFACE cxx_std_17)
 target_include_directories(GcInterface INTERFACE
   $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
@@ -85,14 +60,13 @@ target_include_directories(GcInterface INTERFACE
   $<INSTALL_INTERFACE:include>
 )
 
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(functions)
-include(version)
 include(mlir)
 
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
-add_subdirectory(python)
 add_subdirectory(test)
 ################################################################################
 
@@ -106,7 +80,6 @@ get_property(GC_TOOLS GLOBAL PROPERTY GC_TOOLS)
 get_property(GC_MLIR_LIBS GLOBAL PROPERTY GC_MLIR_LIBS)
 get_property(GC_PASS_LIBS GLOBAL PROPERTY GC_PASS_LIBS)
 get_property(GC_DIALECT_LIBS GLOBAL PROPERTY GC_DIALECT_LIBS)
-get_property(IMEX_LIBS GLOBAL PROPERTY IMEX_LIBS)
 
 install(TARGETS
   GcInterface
@@ -114,7 +87,6 @@ install(TARGETS
   ${GC_MLIR_LIBS}
   ${GC_PASS_LIBS}
   ${GC_DIALECT_LIBS}
-  ${IMEX_LIBS}
   EXPORT ${PROJECT_NAME}Targets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -122,30 +94,13 @@ install(TARGETS
   INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
 export(EXPORT ${PROJECT_NAME}Targets
   FILE "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake"
 )
+
 install(EXPORT ${PROJECT_NAME}Targets
   FILE ${PROJECT_NAME}Targets.cmake
   DESTINATION lib/cmake/${PROJECT_NAME}
-)
-
-# Generate the config files
-include(CMakePackageConfigHelpers)
-configure_package_config_file(
-  ${PROJECT_SOURCE_DIR}/cmake/Config.cmake.in
-  "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-  INSTALL_DESTINATION "lib/cmake/${PROJECT_NAME}"
-  NO_SET_AND_CHECK_MACRO
-  NO_CHECK_REQUIRED_COMPONENTS_MACRO
-)
-write_basic_package_version_file(
-  "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-  COMPATIBILITY AnyNewerVersion
-)
-install(FILES
-  ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
-  ${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
-  DESTINATION "lib/cmake/${PROJECT_NAME}"
 )
 ################################################################################

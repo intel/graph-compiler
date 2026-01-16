@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -25,6 +26,7 @@
 using namespace mlir;
 
 namespace mlir::gc {
+
 template <typename DerivedT> struct GpuPass {
 
   int64_t getGpuPropertyAsInt(Builder &builder, StringRef name,
@@ -59,6 +61,10 @@ template <typename DerivedT> struct GpuPass {
                                static_cast<DerivedT *>(this)->numThreadsPerEu);
   }
 
+  int64_t getMaxThreads(Builder &builder) {
+    return getNumEus(builder) * getNumThreadsPerEu(builder);
+  }
+
   int64_t getLocalMemSize(Builder &builder) {
     return getGpuPropertyAsInt(builder, "local_mem_size",
                                static_cast<DerivedT *>(this)->localMemSize);
@@ -73,6 +79,11 @@ template <typename DerivedT> struct GpuPass {
     return getGpuPropertyAsInt(builder, "max_work_group_size",
                                static_cast<DerivedT *>(this)->workGroupSize);
   }
+
+  int64_t getSubGroupSize(Builder &builder) {
+    return getGpuPropertyAsInt(builder, "sub_group_size",
+                               static_cast<DerivedT *>(this)->subGroupSize);
+  }
 };
 
 // This class is a placeholder for the rewriter-related boilerplate code.
@@ -83,7 +94,7 @@ struct OpRewriter final : IRRewriter {
       : IRRewriter(func.getContext()), loc(func.getLoc()) {}
 
   template <typename OpTy, typename... Args> OpTy create(Args &&...args) {
-    return RewriterBase::create<OpTy>(loc, std::forward<Args>(args)...);
+    return OpTy::create(*this, loc, std::forward<Args>(args)...);
   }
 
   arith::ConstantIndexOp createConstant(int64_t v) {
@@ -91,7 +102,7 @@ struct OpRewriter final : IRRewriter {
   }
 
   arith::ConstantFloatOp createConstant(double v) {
-    return create<arith::ConstantFloatOp>(APFloat(v), getF64Type());
+    return create<arith::ConstantFloatOp>(getF64Type(), APFloat(v));
   }
 };
 
@@ -299,7 +310,7 @@ static void adjustTiles(T totalSize, T *begin, T *end,
 
 template <typename T, unsigned N>
 static void adjustTiles(T totalSize, SmallVector<T, N> &tiles,
-                        bool xeGpuMode = false) {
+                        bool xeGpuMode = true) {
   impl::adjustTiles(totalSize, tiles.begin(), tiles.end(),
                     xeGpuMode ? impl::AdjustTilesMode::XeGpu
                               : impl::AdjustTilesMode::Sort);
@@ -308,8 +319,8 @@ static void adjustTiles(T totalSize, SmallVector<T, N> &tiles,
 // Check recursively if the specified operation has an operand that
 // depends on a result of a previous operation, matching the predicate.
 template <unsigned MaxDepth = std::numeric_limits<unsigned>::max()>
-bool isOperandDependsOnOp(bool (*predicate)(Operation *), Operation *operation,
-                          unsigned depth = 0) {
+bool isOperandDependsOnOp(std::function<bool(Operation *)> predicate,
+                          Operation *operation, unsigned depth = 0) {
   for (auto operand : operation->getOperands()) {
     if (auto op = operand.getDefiningOp();
         op &&
@@ -324,8 +335,8 @@ bool isOperandDependsOnOp(bool (*predicate)(Operation *), Operation *operation,
 // Check recursively if there are any operation, matching the predicate, that
 // depends on the result of the specified operation.
 template <unsigned MaxDepth = std::numeric_limits<unsigned>::max()>
-bool isOpDependsOnResult(bool (*predicate)(Operation *), Operation *operation,
-                         unsigned depth = 0) {
+bool isOpDependsOnResult(std::function<bool(Operation *)> predicate,
+                         Operation *operation, unsigned depth = 0) {
   for (auto res : operation->getResults()) {
     for (auto u : res.getUsers()) {
       if (predicate(u) ||
@@ -335,6 +346,12 @@ bool isOpDependsOnResult(bool (*predicate)(Operation *), Operation *operation,
     }
   }
   return false;
+}
+
+static inline bool isMatmulOp(Operation *op) {
+  auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+  return linalgOp && linalg::isaContractionOpInterface(linalgOp);
+  // TODO: Check matmul like generics
 }
 } // namespace mlir::gc
 #endif

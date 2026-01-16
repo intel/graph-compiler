@@ -15,6 +15,7 @@
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/IR/SymbolTable.h"
 
 using namespace mlir;
 using namespace mlir::gc::gpu;
@@ -34,10 +35,10 @@ LLVM::CallOp funcCall(OpBuilder &builder, const StringRef name,
   auto function = module.lookupSymbol<LLVM::LLVMFuncOp>(name);
   if (!function) {
     auto type = LLVM::LLVMFunctionType::get(returnType, argTypes, isVarArg);
-    function = OpBuilder::atBlockEnd(module.getBody())
-                   .create<LLVM::LLVMFuncOp>(loc, name, type);
+    OpBuilder b = OpBuilder::atBlockEnd(module.getBody());
+    function = LLVM::LLVMFuncOp::create(b, loc, name, type);
   }
-  return builder.create<LLVM::CallOp>(loc, function, arguments);
+  return LLVM::CallOp::create(builder, loc, function, arguments);
 }
 
 // Assuming that the pointer to the context is passed as the last argument
@@ -64,8 +65,8 @@ struct Helper final {
 
   Value idxConstant(OpBuilder &rewriter, const Location loc,
                     size_t value) const {
-    return rewriter.create<LLVM::ConstantOp>(
-        loc, idxType,
+    return LLVM::ConstantOp::create(
+        rewriter, loc, idxType,
         rewriter.getIntegerAttr(idxType, static_cast<int64_t>(value)));
   }
 
@@ -97,12 +98,12 @@ struct Helper final {
                       ArrayRef<Value> kernelPtrs) const {
     auto size = idxConstant(rewriter, loc, kernelPtrs.size());
     auto kernelPtrsArray =
-        rewriter.create<LLVM::AllocaOp>(loc, ptrType, ptrType, size);
+        LLVM::AllocaOp::create(rewriter, loc, ptrType, ptrType, size);
     for (size_t i = 0, n = kernelPtrs.size(); i < n; i++) {
       auto elementPtr =
-          rewriter.create<LLVM::GEPOp>(loc, ptrType, ptrType, kernelPtrsArray,
-                                       idxConstant(rewriter, loc, i));
-      rewriter.create<LLVM::StoreOp>(loc, kernelPtrs[i], elementPtr);
+          LLVM::GEPOp::create(rewriter, loc, ptrType, ptrType, kernelPtrsArray,
+                              idxConstant(rewriter, loc, i));
+      LLVM::StoreOp::create(rewriter, loc, kernelPtrs[i], elementPtr);
     }
 
     funcCall(rewriter, GPU_OCL_KERNEL_DESTROY, voidType, {idxType, ptrType},
@@ -158,7 +159,7 @@ struct ConvertAlloc final : ConvertOpPattern<gpu::AllocOp> {
                         {getCtxPtr(rewriter), size})
                    .getResult();
 
-    auto dsc = MemRefDescriptor::undef(rewriter, loc, dstType);
+    auto dsc = MemRefDescriptor::poison(rewriter, loc, dstType);
     dsc.setAllocatedPtr(rewriter, loc, ptr);
     dsc.setAlignedPtr(rewriter, loc, ptr);
     dsc.setOffset(rewriter, loc, helper.idxConstant(rewriter, loc, 0));
@@ -205,11 +206,11 @@ struct ConvertMemcpy final : ConvertOpPattern<gpu::MemcpyOp> {
     if (!size) {
       auto numElements = helper.idxConstant(rewriter, loc, 1);
       for (unsigned i = 0, n = srcType.getRank(); i < n; i++) {
-        numElements = rewriter.create<LLVM::MulOp>(
-            loc, numElements, srcDsc.size(rewriter, loc, i));
+        numElements = LLVM::MulOp::create(rewriter, loc, numElements,
+                                          srcDsc.size(rewriter, loc, i));
       }
-      size = rewriter.create<mlir::LLVM::MulOp>(
-          loc, numElements,
+      size = LLVM::MulOp::create(
+          rewriter, loc, numElements,
           getSizeInBytes(loc, srcType.getElementType(), rewriter));
     }
 
@@ -254,10 +255,10 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
         args.emplace_back(arg);
       } else {
         // Store the arg on the stack and pass the pointer
-        auto ptr = rewriter.create<LLVM::AllocaOp>(
-            loc, helper.ptrType, typeConverter->convertType(type),
-            helper.idxConstant(rewriter, loc, 1));
-        rewriter.create<LLVM::StoreOp>(loc, arg, ptr);
+        auto ptr = LLVM::AllocaOp::create(rewriter, loc, helper.ptrType,
+                                          typeConverter->convertType(type),
+                                          helper.idxConstant(rewriter, loc, 1));
+        LLVM::StoreOp::create(rewriter, loc, arg, ptr);
         args.emplace_back(ptr);
       }
     }
@@ -311,8 +312,8 @@ private:
         return std::nullopt;
       }
 
-      auto function = rewriter.create<LLVM::LLVMFuncOp>(
-          loc, getFuncName,
+      auto function = LLVM::LLVMFuncOp::create(
+          rewriter, loc, getFuncName,
           LLVM::LLVMFunctionType::get(helper.ptrType, {helper.ptrType}),
           LLVM::Linkage::Internal);
       function.setAlwaysInline(true);
@@ -320,27 +321,27 @@ private:
 
       auto ptr = mod.lookupSymbol<LLVM::GlobalOp>(str("Ptr"));
       assert(ptr);
-      auto null = rewriter.create<LLVM::ZeroOp>(loc, helper.ptrType);
-      auto ptrPtr = rewriter.create<LLVM::AddressOfOp>(loc, ptr);
-      auto ptrVal = rewriter.create<LLVM::LoadOp>(loc, helper.ptrType, ptrPtr);
-      auto cmp = rewriter.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::eq,
-                                               ptrVal, null);
+      auto null = LLVM::ZeroOp::create(rewriter, loc, helper.ptrType);
+      auto ptrPtr = LLVM::AddressOfOp::create(rewriter, loc, ptr);
+      auto ptrVal = LLVM::LoadOp::create(rewriter, loc, helper.ptrType, ptrPtr);
+      auto cmp = LLVM::ICmpOp::create(rewriter, loc, LLVM::ICmpPredicate::eq,
+                                      ptrVal, null);
 
       auto body = &function.getBody();
       auto thenBlock = rewriter.createBlock(body);
       auto elseBlock = rewriter.createBlock(body);
       rewriter.setInsertionPointToEnd(&body->front());
-      rewriter.create<LLVM::CondBrOp>(loc, cmp, thenBlock, elseBlock);
+      LLVM::CondBrOp::create(rewriter, loc, cmp, thenBlock, elseBlock);
 
       // Then block
       rewriter.setInsertionPointToStart(thenBlock);
       auto result = funcCall(rewriter, createFuncName, helper.ptrType,
                              {helper.ptrType}, loc, {function.getArgument(0)});
-      rewriter.create<LLVM::ReturnOp>(loc, result.getResult());
+      LLVM::ReturnOp::create(rewriter, loc, result.getResult());
 
       // Else block
       rewriter.setInsertionPointToStart(elseBlock);
-      rewriter.create<LLVM::ReturnOp>(loc, ptrVal);
+      LLVM::ReturnOp::create(rewriter, loc, ptrVal);
 
       rewriter.restoreInsertionPoint(insPoint);
     }
@@ -350,7 +351,7 @@ private:
       gpuLaunch.emitOpError() << "Function " << getFuncName << " not found!";
       return std::nullopt;
     }
-    return rewriter.create<LLVM::CallOp>(loc, kernelFunc, ValueRange(ctx))
+    return LLVM::CallOp::create(rewriter, loc, kernelFunc, ValueRange(ctx))
         .getResult();
   }
 
@@ -358,31 +359,15 @@ private:
                            gpu::LaunchFuncOp &gpuLaunch,
                            StringAttr kernelModName) const {
     StringAttr binaryAttr;
-    Operation *binaryStorageOp;
-#ifdef GC_USE_IMEX
-    binaryStorageOp = SymbolTable::lookupNearestSymbolFrom<gpu::GPUModuleOp>(
-        gpuLaunch, kernelModName);
-    if (!binaryStorageOp) {
-      gpuLaunch.emitOpError() << "Module " << kernelModName << " not found!";
-      return {};
-    }
-    binaryAttr = binaryStorageOp->getAttrOfType<StringAttr>("gpu.binary");
-    rewriter.eraseOp(binaryStorageOp);
-#else
-    binaryStorageOp = SymbolTable::lookupNearestSymbolFrom<gpu::BinaryOp>(
-        gpuLaunch, kernelModName);
+    Operation *binaryStorageOp =
+        SymbolTable::lookupNearestSymbolFrom<gpu::BinaryOp>(gpuLaunch,
+                                                            kernelModName);
     if (!binaryStorageOp) {
       gpuLaunch.emitOpError() << "Binary " << kernelModName << " not found!";
       return {};
     }
     auto objects = cast<gpu::BinaryOp>(binaryStorageOp).getObjects();
-    if (objects.size() != 1) {
-      gpuLaunch.emitOpError() << "Many targets present in " << kernelModName
-                              << ", please use xevm only.";
-      return {};
-    }
     binaryAttr = cast<gpu::ObjectAttr>(objects[0]).getObject();
-#endif
     if (!binaryAttr) {
       binaryStorageOp->emitOpError() << "missing binary.";
       return {};
@@ -403,12 +388,12 @@ private:
       return false;
     rewriter.setInsertionPointToStart(mod.getBody());
     // The kernel pointer is stored here
-    rewriter.create<LLVM::GlobalOp>(loc, helper.ptrType, /*isConstant=*/false,
-                                    LLVM::Linkage::Internal, str("Ptr"),
-                                    rewriter.getZeroAttr(helper.ptrType));
+    LLVM::GlobalOp::create(rewriter, loc, helper.ptrType, /*isConstant=*/false,
+                           LLVM::Linkage::Internal, str("Ptr"),
+                           rewriter.getZeroAttr(helper.ptrType));
 
-    auto function = rewriter.create<LLVM::LLVMFuncOp>(
-        loc, funcName,
+    auto function = LLVM::LLVMFuncOp::create(
+        rewriter, loc, funcName,
         LLVM::LLVMFunctionType::get(helper.ptrType, {helper.ptrType}));
     rewriter.setInsertionPointToStart(function.addEntryBlock(rewriter));
 
@@ -425,8 +410,8 @@ private:
     auto spirv = LLVM::createGlobalString(loc, rewriter, str("SPIRV"),
                                           binaryAttr.getValue(),
                                           LLVM::Linkage::Internal);
-    auto spirvSize = rewriter.create<LLVM::ConstantOp>(
-        loc, helper.idxType,
+    auto spirvSize = LLVM::ConstantOp::create(
+        rewriter, loc, helper.idxType,
         IntegerAttr::get(helper.idxType,
                          static_cast<int64_t>(binaryAttr.size())));
 
@@ -469,12 +454,12 @@ private:
 
     auto array = [&](SmallVector<Value> &values) {
       auto size = helper.idxConstant(rewriter, loc, values.size());
-      auto arrayPtr = rewriter.create<LLVM::AllocaOp>(loc, helper.ptrType,
-                                                      helper.idxType, size);
+      auto arrayPtr = LLVM::AllocaOp::create(rewriter, loc, helper.ptrType,
+                                             helper.idxType, size);
       for (size_t i = 0, n = values.size(); i < n; i++) {
-        auto elementPtr = rewriter.create<LLVM::GEPOp>(
-            loc, helper.ptrType, helper.idxType, arrayPtr,
-            helper.idxConstant(rewriter, loc, i));
+        auto elementPtr =
+            LLVM::GEPOp::create(rewriter, loc, helper.ptrType, helper.idxType,
+                                arrayPtr, helper.idxConstant(rewriter, loc, i));
         auto value = values[i];
         if (auto cast = value.getDefiningOp<UnrealizedConversionCastOp>()) {
           assert(getConstantIntValue(cast.getOperand(0)));
@@ -483,7 +468,7 @@ private:
         } else {
           value = rewriter.clone(*value.getDefiningOp())->getResult(0);
         }
-        rewriter.create<LLVM::StoreOp>(loc, value, elementPtr);
+        LLVM::StoreOp::create(rewriter, loc, value, elementPtr);
       }
       return arrayPtr.getResult();
     };
@@ -501,32 +486,32 @@ private:
     auto result = createKernelCall.getResult();
 
     // Save the kernel pointer to the global var using CAS
-    auto null = rewriter.create<LLVM::ZeroOp>(loc, helper.ptrType);
-    auto ptrPtr = rewriter.create<LLVM::AddressOfOp>(loc, ptr);
-    auto casResult = rewriter.create<LLVM::AtomicCmpXchgOp>(
-        loc, ptrPtr, null, result, LLVM::AtomicOrdering::acq_rel,
+    auto null = LLVM::ZeroOp::create(rewriter, loc, helper.ptrType);
+    auto ptrPtr = LLVM::AddressOfOp::create(rewriter, loc, ptr);
+    auto casResult = LLVM::AtomicCmpXchgOp::create(
+        rewriter, loc, ptrPtr, null, result, LLVM::AtomicOrdering::acq_rel,
         LLVM::AtomicOrdering::monotonic);
-    auto casFlag = rewriter.create<LLVM::ExtractValueOp>(
-        loc, rewriter.getI1Type(), casResult, 1);
+    auto casFlag = LLVM::ExtractValueOp::create(
+        rewriter, loc, rewriter.getI1Type(), casResult, ArrayRef<int64_t>{1});
 
     auto body = &function.getBody();
     auto thenBlock = rewriter.createBlock(body);
     auto elseBlock = rewriter.createBlock(body);
     rewriter.setInsertionPointToEnd(&body->front());
-    rewriter.create<LLVM::CondBrOp>(loc, casFlag, thenBlock, elseBlock);
+    LLVM::CondBrOp::create(rewriter, loc, casFlag, thenBlock, elseBlock);
 
     // Then block
     rewriter.setInsertionPointToStart(thenBlock);
-    rewriter.create<LLVM::ReturnOp>(loc, result);
+    LLVM::ReturnOp::create(rewriter, loc, result);
 
     // Else block
     // The kernel has already been created by another thread, destroying this
     // one.
     rewriter.setInsertionPointToStart(elseBlock);
     helper.destroyKernels(rewriter, loc, result);
-    result = rewriter.create<LLVM::ExtractValueOp>(loc, helper.ptrType,
-                                                   casResult, 0);
-    rewriter.create<LLVM::ReturnOp>(loc, result);
+    result = LLVM::ExtractValueOp::create(rewriter, loc, helper.ptrType,
+                                          casResult, ArrayRef<int64_t>{0});
+    LLVM::ReturnOp::create(rewriter, loc, result);
 
     rewriter.setInsertionPointAfter(function);
     return true;
@@ -560,17 +545,16 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
     if (!helper.kernelNames.size())
       return;
     // Add gpuOclDestructor() function that destroys all the kernels
-    auto mod = llvm::dyn_cast<ModuleOp>(getOperation());
-    assert(mod);
+    auto mod = cast<ModuleOp>(getOperation());
     OpBuilder rewriter(mod.getBody(), mod.getBody()->end());
-    auto destruct = rewriter.create<LLVM::LLVMFuncOp>(
-        mod.getLoc(), GPU_OCL_MOD_DESTRUCTOR,
+    auto destruct = LLVM::LLVMFuncOp::create(
+        rewriter, mod.getLoc(), GPU_OCL_MOD_DESTRUCTOR,
         LLVM::LLVMFunctionType::get(helper.voidType, {}),
         LLVM::Linkage::External);
     auto loc = destruct.getLoc();
     rewriter.setInsertionPointToStart(destruct.addEntryBlock(rewriter));
     // Add memory fence
-    rewriter.create<LLVM::FenceOp>(loc, LLVM::AtomicOrdering::acquire);
+    LLVM::FenceOp::create(rewriter, loc, LLVM::AtomicOrdering::acquire);
 
     SmallVector<Value> kernelPtrs;
     SmallString<128> strBuf("gcGpuOclKernel_");
@@ -582,13 +566,36 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
       strBuf.append("_Ptr");
       auto ptr = mod.lookupSymbol<LLVM::GlobalOp>(strBuf);
       assert(ptr);
-      auto ptrVal = rewriter.create<LLVM::LoadOp>(
-          loc, helper.ptrType, rewriter.create<LLVM::AddressOfOp>(loc, ptr));
+      auto ptrVal =
+          LLVM::LoadOp::create(rewriter, loc, helper.ptrType,
+                               LLVM::AddressOfOp::create(rewriter, loc, ptr));
       kernelPtrs.emplace_back(ptrVal);
     }
 
     helper.destroyKernels(rewriter, loc, kernelPtrs);
-    rewriter.create<LLVM::ReturnOp>(loc, ValueRange{});
+    LLVM::ReturnOp::create(rewriter, loc, ValueRange{});
+
+    // Delete llvm.call @mgpuStreamCreate() and all its users.
+    SmallVector<Operation *> toErase;
+    mod.walk([&](LLVM::CallOp call) {
+      if (call.getCallee() == "mgpuStreamCreate") {
+        for (auto u : call.getOperation()->getUsers()) {
+          toErase.push_back(u);
+        }
+        toErase.push_back(call);
+      }
+      return WalkResult::skip();
+    });
+    for (auto fn : mod.getOps<LLVM::LLVMFuncOp>()) {
+      auto name = fn.getSymName();
+      if (name == "mgpuStreamCreate" || name == "mgpuStreamDestroy" ||
+          name == "mgpuStreamSynchronize") {
+        toErase.push_back(fn);
+      }
+    }
+    for (auto op : toErase) {
+      op->erase();
+    }
   }
 };
 } // namespace

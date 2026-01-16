@@ -1,6 +1,1 @@
-add_subdirectory(CPURuntime)
-add_subdirectory(Driver)
-if(GC_ENABLE_GPU)
-    add_subdirectory(GPURuntime)
-    add_subdirectory(OpenCLRuntime)
-endif()
+add_subdirectory(GPURuntime)

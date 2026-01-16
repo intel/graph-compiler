@@ -1,4 +1,4 @@
-//===- Passes.td - Graph Compiler passes -------------------*- tablegen -*-===//
+//===- Passes.td - Graph Compiler passes ----------------*- tablegen -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,127 +11,34 @@
 
 include "mlir/Pass/PassBase.td"
 
-def MergeAlloc : Pass<"gc-merge-alloc", "func::FuncOp">  {
-  let summary = "Merge multiple memref.alloc and reuse the buffer";
+def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
+  let summary = "Set GPU device properties.";
   let description = [{
-    The pass merges the "mergeable" memref.alloc allocations into a single
-    memref.alloc in its ancestor "allocation scope", to enhance memory
-    reuse and cache locality. A memref.alloc is "mergeable" if it is owned
-    by the current function and it is statically shaped and has identity layout.
-    An "allocation scope" is the nearest ancestor surrounding operation
-    of memref.alloc, which extends AutomaticAllocationScope trait and is not
-    scf.for. The function top-level block or the body of parallel-loop are
-    examples of "allocation scope". If there are nested AutomaticAllocationScope,
-    each level of the AutomaticAllocationScope is a different "allocation scope".
-    A "mergeable" memref.alloc will be replaced by a memref.view on the "merged"
-    buffer, with an offset. The "merged" buffer will be located at the begining
-    of the block of the "allocation scope".
-    The offset of each merged buffer is decided by this pass, by considering the
-    lifetime of the original memref before merging. This pass schedules the
-    offsets to 1) make sure the offsets and address ranges do not overlap if
-    two "mergeable" allocations have overlapped lifetime, and 2) reuse the
-    address ranges that are considered "hot" in cache for an later allocation.
+    Set module wide GPU device attributes.
   }];
   let options = [
-    Option<"optionAnalysisOnly", "analysis-only", "bool",
-       /*default=*/"false",
-       "Skip the mutation of the IR and only mark the lifetime and scope on the"
-       " attr of operations. Useful for debugging and testing.">,
-    Option<"plannerOptions", "planner-options", "std::string",
-       /*default=*/"\"\"",
-       "The options for the memory-planner. `cost-model` for using a cost-"
-       "model considering both cache locality and memory size. `size-first`"
-       " may generate allocations with smaller total size without considering"
-       " cache locality. By default `cost-model` is used.">,
-    Option<"optionAlignment", "alignment", "int64_t",
-       /*default=*/"64",
-       "The alignment of the merged allocations">,
-  ];
-  let dependentDialects = ["memref::MemRefDialect", "arith::ArithDialect"];
-  let constructor = "mlir::gc::createMergeAllocPass()";
-}
-
-
-#ifdef GC_HAS_ONEDNN_DIALECT
-def ConvertOneDNNGraphToLinalg : Pass<"convert-onednn-graph-to-linalg"> {
-  let summary =
-      "Lower the operations from the oneDNN Graph dialect into Linalg";
-  let description = [{Lowers the `onednn_graph` ops to `linalg` ops.}];
-  let dependentDialects = [
-    "func::FuncDialect", "math::MathDialect", "arith::ArithDialect",
-    "tensor::TensorDialect", "linalg::LinalgDialect", "linalgx::LinalgxDialect"
-  ];
-}
-#endif
-
-def ConvertMemRefToCPURuntime : Pass<"convert-memref-to-cpuruntime", "func::FuncOp"> {
-  let summary = "Lower the allocation / deallocation operations from the MemRef dialect into CPURuntime";
-  let description = [{
-    Lowers the `memref` allocation / deallocation ops to `CPURuntime` ops.
-  }];
-  let dependentDialects = [
-      "memref::MemRefDialect",
-      "cpuruntime::CPURuntimeDialect"
-  ];
-}
-
-#ifdef GC_USE_IMEX
-def LinalgToXeGPU : Pass<"linalg-to-xegpu", "func::FuncOp"> {
-  let summary = "Convert linalg dialect to XeGPU dialect.";
-  let description = [{Lower linalg ops to XeGPU dialect.}];
-  let dependentDialects = [
-    "linalg::LinalgDialect", "gpu::GPUDialect", "xegpu::XeGPUDialect",
-    "scf::SCFDialect", "memref::MemRefDialect", "arith::ArithDialect",
-    "math::MathDialect", "vector::VectorDialect"
-  ];
-  let options = [
-    Option<"kTile", "k-tile", "int64_t",
-           /*default=*/"32", "GEMM tile size for reduction dimension.">,
-    Option<"stages", "stages", "int64_t",
-           /*default=*/"1", "Number of cooperative prefetch stages.">,
-    ListOption<"dpasTile", "dpas-tile", "int64_t",
-               "DPAS register block sizes MxNxK">,
-  ];
-}
-#endif
-
-#ifdef GC_USE_GPU
-def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
-  let summary = "Convert the GPU operations to GpuOclRuntime calls.";
-  let description = [{
-    Convert the gpu alloc, dealloc, memcpy and launch operations to GpuOclRuntime calls.
-  }];
-  let options = [
-    Option<"callFinish", "call-finish", "bool",
-           /*default=*/"false",
-           "Call finish() after each kernel launch.">
+    Option<"id", "id", "size_t",
+           /*default=*/"0", "Device id.">,
+    Option<"name", "name", "std::string",
+           /*default=*/"", "Device name.">,
+    Option<"arch", "arch", "std::string",
+           /*default=*/"\"bmg\"", "GPU architecture.">,
+    Option<"maxWgSize", "max-wg-size", "size_t",
+           /*default=*/"1024", "Maximum workgroup size.">,
+    Option<"vectorWidth", "vector-width", "size_t",
+           /*default=*/"16", "The number of scalar elements that can be stored in a vector register.">,
+    ListOption<"sgSizes", "sg-sizes", "size_t",
+               "Subgroup sizes supported by the device.">
     ];
 }
-#endif // GC_USE_GPU
-
-def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
-  let summary = "Add a context argument.";
-  let description = [{
-    Add a new memref argument to the function, that could be used to pass some context.
-  }];
-}
-
-def AllocsToSLM : Pass<"allocs-to-slm", "func::FuncOp"> {
-  let summary = "Add 'shared' memory space to memrefs allocated inside a gpu.block.";
-  let description = [{Add 'shared' memory space to memrefs allocated inside a gpu.block.}];
-  let dependentDialects = [
-    "gpu::GPUDialect", "memref::MemRefDialect"
-  ];
-}
-
 
 def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
   let summary = "GPU tiling and fusion path.";
   let description = [{
     This pass tiles linalg operations and creates two nested scf.forall loops. When converting to gpu.launch,
     the inner loop is mapped to the block sizes and the outer - to grid sizes. The tiles calculation is based
-    on the GPU device properties, retrieved from the DLTI attributes. If the DLTI attributes are not specified,
-    defaults to the pass options.
+    on the GPU device properties, retrieved from the GPU device attributes. If the GPU device attributes are 
+    not specified, defaults to the pass options.
   }];
   let options = [
     Option<"numEus", "num-eus", "size_t",
@@ -147,156 +54,50 @@ def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
            /*default=*/"131072",
            "The size of the local memory, shared across a work-group.">,
     Option<"vectorWidth", "vector-width", "size_t",
-           /*default=*/"512",
-           "The maximum width of EU's vector registers.">,
+           /*default=*/"16",
+           "The number of scalar elements that can be stored in a vector.">,
     Option<"workGroupSize", "work-group-size", "size_t",
-           /*default=*/"64",
-           "The maximum workgroup size.">
+           /*default=*/"1024",
+           "The maximum workgroup size.">,
+    Option<"subGroupSize", "sub-group-size", "size_t",
+           /*default=*/"32",
+           "Subgroup size.">
     ];
 }
 
-def GpuXeVMAttachTarget: Pass<"xevm-attach-target", ""> {
-  let summary = "Attaches a XeVM target attribute to a GPU Module.";
+def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
+  let summary = "Add a context argument.";
   let description = [{
-    This pass searches for all GPU Modules in the immediate regions and attaches
-    a XeVM target if the module matches the name specified by the `module` argument.
-
-    Example:
-    ```
-    // File: in.mlir:
-    gpu.module @nvvm_module_1 {...}
-    gpu.module @rocdl_module_2 {...}
-    gpu.module @xevm_module_3 {...}
-    // mlir-opt --xevm-attach-target="module=xevm.* chip=pvc" in.mlir
-    gpu.module @nvvm_module_1 {...}
-    gpu.module @rocdl_module_2 {...}
-    gpu.module @xevm_module_3 [#xevm.target<chip = "pvc">] {...}
-    ```
+    Add a new memref argument to the function, that could be used to pass some context.
   }];
-  let options = [
-    Option<"moduleMatcher", "module", "std::string",
-           /*default=*/ [{""}],
-           "Regex used to identify the modules to attach the target to.">,
-    Option<"triple", "triple", "std::string",
-           /*default=*/ "\"spirv64-unknown-unknown\"",
-           "Target triple.">,
-    Option<"chip", "chip", "std::string",
-           /*default=*/"\"pvc\"",
-           "Target chip.">,
-    Option<"optLevel", "O", "unsigned",
-           /*default=*/"2",
-           "Optimization level.">
-  ];
 }
 
-
-def IterativeTilingAndFusion : Pass<"iterative-tiling-and-fusion",
-                                        "func::FuncOp"> {
-  let summary = "Iterative tiling and fusion for any tilable operation";
+def Vectorize : Pass<"vectorize", "func::FuncOp"> {
+  let summary = "Vectorize structured operations.";
   let description = [{
-    The pass tries to fuse any MLIR operation which can be tiled. Moreover, this pass aims to support:
-      1. Matmul fusion with element-wise/reduce/broadcast ops.
-      2. Producer and consumer fusion.
-      3. Arbitrary topology, including residual pattern with multiple consumers .
-      4. Nest loops structure with multiple level candidates.
-      5. Flexible option to control the boundary of iterative process.
-      6. Default tiling when no op is tiled before fusion.
-      7. Cost-model to determine whether to fuse or not.
+    Vectorize structured operations that have vectorization support and apply
+    vector transformation patterns.
   }];
-  let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect", "scf::SCFDialect",
-                           "tensor::TensorDialect"];
+}
 
+def GpuKernelOutline : Pass<"gpu-kernel-outline", "ModuleOp"> {
+  let summary = "Outline GPU kernels.";
+  let description = [{
+    Convert scf.forall operations into GPU kernels.
+  }];
+  let dependentDialects = ["scf::SCFDialect", "gpu::GPUDialect", "xevm::XeVMDialect"];
+}
+
+def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
+  let summary = "Convert the GPU operations to GpuOclRuntime calls.";
+  let description = [{
+    Convert the gpu alloc, dealloc, memcpy and launch operations to GpuOclRuntime calls.
+  }];
   let options = [
-    Option<"useCostModel", "use-cost-model", "bool",
+    Option<"callFinish", "call-finish", "bool",
            /*default=*/"false",
-           "Decide if enable cost model to control iterative fusion.">,
-    Option<"defaultNDTile", "default-nd-tile", "unsigned",
-           /*default=*/"2",
-           "Set default amount of non-one dimensions in TileSize, such as 1, 2[default, a.k.a. 2D-Tile], etc.">,
-    ListOption<"defaultTileSize", "default-tile-size", "std::string",
-           "Set default TileSize for the certain type of op, saying `matmul:{32,32}`.">,
+           "Call finish() after each kernel launch.">
     ];
-}
-def DeepTileContractionOp
-    : Pass<"deep-tile-contraction-op", "func::FuncOp"> {
-  let summary = "Tile linalg contraction operation deeply";
-  let description =
-      [{The pass tries to tile the linalg contraction op deeply.}];
-  let dependentDialects = [
-    "func::FuncDialect",
-    "arith::ArithDialect",
-    "tensor::TensorDialect",
-    "linalg::LinalgDialect",
-    "linalgx::LinalgxDialect",
-  ];
-}
-
-def VerifyTargetDescription : Pass<"verify-target-description", "ModuleOp"> {
-  let summary = "Verify the target description from ModuleOp DLTI attribute.";
-  let description = [{
-    Verify the target description from ModuleOp DLTI attribute. Raise error for unexpected input(such as a negative number of num_threads), and raise warn for missing fields, and provide a default value(such as 32K for L1_cache_size).
-  }];
-  let dependentDialects = ["DLTIDialect"];
-  let options = [
-    Option<"device", "device", "std::string",
-           /*default=*/"\"CPU\"",
-           "The device to verify. Supported device: CPU, ">,
-  ];
-}
-
-def DecomposeAggregatedOps : Pass<"decompose-aggregated-ops", "func::FuncOp"> {
-  let summary = "Decompose aggregated operations.";
-  let description = [{
-    Decompose operations that implement the `AggregatedOpInterface`.
-  }];
-}
-
-def SinkOpIntoInnerLoop : Pass<"sink-op-into-inner-loop"> {
-  let summary = "Sink operations into inner loops";
-  let description = [{The pass tries to sink operations into inner loops as deep as possible to maximize the chance for outer loop optimization.
-  }];
-  let dependentDialects = [];
-}
-
-def MergeNestedForall : Pass<"merge-nested-forall"> {
-  let summary = "Merge nested scf.forall operations";
-  let description = [{The pass tries to merge nested forall operations.}];
-  let dependentDialects = ["scf::SCFDialect"];
-}
-
-def FoldTensorOperation : Pass<"fold-tensor-operation"> {
-  let summary = "Fold some tensor operation";
-  let description = [{
-    Remove some useless tensor operations.
-  }];
-  let dependentDialects = [
-    "tensor::TensorDialect",
-  ];
-}
-
-def DecomposeTensorOperation : Pass<"decompose-tensor-operation"> {
-  let summary = "decompose some tensor operation";
-  let description = [{
-    Decompose some tensor operations(concat, gather) into linalg operation.
-  }];
-  let dependentDialects = [
-    "::mlir::tensor::TensorDialect"
-  ];
-}
-
-def LowerToTileVector : Pass<"lower-to-tile-vector", "func::FuncOp"> {
-  let summary = "Lower tensor to tile (virtual) vector";
-  let description = [{
-    Lower operation operate on tensor to vector operation.
-  }];
-  let dependentDialects = [
-    "::mlir::func::FuncDialect",
-    "::mlir::math::MathDialect",
-    "::mlir::arith::ArithDialect",
-    "::mlir::tensor::TensorDialect",
-    "::mlir::linalg::LinalgDialect",
-    "::mlir::vector::VectorDialect",
-  ];
 }
 
 #endif // GC_DIALECT_GC_PASSES

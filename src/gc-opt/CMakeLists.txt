@@ -15,64 +15,14 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-if(NOT GC_ENABLE_OPT)
-  message(STATUS "gc-opt is not enabled.")
+if (NOT GC_ENABLE_OPT)
+  message(STATUS "gc-opt is disabled")
   return()
 endif()
 
-if(GC_DEV_LINK_LLVM_DYLIB)
-  set(MLIR_LINK_COMPONENTS
-    MLIR
-  )
-  get_property(dialect_libs GLOBAL PROPERTY GC_DIALECT_LIBS)
-  get_property(conversion_libs GLOBAL PROPERTY GC_PASS_LIBS)
-else()
-  set(MLIR_LINK_COMPONENTS
-    MLIROptLib
-    MLIRBuiltinToLLVMIRTranslation
-    MLIRLLVMDialect
-    MLIRLLVMToLLVMIRTranslation
-    MLIRToLLVMIRTranslationRegistration
-  )
-  get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-  get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
-endif()
-
-add_llvm_executable(gc-opt gc-opt.cpp)
-llvm_update_compile_flags(gc-opt)
-mlir_check_all_link_libraries(gc-opt)
-
-get_property(extension_libs GLOBAL PROPERTY MLIR_EXTENSION_LIBS)
-
-target_link_libraries(gc-opt PUBLIC GcInterface)
-target_link_libraries(gc-opt PRIVATE
-  ${dialect_libs}
-  ${extension_libs}
-  ${conversion_libs}
-  ${MLIR_LINK_COMPONENTS}
-  GcPasses
-  GcAnalysis
-)
-
+gc_add_mlir_tool(gc-opt GcOpt.cpp)
 target_link_libraries(gc-opt PRIVATE GcGpuPasses)
 
-if(GC_ENABLE_IMEX)
-  include(imex)
-  get_property(IMEX_INCLUDES GLOBAL PROPERTY IMEX_INCLUDES)
-  target_include_directories(gc-opt PRIVATE ${IMEX_INCLUDES})
-  target_link_libraries(gc-opt PRIVATE
-    IMEXGPUXDialect
-    IMEXXeTileDialect
-    IMEXRegionDialect
-    IMEXRegionTransforms
-    IMEXTransforms
-    IMEXGPUToGPUX
-    IMEXGPUToSPIRV
-    IMEXGPUXToLLVM
-    IMEXXeGPUToVC
-    IMEXXeTileToXeGPU
-    IMEXUtil
-  )
+if(NOT GC_DYLINK)
+target_link_libraries(gc-opt PRIVATE MLIROptLib)
 endif()
-
-set_property(GLOBAL APPEND PROPERTY GC_TOOLS gc-opt)

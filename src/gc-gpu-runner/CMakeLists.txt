@@ -15,16 +15,10 @@
 # SPDX-License-Identifier: Apache-2.0
 ################################################################################
 
-if(GC_ENABLE_TOOLS AND GC_ENABLE_GPU)
-  gc_add_mlir_tool(gc-gpu-runner GpuRunner.cpp)
-  target_link_libraries(gc-gpu-runner PRIVATE
-    GcJitWrapper
-    GcGpuOclRuntime
-  )
-  mlir_check_all_link_libraries(gc-gpu-runner)
-else()
-  message(STATUS "Gpu runner is not enabled.")
+if (NOT GC_ENABLE_GPU_RUNNER)
+  message(STATUS "GPU runner is disabled")
   return()
 endif()
 
-
+gc_add_mlir_tool(gc-gpu-runner GpuRunner.cpp)
+target_link_libraries(gc-gpu-runner PRIVATE GcGpuOclRuntime)

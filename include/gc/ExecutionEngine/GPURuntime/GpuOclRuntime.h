@@ -26,7 +26,10 @@ constexpr char GPU_OCL_MOD_DESTRUCTOR[] = "gcGpuOclModuleDestructor";
 #include <unordered_set>
 #include <vector>
 
+#define CL_TARGET_OPENCL_VERSION 300
 #include <CL/cl.h>
+
+#include "gc/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
@@ -195,6 +198,10 @@ struct OclModule {
   OclModule(const OclModule &&) = delete;
   OclModule &operator=(const OclModule &&) = delete;
 
+  bool isOutputArg(unsigned idx) const {
+    return (outArgsMask & (1ULL << idx)) != 0;
+  }
+
   void dumpToObjectFile(StringRef filename) const {
     engine->dumpToObjectFile(filename);
   }
@@ -214,22 +221,24 @@ private:
   };
   const MainFunc main;
   const ArrayRef<Type> argTypes;
+  const uint64_t outArgsMask;
   std::unique_ptr<ExecutionEngine> engine;
 
   explicit OclModule(const OclRuntime &runtime, const bool isStatic,
                      const MainFunc main, const ArrayRef<Type> argTypes,
+                     const uint64_t outArgsMask,
                      std::unique_ptr<ExecutionEngine> engine)
       : runtime(runtime), isStatic(isStatic), main(main), argTypes(argTypes),
-        engine(std::move(engine)) {}
+        outArgsMask(outArgsMask), engine(std::move(engine)) {}
 };
 
 struct OclModuleBuilderOpts {
   StringRef funcName = {};
-  bool printIr = false;
-  bool spirvDump = false;
+  bool dumpIr = false;
+  bool dumpSpirv = false;
   bool enableObjectDump = false;
   ArrayRef<StringRef> sharedLibPaths = {};
-  void (*pipeline)(OpPassManager &) = nullptr;
+  std::function<void(OpPassManager &, GPUPipelineOptions &)> pipeline = nullptr;
 };
 
 struct OclModuleBuilder {
@@ -254,13 +263,14 @@ struct OclModuleBuilder {
 
 private:
   ModuleOp mlirModule;
-  const bool printIr;
-  const bool spirvDump;
+  const bool dumpIr;
+  const bool dumpSpirv;
   const bool enableObjectDump;
   const ArrayRef<StringRef> sharedLibPaths;
-  void (*const pipeline)(OpPassManager &);
+  std::function<void(OpPassManager &, GPUPipelineOptions &)> pipeline;
   const StringRef funcName;
-  const ArrayRef<Type> argTypes;
+  SmallVector<Type> argTypes;
+  uint64_t outArgsMask;
   std::shared_mutex mux;
   std::unordered_map<const OclDevCtxPair, std::shared_ptr<const OclModule>>
       cache;
@@ -295,7 +305,7 @@ protected:
   Args args;
   unsigned argCounter = 0;
 
-  explicit OclModuleExecutorBase(std::shared_ptr<const OclModule> &mod)
+  explicit OclModuleExecutorBase(const std::shared_ptr<const OclModule> &mod)
       : mod(mod) {}
 
 #ifndef NDEBUG
@@ -314,7 +324,7 @@ protected:
 
 // NOTE: This executor can only be used if mod->isStatic == true!
 template <unsigned N = 8> struct StaticExecutor : OclModuleExecutorBase<N> {
-  explicit StaticExecutor(std::shared_ptr<const OclModule> &mod)
+  explicit StaticExecutor(const std::shared_ptr<const OclModule> &mod)
       : OclModuleExecutorBase<N>(mod) {
     assert(this->mod->isStatic);
   }
@@ -367,7 +377,7 @@ template <unsigned N = 8> struct StaticExecutor : OclModuleExecutorBase<N> {
 // https://mlir.llvm.org/docs/TargetLLVMIR/#c-compatible-wrapper-emission.
 // NOTE: This executor can only be used if mod->isStatic != true!
 template <unsigned N = 64> struct DynamicExecutor : OclModuleExecutorBase<N> {
-  explicit DynamicExecutor(std::shared_ptr<const OclModule> &mod)
+  explicit DynamicExecutor(const std::shared_ptr<const OclModule> &mod)
       : OclModuleExecutorBase<N>(mod) {
     assert(!this->mod->isStatic);
   }
@@ -407,7 +417,7 @@ template <unsigned N = 64> struct DynamicExecutor : OclModuleExecutorBase<N> {
 
         SmallVector<int64_t> expectedStrides;
         if (int64_t expectedOffset; !failed(
-                getStridesAndOffset(type, expectedStrides, expectedOffset))) {
+                type.getStridesAndOffset(expectedStrides, expectedOffset))) {
           assert(expectedOffset == offset);
           for (size_t i = 0; i < rank; i++) {
             assert(expectedStrides[i] == strides[i]);

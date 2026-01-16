@@ -8,168 +8,166 @@
 
 #include <string>
 
-#include "gc/Conversion/Passes.h"
 #include "gc/Transforms/Passes.h"
-
-#ifdef GC_USE_IMEX
-#include "imex/Conversion/Passes.h"
-#include "imex/Transforms/Passes.h"
-#endif
-
+#include "gc/Utils/Transform.h"
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Pipelines/Passes.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/SPIRV/Transforms/Passes.h"
+#include "mlir/Dialect/XeGPU/Transforms/Passes.h"
+#include "mlir/InitAllDialects.h"
+#include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/TargetSelect.h"
 
 namespace mlir::gc {
-#ifdef GC_USE_IMEX
-void populateIMEXPipeline(OpPassManager &pm,
-                          const GPUPipelineOptions &pipelineOpts) {
-  if (pipelineOpts.useGpuRuntime) {
-    // Add an argument for the GPU context
-    pm.addNestedPass<func::FuncOp>(createAddContextArg());
-  }
 
-  pm.addPass(createDecomposeTensorOperation());
-  pm.addNestedPass<func::FuncOp>(createGpuTilingAndFusion());
-  pm.addPass(createCanonicalizerPass());
-
-  pm.addPass(bufferization::createEmptyTensorEliminationPass());
-  pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
-
-  bufferization::OneShotBufferizationOptions options;
-  options.bufferizeFunctionBoundaries = true;
-  options.setFunctionBoundaryTypeConversion(
-      bufferization::LayoutMapOption::IdentityLayoutMap);
-  pm.addPass(bufferization::createOneShotBufferizePass(options));
-
-  pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
-  pm.addNestedPass<func::FuncOp>(
-      bufferization::createFinalizingBufferizePass());
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
-  pm.addPass(memref::createExpandReallocPass());
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(bufferization::createOwnershipBasedBufferDeallocationPass());
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(bufferization::createBufferDeallocationSimplificationPass());
-  pm.addPass(bufferization::createLowerDeallocationsPass());
-  pm.addPass(createCSEPass());
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(createBufferizationToMemRefPass());
-
-  pm.addNestedPass<func::FuncOp>(createForallToParallelLoopPass());
-  pm.addNestedPass<func::FuncOp>(createGpuMapParallelLoopsPass());
-  pm.addNestedPass<func::FuncOp>(createParallelLoopToGpuPass());
-  pm.addPass(createCanonicalizerPass());
-  pm.addNestedPass<func::FuncOp>(createAllocsToSLM());
-  pm.addNestedPass<func::FuncOp>(createLinalgToXeGPU(
-      {/*kTile=*/16, /*stages=*/1, /*dpasTiles=*/{8, 16, 16}}));
-  pm.addPass(createCSEPass());
-
-  pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
-  pm.addPass(xegpu::createXeGPUFoldAliasOps());
-  pm.addPass(memref::createFoldMemRefAliasOpsPass());
-
-  imex::InsertGPUAllocsOptions insertGPUAllocsOption{
-      /*clientAPI*/ "opencl", /*inRegions*/ false,
-      /*isUsmArgs*/ pipelineOpts.isUsmArgs};
-  pm.addNestedPass<func::FuncOp>(
-      imex::createInsertGPUAllocsPass(insertGPUAllocsOption));
-  pm.addPass(createGpuKernelOutliningPass());
-  pm.addPass(imex::createSetSPIRVCapabilitiesPass());
-  pm.addNestedPass<gpu::GPUModuleOp>(
-      imex::createSetSPIRVAbiAttributePass("opencl"));
-  pm.addPass(createLowerAffinePass());
-  pm.addPass(imex::createVectorLinearizePass());
-  pm.addNestedPass<gpu::GPUModuleOp>(imex::createConvertXeGPUToVCPass());
-  pm.addPass(createReconcileUnrealizedCastsPass());
-  pm.addPass(imex::createBF16ToGPUPass());
-  pm.addNestedPass<gpu::GPUModuleOp>(createConvertFuncToSPIRVPass());
-  pm.addNestedPass<gpu::GPUModuleOp>(createConvertVectorToSPIRVPass());
-  pm.addPass(imex::createConvertGPUXToSPIRVPass());
-  pm.addNestedPass<spirv::ModuleOp>(spirv::createSPIRVLowerABIAttributesPass());
-  pm.addNestedPass<spirv::ModuleOp>(spirv::createSPIRVUpdateVCEPass());
-  pm.addNestedPass<func::FuncOp>(LLVM::createRequestCWrappersPass());
-  pm.addPass(imex::createSerializeSPIRVPass());
-  pm.addPass(createConvertVectorToSCFPass());
-
-  if (!pipelineOpts.useGpuRuntime) {
-    pm.addPass(imex::createConvertGPUToGPUXPass());
-  }
-
-  pm.addPass(createConvertSCFToCFPass());
-  pm.addPass(createConvertControlFlowToLLVMPass());
-  pm.addPass(createConvertVectorToLLVMPass());
-  pm.addPass(createConvertIndexToLLVMPass());
-  pm.addPass(createArithToLLVMConversionPass());
-  pm.addPass(createConvertFuncToLLVMPass());
-  pm.addPass(createConvertMathToLLVMPass());
-
-  if (pipelineOpts.useGpuRuntime) {
-    pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
-  } else {
-    pm.addPass(imex::createConvertGPUXToLLVMPass());
-  }
-
-  pm.addPass(createConvertIndexToLLVMPass());
-  pm.addPass(memref::createExpandStridedMetadataPass());
-  pm.addPass(createLowerAffinePass());
-  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
-  pm.addPass(createReconcileUnrealizedCastsPass());
+DialectRegistry &getDialectRegistry() {
+  static mlir::DialectRegistry registry = []() {
+    mlir::registerAllPasses();
+    mlir::gc::registerGraphCompilerPasses();
+    mlir::DialectRegistry registry;
+    mlir::registerAllDialects(registry);
+    mlir::registerAllExtensions(registry);
+    mlir::registerAllToLLVMIRTranslations(registry);
+    mlir::registerConvertXeVMToLLVMInterface(registry);
+    mlir::registerXeVMDialectTranslation(registry);
+    llvm::InitializeNativeTarget();
+    llvm::InitializeNativeTargetAsmPrinter();
+    llvm::InitializeNativeTargetAsmParser();
+    return registry;
+  }();
+  return registry;
 }
 
-void registerIMEXPipeline() {
-  PassPipelineRegistration<GPUPipelineOptions>(
-      "gc-imex-pipeline", "The GPU pipeline for Graph Compiler with IMEX",
-      populateIMEXPipeline);
-}
-#endif
-
-#ifdef GC_USE_GPU
 void populateGPUPipeline(OpPassManager &pm,
                          const GPUPipelineOptions &pipelineOpts) {
-  pm.addNestedPass<func::FuncOp>(createAddContextArg());
+  auto phase = [&pm, &pipelineOpts](const char *name,
+                                    std::function<void()> func) {
+    func();
+    pm.addPass(createCSEPass());
+    pm.addPass(createCanonicalizerPass());
+    if (pipelineOpts.dump)
+      pm.addPass(createPrintIRPass({name}));
+  };
 
-  pm.addPass(createConvertSCFToCFPass());
-  pm.addPass(createConvertControlFlowToLLVMPass());
-  pm.addPass(createConvertVectorToLLVMPass());
-  pm.addPass(createConvertIndexToLLVMPass());
-  pm.addPass(createArithToLLVMConversionPass());
-  pm.addPass(createConvertFuncToLLVMPass());
-  pm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(createReconcileUnrealizedCastsPass());
+  GpuDevicePropsOptions deviceProps;
+  if (pipelineOpts.deviceProps) {
+    deviceProps = *pipelineOpts.deviceProps;
+  }
+  phase("Initial", [&]() { pm.addPass(createGpuDeviceProps(deviceProps)); });
+  phase("Tiling", [&]() {
+    pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
+    pm.addNestedPass<func::FuncOp>(createGpuTilingAndFusion());
+  });
 
-  // Convert allocs, etc.
-  pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
-  pm.addPass(createGpuKernelOutliningPass());
-  pm.addPass(createConvertXeVMToLLVMPass());
-  pm.addPass(createGpuXeVMAttachTarget());
-  pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuOpsToLLVMSPVOps());
-  pm.addNestedPass<gpu::GPUModuleOp>(createConvertIndexToLLVMPass());
-  pm.addNestedPass<gpu::GPUModuleOp>(createArithToLLVMConversionPass());
-  pm.addPass(createReconcileUnrealizedCastsPass());
-  pm.addPass(createGpuModuleToBinaryPass());
-  // Convert launch given a binary.
-  pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish}));
-  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
-  pm.addPass(createReconcileUnrealizedCastsPass());
+  phase("Vectorization", [&]() {
+    pm.addNestedPass<func::FuncOp>(createVectorize());
+    pm.addNestedPass<func::FuncOp>(createLoopInvariantCodeMotionPass());
+    pm.addNestedPass<func::FuncOp>(createLoopInvariantSubsetHoistingPass());
+  });
+
+  // Bufferization
+  phase("Bufferization", [&]() {
+    bufferization::OneShotBufferizePassOptions opts;
+    opts.allowReturnAllocsFromLoops = true;
+    opts.bufferizeFunctionBoundaries = true;
+    opts.functionBoundaryTypeConversion =
+        bufferization::LayoutMapOption::IdentityLayoutMap;
+    pm.addPass(bufferization::createOneShotBufferizePass(opts));
+    opts.allowReturnAllocsFromLoops = false;
+    pm.addPass(bufferization::createOneShotBufferizePass(opts));
+
+    pm.addPass(bufferization::createEmptyTensorEliminationPass());
+    pm.addPass(bufferization::createEmptyTensorToAllocTensorPass());
+    pm.addPass(bufferization::createDropEquivalentBufferResultsPass());
+    pm.addPass(bufferization::createBufferResultsToOutParamsPass(
+        {true, true, true, true}));
+    pm.addPass(memref::createFoldMemRefAliasOpsPass());
+  });
+
+  phase("KernelOutlining", [&]() {
+    pm.addPass(createGpuKernelOutline());
+    pm.addNestedPass<func::FuncOp>(createAddContextArg());
+  });
+
+  phase("VectorToXegpu", [&]() {
+    pm.addPass(createConvertVectorToXeGPU());
+    pm.addPass(memref::createExpandStridedMetadataPass());
+  });
+
+  phase("XeGpu", [&]() {
+    gpu::GPUToXeVMPipelineOptions opts;
+    opts.use64bitIndex = true;
+    opts.binaryFormat = "binary";
+    opts.zebinChip = deviceProps.arch;
+    opts.optLevel = 3;
+    gpu::buildLowerToXeVMPassPipeline(pm, opts);
+  });
+
+  phase("GpuToGpuOcl",
+        [&]() { pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish})); });
+
+  // phase("XeGpu", [&]() {
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUWgToSgDistribute());
+  //   pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+  //   pm.addNestedPass<gpu::GPUModuleOp>(createLowerAffinePass());
+  //   pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+
+  //   {
+  //     xegpu::XeGPUPropagateLayoutOptions opts;
+  //     opts.layoutKind = "inst";
+  //     pm.addNestedPass<gpu::GPUModuleOp>(
+  //         xegpu::createXeGPUPropagateLayout(opts));
+  //   }
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUBlocking());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCanonicalizerPass());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUPropagateLayout());
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUPeepHoleOptimizer());
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUPropagateLayout());
+
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUFoldAliasOps());
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUSubgroupDistribute());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCanonicalizerPass());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(createLoopInvariantCodeMotionPass());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUVectorLinearize());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createConvertMathToXeVM());
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createConvertXeGPUToXeVMPass());
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuOpsToLLVMSPVOps({true}));
+  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+  //   //
+  //   pm.addNestedPass<gpu::GPUModuleOp>(createReconcileUnrealizedCastsPass());
+  // });
 }
 
 void registerGPUPipeline() {
   PassPipelineRegistration<GPUPipelineOptions>(
-      "gc-gpu-pipeline", "The GPU pipeline for Graph Compiler with GPU",
-      populateGPUPipeline);
+      "gc-gpu-pipeline", "Graph Compiler GPU pipeline", populateGPUPipeline);
 }
-#endif
 
 } // namespace mlir::gc
