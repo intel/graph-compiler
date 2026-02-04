@@ -11,6 +11,7 @@
 #include "gc/Transforms/Passes.h"
 #include "gc/Utils/Transform.h"
 #include "mlir/Conversion/Passes.h"
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -40,6 +41,7 @@ DialectRegistry &getDialectRegistry() {
     mlir::registerAllPasses();
     mlir::gc::registerGraphCompilerPasses();
     mlir::DialectRegistry registry;
+    registry.insert<mlir::linalgx::LinalgxDialect>();
     mlir::registerAllDialects(registry);
     mlir::registerAllExtensions(registry);
     mlir::registerAllToLLVMIRTranslations(registry);
