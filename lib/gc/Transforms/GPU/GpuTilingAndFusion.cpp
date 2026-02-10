@@ -6,7 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "./GpuUtils.h"
+#include "gc/Utils/Log.h"
+#include "gc/Utils/Misc.h"
 #include "gc/Utils/Transform.h"
 
 #include "mlir/Conversion/Passes.h"
@@ -112,16 +113,17 @@ private:
             return std::nullopt;
           }
 
-          if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-            if (!linalgOp.hasOnlyProjectedPermutations()) {
-              return std::nullopt;
-            }
+          if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+              linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
+            return std::nullopt;
+          }
 
+          if (auto ti = dyn_cast<TilingInterface>(op)) {
             // Don't fuse parallels into reduction.
-            if (reduction && all_of(linalgOp.getIteratorTypesArray(),
-                                    [](utils::IteratorType t) {
-                                      return t == utils::IteratorType::parallel;
-                                    })) {
+            if (reduction &&
+                all_of(ti.getLoopIteratorTypes(), [](utils::IteratorType t) {
+                  return t == utils::IteratorType::parallel;
+                })) {
               return std::nullopt;
             }
           }
@@ -194,7 +196,13 @@ private:
       sgSize = static_cast<int64_t>(opt.value());
     }
     if (auto opt = kernelAttrs.getTiles(); opt.has_value()) {
-      tiles = *opt;
+      auto fixedTiles = opt.value();
+      for (const auto &[t, ft, it] :
+           llvm::zip_equal(tiles, fixedTiles, ti.getLoopIteratorTypes())) {
+        if (reduction == (it == utils::IteratorType::reduction)) {
+          t = ft;
+        }
+      }
       return;
     }
 
@@ -295,34 +303,40 @@ private:
   static std::optional<TilingInterface> findTi(OpBuilder &b, Operation *op,
                                                bool reduction) {
     std::optional<TilingInterface> last;
-    op->walk<WalkOrder::PreOrder>([&](linalg::LinalgOp linalgOp) {
-      if (!linalgOp.hasOnlyProjectedPermutations()) {
-        return WalkResult::skip();
-      }
-      if (linalgOp->hasAttr(NO_TILE_MARKER)) {
-        return WalkResult::skip();
-      }
-      if (auto parentLoop = linalgOp->getParentOfType<ForallOp>();
-          parentLoop && parentLoop->hasAttr(GC_ATTR_KERNEL_NAME) &&
-          (!reduction || !linalgOp->hasAttr(GC_ATTR_KERNEL_NAME))) {
+    op->walk<WalkOrder::PreOrder>([&](TilingInterface ti) {
+      auto it = reduction ? utils::IteratorType::reduction
+                          : utils::IteratorType::parallel;
+      if (!llvm::any_of(ti.getLoopIteratorTypes(),
+                        [it](utils::IteratorType t) { return t == it; })) {
         return WalkResult::skip();
       }
 
-      if (auto ti = dyn_cast<TilingInterface>(linalgOp.getOperation())) {
-        int64_t numTiles = 0;
-        int64_t numIterations = 1;
-        for (auto [t, r] :
-             zip(ti.getLoopIteratorTypes(), ti.getIterationDomain(b))) {
-          if ((t == utils::IteratorType::parallel) == reduction) {
-            numTiles++;
-            if (auto v = getConstantIntValue(r.size)) {
-              numIterations *= *v;
-            }
+      if (auto linalgOp = dyn_cast<linalg::LinalgOp>(ti.getOperation());
+          linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
+        return WalkResult::skip();
+      }
+      if (ti->hasAttr(NO_TILE_MARKER)) {
+        return WalkResult::skip();
+      }
+      if (auto parentLoop = ti->getParentOfType<ForallOp>();
+          parentLoop && parentLoop->hasAttr(GC_ATTR_KERNEL_NAME) &&
+          (!reduction || !ti->hasAttr(GC_ATTR_KERNEL_NAME))) {
+        return WalkResult::skip();
+      }
+
+      int64_t numTiles = 0;
+      int64_t numIterations = 1;
+      for (auto [t, r] :
+           zip(ti.getLoopIteratorTypes(), ti.getIterationDomain(b))) {
+        if ((t == utils::IteratorType::reduction) == reduction) {
+          ++numTiles;
+          if (auto v = getConstantIntValue(r.size)) {
+            numIterations *= *v;
           }
         }
-        if (numTiles > 0 && numIterations >= 32) {
-          last = ti;
-        }
+      }
+      if (numTiles > 0 && numIterations >= 32) {
+        last = ti;
       }
 
       return WalkResult::skip();
@@ -330,9 +344,9 @@ private:
     return last;
   }
 
-  // If a slice inside the loop is created from an external empty tensor and the
-  // tensor is not passed to the loop's shared_outs, but referenced directly,
-  // replace the slice with an empty tensor of the same size.
+  // If a slice inside the loop is created from an external empty tensor and
+  // the tensor is not passed to the loop's shared_outs, but referenced
+  // directly, replace the slice with an empty tensor of the same size.
   static void replaceEmptySlices(OpRewriter &rw, ForallOp loop) {
     loop.walk([&](tensor::ExtractSliceOp slice) {
       if (auto empty = slice.getSource().getDefiningOp<tensor::EmptyOp>();
@@ -350,6 +364,171 @@ private:
                                                        dynDims));
       }
     });
+  }
+
+  // Controls the adjustment in case of more than 2 tiles.
+  enum class AdjustTilesMode {
+    // Sort the input and switch to the First mode.
+    Sort,
+    // Adjust the first tile and call adjustTiles() recursively for the rest.
+    First,
+    // To allow for squeezing, set 1's for all tiles except the last 2.
+    XeGpu,
+  };
+
+  template <typename T>
+  static void adjustTwoTiles(T totalSize, T *aPtr, T *bPtr,
+                             AdjustTilesMode mode) {
+    T a = *aPtr;
+    T b = *bPtr;
+    assert(a >= b);
+
+    if (a * b <= totalSize) {
+      return;
+    }
+
+    T minSize = static_cast<T>(mode == AdjustTilesMode::XeGpu ? 8 : 1);
+    bool aPow2 = isPow2(a);
+    bool bPow2 = isPow2(b);
+    double ratio = static_cast<double>(a) / static_cast<double>(b);
+    T x =
+        static_cast<T>(std::sqrt(totalSize)) * static_cast<T>(std::sqrt(ratio));
+    T y;
+
+    if (aPow2) {
+      x = std::min(ceilPow2(x), std::min(a, floorPow2(totalSize)));
+    } else {
+      x = std::min(findFactor(a, x), std::min(a, totalSize));
+    }
+    x = std::max(x, minSize);
+    if (bPow2) {
+      y = std::min(floorPow2(totalSize / x), b);
+    } else {
+      y = std::min(findFactor(b, totalSize / x), b);
+    }
+    if (y < minSize && a >= minSize && b >= minSize) {
+      if (auto newX = ceilPow2(totalSize / minSize); newX >= minSize) {
+        x = std::min(newX, a);
+        y = minSize;
+      }
+    }
+
+    // Adjust x and y to get the closest ratio
+    auto distance =
+        std::abs(ratio - static_cast<double>(x) / static_cast<double>(y));
+    auto ax = aPow2 ? x * 2 : findFactor(a, x * 2);
+    auto ay = std::max(bPow2 ? y / 2 : findFactor(b, y / 2), minSize);
+
+    if (ax * ay <= totalSize &&
+        std::abs(ratio - static_cast<double>(ax) / static_cast<double>(ay)) <
+            distance) {
+      x = ax;
+      y = ay;
+    } else {
+      ax = std::max(aPow2 ? x / 2 : findFactor(a, x / 2), minSize);
+      ay = bPow2 ? y * 2 : findFactor(b, y * 2);
+      if (ax * ay <= totalSize &&
+          std::abs(ratio - static_cast<double>(ax) / static_cast<double>(ay)) <
+              distance) {
+        x = ax;
+        y = ay;
+      }
+    }
+
+    *aPtr = x;
+    *bPtr = y;
+  }
+
+  // Adjust tile sizes that meet the following conditions:
+  // 1. The product of all tiles is as close to totalSize as possible.
+  // 2. The new sizes are proportional to the initial sizes.
+  // 3. If the initial size is a power of 2, then the resulting size is a power
+  // of
+  //    2 either. Otherwise, the resulting size is a factor of the initial size
+  //    and, if possible, is a power of 2.
+  template <typename T>
+  static void adjustTiles(T totalSize, T *begin, T *end,
+                          AdjustTilesMode mode = AdjustTilesMode::Sort) {
+    auto count = end - begin;
+    if (count == 0) {
+      return;
+    }
+
+    if (count == 1) {
+      T minSize = static_cast<T>(mode == AdjustTilesMode::XeGpu ? 8 : 1);
+      if (T a = *begin; isPow2(a)) {
+        *begin = std::min(std::max(ceilPow2(a), minSize), floorPow2(totalSize));
+      } else {
+        *begin = std::min(findFactor(a, totalSize), minSize);
+      }
+      return;
+    }
+
+    if (count > 2) {
+      if (mode == AdjustTilesMode::XeGpu) {
+        for (unsigned i = 0; i < count - 2; ++i) {
+          *(begin + i) = 1;
+        }
+        T *aPtr = end - 2;
+        T *bPtr = end - 1;
+        if (*aPtr < *bPtr) {
+          std::swap(aPtr, bPtr);
+        }
+        adjustTwoTiles(totalSize, aPtr, bPtr, mode);
+        return;
+      }
+
+      SmallVector<T> sorted;
+      SmallVector<unsigned> indices;
+      T *head;
+      T *tail;
+
+      if (mode == AdjustTilesMode::First) {
+        head = begin;
+        tail = end;
+      } else {
+        assert(mode == AdjustTilesMode::Sort);
+        SmallVector<std::pair<T, unsigned>> pairs;
+        pairs.reserve(count);
+        for (unsigned i = 0; i < count; ++i) {
+          pairs.emplace_back(*(begin + i), i);
+        }
+        llvm::sort(pairs);
+        sorted.reserve(count);
+        indices.reserve(count);
+        for (auto &p : pairs) {
+          sorted.push_back(p.first);
+          indices.push_back(p.second);
+        }
+        head = sorted.data();
+        tail = head + count;
+      }
+
+      // Split the array in two. The first one consists of the 2 elements - the
+      // first one and the product of the rest. The second one is the rest.
+      T first[] = {*head, std::accumulate(head + 2, tail, *(head + 1),
+                                          std::multiplies<>())};
+      adjustTiles(totalSize, first, first + 2, AdjustTilesMode::First);
+      adjustTiles(totalSize / *first, head + 1, tail, AdjustTilesMode::First);
+      *head = *first;
+
+      if (mode == AdjustTilesMode::Sort) {
+        for (unsigned i = 0; i < count; ++i) {
+          *(begin + indices[i]) = sorted[i];
+        }
+      }
+    } else if (*begin >= *(end - 1)) {
+      adjustTwoTiles(totalSize, begin, end - 1, mode);
+    } else {
+      adjustTwoTiles(totalSize, end - 1, begin, mode);
+    }
+  }
+
+  template <typename T, unsigned N>
+  static void adjustTiles(T totalSize, SmallVector<T, N> &tiles,
+                          bool xeGpuMode = true) {
+    adjustTiles(totalSize, tiles.begin(), tiles.end(),
+                xeGpuMode ? AdjustTilesMode::XeGpu : AdjustTilesMode::Sort);
   }
 };
 } // namespace

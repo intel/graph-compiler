@@ -1,0 +1,16 @@
+diff --git a/mlir/lib/Dialect/GPU/Pipelines/GPUToXeVMPipeline.cpp b/mlir/lib/Dialect/GPU/Pipelines/GPUToXeVMPipeline.cpp
+index d6a4dae4c5c3..dee7372b4956 100644
+--- a/mlir/lib/Dialect/GPU/Pipelines/GPUToXeVMPipeline.cpp
++++ b/mlir/lib/Dialect/GPU/Pipelines/GPUToXeVMPipeline.cpp
+@@ -68,8 +68,9 @@ void buildGPUPassPipeline(OpPassManager &pm,
+   if (options.xegpuOpLevel == "workgroup") {
+     xegpu::XeGPUPropagateLayoutOptions sgLayoutOptions;
+     sgLayoutOptions.layoutKind = "subgroup";
+-    pm.addNestedPass<gpu::GPUModuleOp>(
+-        xegpu::createXeGPUPropagateLayout(sgLayoutOptions));
++    // Temporary disabled due to #1490
++    // pm.addNestedPass<gpu::GPUModuleOp>(
++    //     xegpu::createXeGPUPropagateLayout(sgLayoutOptions));
+     pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUWgToSgDistribute());
+     pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
+     pm.addNestedPass<gpu::GPUModuleOp>(createLowerAffinePass());

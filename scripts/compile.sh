@@ -78,14 +78,21 @@ build_llvm() {
         cd "$EXTERNALS_DIR"
         git clone https://github.com/llvm/llvm-project.git
         cd "$llvm_dir"
+        git checkout ${llvm_hash}
     else
         cd "$llvm_dir"
         git fetch --all
-        git checkout -- .
+        git reset --hard ${llvm_hash}
+        [ -z "$CLEANUP" ] || git clean -xffd;
     fi
 
-    git checkout ${llvm_hash}
-    
+    for patch in "$PROJECT_DIR/patches/"*.patch; do
+      if [ -f "$patch" ]; then
+        echo "Applying patch: $patch"
+        git apply --whitespace=fix "$patch"
+      fi
+    done
+
     [ -z "$CLEANUP" ] || rm -rf "$LLVM_BUILD_DIR"
     mkdir -p "$LLVM_BUILD_DIR"
 

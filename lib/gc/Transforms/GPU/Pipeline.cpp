@@ -45,7 +45,6 @@ DialectRegistry &getDialectRegistry() {
     mlir::registerAllDialects(registry);
     mlir::registerAllExtensions(registry);
     mlir::registerAllToLLVMIRTranslations(registry);
-    mlir::registerConvertXeVMToLLVMInterface(registry);
     mlir::registerXeVMDialectTranslation(registry);
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();

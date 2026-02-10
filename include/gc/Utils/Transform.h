@@ -12,13 +12,18 @@
 
 #include <variant>
 
+#include "mlir/Dialect/Arith/Utils/Utils.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OperationSupport.h"
 
 #include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::gc {
+
+// ------------------- Attribute utilities ------------------ //
 constexpr char GC_ATTR_KERNEL_NAME[] = "gc.kernel_name";
 
 template <typename T> auto createAttr(MLIRContext *ctx, T value) {
@@ -272,5 +277,66 @@ private:
   static constexpr char THREADS[] = "threads";
   static constexpr char SG_SIZE[] = "sg_size";
 };
+// ---------------------------------------------------------- //
+
+// This class is a placeholder for the rewriter-related boilerplate code.
+struct OpRewriter final : IRRewriter {
+  Location loc;
+
+  explicit OpRewriter(func::FuncOp &func)
+      : IRRewriter(func.getContext()), loc(func.getLoc()) {}
+
+  template <typename OpTy, typename... Args> OpTy create(Args &&...args) {
+    return OpTy::create(*this, loc, std::forward<Args>(args)...);
+  }
+
+  arith::ConstantIndexOp createConstant(int64_t v) {
+    return create<arith::ConstantIndexOp>(v);
+  }
+
+  arith::ConstantFloatOp createConstant(double v) {
+    return create<arith::ConstantFloatOp>(getF64Type(), APFloat(v));
+  }
+};
+// ---------------------------------------------------------- //
+
+// Check recursively if the specified operation has an operand that
+// depends on a result of a previous operation, matching the predicate.
+template <unsigned MaxDepth = std::numeric_limits<unsigned>::max()>
+bool isOperandDependsOnOp(std::function<bool(Operation *)> predicate,
+                          Operation *operation, unsigned depth = 0) {
+  for (auto operand : operation->getOperands()) {
+    if (auto op = operand.getDefiningOp();
+        op &&
+        (predicate(op) || (depth < MaxDepth &&
+                           isOperandDependsOnOp(predicate, op, depth + 1)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Check recursively if there are any operation, matching the predicate, that
+// depends on the result of the specified operation.
+template <unsigned MaxDepth = std::numeric_limits<unsigned>::max()>
+bool isOpDependsOnResult(std::function<bool(Operation *)> predicate,
+                         Operation *operation, unsigned depth = 0) {
+  for (auto res : operation->getResults()) {
+    for (auto u : res.getUsers()) {
+      if (predicate(u) ||
+          (depth < MaxDepth && isOpDependsOnResult(predicate, u, depth + 1))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static inline bool isMatmulOp(Operation *op) {
+  auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+  return linalgOp && linalg::isaContractionOpInterface(linalgOp);
+  // TODO: Check matmul like generics
+}
+
 } // namespace mlir::gc
 #endif // GC_TRANSFORM_H
