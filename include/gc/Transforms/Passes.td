@@ -35,34 +35,8 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
 def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
   let summary = "GPU tiling and fusion path.";
   let description = [{
-    This pass tiles linalg operations and creates two nested scf.forall loops. When converting to gpu.launch,
-    the inner loop is mapped to the block sizes and the outer - to grid sizes. The tiles calculation is based
-    on the GPU device properties, retrieved from the GPU device attributes. If the GPU device attributes are 
-    not specified, defaults to the pass options.
+    This pass tiles TilingInterface operations and creates scf.forall loops, that can be outlined into GPU kernels.
   }];
-  let options = [
-    Option<"numEus", "num-eus", "size_t",
-           /*default=*/"448",
-           "Number of Execution Units.">,
-    Option<"numEusPerSlice", "num-eus-per-slice", "size_t",
-           /*default=*/"8",
-           "Number of Execution Units per slice.">,
-    Option<"numThreadsPerEu", "num-threads-per-eu", "size_t",
-           /*default=*/"8",
-           "Number of threads per Execution Unit.">,
-    Option<"localMemSize", "local-mem-size", "size_t",
-           /*default=*/"131072",
-           "The size of the local memory, shared across a work-group.">,
-    Option<"vectorWidth", "vector-width", "size_t",
-           /*default=*/"16",
-           "The number of scalar elements that can be stored in a vector.">,
-    Option<"workGroupSize", "work-group-size", "size_t",
-           /*default=*/"1024",
-           "The maximum workgroup size.">,
-    Option<"subGroupSize", "sub-group-size", "size_t",
-           /*default=*/"32",
-           "Subgroup size.">
-    ];
 }
 
 def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
@@ -77,6 +51,13 @@ def Vectorize : Pass<"vectorize", "func::FuncOp"> {
   let description = [{
     Vectorize structured operations that have vectorization support and apply
     vector transformation patterns.
+  }];
+}
+
+def RemoveAllocs : Pass<"remove-allocs", "func::FuncOp"> {
+  let summary = "Remove unnecessry allocs.";
+  let description = [{
+    Remove unnecessry memref.alloc operations.
   }];
 }
 

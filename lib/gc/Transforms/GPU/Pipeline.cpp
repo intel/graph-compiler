@@ -8,10 +8,10 @@
 
 #include <string>
 
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Utils/Transform.h"
 #include "mlir/Conversion/Passes.h"
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -98,6 +98,7 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addPass(bufferization::createBufferResultsToOutParamsPass(
         {true, true, true, true}));
     pm.addPass(memref::createFoldMemRefAliasOpsPass());
+    pm.addNestedPass<func::FuncOp>(createRemoveAllocs());
   });
 
   phase("KernelOutlining", [&]() {
@@ -121,49 +122,6 @@ void populateGPUPipeline(OpPassManager &pm,
 
   phase("GpuToGpuOcl",
         [&]() { pm.addPass(createGpuToGpuOcl({pipelineOpts.callFinish})); });
-
-  // phase("XeGpu", [&]() {
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUWgToSgDistribute());
-  //   pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
-  //   pm.addNestedPass<gpu::GPUModuleOp>(createLowerAffinePass());
-  //   pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
-
-  //   {
-  //     xegpu::XeGPUPropagateLayoutOptions opts;
-  //     opts.layoutKind = "inst";
-  //     pm.addNestedPass<gpu::GPUModuleOp>(
-  //         xegpu::createXeGPUPropagateLayout(opts));
-  //   }
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUBlocking());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCanonicalizerPass());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
-
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUPropagateLayout());
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUPeepHoleOptimizer());
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUPropagateLayout());
-
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUFoldAliasOps());
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUSubgroupDistribute());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCanonicalizerPass());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
-
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(createLoopInvariantCodeMotionPass());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(xegpu::createXeGPUVectorLinearize());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createConvertMathToXeVM());
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createConvertXeGPUToXeVMPass());
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(createConvertGpuOpsToLLVMSPVOps({true}));
-  //   // pm.addNestedPass<gpu::GPUModuleOp>(createCSEPass());
-  //   //
-  //   pm.addNestedPass<gpu::GPUModuleOp>(createReconcileUnrealizedCastsPass());
-  // });
 }
 
 void registerGPUPipeline() {

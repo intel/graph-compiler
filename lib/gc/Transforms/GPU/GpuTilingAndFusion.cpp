@@ -38,11 +38,6 @@ namespace {
 
 struct GpuTilingAndFusion final
     : gc::impl::GpuTilingAndFusionBase<GpuTilingAndFusion> {
-  friend struct TileAndFuseLinalgOpsPattern;
-  explicit GpuTilingAndFusion()
-      : GpuTilingAndFusion(GpuTilingAndFusionOptions{}) {}
-  explicit GpuTilingAndFusion(const GpuTilingAndFusionOptions &opts)
-      : GpuTilingAndFusionBase(opts) {}
 
   void runOnOperation() override {
     auto fn = getOperation();
@@ -56,7 +51,7 @@ struct GpuTilingAndFusion final
   }
 
 private:
-  static constexpr char NO_TILE_MARKER[] = "gc.no_tile";
+  static constexpr char TILING_MARKER[] = "gc.tiling";
 
   void tileAndFuseLinalgOps(OpRewriter &rw, func::FuncOp fn, bool reduction) {
     unsigned nameCounter = 0;
@@ -75,6 +70,9 @@ private:
             return {};
           }
 
+          op->setDiscardableAttr(
+              TILING_MARKER, createAttr(op->getContext(), reduction ? 1 : 0));
+
           SmallString<64> kernelName;
           if (auto name = op->getDiscardableAttr(GC_ATTR_KERNEL_NAME)) {
             kernelName = getAttrValue<StringRef>(name);
@@ -88,15 +86,13 @@ private:
             op->setDiscardableAttr(GC_ATTR_KERNEL_NAME,
                                    createAttr(op->getContext(), kernelName));
           }
-          if (reduction) {
-            op->setDiscardableAttr(NO_TILE_MARKER, builder.getUnitAttr());
-          }
 
           KernelAttrs kernelAttrs(fn, kernelName);
           SmallVector<size_t> tiles(ti.getLoopIteratorTypes().size(), 0);
           size_t sgSize = maxSgSize;
           getTiles(tiles, builder, ti, kernelAttrs, wgSize, sgSize, vectorWidth,
                    reduction);
+          kernelAttrs.setSgSize(sgSize);
 
           SmallVector<OpFoldResult> result;
           result.reserve(tiles.size());
@@ -226,6 +222,11 @@ private:
       }
     }
 
+    if (reduction && isMatmulOp(ti)) {
+      tiles[2] = std::min(sgSize, floorPow2(numIterations));
+      return;
+    }
+
     // TODO: Analyse the graph of suppliers to be fused and adjust the
     // value.
     size_t workPerTile = reduction ? 1 : 4 * sgSize;
@@ -285,7 +286,7 @@ private:
     }
 
     if (!reduction && !kernelAttrs.getThreads().has_value()) {
-      size_t numThreads = numIterations * sgSize / vectorWidth / workPerTile;
+      size_t numThreads = numIterations * sgSize / vectorWidth / workPerTile / 2;
       auto itTypes = ti.getLoopIteratorTypes();
       for (unsigned i = 0; i < itTypes.size(); ++i) {
         if (itTypes[i] == utils::IteratorType::parallel) {
@@ -310,17 +311,17 @@ private:
                         [it](utils::IteratorType t) { return t == it; })) {
         return WalkResult::skip();
       }
-
+      if (auto m = ti->getDiscardableAttr(TILING_MARKER)) {
+        if (!reduction || getAttrValue<int>(m) == 1) {
+          return WalkResult::skip();
+        }
+      } else if (auto parentLoop = dyn_cast<ForallOp>(ti->getParentOp());
+                 parentLoop && parentLoop->hasAttr(GC_ATTR_KERNEL_NAME) &&
+                 !reduction) {
+        return WalkResult::skip();
+      }
       if (auto linalgOp = dyn_cast<linalg::LinalgOp>(ti.getOperation());
           linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
-        return WalkResult::skip();
-      }
-      if (ti->hasAttr(NO_TILE_MARKER)) {
-        return WalkResult::skip();
-      }
-      if (auto parentLoop = ti->getParentOfType<ForallOp>();
-          parentLoop && parentLoop->hasAttr(GC_ATTR_KERNEL_NAME) &&
-          (!reduction || !ti->hasAttr(GC_ATTR_KERNEL_NAME))) {
         return WalkResult::skip();
       }
 

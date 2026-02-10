@@ -8,6 +8,7 @@ gc_add_mlir_library(GcGpuPasses
   GpuKernelOutline.cpp
   GpuTilingAndFusion.cpp
   Vectorize.cpp
+  RemoveAllocs.cpp
   Pipeline.cpp
 
   DEPENDS
