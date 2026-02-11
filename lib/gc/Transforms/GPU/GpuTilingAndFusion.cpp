@@ -176,6 +176,9 @@ private:
             }
           }
         }
+        if (toReplace->use_empty()) {
+          rw.eraseOp(toReplace);
+        }
       }
 
       if (failed(simplifyRegions(rw, fn->getRegions()))) {
@@ -286,7 +289,8 @@ private:
     }
 
     if (!reduction && !kernelAttrs.getThreads().has_value()) {
-      size_t numThreads = numIterations * sgSize / vectorWidth / workPerTile / 2;
+      size_t numThreads =
+          numIterations * sgSize / vectorWidth / workPerTile / 2;
       auto itTypes = ti.getLoopIteratorTypes();
       for (unsigned i = 0; i < itTypes.size(); ++i) {
         if (itTypes[i] == utils::IteratorType::parallel) {
