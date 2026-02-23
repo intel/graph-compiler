@@ -117,7 +117,7 @@ build_llvm() {
         -DLLVM_ENABLE_BINDINGS=OFF \
         -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
         -DPython3_EXECUTABLE=$(which python3) \
-        -DMLIR_ENABLE_LEVELZERO_RUNNER=ON
+        -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF
     cmake --build "$LLVM_BUILD_DIR" --parallel $MAX_JOBS
 }
 
