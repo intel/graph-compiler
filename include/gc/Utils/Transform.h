@@ -12,14 +12,15 @@
 
 #include <variant>
 
+#include "llvm/ADT/ArrayRef.h"
+
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/XeGPU/uArch/IntelGpuXe2.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OperationSupport.h"
-
-#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir::gc {
 
@@ -188,18 +189,32 @@ struct DevAttrs : public GcAttrs<const char *> {
   void setName(StringRef name) { set(NAME, name); }
 
   std::optional<StringRef> getArch() { return get<StringRef>(DEVICE_ARCH); }
-  void setArch(StringRef arch) { set(DEVICE_ARCH, arch); }
+  void setArch(StringRef arch) {
+    set(DEVICE_ARCH, arch);
+    this->arch = nullptr;
+  }
 
-  std::optional<size_t> getVectorWidth() { return get<size_t>(VECTOR_WIDTH); }
-  void setVectorWidth(size_t width) { set(VECTOR_WIDTH, width); }
-
-  std::optional<size_t> getMaxWgSize() { return get<size_t>(MAX_WG_SIZE); }
-  void setMaxWgSize(size_t size) { set(MAX_WG_SIZE, size); }
+  const uArch *getUarch() {
+    if (!arch) {
+      arch = getUArch(getArch().value_or("bmg"));
+    }
+    return arch;
+  }
 
   std::optional<SmallVector<size_t>> getSgSizes() {
     return get<SmallVector<size_t>>(SG_SIZES);
   }
   void setSgSizes(ArrayRef<size_t> sizes) { set(SG_SIZES, sizes); }
+
+  std::optional<size_t> getMaxSgSize() {
+    if (auto sgSizes = getSgSizes(); sgSizes && !sgSizes->empty()) {
+      return *llvm::max_element(*sgSizes);
+    }
+    return std::nullopt;
+  }
+
+  std::optional<size_t> getMaxWgSize() { return get<size_t>(MAX_WG_SIZE); }
+  void setMaxWgSize(size_t size) { set(MAX_WG_SIZE, size); }
 
   const std::optional<const char *> getDeviceArch(int deviceId) {
     // Using device ID from this source -
@@ -243,9 +258,9 @@ private:
   static constexpr char ID[] = "id";
   static constexpr char NAME[] = "name";
   static constexpr char DEVICE_ARCH[] = "arch";
-  static constexpr char VECTOR_WIDTH[] = "vector_width";
   static constexpr char MAX_WG_SIZE[] = "max_wg_size";
   static constexpr char SG_SIZES[] = "sg_sizes";
+  const uArch *arch = nullptr;
 };
 
 struct KernelAttrs : public GcAttrs<const char *, StringRef> {

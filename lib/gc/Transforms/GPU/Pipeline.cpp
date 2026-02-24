@@ -8,9 +8,9 @@
 
 #include <string>
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gc/Transforms/Passes.h"
-#include "gc/Utils/Transform.h"
+#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/TargetSelect.h"
+
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
@@ -31,8 +31,10 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/Dialect/All.h"
 #include "mlir/Transforms/Passes.h"
-#include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/TargetSelect.h"
+
+#include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/Transforms/Passes.h"
+#include "gc/Utils/Transform.h"
 
 namespace mlir::gc {
 
@@ -117,6 +119,7 @@ void populateGPUPipeline(OpPassManager &pm,
     opts.binaryFormat = "binary";
     opts.zebinChip = deviceProps.arch;
     opts.optLevel = 3;
+    opts.xegpuOpLevel = "subgroup"; // Enable subgroup-level layout propagation
     gpu::buildLowerToXeVMPassPipeline(pm, opts);
   });
 

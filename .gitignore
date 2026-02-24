@@ -1,5 +1,6 @@
 .*/
 !.github/
+!.gitignore
 build/
 externals/
 graph_compiler.egg-info/

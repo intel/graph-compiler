@@ -6,10 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Utils/Log.h"
-#include "gc/Utils/Misc.h"
-#include "gc/Utils/Transform.h"
-
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Utils.h"
@@ -22,7 +18,9 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/RegionUtils.h"
 
-#include "llvm/ADT/SmallSet.h"
+#include "gc/Utils/Log.h"
+#include "gc/Utils/Misc.h"
+#include "gc/Utils/Transform.h"
 
 using namespace mlir;
 using namespace mlir::gc;
@@ -35,169 +33,66 @@ namespace mlir::gc {
 } // namespace mlir::gc
 
 namespace {
+constexpr char TILING_MARKER[] = "gc.tiling";
 
-struct GpuTilingAndFusion final
-    : gc::impl::GpuTilingAndFusionBase<GpuTilingAndFusion> {
+struct TileSizeComputationFn {
 
-  void runOnOperation() override {
-    auto fn = getOperation();
-    if (fn.isExternal()) {
-      return;
+  TileSizeComputationFn(func::FuncOp fn, bool reduction)
+      : reduction(reduction), kernelNameBase(fn.getName()), devAttrs(fn),
+        maxWgSize(devAttrs.getMaxWgSize().value_or(1024)) {
+    kernelNameBase.append("_kernel");
+  }
+
+  SmallVector<OpFoldResult> operator()(OpBuilder &builder, Operation *op) {
+    auto ti = dyn_cast<TilingInterface>(op);
+    if (!ti) {
+      return {};
     }
 
-    OpRewriter rw(fn);
-    tileAndFuseLinalgOps(rw, fn, /*reduction=*/false);
-    tileAndFuseLinalgOps(rw, fn, /*reduction=*/true);
+    op->setDiscardableAttr(TILING_MARKER,
+                           createAttr(op->getContext(), reduction ? 1 : 0));
+
+    SmallString<64> kernelName;
+    if (auto name = op->getDiscardableAttr(GC_ATTR_KERNEL_NAME)) {
+      kernelName = getAttrValue<StringRef>(name);
+    } else {
+      kernelName = kernelNameBase;
+      if (++nameCounter != 1) {
+        char buffer[8];
+        snprintf(buffer, sizeof(buffer), "%u", nameCounter);
+        kernelName.append(buffer);
+      }
+      op->setDiscardableAttr(GC_ATTR_KERNEL_NAME,
+                             createAttr(op->getContext(), kernelName));
+    }
+
+    KernelAttrs kernelAttrs(op, kernelName);
+    SmallVector<size_t> tiles(ti.getLoopIteratorTypes().size(), 0);
+    computeTiles(tiles, builder, ti, kernelAttrs);
+
+    SmallVector<OpFoldResult> result;
+    result.reserve(tiles.size());
+    for (auto t : tiles) {
+      result.push_back(builder.getIndexAttr(t));
+    }
+    return result;
   }
 
 private:
-  static constexpr char TILING_MARKER[] = "gc.tiling";
+  unsigned nameCounter = 0;
+  bool reduction;
+  SmallString<64> kernelNameBase;
+  DevAttrs devAttrs;
+  size_t maxWgSize;
 
-  void tileAndFuseLinalgOps(OpRewriter &rw, func::FuncOp fn, bool reduction) {
-    unsigned nameCounter = 0;
-    SmallString<64> kernelNameBase(fn.getName());
-    kernelNameBase.append("_kernel");
-    DevAttrs devAttrs(fn);
-    size_t vectorWidth = devAttrs.getVectorWidth().value_or(16);
-    size_t wgSize = devAttrs.getMaxWgSize().value_or(1024);
-    auto sgSizes = devAttrs.getSgSizes().value_or(SmallVector<size_t>{32});
-    size_t maxSgSize = *llvm::max_element(sgSizes);
-    SCFTileAndFuseOptions opts;
-    opts.tilingOptions.setTileSizeComputationFunction(
-        [&](OpBuilder &builder, Operation *op) -> SmallVector<OpFoldResult> {
-          auto ti = dyn_cast<TilingInterface>(op);
-          if (!ti) {
-            return {};
-          }
+  void computeTiles(SmallVector<size_t> &tiles, OpBuilder &builder,
+                    TilingInterface ti, KernelAttrs &kernelAttrs) {
+    auto itTypes = ti.getLoopIteratorTypes();
 
-          op->setDiscardableAttr(
-              TILING_MARKER, createAttr(op->getContext(), reduction ? 1 : 0));
-
-          SmallString<64> kernelName;
-          if (auto name = op->getDiscardableAttr(GC_ATTR_KERNEL_NAME)) {
-            kernelName = getAttrValue<StringRef>(name);
-          } else {
-            kernelName = kernelNameBase;
-            if (++nameCounter != 1) {
-              char buffer[8];
-              snprintf(buffer, sizeof(buffer), "%u", nameCounter);
-              kernelName.append(buffer);
-            }
-            op->setDiscardableAttr(GC_ATTR_KERNEL_NAME,
-                                   createAttr(op->getContext(), kernelName));
-          }
-
-          KernelAttrs kernelAttrs(fn, kernelName);
-          SmallVector<size_t> tiles(ti.getLoopIteratorTypes().size(), 0);
-          size_t sgSize = maxSgSize;
-          getTiles(tiles, builder, ti, kernelAttrs, wgSize, sgSize, vectorWidth,
-                   reduction);
-          kernelAttrs.setSgSize(sgSize);
-
-          SmallVector<OpFoldResult> result;
-          result.reserve(tiles.size());
-          for (auto t : tiles) {
-            result.push_back(builder.getIndexAttr(t));
-          }
-          return result;
-        });
-    opts.setFusionControlFn(
-        [&](tensor::ExtractSliceOp candidateSliceOp, OpResult originalProducer,
-            bool) -> std::optional<SCFTileAndFuseOptions::ControlFnResult> {
-          Operation *op = originalProducer.getOwner();
-          if (!op) {
-            return std::nullopt;
-          }
-
-          if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
-              linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
-            return std::nullopt;
-          }
-
-          if (auto ti = dyn_cast<TilingInterface>(op)) {
-            // Don't fuse parallels into reduction.
-            if (reduction &&
-                all_of(ti.getLoopIteratorTypes(), [](utils::IteratorType t) {
-                  return t == utils::IteratorType::parallel;
-                })) {
-              return std::nullopt;
-            }
-          }
-
-          // If the result of this slice is used by a MatmulOp and the slice has
-          // an operand produced by a previous MatmulOp, do not fuse.
-          if (isOpDependsOnResult<0>(isMatmulOp, candidateSliceOp) &&
-              isOperandDependsOnOp(isMatmulOp, candidateSliceOp)) {
-            return std::nullopt;
-          }
-
-          return SCFTileAndFuseOptions::ControlFnResult{};
-        });
-
-    if (reduction) {
-      // FIXME: Int causes a buffer allocation after the bufferization pass.
-      // opts.tilingOptions.setReductionTilingStrategy(
-      //     ReductionTilingStrategy::PartialReductionOuterParallel);
-      opts.tilingOptions.setLoopType(SCFTilingOptions::LoopType::ForOp);
-    } else {
-      opts.tilingOptions.setLoopType(SCFTilingOptions::LoopType::ForallOp);
-    }
-
-    for (auto ti = findTi(rw, fn, reduction); ti;
-         ti = findTi(rw, fn, reduction)) {
-      if (reduction) {
-        SmallVector<unsigned> reductionDims;
-        auto itTypes = ti->getLoopIteratorTypes();
-        for (unsigned i = 0; i < itTypes.size(); ++i) {
-          if (itTypes[i] == utils::IteratorType::reduction) {
-            reductionDims.push_back(i);
-          }
-        }
-        opts.tilingOptions.setReductionDims(reductionDims);
-      }
-
-      auto result = tileConsumerAndFuseProducersUsingSCF(rw, *ti, opts);
-      if (failed(result)) {
-        ti->emitError() << "Failed to tile and fuse using SCF";
-        return;
-      }
-
-      SmallVector<Operation *> opsToReplace{ti->getOperation()};
-      append_range(opsToReplace, result->fusedProducers);
-      for (Operation *toReplace : opsToReplace) {
-        for (OpResult res : toReplace->getResults()) {
-          if (auto repl = result->replacements.lookup(res)) {
-            rw.replaceAllUsesWith(res, repl);
-            if (auto loop = dyn_cast<ForallOp>(repl.getDefiningOp())) {
-              replaceEmptySlices(rw, loop);
-              if (auto v = toReplace->getDiscardableAttr(GC_ATTR_KERNEL_NAME)) {
-                loop->setDiscardableAttr(GC_ATTR_KERNEL_NAME, v);
-              }
-            }
-          }
-        }
-        if (toReplace->use_empty()) {
-          rw.eraseOp(toReplace);
-        }
-      }
-
-      if (failed(simplifyRegions(rw, fn->getRegions()))) {
-        // Not simplified
-      }
-    }
-  }
-
-  static void getTiles(SmallVector<size_t> &tiles, OpBuilder &builder,
-                       TilingInterface ti, KernelAttrs &kernelAttrs,
-                       size_t wgSize, size_t &sgSize, size_t vectorWidth,
-                       bool reduction) {
-    if (auto opt = kernelAttrs.getSgSize(); opt.has_value()) {
-      sgSize = static_cast<int64_t>(opt.value());
-    }
     if (auto opt = kernelAttrs.getTiles(); opt.has_value()) {
       auto fixedTiles = opt.value();
       for (const auto &[t, ft, it] :
-           llvm::zip_equal(tiles, fixedTiles, ti.getLoopIteratorTypes())) {
+           llvm::zip_equal(tiles, fixedTiles, itTypes)) {
         if (reduction == (it == utils::IteratorType::reduction)) {
           t = ft;
         }
@@ -206,18 +101,11 @@ private:
     }
 
     SmallVector<size_t> sizes;
-    auto itTypes = ti.getLoopIteratorTypes();
-    auto itDomains = ti.getIterationDomain(builder);
-    size_t maxSize = 0;
-    size_t numIterations = 1;
-
-    for (auto [t, r] : zip(itTypes, itDomains)) {
+    for (auto [t, r] : zip(itTypes, ti.getIterationDomain(builder))) {
       if (auto opt = getConstantIntValue(r.size)) {
         if ((t == utils::IteratorType::reduction) == reduction) {
           auto v = static_cast<size_t>(*opt);
-          numIterations *= v;
           sizes.emplace_back(v);
-          maxSize = std::max(maxSize, v);
         }
       } else {
         gcLogE("Dynamic tiles are not supported!");
@@ -225,150 +113,84 @@ private:
       }
     }
 
-    if (reduction && isMatmulOp(ti)) {
-      tiles[2] = std::min(sgSize, floorPow2(numIterations));
+    size_t sgSize;
+    if (auto opt = kernelAttrs.getSgSize(); opt.has_value()) {
+      sgSize = static_cast<int64_t>(opt.value());
+    } else {
+      sgSize = devAttrs.getUarch()->getSubgroupSize();
+      kernelAttrs.setSgSize(sgSize);
+    }
+
+    if (isMatmulOp(ti)) {
+      computeMatmulTiles(tiles, sizes, builder, ti, kernelAttrs);
       return;
     }
 
-    // TODO: Analyse the graph of suppliers to be fused and adjust the
-    // value.
-    size_t workPerTile = reduction ? 1 : 4 * sgSize;
-    size_t totalSize = vectorWidth * workPerTile;
-    if (totalSize > numIterations) {
-      totalSize = std::max(numIterations / vectorWidth * vectorWidth,
-                           static_cast<size_t>(1));
-    }
-
-    auto adjusted = sizes;
-    adjustTiles(totalSize, adjusted);
-
-    if (adjusted == sizes) {
-      // Split the largest tile.
-      auto tile = findFactor(maxSize, maxSize / 2);
-
-      if (tile == maxSize) {
-        // Find another size, that can be split
-        auto another = maxSize;
-        auto sortedSizes = sizes;
-        sort(sortedSizes, std::greater<>());
-        for (auto s : sortedSizes) {
-          if (s != maxSize && (tile = findFactor(s, s / 2)) != s) {
-            another = s;
-            break;
-          }
-        }
-        if (another == maxSize) {
-          tile = 1;
-          // Find the smallest size that is not 1
-          for (auto s : reverse(sortedSizes)) {
-            if (s != 1) {
-              maxSize = s;
-              break;
-            }
-          }
-        } else {
-          maxSize = another;
-        }
-      }
-      for (auto &t : adjusted) {
-        if (t == maxSize) {
-          t = tile;
-          break;
-        }
-      }
-    }
-
-    unsigned tc = 0;
-    unsigned ac = 0;
-    for (auto t : itTypes) {
-      if ((t == utils::IteratorType::reduction) == reduction) {
-        tiles[tc++] = adjusted[ac++];
-      } else {
-        ++tc;
-      }
-    }
-
-    if (!reduction && !kernelAttrs.getThreads().has_value()) {
-      size_t numThreads =
-          numIterations * sgSize / vectorWidth / workPerTile / 2;
-      auto itTypes = ti.getLoopIteratorTypes();
-      for (unsigned i = 0; i < itTypes.size(); ++i) {
-        if (itTypes[i] == utils::IteratorType::parallel) {
-          numThreads /= tiles[i];
-        }
-      }
-      // Align to subgroup size
-      numThreads = ((numThreads + sgSize - 1) / sgSize) * sgSize;
-      numThreads = std::min(std::max(numThreads, sgSize), wgSize);
-      adjustTiles(numThreads, sizes, false);
-      kernelAttrs.setThreads(sizes);
-    }
-  }
-
-  static std::optional<TilingInterface> findTi(OpBuilder &b, Operation *op,
-                                               bool reduction) {
-    std::optional<TilingInterface> last;
-    op->walk<WalkOrder::PreOrder>([&](TilingInterface ti) {
-      auto it = reduction ? utils::IteratorType::reduction
-                          : utils::IteratorType::parallel;
-      if (!llvm::any_of(ti.getLoopIteratorTypes(),
-                        [it](utils::IteratorType t) { return t == it; })) {
-        return WalkResult::skip();
-      }
-      if (auto m = ti->getDiscardableAttr(TILING_MARKER)) {
-        if (!reduction || getAttrValue<int>(m) == 1) {
-          return WalkResult::skip();
-        }
-      } else if (auto parentLoop = dyn_cast<ForallOp>(ti->getParentOp());
-                 parentLoop && parentLoop->hasAttr(GC_ATTR_KERNEL_NAME) &&
-                 !reduction) {
-        return WalkResult::skip();
-      }
-      if (auto linalgOp = dyn_cast<linalg::LinalgOp>(ti.getOperation());
-          linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
-        return WalkResult::skip();
-      }
-
-      int64_t numTiles = 0;
-      int64_t numIterations = 1;
-      for (auto [t, r] :
-           zip(ti.getLoopIteratorTypes(), ti.getIterationDomain(b))) {
+    auto setTiles = [&](SmallVector<size_t> &newTiles) {
+      unsigned tc = 0;
+      unsigned nc = 0;
+      for (auto t : itTypes) {
         if ((t == utils::IteratorType::reduction) == reduction) {
-          ++numTiles;
-          if (auto v = getConstantIntValue(r.size)) {
-            numIterations *= *v;
-          }
+          tiles[tc++] = newTiles[nc++];
+        } else {
+          ++tc;
         }
       }
-      if (numTiles > 0 && numIterations >= 32) {
-        last = ti;
-      }
+    };
 
-      return WalkResult::skip();
-    });
-    return last;
+    // TODO: Implement
+
+    if (reduction) {
+      adjustTiles(sgSize, sizes);
+      setTiles(sizes);
+      return;
+    }
+
+    adjustTiles(maxWgSize / sgSize, sizes);
+    setTiles(sizes);
+
+    if (sizes.size() > 3) {
+      std::copy(sizes.end() - 3, sizes.end(), sizes.begin());
+    }
+    sizes.resize(3, 1);
+    adjustTiles(sgSize, sizes);
+    kernelAttrs.setThreads(sizes);
   }
 
-  // If a slice inside the loop is created from an external empty tensor and
-  // the tensor is not passed to the loop's shared_outs, but referenced
-  // directly, replace the slice with an empty tensor of the same size.
-  static void replaceEmptySlices(OpRewriter &rw, ForallOp loop) {
-    loop.walk([&](tensor::ExtractSliceOp slice) {
-      if (auto empty = slice.getSource().getDefiningOp<tensor::EmptyOp>();
-          empty && empty->getParentOfType<ForallOp>() != loop) {
-        auto type = slice.getType();
-        rw.setInsertionPointAfter(slice);
-        SmallVector<Value> dynDims;
-        for (int64_t i = 0, r = type.getRank(); i < r; ++i) {
-          if (type.isDynamicDim(i)) {
-            dynDims.push_back(rw.create<tensor::DimOp>(slice, i));
-          }
-        }
-        rw.replaceOp(slice, rw.create<tensor::EmptyOp>(type.getShape(),
-                                                       type.getElementType(),
-                                                       dynDims));
+  void computeMatmulTiles(SmallVector<size_t> &tiles,
+                          SmallVector<size_t> &sizes, OpBuilder &builder,
+                          TilingInterface matmul, KernelAttrs &kernelAttrs) {
+    auto ua = devAttrs.getUarch();
+    auto instr =
+        dyn_cast<xegpu::uArch::SubgroupMatrixMultiplyAcc>(ua->getInstruction(
+            xegpu::uArch::InstructionKind::SubgroupMatrixMultiplyAcc));
+    auto inputType =
+        cast<ShapedType>(matmul.getOperation()->getOperand(0).getType());
+
+    if (reduction) {
+      auto supported = instr->getSupportedK(inputType.getElementType());
+      tiles[2] = findClosestDiv(supported, sizes[0]);
+      return;
+    }
+
+    auto supportedM = instr->getSupportedM(inputType.getElementType());
+    auto supportedN = instr->getSupportedN(inputType.getElementType());
+    tiles[0] = findClosestDiv(supportedM, sizes[0]);
+    tiles[1] = findClosestDiv(supportedN, sizes[1]);
+
+    adjustTiles(kernelAttrs.getSgSize().value_or(16), sizes, false);
+    sizes.emplace_back(1);
+    kernelAttrs.setThreads(sizes);
+  }
+
+  template <typename L, typename T>
+  static T findClosestDiv(L &sorted, T value) {
+    for (int i = sorted.size() - 1; i >= 0; --i) {
+      if (value % sorted[i] == 0) {
+        return static_cast<T>(sorted[i]);
       }
-    });
+    }
+    return static_cast<T>(1);
   }
 
   // Controls the adjustment in case of more than 2 tiles.
@@ -447,10 +269,10 @@ private:
   // Adjust tile sizes that meet the following conditions:
   // 1. The product of all tiles is as close to totalSize as possible.
   // 2. The new sizes are proportional to the initial sizes.
-  // 3. If the initial size is a power of 2, then the resulting size is a power
-  // of
-  //    2 either. Otherwise, the resulting size is a factor of the initial size
-  //    and, if possible, is a power of 2.
+  // 3. If the initial size is a power of 2, then the resulting size is a
+  // power of
+  //    2 either. Otherwise, the resulting size is a factor of the initial
+  //    size and, if possible, is a power of 2.
   template <typename T>
   static void adjustTiles(T totalSize, T *begin, T *end,
                           AdjustTilesMode mode = AdjustTilesMode::Sort) {
@@ -509,8 +331,9 @@ private:
         tail = head + count;
       }
 
-      // Split the array in two. The first one consists of the 2 elements - the
-      // first one and the product of the rest. The second one is the rest.
+      // Split the array in two. The first one consists of the 2 elements -
+      // the first one and the product of the rest. The second one is the
+      // rest.
       T first[] = {*head, std::accumulate(head + 2, tail, *(head + 1),
                                           std::multiplies<>())};
       adjustTiles(totalSize, first, first + 2, AdjustTilesMode::First);
@@ -534,6 +357,184 @@ private:
                           bool xeGpuMode = true) {
     adjustTiles(totalSize, tiles.begin(), tiles.end(),
                 xeGpuMode ? AdjustTilesMode::XeGpu : AdjustTilesMode::Sort);
+  }
+};
+
+struct GpuTilingAndFusion final
+    : gc::impl::GpuTilingAndFusionBase<GpuTilingAndFusion> {
+
+  void runOnOperation() override {
+    auto fn = getOperation();
+    if (fn.isExternal()) {
+      return;
+    }
+
+    OpRewriter rw(fn);
+    tileAndFuseLinalgOps(rw, fn, /*reduction=*/false);
+    tileAndFuseLinalgOps(rw, fn, /*reduction=*/true);
+  }
+
+private:
+  void tileAndFuseLinalgOps(OpRewriter &rw, func::FuncOp fn, bool reduction) {
+    SCFTileAndFuseOptions opts;
+    opts.tilingOptions.setTileSizeComputationFunction(
+        TileSizeComputationFn(fn, reduction));
+    opts.setFusionControlFn(
+        [&](tensor::ExtractSliceOp candidateSliceOp, OpResult originalProducer,
+            bool) -> std::optional<SCFTileAndFuseOptions::ControlFnResult> {
+          Operation *op = originalProducer.getOwner();
+          if (!op) {
+            return std::nullopt;
+          }
+
+          if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+              linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
+            return std::nullopt;
+          }
+
+          if (auto ti = dyn_cast<TilingInterface>(op)) {
+            // Don't fuse parallels into reduction.
+            if (reduction &&
+                all_of(ti.getLoopIteratorTypes(), [](utils::IteratorType t) {
+                  return t == utils::IteratorType::parallel;
+                })) {
+              return std::nullopt;
+            }
+          }
+
+          // If the result of this slice is used by a MatmulOp and the slice
+          // has an operand produced by a previous MatmulOp, do not fuse.
+          if (isOpDependsOnResult<0>(isMatmulOp, candidateSliceOp) &&
+              isOperandDependsOnOp(isMatmulOp, candidateSliceOp)) {
+            return std::nullopt;
+          }
+
+          return SCFTileAndFuseOptions::ControlFnResult{};
+        });
+
+    if (reduction) {
+      // FIXME: It causes a buffer allocation after the bufferization pass.
+      // opts.tilingOptions.setReductionTilingStrategy(
+      //     ReductionTilingStrategy::PartialReductionOuterParallel);
+      opts.tilingOptions.setLoopType(SCFTilingOptions::LoopType::ForOp);
+    } else {
+      opts.tilingOptions.setLoopType(SCFTilingOptions::LoopType::ForallOp);
+    }
+
+    for (auto ti = findTi(rw, fn, reduction); ti;
+         ti = findTi(rw, fn, reduction)) {
+      if (reduction) {
+        SmallVector<unsigned> reductionDims;
+        auto itTypes = ti->getLoopIteratorTypes();
+        for (unsigned i = 0; i < itTypes.size(); ++i) {
+          if (itTypes[i] == utils::IteratorType::reduction) {
+            reductionDims.push_back(i);
+          }
+        }
+        opts.tilingOptions.setReductionDims(reductionDims);
+      }
+
+      auto result = tileConsumerAndFuseProducersUsingSCF(rw, *ti, opts);
+      if (failed(result)) {
+        ti->emitError() << "Failed to tile and fuse using SCF";
+        return;
+      }
+
+      SmallVector<Operation *> opsToReplace{ti->getOperation()};
+      append_range(opsToReplace, result->fusedProducers);
+      for (Operation *toReplace : opsToReplace) {
+        for (OpResult res : toReplace->getResults()) {
+          if (auto repl = result->replacements.lookup(res)) {
+            rw.replaceAllUsesWith(res, repl);
+            if (auto loop = dyn_cast<ForallOp>(repl.getDefiningOp())) {
+              replaceEmptySlices(rw, loop);
+              if (auto v = toReplace->getDiscardableAttr(GC_ATTR_KERNEL_NAME)) {
+                loop->setDiscardableAttr(GC_ATTR_KERNEL_NAME, v);
+              }
+            }
+          }
+        }
+        if (toReplace->use_empty()) {
+          rw.eraseOp(toReplace);
+        }
+      }
+
+      if (failed(simplifyRegions(rw, fn->getRegions()))) {
+        // Not simplified
+      }
+    }
+  }
+
+  static std::optional<TilingInterface> findTi(OpBuilder &b, Operation *op,
+                                               bool reduction) {
+    std::optional<TilingInterface> last;
+    op->walk<WalkOrder::PreOrder>([&](TilingInterface ti) {
+      // FIXME: This is a temporary workaround to avoid tiling non-matmul
+      // reductions
+      if (reduction && !isMatmulOp(ti)) {
+        return WalkResult::skip();
+      }
+
+      auto it = reduction ? utils::IteratorType::reduction
+                          : utils::IteratorType::parallel;
+      if (!llvm::any_of(ti.getLoopIteratorTypes(),
+                        [it](utils::IteratorType t) { return t == it; })) {
+        return WalkResult::skip();
+      }
+      if (auto m = ti->getDiscardableAttr(TILING_MARKER)) {
+        if (!reduction || getAttrValue<int>(m) == 1) {
+          return WalkResult::skip();
+        }
+      } else if (auto parentLoop = dyn_cast<ForallOp>(ti->getParentOp());
+                 parentLoop && parentLoop->hasAttr(GC_ATTR_KERNEL_NAME) &&
+                 !reduction) {
+        return WalkResult::skip();
+      }
+      if (auto linalgOp = dyn_cast<linalg::LinalgOp>(ti.getOperation());
+          linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
+        return WalkResult::skip();
+      }
+
+      int64_t numTiles = 0;
+      int64_t numIterations = 1;
+      for (auto [t, r] :
+           zip(ti.getLoopIteratorTypes(), ti.getIterationDomain(b))) {
+        if ((t == utils::IteratorType::reduction) == reduction) {
+          ++numTiles;
+          if (auto v = getConstantIntValue(r.size)) {
+            numIterations *= *v;
+          }
+        }
+      }
+      if (numTiles > 0 && numIterations >= 32) {
+        last = ti;
+      }
+
+      return WalkResult::skip();
+    });
+    return last;
+  }
+
+  // If a slice inside the loop is created from an external empty tensor and
+  // the tensor is not passed to the loop's shared_outs, but referenced
+  // directly, replace the slice with an empty tensor of the same size.
+  static void replaceEmptySlices(OpRewriter &rw, ForallOp loop) {
+    loop.walk([&](tensor::ExtractSliceOp slice) {
+      if (auto empty = slice.getSource().getDefiningOp<tensor::EmptyOp>();
+          empty && empty->getParentOfType<ForallOp>() != loop) {
+        auto type = slice.getType();
+        rw.setInsertionPointAfter(slice);
+        SmallVector<Value> dynDims;
+        for (int64_t i = 0, r = type.getRank(); i < r; ++i) {
+          if (type.isDynamicDim(i)) {
+            dynDims.push_back(rw.create<tensor::DimOp>(slice, i));
+          }
+        }
+        rw.replaceOp(slice, rw.create<tensor::EmptyOp>(type.getShape(),
+                                                       type.getElementType(),
+                                                       dynDims));
+      }
+    });
   }
 };
 } // namespace

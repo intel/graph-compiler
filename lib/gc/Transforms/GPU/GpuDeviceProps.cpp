@@ -45,8 +45,6 @@ struct GpuDeviceProps final
     }
     if (!dev.getMaxWgSize())
       dev.setMaxWgSize(maxWgSize);
-    if (!dev.getVectorWidth())
-      dev.setVectorWidth(vectorWidth);
     if (!dev.getSgSizes()) {
       if (sgSizes.empty())
         dev.setSgSizes({16, 32});

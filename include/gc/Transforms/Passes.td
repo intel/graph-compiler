@@ -25,8 +25,6 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
            /*default=*/"\"bmg\"", "GPU architecture.">,
     Option<"maxWgSize", "max-wg-size", "size_t",
            /*default=*/"1024", "Maximum workgroup size.">,
-    Option<"vectorWidth", "vector-width", "size_t",
-           /*default=*/"16", "The number of scalar elements that can be stored in a vector register.">,
     ListOption<"sgSizes", "sg-sizes", "size_t",
                "Subgroup sizes supported by the device.">
     ];
