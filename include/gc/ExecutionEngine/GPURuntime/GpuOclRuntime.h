@@ -356,6 +356,10 @@ template <unsigned N = 8> struct StaticExecutor : OclModuleExecutorBase<N> {
     arg(reinterpret_cast<void *>(alignedPtr), isUsm);
   }
 
+  template <typename T> void arg(const T *alignedPtr, bool isUsm = true) {
+    arg(reinterpret_cast<const void *>(alignedPtr), isUsm);
+  }
+
   void operator()(OclContext &ctx) { exec(ctx); }
 
   template <typename T> void operator()(OclContext &ctx, T *ptr1, ...) {
