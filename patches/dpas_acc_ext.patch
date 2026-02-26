@@ -1,0 +1,38 @@
+diff --git a/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp b/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
+index c81bb4b455b9..3345fa23c283 100644
+--- a/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
++++ b/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
+@@ -821,6 +821,13 @@ struct ContractionLowering : public OpRewritePattern<vector::ContractionOp> {
+     if (!accType || accType.getRank() != 2)
+       return rewriter.notifyMatchFailure(contractOp, "Expects acc 2D vector");
+ 
++    Type truncateTo = nullptr;
++    if (accType.getElementType().getIntOrFloatBitWidth() == 16) {
++      truncateTo = accType;
++      accType = VectorType::get(accType.getShape(), rewriter.getF32Type());
++      acc = arith::ExtFOp::create(rewriter, loc, accType, acc);
++    }
++
+     // Accept only plain 2D data layout.
+     // VNNI packing is applied to DPAS as a separate lowering step.
+     TypedValue<VectorType> lhs = contractOp.getLhs();
+@@ -832,10 +839,15 @@ struct ContractionLowering : public OpRewritePattern<vector::ContractionOp> {
+     if (!isRowMajorMatmul(contractOp.getIndexingMapsAttr()))
+       return rewriter.notifyMatchFailure(contractOp, "Invalid indexing maps");
+ 
+-    auto dpasOp = xegpu::DpasOp::create(rewriter, loc,
+-                                        TypeRange{contractOp.getResultType()},
+-                                        ValueRange{lhs, rhs, acc});
+-    rewriter.replaceOp(contractOp, dpasOp);
++    Operation *result = xegpu::DpasOp::create(rewriter, loc, TypeRange{accType},
++                                              ValueRange{lhs, rhs, acc});
++
++    if (truncateTo) {
++      result = arith::TruncFOp::create(rewriter, loc, truncateTo,
++                                       result->getResult(0));
++    }
++
++    rewriter.replaceOp(contractOp, result);
+ 
+     return success();
+   }
