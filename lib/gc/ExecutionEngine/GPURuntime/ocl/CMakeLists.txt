@@ -8,3 +8,5 @@ gc_add_mlir_library(GcGpuOclRuntime
 )
 target_include_directories(GcGpuOclRuntime PUBLIC ${OpenCL_INCLUDE_DIRS})
 target_link_libraries(GcGpuOclRuntime PUBLIC ${OpenCL_LIBRARIES} ${MLIR_EXECUTION_ENGINE})
+target_include_directories(GcInterface INTERFACE ${OpenCL_INCLUDE_DIRS})
+target_link_libraries(GcInterface INTERFACE ${OpenCL_LIBRARIES})

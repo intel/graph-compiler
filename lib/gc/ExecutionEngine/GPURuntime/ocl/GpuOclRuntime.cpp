@@ -891,9 +891,12 @@ OclModuleBuilder::OclModuleBuilder(ModuleOp module,
       enableObjectDump(opts.enableObjectDump),
       sharedLibPaths(opts.sharedLibPaths),
       pipeline(opts.pipeline ? opts.pipeline
-                             : [](OpPassManager &pm,
+                             : [callFinish = opts.callFinish](OpPassManager &pm,
                                   GPUPipelineOptions &
-                                      opts) { populateGPUPipeline(pm, opts); }),
+                                      opts) {
+                                        opts.callFinish = callFinish;
+                                        populateGPUPipeline(pm, opts);
+                                       }),
       funcName(getFuncName(opts, mlirModule)), argTypes(),
       outArgsMask(0xFFFFFFFFFFFFFFFFULL) {
   if (auto fn = mlirModule.lookupSymbol<FunctionOpInterface>(funcName)) {
@@ -902,10 +905,12 @@ OclModuleBuilder::OclModuleBuilder(ModuleOp module,
     argTypes.reserve(args.size() + rets.size());
     argTypes.append(args.begin(), args.end());
     argTypes.append(rets.begin(), rets.end());
-    outArgsMask = 0xFFFFFFFFFFFFFFFFULL << args.size();
-    for (unsigned i = 0, n = args.size(); i < n; ++i) {
-      if (fn.getArgAttr(i, "bufferize.result")) {
-        outArgsMask |= 1ULL << i;
+    if (fn.getNumResults()) {
+      outArgsMask = 0xFFFFFFFFFFFFFFFFULL << args.size();
+      for (unsigned i = 0, n = args.size(); i < n; ++i) {
+        if (fn.getArgAttr(i, "bufferize.result")) {
+          outArgsMask |= 1ULL << i;
+        }
       }
     }
   } else {
@@ -981,80 +986,15 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
   devProps.sgSizes =
       clGetDevInfo(SmallVector<size_t>, dev, CL_DEVICE_SUB_GROUP_SIZES_INTEL);
 
-  // Build the module and check the kernels workgroup size. If the workgroup
-  // size is different, rebuild the module with the new size.
-  for (size_t wgSize = devProps.maxWgSize;;) {
-    mod = mlirModule.clone();
-    PassManager pm{mod.getContext()};
-    pipeline(pm, pipelineOpts);
-    CHECK(!pm.run(mod).failed(), "GPU pipeline failed!");
-    staticMain = createStaticMain(mod, funcName, argTypes);
-    auto expectedEng = ExecutionEngine::create(mod, opts);
-    CHECKE(expectedEng, "Failed to create ExecutionEngine!");
-    expectedEng->get()->registerSymbols(OclRuntime::Exports::symbolMap);
-
-    // Find all kernels and query the workgroup size
-    size_t minSize = wgSize;
-    mod.walk<>([&](LLVM::LLVMFuncOp func) {
-      auto name = func.getName();
-      if (!name.starts_with("createGcGpuOclKernel_")) {
-        return WalkResult::skip();
-      }
-      auto fn = expectedEng.get()->lookup(name);
-      if (!fn) {
-        gcLogE("Function not found: ", name.data());
-        return WalkResult::skip();
-      }
-
-      Kernel *kernel =
-          reinterpret_cast<Kernel *(*)(OclContext *)>(fn.get())(&oclCtx);
-
-      if (kernel->kernel == nullptr) {
-        minSize = std::min(minSize, wgSize / 2);
-        if (minSize == 0) {
-          gcReportErr("Failed to build the kernel.");
-        }
-        return WalkResult::interrupt();
-      }
-
-      size_t s = 0;
-      auto err = clGetKernelWorkGroupInfo(kernel->kernel, ext.device,
-                                          CL_KERNEL_WORK_GROUP_SIZE,
-                                          sizeof(size_t), &s, nullptr);
-      if (err == CL_SUCCESS) {
-        minSize = std::min(minSize, s);
-      } else {
-        gcLogE("Failed to get the kernel workgroup size: ", err);
-      }
-
-      // Check if kernel has compile-time required work group size
-      size_t compileWgSize[3] = {0, 0, 0};
-      err = clGetKernelWorkGroupInfo(
-          kernel->kernel, ext.device, CL_KERNEL_COMPILE_WORK_GROUP_SIZE,
-          sizeof(compileWgSize), &compileWgSize, nullptr);
-      if (err == CL_SUCCESS && compileWgSize[0] > 0) {
-        // Kernel has reqd_work_group_size - use it exactly
-        size_t requiredSize =
-            compileWgSize[0] * compileWgSize[1] * compileWgSize[2];
-        gcLogD("Kernel has required work group size: [", compileWgSize[0], ", ",
-               compileWgSize[1], ", ", compileWgSize[2],
-               "] (total=", requiredSize, ")");
-        minSize = std::min(minSize, requiredSize);
-      }
-
-      return WalkResult::skip();
-    });
-
-    if (minSize == wgSize) {
-      eng = std::move(*expectedEng);
-      break;
-    }
-
-    destroyKernels(expectedEng.get());
-    gcLogD("Changing the workgroup size from ", wgSize, " to ", minSize);
-    wgSize = minSize;
-    devProps.maxWgSize = wgSize;
-  }
+  mod = mlirModule.clone();
+  PassManager pm{mod.getContext()};
+  pipeline(pm, pipelineOpts);
+  CHECK(!pm.run(mod).failed(), "GPU pipeline failed!");
+  staticMain = createStaticMain(mod, funcName, argTypes);
+  auto expectedEng = ExecutionEngine::create(mod, opts);
+  CHECKE(expectedEng, "Failed to create ExecutionEngine!");
+  eng = std::move(*expectedEng);
+  eng->registerSymbols(OclRuntime::Exports::symbolMap);
 
   if (dumpSpirv) {
     mod->walk([&](LLVM::GlobalOp global) {

@@ -237,6 +237,7 @@ struct OclModuleBuilderOpts {
   bool dumpIr = false;
   bool dumpSpirv = false;
   bool enableObjectDump = false;
+  bool callFinish = false;
   ArrayRef<StringRef> sharedLibPaths = {};
   std::function<void(OpPassManager &, GPUPipelineOptions &)> pipeline = nullptr;
 };
@@ -357,7 +358,7 @@ template <unsigned N = 8> struct StaticExecutor : OclModuleExecutorBase<N> {
   }
 
   template <typename T> void arg(const T *alignedPtr, bool isUsm = true) {
-    arg(reinterpret_cast<const void *>(alignedPtr), isUsm);
+    arg(reinterpret_cast<void *>(const_cast<T *>(alignedPtr)), isUsm);
   }
 
   void operator()(OclContext &ctx) { exec(ctx); }
