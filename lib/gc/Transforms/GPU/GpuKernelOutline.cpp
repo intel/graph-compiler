@@ -44,15 +44,21 @@ struct GpuKernelOutline final
     auto op = getOperation();
 
     auto result = op.walk([&](func::FuncOp funcOp) {
-      // Convert scf.forall ops marked with GC_ATTR_KERNEL_NAME into parallel
-      // loops.
+      // Convert scf.forall ops annotated with GC_ATTR_KERNEL_NAME attribute
+      // into parallel loops.
       auto result = funcOp.walk([&](scf::ForallOp forallOp) {
+        rw.setInsertionPoint(forallOp);
         auto kernelName = dyn_cast_if_present<StringAttr>(
             forallOp->getAttr(GC_ATTR_KERNEL_NAME));
-        if (!kernelName)
-          return WalkResult::skip();
 
-        rw.setInsertionPoint(forallOp);
+        if (!kernelName) {
+          if (failed(scf::forallToForLoop(rw, forallOp))) {
+            signalPassFailure();
+            return WalkResult::interrupt();
+          }
+          return WalkResult::skip();
+        }
+
         scf::ParallelOp parallelOp;
 
         if (failed(scf::forallToParallelLoop(rw, forallOp, &parallelOp))) {
@@ -84,10 +90,12 @@ struct GpuKernelOutline final
 
     // Set the number of threads
     op.walk([&](gpu::LaunchOp launch) {
-      if (auto name =
+      if (auto nameAttr =
               launch.getOperation()->getDiscardableAttr(GC_ATTR_KERNEL_NAME)) {
-        if (auto threadsAttr =
-                KernelAttrs(op, getAttrValue<StringRef>(name)).getThreads()) {
+        auto name = getAttrValue<StringRef>(nameAttr);
+        launch.setModule(name);
+        launch.setFunction(name);
+        if (auto threadsAttr = KernelAttrs(op, name).getThreads()) {
           auto loc = launch.getLoc();
           auto threads = threadsAttr.value();
           threads.resize(3, 1);

@@ -136,12 +136,7 @@ NB_MODULE(graph_compiler, m) {
 
              OclModuleBuilderOpts builderOpts;
              builderOpts.dumpIr = dump;
-             builderOpts.pipeline = [wait](OpPassManager &pm,
-                                           gc::GPUPipelineOptions &opts) {
-               opts.isUsmArgs = true;
-               opts.callFinish = wait;
-               populateGPUPipeline(pm, opts);
-             };
+             builderOpts.callFinish = wait;
              OclModuleBuilder builder{mlirMod, builderOpts};
              auto oclMod = gcGetOrReport(builder.build(ctx.runtime));
              assert(oclMod->isStatic);

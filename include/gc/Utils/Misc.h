@@ -59,4 +59,13 @@ template <typename T> T findFactor(T number, T closeTo) {
 
   return closeTo;
 }
+
+template <typename L, typename T> static T findClosestDiv(L &sorted, T value) {
+  for (int i = sorted.size() - 1; i >= 0; --i) {
+    if (value % sorted[i] == 0) {
+      return static_cast<T>(sorted[i]);
+    }
+  }
+  return static_cast<T>(1);
+}
 #endif // MISCUTILS_H

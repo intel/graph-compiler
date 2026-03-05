@@ -30,10 +30,17 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
     ];
 }
 
-def GpuTilingAndFusion : Pass<"gpu-tiling", "func::FuncOp"> {
-  let summary = "GPU tiling and fusion path.";
+def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
+  let summary = "Tile contraction operations.";
   let description = [{
-    This pass tiles TilingInterface operations and creates scf.forall loops, that can be outlined into GPU kernels.
+    Tile contraction operations and fuse their producers.
+  }];
+}
+
+def TileParallel : Pass<"tile-parallel", "func::FuncOp"> {
+  let summary = "Tile parallel operations.";
+  let description = [{
+    Tile parallel operations and fuse their producers.
   }];
 }
 

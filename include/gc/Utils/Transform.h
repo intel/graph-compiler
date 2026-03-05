@@ -31,6 +31,8 @@ template <typename T> auto createAttr(MLIRContext *ctx, T value) {
   if constexpr (std::is_integral_v<T>) {
     auto type = IntegerType::get(ctx, sizeof(T) * 8);
     return IntegerAttr::get(type, static_cast<int64_t>(value));
+  } else if constexpr (std::is_enum_v<T>) {
+    return createAttr(ctx, static_cast<std::underlying_type_t<T>>(value));
   } else if constexpr (std::is_floating_point_v<T>) {
     Type type;
     if constexpr (sizeof(T) == 4) {
@@ -56,6 +58,8 @@ template <typename T> auto createAttr(MLIRContext *ctx, T value) {
 template <typename T> auto getAttrValue(Attribute attr) {
   if constexpr (std::is_integral_v<T>) {
     return static_cast<T>(cast<IntegerAttr>(attr).getInt());
+  } else if constexpr (std::is_enum_v<T>) {
+    return static_cast<T>(getAttrValue<std::underlying_type_t<T>>(attr));
   } else if constexpr (std::is_floating_point_v<T>) {
     return static_cast<T>(cast<FloatAttr>(attr).getValueAsDouble());
   } else if constexpr (std::is_convertible_v<T, Attribute>) {
@@ -74,10 +78,25 @@ template <typename T> auto getAttrValue(Attribute attr) {
   }
 }
 
+template <typename T>
+auto getDiscardableAttr(Operation *op, StringRef name, T defaultValue) {
+  auto attr = op->getDiscardableAttr(name);
+  return attr ? getAttrValue<T>(attr) : defaultValue;
+}
+
 template <typename... Path> struct GcAttrs {
   GcAttrs(Operation *op, Path... p) : path(p...), op(op), attrs(nullptr) {}
-
+  GcAttrs(const GcAttrs &) = default;
+  GcAttrs(GcAttrs &&) = default;
   ~GcAttrs() { save(); }
+
+  GcAttrs &operator=(GcAttrs &&other) {
+    save();
+    path = std::move(other.path);
+    op = other.op;
+    attrs = std::move(other.attrs);
+    return *this;
+  }
 
   Attribute getAttr(StringRef name) {
     load();
@@ -105,6 +124,12 @@ template <typename... Path> struct GcAttrs {
       attrs = NamedAttrList(std::get<DictionaryAttr>(attrs));
     }
     std::get<NamedAttrList>(attrs).set(name, attr);
+  }
+
+  bool exists() {
+    load();
+    return std::holds_alternative<DictionaryAttr>(attrs) &&
+           static_cast<bool>(std::get<DictionaryAttr>(attrs));
   }
 
   void save() {
@@ -270,19 +295,23 @@ struct KernelAttrs : public GcAttrs<const char *, StringRef> {
   std::optional<SmallVector<size_t>> getTiles() {
     return get<SmallVector<size_t>>(TILES);
   }
-
   void setTiles(ArrayRef<size_t> tiles) { set(TILES, tiles); }
 
   std::optional<SmallVector<size_t>> getThreads() {
     return get<SmallVector<size_t>>(THREADS);
   }
-
   void setThreads(ArrayRef<size_t> threads) { set(THREADS, threads); }
+
+  template <typename T = size_t> std::optional<T> getWgSize() {
+    return get<T>(WG_SIZE);
+  }
+  template <typename T> void setWgSize(T wgSize) {
+    set(WG_SIZE, static_cast<T>(wgSize));
+  }
 
   template <typename T = size_t> std::optional<T> getSgSize() {
     return get<T>(SG_SIZE);
   }
-
   template <typename T> void setSgSize(T sgSize) {
     set(SG_SIZE, static_cast<T>(sgSize));
   }
@@ -290,6 +319,7 @@ struct KernelAttrs : public GcAttrs<const char *, StringRef> {
 private:
   static constexpr char TILES[] = "tiles";
   static constexpr char THREADS[] = "threads";
+  static constexpr char WG_SIZE[] = "wg_size";
   static constexpr char SG_SIZE[] = "sg_size";
 };
 // ---------------------------------------------------------- //
@@ -313,6 +343,37 @@ struct OpRewriter final : IRRewriter {
     return create<arith::ConstantFloatOp>(getF64Type(), APFloat(v));
   }
 };
+
+struct TruePredicate {
+  template <typename T> constexpr bool operator()(T &&) const { return true; }
+};
+template <typename Predicate = TruePredicate> struct ReverseIterator {
+
+  static auto makeIterable(Block &block) {
+    auto reversed = llvm::reverse(ForwardIterator::makeIterable(block));
+    if constexpr (std::is_same_v<Predicate, TruePredicate>)
+      return reversed;
+    else
+      return llvm::make_filter_range(reversed, Predicate{});
+  }
+
+  template <typename T> static auto makeIterable(T &range) {
+    return llvm::reverse(ForwardIterator::makeIterable(range));
+  }
+};
+
+template <typename T = Operation *, typename Predicate = TruePredicate>
+T findLast(Operation *root, std::function<bool(T)> predicate) {
+  T last = nullptr;
+  root->walk<WalkOrder::PreOrder, ReverseIterator<Predicate>>([&](T op) {
+    if (predicate(op)) {
+      last = op;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return last;
+}
 // ---------------------------------------------------------- //
 
 // Check recursively if the specified operation has an operand that

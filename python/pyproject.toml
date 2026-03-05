@@ -7,5 +7,5 @@ requires = ["setuptools", "wheel", "nanobind"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-# pip install torch --index-url https://download.pytorch.org/whl/xpu
+# pip install torch torch-mlir --index-url https://download.pytorch.org/whl/xpu 
 torch = ["torch>=2.0.0"]

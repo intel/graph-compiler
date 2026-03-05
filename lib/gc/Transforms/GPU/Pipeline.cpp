@@ -74,7 +74,8 @@ void populateGPUPipeline(OpPassManager &pm,
   phase("Initial", [&]() { pm.addPass(createGpuDeviceProps(deviceProps)); });
   phase("Tiling", [&]() {
     pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
-    pm.addNestedPass<func::FuncOp>(createGpuTilingAndFusion());
+    pm.addNestedPass<func::FuncOp>(createTileContraction());
+    pm.addNestedPass<func::FuncOp>(createTileParallel());
   });
 
   phase("Vectorization", [&]() {
@@ -119,7 +120,7 @@ void populateGPUPipeline(OpPassManager &pm,
     opts.binaryFormat = "binary";
     opts.zebinChip = deviceProps.arch;
     opts.optLevel = 3;
-    opts.xegpuOpLevel = "subgroup"; // Enable subgroup-level layout propagation
+    opts.xegpuOpLevel = "subgroup";
     gpu::buildLowerToXeVMPassPipeline(pm, opts);
   });
 
