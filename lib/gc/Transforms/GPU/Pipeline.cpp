@@ -120,7 +120,6 @@ void populateGPUPipeline(OpPassManager &pm,
     opts.binaryFormat = "binary";
     opts.zebinChip = deviceProps.arch;
     opts.optLevel = 3;
-    opts.xegpuOpLevel = "subgroup";
     gpu::buildLowerToXeVMPassPipeline(pm, opts);
   });
 

@@ -405,12 +405,17 @@ protected:
   virtual void computeWgTiles(Target &tg) {
     auto sg = getSgSize(tg);
     size_t total = llvm::accumulate(tg.tiles, 1ull, std::multiplies<>());
-    tg.computeTiles(total / getWgSize(tg) / sg, sg);
+    size_t div = getWgSize(tg) * sg;
+    if (total < div) {
+      div = sg;
+    }
+    tg.computeTiles(total / div, sg);
   }
 
   virtual void computeSgTiles(Target &tg) {
     auto sg = getSgSize(tg);
-    tg.computeTiles(4 * sg, sg);
+    size_t total = llvm::accumulate(tg.tiles, 1ull, std::multiplies<>());
+    tg.computeTiles(total / sg, sg);
   }
 
   virtual void computeThreads(Target &tg) {

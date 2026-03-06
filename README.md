@@ -15,7 +15,8 @@ Create a virtual environment and install dependencies:
 ```bash
 python -m venv .venv --prompt gc
 source .venv/bin/activate
-pip install nanobind torch --index-url https://download.pytorch.org/whl/xpu
+pip install nanobind pytest torch --index-url https://download.pytorch.org/whl/xpu
+pip install torch-mlir --index-url https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
 ```
 
 Install the Python bindings in editable mode:
@@ -28,6 +29,12 @@ pip install -e python/
 
 ```bash
 python python/example/matmul.py
+```
+
+### Run Python unit tests
+
+```bash
+pytest python/test/test_torch.py -v -s
 ```
 
 ### Run gc-opt
