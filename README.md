@@ -1,43 +1,31 @@
-## Build instructions
+## Build and install Python bindings
 
-### Build the project
-
-To build the project, simply run:
-
-```bash
-./scripts/compile.sh
-```
-
-### Build and install Python bindings
-
-Create a virtual environment and install dependencies:
+Create a virtual environment:
 
 ```bash
 python -m venv .venv --prompt gc
 source .venv/bin/activate
-pip install nanobind pytest torch --index-url https://download.pytorch.org/whl/xpu
-pip install torch-mlir --index-url https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
 ```
 
-Install the Python bindings in editable mode:
+Build the project and install the Python bindings in editable mode:
 
 ```bash
-pip install -e python/
+pip install -e python/[test]
 ```
 
-### Run Python examples
+## Run Python examples
 
 ```bash
 python python/example/matmul.py
 ```
 
-### Run Python unit tests
+## Run Python unit tests
 
 ```bash
 pytest python/test/test_torch.py -v -s
 ```
 
-### Run gc-opt
+## Run gc-opt
 
 ```bash
 ./build/bin/gc-opt --gpu-dev-props='arch=pvc' --gc-gpu-pipeline='dump' linalg_on_tensors.mlir

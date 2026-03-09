@@ -7,7 +7,18 @@ requires = ["setuptools", "wheel", "nanobind"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
-# pip install pytest
-# pip install torch --index-url https://download.pytorch.org/whl/xpu
-# pip install torch-mlir --index-url https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
-torch = ["torch>=2.0.0"]
+test = ["pytest", "torch>=2.0.0", "torch-mlir"]
+
+[tool.uv.sources]
+torch = { index = "pytorch", extra = "xpu" }
+torch-mlir = { index = "torch_mlir" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/xpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "torch_mlir"
+url = "https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels"
+explicit = true
