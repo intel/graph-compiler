@@ -1,0 +1,17 @@
+export PATH=$HOME/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export GH_RUNNER_DIR="$HOME/actions-runner"
+alias ll='ls -la'
+
+if [ ! -d "$GH_RUNNER_DIR" ] || [ "$(readlink /etc/alternatives/cc)" != "/usr/bin/clang" ]; then
+    [ -z "$GH_TOKEN" ] && read -p "GitHub token: " GH_TOKEN
+    export GH_TOKEN
+    export GH_REPO_PATH='intel-sandbox/graph-compiler'
+    curl -fsSL -H "Authorization: token $GH_TOKEN" \
+        "https://raw.githubusercontent.com/$GH_REPO_PATH/main/.github/runner/install.sh" | bash
+fi
+
+. /opt/intel/oneapi/setvars.sh
+pgrep -f "$GH_RUNNER_DIR/bin/Runner.Listener" > /dev/null && return 0
+
+echo "Starting GitHub runner"
+screen -dmS runner bash -c "$GH_RUNNER_DIR/run.sh"

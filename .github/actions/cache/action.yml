@@ -1,0 +1,89 @@
+name: Smart Cache
+description: >
+  If the env variable GH_ACTIONS_CACHE_DIR is set, use it as
+  the local cache directory, otherwise fall back to actions/cache.
+
+inputs:
+  operation:
+    description: "'restore', 'save', or 'cleanup'"
+    required: true
+  key:
+    description: Cache key (required for restore and save)
+    required: false
+  path:
+    description: A directory path to save or restore
+    required: false
+  num-days:
+    description: "cleanup: delete entries older than this number of days (default: 7)"
+    required: false
+    default: '7'
+
+outputs:
+  cache-hit:
+    description: Whether the cache was restored successfully
+    value: ${{ steps.local-restore.outputs.cache-hit || steps.actions-restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Export required environment variables
+      shell: bash
+      run: |
+        [ -n "$GH_ACTIONS_CACHE_DIR" ] && echo "GH_ACTIONS_CACHE_DIR=$GH_ACTIONS_CACHE_DIR" >> "$GITHUB_ENV" || true
+
+    # ── Local cache: restore ──────────────────────────────────────────────────
+    - name: Restore from local cache
+      id: local-restore
+      if: ${{ env.GH_ACTIONS_CACHE_DIR != '' && inputs.operation == 'restore' }}
+      shell: bash
+      run: |
+        entry="$GH_ACTIONS_CACHE_DIR/${{ inputs.key }}"
+        if [ -d "$entry" ]; then
+          echo 'Cache hit: ${{ inputs.key }}'
+          touch "$entry"
+          mkdir -p "$(dirname '${{ inputs.path }}')"
+          ln -s "$entry" '${{ inputs.path }}'
+          echo 'cache-hit=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'Cache miss: ${{ inputs.key }}'
+          echo 'cache-hit=false' >> "$GITHUB_OUTPUT"
+        fi
+
+    # ── Local cache: save ─────────────────────────────────────────────────────
+    - name: Save to local cache
+      if: ${{ env.GH_ACTIONS_CACHE_DIR != '' && inputs.operation == 'save' }}
+      shell: bash
+      run: |
+        entry="$GH_ACTIONS_CACHE_DIR/${{ inputs.key }}"
+        if [ ! -d "$entry" ]; then
+          mkdir -p "$GH_ACTIONS_CACHE_DIR"
+          cp -rf '${{ inputs.path }}' "$entry"
+          echo 'Saved to local cache: ${{ inputs.key }}'
+        fi
+
+    # ── actions/cache fallback: restore ───────────────────────────────────────
+    - name: Restore with actions/cache
+      id: actions-restore
+      if: ${{ env.GH_ACTIONS_CACHE_DIR == '' && inputs.operation == 'restore' }}
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+
+    # ── actions/cache fallback: save ──────────────────────────────────────────
+    - name: Save with actions/cache
+      if: ${{ env.GH_ACTIONS_CACHE_DIR == '' && inputs.operation == 'save' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+
+    # ── Local cache: cleanup ──────────────────────────────────────────────────
+    - name: Cleanup local cache
+      if: ${{ env.GH_ACTIONS_CACHE_DIR != '' && inputs.operation == 'cleanup' }}
+      shell: bash
+      run: |
+        [ -d "$GH_ACTIONS_CACHE_DIR" ] || exit 0
+        find "$GH_ACTIONS_CACHE_DIR" -mindepth 1 -maxdepth 1 -type d \
+          -mtime +'${{ inputs.num-days }}' -exec rm -rf {} +
+        echo 'Cleaned up local cache entries older than ${{ inputs.num-days }} days'

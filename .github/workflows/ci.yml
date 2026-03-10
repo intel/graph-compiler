@@ -1,0 +1,214 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  GC_DEBUG: .*
+  GC_DYLINK: ON
+  GC_BUILD_TYPE: Debug
+  LLVM_BUILD_TYPE: RelWithDebInfo
+  LLVM_INSTALL_DIR: externals/llvm
+  OV_REPO: https://x-access-token:${{ secrets.OV_TOKEN }}@github.com/intel-sandbox/openvino-gc.git
+  OV_VERSION: 89f6242d6a931b6229590bd2413f2168adf91053
+  OV_INSTALL_DIR: externals/openvino
+
+jobs:
+  ci:
+    runs-on: ${{ vars.RUNNER }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: List changed files
+        id: ls
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.event.after }}"
+          fi
+          if git rev-parse -q --verify "$base^{commit}" || git fetch --no-tags --depth=1 origin "$base"; then
+            revisions="$base $head"
+          else
+            revisions="$head"
+          fi
+          files=$(git diff --name-only $revisions | sort -u | while read -r f; do [ -n "$f" ] && [ -f "$f" ] && echo -n "$f:"; done)
+          echo "files=${files%:}" >> "$GITHUB_OUTPUT"
+
+      - name: clang-format
+        run: |
+          echo "${{ steps.ls.outputs.files }}" | tr ':' '\n' | sed -nE '/\.(h|cpp)$/p' \
+          | xargs -r -P $(nproc) clang-format --dry-run --Werror
+
+      - name: cmake-format
+        run: |
+          echo "${{ steps.ls.outputs.files }}" | tr ':' '\n' | sed -nE '/(CMakeLists.txt|.+\.cmake)$/p' \
+          | xargs -r -P $(nproc) cmake-format --check
+
+      - name: Set up cache
+        id: setup-cache
+        run: |
+          sha() { \
+            echo "$@" | tr ' ' '\n' | sort | \
+            while read i; do \
+              [ -f "$i" ] && sha1sum "$i" || echo "$i"; \
+            done | sha1sum | cut -d' ' -f1; \
+          }
+
+          venv_sha=$(sha scripts/create_venv.sh)
+          llvm_sha=$(sha $venv_sha cmake/llvm-version.txt scripts/compile.sh patches/*.patch)
+          ov_sha=$(sha $llvm_sha $OV_VERSION)
+          echo "venv-key=venv-${venv_sha}" >> "$GITHUB_OUTPUT"
+          echo "llvm-key=llvm-${llvm_sha}" >> "$GITHUB_OUTPUT"
+          echo "ov-key=ov-${ov_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Load Python venv from cache
+        id: load-venv
+        uses: ./.github/actions/cache
+        with:
+          operation: restore
+          path: .venv
+          key: ${{ steps.setup-cache.outputs.venv-key }}
+
+      - name: Create Python venv if not found in cache
+        if: steps.load-venv.outputs.cache-hit != 'true'
+        run: |
+          bash -c scripts/create_venv.sh
+
+      - name: Activate Python venv
+        run: |
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+
+      - name: Load LLVM from cache
+        id: load-llvm
+        uses: ./.github/actions/cache
+        with:
+          operation: restore
+          path: ${{ env.LLVM_INSTALL_DIR }}
+          key: ${{ steps.setup-cache.outputs.llvm-key }}
+
+      - name: Build and install
+        run: |
+          [ -z "$ONEAPI_ROOT" ] && . /opt/intel/oneapi/setvars.sh
+          pip install -v -e python
+          ldlp="$PWD/${{ env.LLVM_INSTALL_DIR }}/lib:$PWD/build/install/lib:$LD_LIBRARY_PATH"
+          echo "LD_LIBRARY_PATH=$ldlp" >> "$GITHUB_ENV"
+          lit_dir=externals/llvm-project/llvm/utils/lit
+          if [ -d "$lit_dir" ]; then
+            pip install "$lit_dir"
+            ln -sf "$(which lit)" "${{ env.LLVM_INSTALL_DIR }}/bin/llvm-lit"
+          fi
+
+      - name: LLVM cleanup
+        if: steps.load-llvm.outputs.cache-hit != 'true'
+        run: |
+          llvm_dir="${{ env.LLVM_INSTALL_DIR }}"
+          rm -rf "$llvm_dir/share/"
+          # To reduce the cache size, truncating the unused libs and binaries to zero size.
+          # The files can not be simply removed because they are needed for cmake.
+          find "$llvm_dir/lib/" -type f -name '*.a' -exec truncate -s 0 {} +
+          find "$llvm_dir/bin/" -type f \
+            ! -name FileCheck ! -name llvm-lit ! -name mlir-tblgen ! -name split-file \
+            -exec truncate -s 0 {} +
+
+      - name: Save Python venv to cache
+        if: steps.load-venv.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache
+        with:
+          operation: save
+          path: .venv
+          key: ${{ steps.setup-cache.outputs.venv-key }}
+
+      - name: Save LLVM to cache
+        if: steps.load-llvm.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache
+        with:
+          operation: save
+          path: ${{ env.LLVM_INSTALL_DIR }}
+          key: ${{ steps.setup-cache.outputs.llvm-key }}
+
+      - name: clang-tidy
+        run: |
+          echo "${{ steps.ls.outputs.files }}" | tr ':' '\n' | sed -nE '/\.(h|cpp)$/p' \
+          | xargs -r -P $(nproc) clang-tidy -p build --warnings-as-errors='*'
+
+      - name: Run lit tests
+        run: |
+          cmake --build build --target gc-check
+
+      - name: Load OpenVINO from cache
+        id: load-ov
+        uses: ./.github/actions/cache
+        with:
+          operation: restore
+          path: ${{ env.OV_INSTALL_DIR }}
+          key: ${{ steps.setup-cache.outputs.ov-key }}
+
+      - name: Build OpenVINO if not found in cache
+        if: steps.load-ov.outputs.cache-hit != 'true'
+        run: |
+          llvm_dir="$PWD/${{env.LLVM_INSTALL_DIR}}"
+          gc_dir="$PWD/build/install"
+          ov_dir="$PWD/${{env.OV_INSTALL_DIR}}"
+          export GIT_LFS_SKIP_SMUDGE=1
+          git init $ov_dir
+          git -C $ov_dir fetch --depth 1 $OV_REPO $OV_VERSION
+          git -C $ov_dir checkout FETCH_HEAD
+          git -C $ov_dir submodule update --init --depth 1 --jobs $(nproc)
+          cmake -G Ninja -S "$ov_dir" -B "$ov_dir/build" \
+            -DLLVM_DIR=$llvm_dir/lib/cmake/llvm \
+            -DMLIR_DIR=$llvm_dir/lib/cmake/mlir \
+            -DENABLE_GRAPH_COMPILER=ON \
+            -DLLVM_DYLINK=ON \
+            -DENABLE_INTEL_GPU=ON \
+            -DENABLE_TESTS=ON \
+            -DENABLE_ONEDNN_FOR_GPU=OFF \
+            -DENABLE_INTEL_CPU=OFF \
+            -DCMAKE_CXX_FLAGS="-DOV_GPU_OPENCL_HPP_HAS_UUID -DOV_GPU_OPENCL_HPP_HAS_BUS_INFO" \
+            -DGraphCompiler_DIR=$gc_dir/lib/cmake/GraphCompiler \
+            -DOpenCL_HPP_INCLUDE_DIR="$ov_dir/thirdparty/ocl/clhpp_headers/include" \
+            -DOpenCL_HPP="$ov_dir/thirdparty/ocl/clhpp_headers/include/CL/opencl.hpp"
+          cmake --build "$ov_dir/build" --parallel $(nproc)
+          # Remove unnecessary files to reduce the cache size
+          bk=$ov_dir.bk
+          mv $ov_dir $bk
+          mkdir -p $ov_dir/bin/intel64/Release
+          mkdir -p $ov_dir/src/plugins/intel_gpu/tests/functional/mlir_op
+          cp $bk/bin/intel64/Release/ov_gpu_func_tests $ov_dir/bin/intel64/Release/
+          cp $bk/bin/intel64/Release/*.so* $ov_dir/bin/intel64/Release/
+          cp -r $bk/src/plugins/intel_gpu/tests/functional/mlir_op/models/ \
+                $ov_dir/src/plugins/intel_gpu/tests/functional/mlir_op/
+          rm -rf $bk
+
+      - name: Save OpenVINO to cache
+        if: steps.load-ov.outputs.cache-hit != 'true'
+        uses: ./.github/actions/cache
+        with:
+          operation: save
+          path: ${{ env.OV_INSTALL_DIR }}
+          key: ${{ steps.setup-cache.outputs.ov-key }}
+
+      - name: Cleanup local cache
+        uses: ./.github/actions/cache
+        with:
+          operation: cleanup
+
+      - name: Run OpenVINO tests
+        run: |
+          [ -z "$ONEAPI_ROOT" ] && . /opt/intel/oneapi/setvars.sh
+          bin_dir="$PWD/${{env.OV_INSTALL_DIR}}/bin/intel64/Release"
+          export OV_MLIR_DEBUG=1
+          export OV_MLIR_MODE=GC_GPU
+          $bin_dir/ov_gpu_func_tests --gtest_filter=MLIRExecution.SimpleMatmulf16
+
+      - name: Run Python tests
+        run: |
+          [ -z "$ONEAPI_ROOT" ] && . /opt/intel/oneapi/setvars.sh
+          pytest -n 16 python/test
