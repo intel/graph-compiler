@@ -30,6 +30,7 @@ $(basename "$0")
     [ -d | --dev     ] Development build
     [ -r | --release ] Release build (default: RelWithDebInfo)
     [ -l | --dyn     ] Dynamical linking, requires rebuild of LLVM, activates 'dev' option
+    [ -v | --llvm    ] Build LLVM only, without patching and git resetting
     [ -c | --clean   ] Delete the build artifacts from the previous build
     [ -s | --suffix  ] Build dir suffix
     [ -h | --help    ] Print this message
@@ -54,6 +55,9 @@ for arg in "$@"; do
     -l | --dyn)
       GC_DYLINK=ON
       ;;
+    -v | --llvm)
+      BUILD_LLVM_ONLY=1
+      ;;
     *)
       echo "Unknown option: $arg"
       print_usage
@@ -69,6 +73,7 @@ BUILD_DIR="$PROJECT_DIR/build"
 [ $MAX_JOBS -gt 0 ] || MAX_JOBS=2
 
 build_llvm() {
+    local llvm_url='https://github.com/llvm/llvm-project.git'
     local llvm_hash=$(cat "$PROJECT_DIR/cmake/llvm-version.txt")
     local llvm_dir="$EXTERNALS_DIR/llvm-project"
     local llvm_build_dir="$llvm_dir/build"
@@ -86,26 +91,30 @@ build_llvm() {
       BUILD_TARGET=''
     fi
 
-    if ! [ -d "$llvm_dir" ]; then
-        mkdir -p "$EXTERNALS_DIR"
-        git init $llvm_dir
-        cd "$llvm_dir"
-        git remote add origin https://github.com/llvm/llvm-project.git
-        git fetch --no-tags --depth=1 origin ${llvm_hash}
-        git checkout FETCH_HEAD
-    else
-        cd "$llvm_dir"
-        [ $(git -C "$llvm_dir" rev-parse HEAD) = "$llvm_hash" ] || git fetch --no-tags --depth=1 origin ${llvm_hash}
-        git reset --hard ${llvm_hash}
-        [ -z "$CLEANUP" ] || git clean -xffd;
-    fi
-
-    for patch in "$PROJECT_DIR/patches/"*.patch; do
-      if [ -f "$patch" ]; then
-        echo "Applying patch: $patch"
-        git apply --whitespace=fix "$patch"
+    if [ -z "$BUILD_LLVM_ONLY" ]; then
+      if ! [ -d "$llvm_dir" ]; then
+          mkdir -p "$EXTERNALS_DIR"
+          git init $llvm_dir
+          cd "$llvm_dir"
+          git remote add origin "$llvm_url"
+          git fetch --no-tags --depth=1 origin ${llvm_hash}
+          git checkout FETCH_HEAD
+      else
+          cd "$llvm_dir"
+          [ $(git -C "$llvm_dir" rev-parse HEAD) = "$llvm_hash" ] || git fetch --no-tags --depth=1 origin ${llvm_hash}
+          git reset --hard ${llvm_hash}
+          [ -z "$CLEANUP" ] || git clean -xffd;
       fi
-    done
+
+      for patch in "$PROJECT_DIR/patches/"*.patch; do
+        if [ -f "$patch" ]; then
+          echo "Applying patch: $patch"
+          git apply --whitespace=fix "$patch"
+        fi
+      done
+    else
+      cd "$llvm_dir"
+    fi
 
     [ -z "$CLEANUP" ] || rm -rf "$llvm_build_dir"
     mkdir -p "$llvm_build_dir"
@@ -133,6 +142,7 @@ build_llvm() {
         -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
         -DPython3_EXECUTABLE=$(which python3) \
         -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF \
+        -DLLVM_FORCE_VC_REPOSITORY="$llvm_url" \
         -DCMAKE_INSTALL_PREFIX="$llvm_install_dir"
     cmake --build "$llvm_build_dir" --parallel $MAX_JOBS $BUILD_TARGET
 }
@@ -141,6 +151,7 @@ echo "GC_BUILD_TYPE=$GC_BUILD_TYPE"
 echo "GC_DYLINK=$GC_DYLINK"
 
 build_llvm
+[ -z "$BUILD_LLVM_ONLY" ] || exit 0
 
 cd "$PROJECT_DIR"
 [ -z "$CLEANUP" ] || rm -rf "$BUILD_DIR"
