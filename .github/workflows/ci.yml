@@ -38,7 +38,7 @@ jobs:
           else
             revisions="$head"
           fi
-          files=$(git diff --name-only $revisions | sort -u | while read -r f; do [ -n "$f" ] && [ -f "$f" ] && echo -n "$f:"; done)
+          files=$(git diff --name-only $revisions | sort -u | while read -r f; do [ -n "$f" ] && [ -f "$f" ] && echo -n "$f:" || true; done)
           echo "files=${files%:}" >> "$GITHUB_OUTPUT"
 
       - name: clang-format

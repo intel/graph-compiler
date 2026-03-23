@@ -14,7 +14,10 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "gc/Utils/Transform.h"
+
 using namespace mlir;
+using namespace mlir::gc;
 
 namespace mlir::gc {
 #define GEN_PASS_DECL_REMOVEALLOCS
@@ -37,22 +40,36 @@ struct RemoveAllocs final : gc::impl::RemoveAllocsBase<RemoveAllocs> {
     // with the argument.
     fn.walk([&](memref::CopyOp copy) {
       auto target = copy.getTarget();
-      if (!isa<BlockArgument>(target) ||
-          llvm::any_of(target.getUses(), [&](OpOperand &use) {
-            return use.getOwner() != copy;
-          })) {
+      if (!isa<BlockArgument>(target) || !target.hasOneUse()) {
         return WalkResult::skip();
       }
-      if (auto alloc = copy.getSource().getDefiningOp<memref::AllocOp>()) {
-        for (auto &use : alloc.getResult().getUses()) {
-          if (auto dealloc = dyn_cast<memref::DeallocOp>(use.getOwner())) {
-            dealloc.erase();
-            break;
-          }
+
+      auto src = copy.getSource().getDefiningOp();
+      if (isa<memref::AllocOp>(src)) {
+        src->getResult(0).replaceAllUsesWith(target);
+      } else if (auto collapse = dyn_cast<memref::CollapseShapeOp>(src);
+                 collapse &&
+                 isa<memref::AllocOp>(collapse.getSrc().getDefiningOp())) {
+        OpRewriter rw(fn);
+        rw.setInsertionPointToStart(&fn.front());
+        auto expand = rw.create<memref::ExpandShapeOp>(
+            collapse.getSrc().getType(), target,
+            collapse.getReassociationIndices());
+        collapse.getSrc().replaceAllUsesWith(expand.getResult());
+      }
+
+      return WalkResult::skip();
+    });
+
+    // Remove allocs that are only used by deallocs.
+    fn.walk([&](memref::AllocOp alloc) {
+      if (alloc.getResult().hasOneUse()) {
+        if (auto dealloc = dyn_cast<memref::DeallocOp>(
+                alloc.getResult().use_begin()->getOwner())) {
+          dealloc.erase();
+          alloc.erase();
         }
       }
-      copy.getSource().replaceAllUsesWith(target);
-      return WalkResult::skip();
     });
   }
 };
