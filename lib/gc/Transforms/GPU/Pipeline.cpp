@@ -72,17 +72,15 @@ void populateGPUPipeline(OpPassManager &pm,
     deviceProps = *pipelineOpts.deviceProps;
   }
   phase("Initial", [&]() { pm.addPass(createGpuDeviceProps(deviceProps)); });
+
   phase("Tiling", [&]() {
     pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
     pm.addNestedPass<func::FuncOp>(createTileContraction());
     pm.addNestedPass<func::FuncOp>(createTileParallel());
   });
 
-  phase("Vectorization", [&]() {
-    pm.addNestedPass<func::FuncOp>(createVectorize());
-    pm.addNestedPass<func::FuncOp>(createLoopInvariantCodeMotionPass());
-    pm.addNestedPass<func::FuncOp>(createLoopInvariantSubsetHoistingPass());
-  });
+  phase("Vectorization",
+        [&]() { pm.addNestedPass<func::FuncOp>(createVectorize()); });
 
   // Bufferization
   phase("Bufferization", [&]() {

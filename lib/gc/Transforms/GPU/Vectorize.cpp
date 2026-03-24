@@ -18,8 +18,12 @@
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
+
+#include "gc/Utils/Transform.h"
 
 using namespace mlir;
+using namespace mlir::gc;
 
 namespace mlir::gc {
 #define GEN_PASS_DECL_VECTORIZE
@@ -52,7 +56,7 @@ struct VectorizationPattern : public RewritePattern {
 struct Vectorize final : gc::impl::VectorizeBase<Vectorize> {
 
   void runOnOperation() override {
-    auto funcOp = getOperation();
+    auto fn = getOperation();
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
@@ -78,10 +82,25 @@ struct Vectorize final : gc::impl::VectorizeBase<Vectorize> {
 
     vector::populateVectorStepLoweringPatterns(patterns);
 
-    if (failed(applyPatternsGreedily(funcOp, std::move(patterns),
+    if (failed(applyPatternsGreedily(fn, std::move(patterns),
                                      GreedyRewriteConfig()))) {
       signalPassFailure();
+      return;
     }
+
+    // Inner loops hoisting
+    auto isKernelLoop = [](LoopLikeOpInterface loop) {
+      return isa<scf::ForallOp>(loop) && loop->hasAttr(GC_ATTR_KERNEL_NAME);
+    };
+    fn.walk([&](LoopLikeOpInterface loop) {
+      if (!isKernelLoop(loop))
+        moveLoopInvariantCode(loop);
+    });
+    OpRewriter rw(fn);
+    fn.walk([&](LoopLikeOpInterface loop) {
+      if (!isKernelLoop(loop))
+        (void)hoistLoopInvariantSubsets(rw, loop);
+    });
   }
 };
 
