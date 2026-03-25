@@ -86,6 +86,11 @@ jobs:
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
 
+      - name: ruff-format
+        run: |
+          echo "${{ steps.ls.outputs.files }}" | tr ':' '\n' | sed -nE '/\.py$/p' \
+          | xargs -r -P $(nproc) ruff format --check
+
       - name: Load LLVM from cache
         id: load-llvm
         uses: ./.github/actions/cache

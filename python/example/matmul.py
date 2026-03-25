@@ -9,8 +9,8 @@ N = 4096
 # OT = "i8"
 IT = "f16"
 OT = "f16"
-IDT = getattr(torch, f"{"float" if IT[0] == "f" else "int"}{IT[1:]}")
-ODT = getattr(torch, f"{"float" if OT[0] == "f" else "int"}{OT[1:]}")
+IDT = getattr(torch, f"{'float' if IT[0] == 'f' else 'int'}{IT[1:]}")
+ODT = getattr(torch, f"{'float' if OT[0] == 'f' else 'int'}{OT[1:]}")
 MLIR = f"""
 module {{
   func.func @main(%arg0: tensor<{M}x{K}x{IT}>, %arg1: tensor<{K}x{N}x{IT}>) -> tensor<{M}x{N}x{OT}> {{
@@ -22,6 +22,7 @@ module {{
   }}
 }}
 """
+
 
 def test():
     dev = "xpu"
@@ -55,22 +56,19 @@ def bench():
 
     # Benchmark torch.matmul
     t_torch = benchmark.Timer(
-        stmt='torch.matmul(ta, tb, out=tc); torch.xpu.synchronize()',
+        stmt="torch.matmul(ta, tb, out=tc); torch.xpu.synchronize()",
         globals={
-            'torch': torch,
-            'ta': ta,
-            'tb': tb,
-            'tc': ttc,
-        })
+            "torch": torch,
+            "ta": ta,
+            "tb": tb,
+            "tc": ttc,
+        },
+    )
 
     # Benchmark graph_compiler
-    t_gc = benchmark.Timer(stmt='mod(ua, ub, uc)',
-                           globals={
-                               'mod': mod,
-                               'ua': ua,
-                               'ub': ub,
-                               'uc': uc
-                           })
+    t_gc = benchmark.Timer(
+        stmt="mod(ua, ub, uc)", globals={"mod": mod, "ua": ua, "ub": ub, "uc": uc}
+    )
 
     print("Graph Compiler:", t_gc.timeit(100))
     print("PyTorch matmul:", t_torch.timeit(100))

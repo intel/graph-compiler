@@ -14,9 +14,9 @@ inputs:
     description: A directory path to save or restore
     required: false
   num-days:
-    description: "cleanup: delete entries older than this number of days (default: 7)"
+    description: "cleanup: delete entries older than this number of days"
     required: false
-    default: '7'
+    default: '-1'
 
 outputs:
   cache-hit:
@@ -84,6 +84,15 @@ runs:
       shell: bash
       run: |
         [ -d "$GH_ACTIONS_CACHE_DIR" ] || exit 0
+        num_days="${{ inputs.num-days }}"
+        if [ "$num_days" -lt 0 ]; then
+          open_prs=$(gh pr list --state open --json number --jq 'length')
+          if [ "$open_prs" -eq 0 ]; then
+            num_days=0 # If there are no open PRs, keep only the recently accessed entries
+          else
+            num_days=7
+          fi
+        fi
         find "$GH_ACTIONS_CACHE_DIR" -mindepth 1 -maxdepth 1 -type d \
-          -mtime +'${{ inputs.num-days }}' -exec rm -rf {} +
-        echo 'Cleaned up local cache entries older than ${{ inputs.num-days }} days'
+          -mtime +"$num_days" -exec rm -rf {} +
+        echo "Cleaned up local cache entries older than $num_days days"
