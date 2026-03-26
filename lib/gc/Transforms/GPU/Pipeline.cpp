@@ -76,11 +76,17 @@ void populateGPUPipeline(OpPassManager &pm,
   phase("Tiling", [&]() {
     pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
     pm.addNestedPass<func::FuncOp>(createTileContraction());
+    pm.addNestedPass<func::FuncOp>(createTileAttention());
     pm.addNestedPass<func::FuncOp>(createTileParallel());
   });
 
-  phase("Vectorization",
-        [&]() { pm.addNestedPass<func::FuncOp>(createVectorize()); });
+  phase("Decomposition",
+        [&]() { pm.addNestedPass<func::FuncOp>(createDecomposition()); });
+
+  phase("Vectorization", [&]() {
+    pm.addNestedPass<func::FuncOp>(createVectorize());
+    pm.addNestedPass<func::FuncOp>(createHoistForLoopTransferRead());
+  });
 
   // Bufferization
   phase("Bufferization", [&]() {
@@ -110,6 +116,7 @@ void populateGPUPipeline(OpPassManager &pm,
   phase("VectorToXegpu", [&]() {
     pm.addPass(createConvertVectorToXeGPU());
     pm.addPass(memref::createExpandStridedMetadataPass());
+    pm.addPass(createSetAttentionLayouts());
   });
 
   phase("XeGpu", [&]() {

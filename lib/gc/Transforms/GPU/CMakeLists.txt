@@ -5,12 +5,16 @@ get_property(GC_DIALECT_LIBS GLOBAL PROPERTY GC_DIALECT_LIBS)
 gc_add_mlir_library(
   GcGpuPasses
   tiling/TileContraction.cpp
+  tiling/TileAttention.cpp
   tiling/TileParallel.cpp
   AddContextArg.cpp
+  Decomposition.cpp
   GpuDeviceProps.cpp
   GpuKernelOutline.cpp
   Vectorize.cpp
   RemoveAllocs.cpp
+  HoistForLoopTransferRead.cpp
+  SetAttentionLayouts.cpp
   Pipeline.cpp
   DEPENDS
   GraphCompilerPassIncGen

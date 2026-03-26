@@ -37,6 +37,13 @@ def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
   }];
 }
 
+def TileAttention : Pass<"tile-attention", "func::FuncOp"> {
+  let summary = "Tile attention operations.";
+  let description = [{
+    Tile 'linalgx.attention' ops.
+  }];
+}
+
 def TileParallel : Pass<"tile-parallel", "func::FuncOp"> {
   let summary = "Tile parallel operations.";
   let description = [{
@@ -48,6 +55,22 @@ def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
   let summary = "Add a context argument.";
   let description = [{
     Add a new memref argument to the function, that could be used to pass some context.
+  }];
+}
+
+def Decomposition : Pass<"decomposition", "func::FuncOp"> {
+  let summary = "Decompose complex operations.";
+  let description = [{
+    Decompose complex operations into simpler ones for easier optimization and code generation.
+  }];
+}
+
+def SetAttentionLayouts : Pass<"set-attention-layouts"> {
+  let summary = "Set XeGPU layouts on attention-pattern dpas and store ops.";
+  let description = [{
+    Walks the module to find scf.for loops containing
+    at least two xegpu.dpas ops, and sets layout attributes on those dpas ops
+    and on any downstream xegpu.store_nd ops.
   }];
 }
 
@@ -63,6 +86,13 @@ def RemoveAllocs : Pass<"remove-allocs", "func::FuncOp"> {
   let summary = "Remove unnecessry allocs.";
   let description = [{
     Remove unnecessry memref.alloc operations.
+  }];
+}
+
+def HoistForLoopTransferRead : Pass<"hoist-for-loop-transfer-read", "func::FuncOp"> {
+  let summary = "Hoist transfer read/write operations out of for loops.";
+  let description = [{
+    Hoist transfer read/write operations out of for loops to improve memory access patterns.
   }];
 }
 

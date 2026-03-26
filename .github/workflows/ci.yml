@@ -11,7 +11,7 @@ env:
   LLVM_BUILD_TYPE: RelWithDebInfo
   LLVM_INSTALL_DIR: externals/llvm
   OV_REPO: https://x-access-token:${{ secrets.OV_TOKEN }}@github.com/intel-sandbox/openvino-gc.git
-  OV_VERSION: 89f6242d6a931b6229590bd2413f2168adf91053
+  OV_VERSION: 27f8b35cca885058b384990daaf0d42ff3a9f9ef
   OV_INSTALL_DIR: externals/openvino
 
 jobs:
@@ -212,6 +212,8 @@ jobs:
           export OV_MLIR_DEBUG=1
           export OV_MLIR_MODE=GC_GPU
           $bin_dir/ov_gpu_func_tests --gtest_filter=MLIRExecution.SimpleMatmulf16
+          $bin_dir/ov_gpu_func_tests --gtest_filter=MLIRExecution.SDPABasic
+          $bin_dir/ov_gpu_func_tests --gtest_filter='*ScaledAttnLayerGPUMlirTest*'
 
       - name: Run Python tests
         run: |
