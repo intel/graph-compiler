@@ -11,7 +11,7 @@ env:
   LLVM_BUILD_TYPE: RelWithDebInfo
   LLVM_INSTALL_DIR: externals/llvm
   OV_REPO: https://x-access-token:${{ secrets.OV_TOKEN }}@github.com/intel-sandbox/openvino-gc.git
-  OV_VERSION: 27f8b35cca885058b384990daaf0d42ff3a9f9ef
+  OV_VERSION: 98ae86d69c8aeb1f243799c443fb867fc3916281
   OV_INSTALL_DIR: externals/openvino
 
 jobs:
@@ -176,6 +176,7 @@ jobs:
             -DENABLE_TESTS=ON \
             -DENABLE_ONEDNN_FOR_GPU=OFF \
             -DENABLE_INTEL_CPU=OFF \
+            -DENABLE_INTEL_NPU=OFF \
             -DCMAKE_CXX_FLAGS="-DOV_GPU_OPENCL_HPP_HAS_UUID -DOV_GPU_OPENCL_HPP_HAS_BUS_INFO" \
             -DGraphCompiler_DIR=$gc_dir/lib/cmake/GraphCompiler \
             -DOpenCL_HPP_INCLUDE_DIR="$ov_dir/thirdparty/ocl/clhpp_headers/include" \
