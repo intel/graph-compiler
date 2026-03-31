@@ -12,31 +12,72 @@ struct TileContraction final
 
   bool isSupportedOp(TilingInterface ti) override { return isMatmulOp(ti); }
 
-  size_t getSgSize(Target &tg) override {
-    return tg.devAttrs.getUarch()->getSubgroupSize();
-  }
-
-  void computeSgTiles(Target &tg) override {
+  static const xegpu::uArch::SubgroupMatrixMultiplyAcc *getInstr(Target &tg) {
     auto ua = tg.devAttrs.getUarch();
     auto instr =
         dyn_cast<xegpu::uArch::SubgroupMatrixMultiplyAcc>(ua->getInstruction(
             xegpu::uArch::InstructionKind::SubgroupMatrixMultiplyAcc));
     assert(instr);
-    auto inputType =
-        cast<ShapedType>(tg.op.getOperation()->getOperand(0).getType());
-    auto supportedK = instr->getSupportedK(inputType.getElementType());
+    return instr;
+  }
 
-    if (tg.mode == Mode::Reduction) {
-      tg.tiles[0] = findClosestDiv(supportedK, tg.tiles[0]);
+  void computeWgTiles(Target &tg) override {
+    if (auto tiles = tg.kernelAttrs.getTiles(); tiles && tiles->size() == 3) {
+      tg.tiles[0] = (*tiles)[0];
+      tg.tiles[1] = (*tiles)[1];
       return;
-    } else if (tg.mode == Mode::Both) {
-      tg.tiles[2] = findClosestDiv(supportedK, tg.tiles[2]);
     }
 
-    auto supportedM = instr->getSupportedM(inputType.getElementType());
-    auto supportedN = instr->getSupportedN(inputType.getElementType());
-    tg.tiles[0] = findClosestDiv(supportedM, tg.tiles[0]);
-    tg.tiles[1] = findClosestDiv(supportedN, tg.tiles[1]);
+    auto instr = getInstr(tg);
+    auto elType =
+        cast<ShapedType>(tg.op.getOperation()->getOperand(0).getType())
+            .getElementType();
+    auto supportedM = instr->getSupportedM(elType);
+    auto supportedN = instr->getSupportedN(elType);
+    auto closestM = findClosestDiv(supportedM, tg.tiles[0]);
+    auto closestN = findClosestDiv(supportedN, tg.tiles[1]);
+    auto mul =
+        std::max(static_cast<size_t>(1),
+                 static_cast<size_t>(std::sqrt(getWgSize(tg) / getSgSize(tg))));
+    do {
+      tg.tiles[0] = closestM * mul;
+      tg.tiles[1] = closestN * mul;
+    } while ((tg.tiles[0] >= tg.sizes[0] || tg.tiles[1] >= tg.sizes[1]) &&
+             (mul = mul / 2));
+  }
+
+  void computeSgTiles(Target &tg) override {
+    if (tg.mode == Mode::Parallel) {
+      tg.tiles = {0, 0};
+      return;
+    }
+
+    size_t kTile;
+    if (auto tiles = tg.kernelAttrs.getTiles(); tiles && tiles->size() == 3) {
+      kTile = (*tiles)[2];
+    } else {
+      auto instr = getInstr(tg);
+      auto elType =
+          cast<ShapedType>(tg.op.getOperation()->getOperand(0).getType())
+              .getElementType();
+      auto supportedK = instr->getSupportedK(elType);
+      kTile = findClosestDiv(supportedK, tg.tiles[0]);
+    }
+
+    tg.tiles[tg.mode == Mode::Reduction ? 0 : 2] = kTile;
+  }
+
+  void computeThreads(Target &tg) override {
+    tg.tiles[0] = tg.sizes[0] / tg.tiles[0];
+    tg.tiles[1] = tg.sizes[1] / tg.tiles[1];
+    auto sgSize = getSgSize(tg);
+    auto total = tg.tiles[0] * tg.tiles[1] / sgSize;
+    if (total < sgSize) {
+      tg.tiles = {sgSize, 1, 1};
+    } else {
+      adjustTiles(total, tg.tiles, false);
+      tg.tiles.emplace_back(1);
+    }
   }
 };
 } // namespace

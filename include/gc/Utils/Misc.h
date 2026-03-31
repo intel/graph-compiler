@@ -23,6 +23,7 @@ template <typename T> static T isPow2(T value) {
 
 // Round to the largest power of 2 that is <= value.
 template <typename T> static T floorPow2(T value) {
+  assert(value > 0);
   auto v = static_cast<std::make_unsigned_t<T>>(value);
   return T(1) << (llvm::bit_width(v) - 1);
 }

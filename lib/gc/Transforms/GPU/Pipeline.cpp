@@ -117,6 +117,8 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addPass(createConvertVectorToXeGPU());
     pm.addPass(memref::createExpandStridedMetadataPass());
     pm.addPass(createSetAttentionLayouts());
+    pm.addPass(createLoopInvariantCodeMotionPass());
+    pm.addPass(createLoopInvariantSubsetHoistingPass());
   });
 
   phase("XeGpu", [&]() {

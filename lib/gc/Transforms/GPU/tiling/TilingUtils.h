@@ -233,8 +233,9 @@ public:
   TilingInterface op;
   Level level;
   Mode mode;
-  SmallVector<size_t> tiles{};
   SmallVector<size_t> dims{};
+  SmallVector<size_t> sizes{};
+  SmallVector<size_t> tiles{};
 
   Target(func::FuncOp fn)
       : kernelName(fn.getName()), fn(fn), rw(fn), devAttrs(fn),
@@ -266,8 +267,9 @@ public:
           createAttr<unsigned>(fn->getContext(), numKernels));
     }
 
-    tiles.resize(0);
     dims.resize(0);
+    sizes.resize(0);
+    tiles.resize(0);
     for (auto [i, t, r] : llvm::enumerate(op.getLoopIteratorTypes(),
                                           op.getIterationDomain(rw))) {
       if (t == utils::IteratorType::reduction) {
@@ -279,8 +281,9 @@ public:
       }
 
       if (auto opt = getConstantIntValue(r.size)) {
-        tiles.emplace_back(static_cast<size_t>(*opt));
         dims.emplace_back(i);
+        sizes.emplace_back(static_cast<size_t>(*opt));
+        tiles.emplace_back(sizes.back());
       } else {
         op->emitError("Dynamic tiles are not supported!");
         return false;
@@ -293,10 +296,13 @@ public:
   void computeTiles(size_t total, size_t sgSize) {
     adjustTiles(total, tiles);
     if (tiles.size() == 2 && tiles[1] % sgSize) {
-      total = tiles[0] * tiles[1];
       tiles[1] = std::max(sgSize, tiles[1] / sgSize * sgSize);
       tiles[0] = std::max(static_cast<size_t>(1), tiles[1] / tiles[0]);
     }
+  }
+
+  bool hasTiles() {
+    return llvm::any_of(tiles, [](size_t t) { return t != 0; });
   }
 
   void mark(Operation *op) {
@@ -327,7 +333,7 @@ protected:
   virtual bool tileWg(Target &tg) {
     struct Filter {
       bool operator()(Operation &op) const {
-        return !isa<ForallOp>(op) || !op.hasAttr(GC_ATTR_KERNEL_NAME);
+        return !isa<ForallOp>(op) && !op.hasAttr(GC_ATTR_LEVEL);
       }
     };
     std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
@@ -365,7 +371,8 @@ protected:
       if (!tg.set(ti, Level::SG, Mode::Parallel)) {
         return false;
       }
-      if (auto loop = apply(tg); !loop || !tileReduction(tg, loop)) {
+      if (auto loop = apply(tg);
+          (!loop && tg.hasTiles()) || (loop && !tileReduction(tg, loop))) {
         return false;
       }
     }
@@ -387,7 +394,8 @@ protected:
              isSupportedOp(op);
     };
     while (auto ti = findLast<TilingInterface, Filter>(root, predicate)) {
-      if (!tg.set(ti, Level::SG, Mode::Reduction) || !apply(tg)) {
+      if (!tg.set(ti, Level::SG, Mode::Reduction) ||
+          (!apply(tg) && tg.hasTiles())) {
         return false;
       }
     }
@@ -427,8 +435,7 @@ protected:
     if (auto size = tg.kernelAttrs.getWgSize()) {
       return size.value();
     }
-    auto size = tg.devAttrs.getMaxWgSize();
-    return size.value_or(1024);
+    return tg.devAttrs.getMaxWgSize().value_or(1024);
   }
 
   virtual size_t getSgSize(Target &tg) {
@@ -445,7 +452,7 @@ protected:
     tg.mark(tg.op);
     computeTiles(tg);
 
-    if (llvm::all_of(tg.tiles, [](size_t t) { return t == 0; })) {
+    if (!tg.hasTiles()) {
       return nullptr;
     }
 
@@ -542,7 +549,7 @@ protected:
       return WalkResult::advance();
     });
 
-    if (tg.level == Level::SG && tg.mode == Mode::Parallel) {
+    if (tg.level == Level::WG && tg.mode == Mode::Parallel) {
       computeThreads(tg);
       tg.kernelAttrs.setThreads(tg.tiles);
     }
