@@ -34,8 +34,8 @@ struct TileContraction final
             .getElementType();
     auto supportedM = instr->getSupportedM(elType);
     auto supportedN = instr->getSupportedN(elType);
-    auto closestM = findClosestDiv(supportedM, tg.tiles[0]);
-    auto closestN = findClosestDiv(supportedN, tg.tiles[1]);
+    auto closestM = findClosestDiv(supportedM, tg.sizes[0]);
+    auto closestN = findClosestDiv(supportedN, tg.sizes[1]);
     auto mul =
         std::max(static_cast<size_t>(1),
                  static_cast<size_t>(std::sqrt(getWgSize(tg) / getSgSize(tg))));
@@ -47,24 +47,16 @@ struct TileContraction final
   }
 
   void computeSgTiles(Target &tg) override {
-    if (tg.mode == Mode::Parallel) {
-      tg.tiles = {0, 0};
-      return;
-    }
-
-    size_t kTile;
     if (auto tiles = tg.kernelAttrs.getTiles(); tiles && tiles->size() == 3) {
-      kTile = (*tiles)[2];
+      tg.tiles[2] = (*tiles)[2];
     } else {
       auto instr = getInstr(tg);
       auto elType =
           cast<ShapedType>(tg.op.getOperation()->getOperand(0).getType())
               .getElementType();
       auto supportedK = instr->getSupportedK(elType);
-      kTile = findClosestDiv(supportedK, tg.tiles[0]);
+      tg.tiles[2] = findClosestDiv(supportedK, tg.sizes[2]);
     }
-
-    tg.tiles[tg.mode == Mode::Reduction ? 0 : 2] = kTile;
   }
 
   void computeThreads(Target &tg) override {
@@ -75,6 +67,7 @@ struct TileContraction final
     if (total < sgSize) {
       tg.tiles = {sgSize, 1, 1};
     } else {
+      tg.tiles.resize(2);
       adjustTiles(total, tg.tiles, false);
       tg.tiles.emplace_back(1);
     }

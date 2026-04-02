@@ -17,7 +17,6 @@ using namespace mlir::gc;
 using namespace mlir::scf;
 
 constexpr char GC_ATTR_LEVEL[] = "gc.tiling.level";
-constexpr char GC_ATTR_MODE[] = "gc.tiling.mode";
 constexpr char GC_ATTR_NUM_KERNELS[] = "gc.num_kernels";
 
 inline bool isParallel(Operation *op) {
@@ -220,7 +219,6 @@ void adjustTiles(T totalSize, SmallVector<T, N> &tiles, bool xeGpuMode = true) {
 }
 
 enum class Level : char { WG, SG };
-enum class Mode : char { Parallel, Reduction, Both };
 struct Target {
 private:
   SmallString<64> kernelName;
@@ -232,10 +230,9 @@ public:
   KernelAttrs kernelAttrs;
   TilingInterface op;
   Level level;
-  Mode mode;
-  SmallVector<size_t> dims{};
-  SmallVector<size_t> sizes{};
   SmallVector<size_t> tiles{};
+  SmallVector<size_t> sizes{};
+  SmallVector<bool> reductions{};
 
   Target(func::FuncOp fn)
       : kernelName(fn.getName()), fn(fn), rw(fn), devAttrs(fn),
@@ -245,10 +242,10 @@ public:
     rw.setInsertionPointToStart(&fn.getBody().front());
   }
 
-  bool set(TilingInterface &op, Level level, Mode mode) {
+  bool set(TilingInterface &op, Level level) {
     this->op = op;
     this->level = level;
-    this->mode = mode;
+    mark(op.getOperation());
 
     if (level == Level::WG) {
       unsigned numKernels = 1;
@@ -267,42 +264,49 @@ public:
           createAttr<unsigned>(fn->getContext(), numKernels));
     }
 
-    dims.resize(0);
-    sizes.resize(0);
     tiles.resize(0);
+    sizes.resize(0);
+    reductions.resize(0);
     for (auto [i, t, r] : llvm::enumerate(op.getLoopIteratorTypes(),
                                           op.getIterationDomain(rw))) {
-      if (t == utils::IteratorType::reduction) {
-        if (mode == Mode::Parallel) {
-          continue;
-        }
-      } else if (mode == Mode::Reduction) {
-        continue;
-      }
-
       if (auto opt = getConstantIntValue(r.size)) {
-        dims.emplace_back(i);
+        tiles.emplace_back(0);
         sizes.emplace_back(static_cast<size_t>(*opt));
-        tiles.emplace_back(sizes.back());
+        reductions.emplace_back(t == utils::IteratorType::reduction);
       } else {
         op->emitError("Dynamic tiles are not supported!");
         return false;
       }
     }
-
     return true;
   }
 
-  void computeTiles(size_t total, size_t sgSize) {
-    adjustTiles(total, tiles);
-    if (tiles.size() == 2 && tiles[1] % sgSize) {
-      tiles[1] = std::max(sgSize, tiles[1] / sgSize * sgSize);
-      tiles[0] = std::max(static_cast<size_t>(1), tiles[1] / tiles[0]);
+  std::pair<SmallVector<size_t>, size_t> getSizes(bool reduction) {
+    size_t product = 1;
+    SmallVector<size_t> filtered;
+    for (size_t i = 0, n = sizes.size(); i < n; ++i) {
+      if (reductions[i] == reduction) {
+        filtered.push_back(sizes[i]);
+        product *= sizes[i];
+      }
+    }
+    return {filtered, product};
+  }
+
+  void setTiles(SmallVector<size_t> tiles, bool reduction) {
+    for (size_t i = 0, j = 0, n = this->tiles.size(); i < n; ++i) {
+      if (reductions[i] == reduction) {
+        this->tiles[i] = tiles[j++];
+      }
     }
   }
 
   bool hasTiles() {
     return llvm::any_of(tiles, [](size_t t) { return t != 0; });
+  }
+
+  bool hasReductions() {
+    return llvm::any_of(reductions, [](bool r) { return r; });
   }
 
   void mark(Operation *op) {
@@ -312,7 +316,6 @@ public:
     } else {
       op->setDiscardableAttr(GC_ATTR_LEVEL,
                              createAttr(op->getContext(), level));
-      op->setDiscardableAttr(GC_ATTR_MODE, createAttr(op->getContext(), mode));
     }
   }
 };
@@ -333,102 +336,84 @@ protected:
   virtual bool tileWg(Target &tg) {
     struct Filter {
       bool operator()(Operation &op) const {
-        return !isa<ForallOp>(op) && !op.hasAttr(GC_ATTR_LEVEL);
+        return !op.hasAttr(GC_ATTR_LEVEL) &&
+               !(isa<ForallOp>(op) && op.hasAttr(GC_ATTR_KERNEL_NAME));
+      }
+    };
+    std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
+      return isSupportedOp(op);
+    };
+
+    while (auto ti = findLast<TilingInterface, Filter>(tg.fn, predicate)) {
+      if (!tg.set(ti, Level::WG)) {
+        return false;
+      }
+      computeWgTiles(tg);
+      if (auto loop = apply(tg)) {
+        computeThreads(tg);
+        tg.kernelAttrs.setThreads(tg.tiles);
+        if (!tileSg(tg, loop)) {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  virtual bool tileSg(Target &tg, LoopLikeOpInterface wgLoop) {
+    struct Filter {
+      bool operator()(Operation &op) const {
+        return getDiscardableAttr(&op, GC_ATTR_LEVEL, Level::WG) != Level::SG;
       }
     };
     std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
       return isSupportedOp(op);
     };
     while (auto ti = findLast<TilingInterface, Filter>(tg.fn, predicate)) {
-      if (!tg.set(ti, Level::WG, Mode::Parallel)) {
+      if (!tg.set(ti, Level::SG)) {
         return false;
       }
-      if (auto loop = apply(tg); !loop || !tileSg(tg, loop)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  virtual bool tileSg(Target &tg, LoopLikeOpInterface root) {
-    return tileParallel(tg, root) && tileReduction(tg, root);
-  }
-
-  virtual bool tileParallel(Target &tg, LoopLikeOpInterface root) {
-    struct Filter {
-      bool operator()(Operation &op) const {
-        return !isa<LoopLikeOpInterface>(op) || !op.hasAttr(GC_ATTR_MODE);
-      }
-    };
-    std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
-      auto l = getDiscardableAttr(op, GC_ATTR_LEVEL, Level::WG);
-      auto m = getDiscardableAttr(op, GC_ATTR_MODE, Mode::Parallel);
-      return (l == Level::WG) && (m == Mode::Parallel) &&
-             hasIterator(op, utils::IteratorType::parallel) &&
-             isSupportedOp(op);
-    };
-    while (auto ti = findLast<TilingInterface, Filter>(root, predicate)) {
-      if (!tg.set(ti, Level::SG, Mode::Parallel)) {
-        return false;
-      }
-      if (auto loop = apply(tg);
-          (!loop && tg.hasTiles()) || (loop && !tileReduction(tg, loop))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  virtual bool tileReduction(Target &tg, LoopLikeOpInterface root) {
-    struct Filter {
-      bool operator()(Operation &op) const {
-        return !isa<ForOp>(op) ||
-               getDiscardableAttr(&op, GC_ATTR_MODE, Mode::Parallel) ==
-                   Mode::Parallel;
-      }
-    };
-    std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
-      auto m = getDiscardableAttr(op, GC_ATTR_MODE, Mode::Parallel);
-      return (m == Mode::Parallel) &&
-             hasIterator(op, utils::IteratorType::reduction) &&
-             isSupportedOp(op);
-    };
-    while (auto ti = findLast<TilingInterface, Filter>(root, predicate)) {
-      if (!tg.set(ti, Level::SG, Mode::Reduction) ||
-          (!apply(tg) && tg.hasTiles())) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  virtual void computeTiles(Target &tg) {
-    if (tg.level == Level::WG) {
-      computeWgTiles(tg);
-    } else {
       computeSgTiles(tg);
+      if (auto loop = apply(tg); !loop && tg.hasTiles()) {
+        return false;
+      }
     }
+    return true;
   }
 
   virtual void computeWgTiles(Target &tg) {
-    auto sg = getSgSize(tg);
-    size_t total = llvm::accumulate(tg.tiles, 1ull, std::multiplies<>());
-    size_t div = getWgSize(tg) * sg;
-    if (total < div) {
-      div = sg;
-    }
-    tg.computeTiles(total / div, sg);
+    auto [tiles, total] = tg.getSizes(false);
+    auto wgSize = getWgSize(tg);
+    auto sgSize = getSgSize(tg);
+    total = std::min(total / wgSize / sgSize, wgSize * sgSize * 8);
+    adjustTiles(std::max<size_t>(1, total), tiles);
+    tg.setTiles(tiles, false);
   }
 
   virtual void computeSgTiles(Target &tg) {
-    auto sg = getSgSize(tg);
-    size_t total = llvm::accumulate(tg.tiles, 1ull, std::multiplies<>());
-    tg.computeTiles(total / sg, sg);
+    auto [tiles, total] = tg.getSizes(true);
+    adjustTiles(std::max<size_t>(1, total / getSgSize(tg)), tiles);
+    tg.setTiles(tiles, true);
   }
 
   virtual void computeThreads(Target &tg) {
-    adjustTiles(getSgSize(tg), tg.tiles);
-    tg.tiles.resize(3, 1);
+    auto [sizes, _] = tg.getSizes(false);
+    for (auto [t, s] : llvm::zip(tg.tiles, sizes)) {
+      t = t == 0 ? 1 : std::max<size_t>(1, s / t);
+    }
+    size_t product = std::accumulate(tg.tiles.begin(), tg.tiles.end(), 1,
+                                     std::multiplies<>());
+    adjustTiles(std::max<size_t>(1, product / getSgSize(tg)), tg.tiles, false);
+
+    if (tg.tiles.size() > 3) {
+      product = std::accumulate(tg.tiles.begin(), tg.tiles.end(), 1,
+                                std::multiplies<>());
+      tg.tiles = {product, 1, 1};
+    } else {
+      tg.tiles.resize(3, 1);
+    }
   }
 
   virtual size_t getWgSize(Target &tg) {
@@ -442,22 +427,16 @@ protected:
     if (auto size = tg.kernelAttrs.getSgSize()) {
       return size.value();
     }
-    // if (auto size = tg.devAttrs.getMaxSgSize()) {
-    //   return size.value();
-    // }
     return tg.devAttrs.getUarch()->getSubgroupSize();
   }
 
   virtual LoopLikeOpInterface apply(Target &tg) {
-    tg.mark(tg.op);
-    computeTiles(tg);
-
     if (!tg.hasTiles()) {
       return nullptr;
     }
 
     SCFTileAndFuseOptions opts;
-    opts.tilingOptions.loopType = tg.mode == Mode::Reduction
+    opts.tilingOptions.loopType = tg.level == Level::SG
                                       ? SCFTilingOptions::LoopType::ForOp
                                       : SCFTilingOptions::LoopType::ForallOp;
     opts.setFusionControlFn([this, &tg](tensor::ExtractSliceOp candidateSliceOp,
@@ -467,24 +446,21 @@ protected:
                                  isDestinationOperand);
     });
 
-    if (tg.mode != Mode::Parallel) {
+    if (tg.hasReductions()) {
       SmallVector<unsigned> reductionDims;
-      for (auto [i, t] : llvm::enumerate(tg.op.getLoopIteratorTypes())) {
-        if (t == utils::IteratorType::reduction &&
-            llvm::is_contained(tg.dims, i)) {
+      for (auto [i, r] : llvm::enumerate(tg.reductions)) {
+        if (r && tg.tiles[i] != 0) {
           reductionDims.push_back(i);
         }
       }
       opts.tilingOptions.setReductionDims(reductionDims);
     }
-
     {
       OpFoldResult zero = tg.rw.getIndexAttr(0);
-      SmallVector<OpFoldResult> tiles(*llvm::max_element(tg.dims) + 1, zero);
-      for (auto [t, d] : llvm::zip(tg.tiles, tg.dims)) {
-        tiles[d] = tg.rw.getIndexAttr(t);
-      }
-      opts.tilingOptions.setTileSizes(tiles);
+      opts.tilingOptions.setTileSizes(
+          llvm::map_to_vector(tg.tiles, [&](size_t t) {
+            return t == 0 ? zero : tg.rw.getIndexAttr(t);
+          }));
     }
 
     auto result = tileConsumerAndFuseProducersUsingSCF(tg.rw, tg.op, opts);
@@ -509,7 +485,7 @@ protected:
             } else if (isa<scf::ForOp>(loop.getOperation())) {
               scf::ForOp::getCanonicalizationPatterns(patterns, ctx);
             }
-            if (tg.mode == Mode::Parallel && !fuseConsumers(tg, loop)) {
+            if (tg.level == Level::WG && !fuseConsumers(tg, loop)) {
               return nullptr;
             }
             if (!opReplacement && tg.op == toReplace) {
@@ -548,11 +524,6 @@ protected:
       }
       return WalkResult::advance();
     });
-
-    if (tg.level == Level::WG && tg.mode == Mode::Parallel) {
-      computeThreads(tg);
-      tg.kernelAttrs.setThreads(tg.tiles);
-    }
 
     return opReplacement;
   }
@@ -593,7 +564,7 @@ protected:
       return std::nullopt;
     }
 
-    if (isDestinationOperand && tg.mode == Mode::Reduction) {
+    if (isDestinationOperand && tg.level == Level::SG) {
       return std::nullopt;
     }
 

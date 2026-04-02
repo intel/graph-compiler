@@ -18,13 +18,13 @@ struct TileAttention final
 
   void computeSgTiles(Target &tg) override {
     std::fill(tg.tiles.begin(), tg.tiles.end(), 0);
-    tg.kernelAttrs.setThreads({128, 1, 1});
   }
 
   void computeWgTiles(Target &tg) override {
-    std::fill(tg.tiles.begin(), tg.tiles.end() - 2, 1);
-    tg.tiles[tg.tiles.size() - 2] = 128;
-    tg.tiles[tg.tiles.size() - 1] = 0;
+    std::fill(tg.tiles.begin(), tg.tiles.end() - 4, 1);
+    tg.tiles[tg.tiles.size() - 4] = 128;
   }
+
+  void computeThreads(Target &tg) override { tg.tiles = {128, 1, 1}; }
 };
 } // namespace
