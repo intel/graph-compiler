@@ -1,0 +1,24 @@
+diff --git a/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp b/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
+index bbb6340f14c5..c686eb50a544 100644
+--- a/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
++++ b/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
+@@ -550,7 +550,8 @@ struct TransferReadLowering : public OpRewritePattern<vector::TransferReadOp> {
+ 
+     // TODO:This check needs to be replaced with proper uArch capability check
+     auto chip = xegpu::getChipStr(readOp);
+-    if (chip != "pvc" && chip != "bmg") {
++    if ((chip != "pvc" && chip != "bmg") ||
++        readOp.getVectorType().getRank() > 2) {
+       // lower to scattered load Op if the target HW doesn't have 2d block load
+       // support
+       // TODO: add support for OutOfBound access
+@@ -634,7 +635,8 @@ struct TransferWriteLowering
+ 
+     // TODO:This check needs to be replaced with proper uArch capability check
+     auto chip = xegpu::getChipStr(writeOp);
+-    if (chip != "pvc" && chip != "bmg") {
++    if ((chip != "pvc" && chip != "bmg") ||
++        writeOp.getVectorType().getRank() > 2) {
+       // lower to scattered store Op if the target HW doesn't have 2d block
+       // store support
+       // TODO: add support for OutOfBound access
