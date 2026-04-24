@@ -10,10 +10,13 @@
 #include "gc/Utils/Transform.h"
 
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -128,6 +131,8 @@ struct GpuKernelOutline final
       return;
     }
 
+    inlineSplatArgs(rw, op);
+
     // Set the intel_reqd_sub_group_size attribute
     op.walk([&](gpu::GPUFuncOp fn) {
       KernelAttrs attrs(op, fn.getNameAttr());
@@ -137,6 +142,86 @@ struct GpuKernelOutline final
                                    createAttr(fn.getContext(), sgSize.value()));
       }
       return WalkResult::skip();
+    });
+  }
+
+private:
+  // Move global splat constants, that are passed to the kernel as memref args,
+  // inside the kernel.
+  void inlineSplatArgs(IRRewriter &rw, ModuleOp mod) {
+    mod.walk([&](gpu::LaunchFuncOp launch) {
+      gpu::GPUFuncOp gpuFunc;
+      if (auto kmod = mod.lookupSymbol<gpu::GPUModuleOp>(
+              launch.getKernelModuleName())) {
+        gpuFunc = kmod.lookupSymbol<gpu::GPUFuncOp>(launch.getKernelName());
+        if (!gpuFunc)
+          return;
+      }
+
+      auto operands = launch.getKernelOperands();
+      unsigned numOperands = operands.size();
+      llvm::BitVector toErase(numOperands);
+
+      for (unsigned i = 0; i < numOperands; ++i) {
+        DenseElementsAttr attr = nullptr;
+        if (auto getGlobal = operands[i].getDefiningOp<memref::GetGlobalOp>()) {
+          if (auto globalOp =
+                  mod.lookupSymbol<memref::GlobalOp>(getGlobal.getNameAttr());
+              globalOp && globalOp.getConstant()) {
+            if (auto init = globalOp.getInitialValue()) {
+              attr = dyn_cast<DenseElementsAttr>(*init);
+            }
+          }
+        }
+        if (attr && attr.isSplat()) {
+          toErase.set(i);
+          auto arg = gpuFunc.getArgument(i);
+          assert(isa<MemRefType>(arg.getType()));
+          for (auto *user : llvm::make_early_inc_range(arg.getUsers())) {
+            if (auto tr = dyn_cast<vector::TransferReadOp>(user)) {
+              rw.setInsertionPoint(tr);
+              auto cst = arith::ConstantOp::create(
+                  rw, tr.getLoc(), attr.resizeSplat(tr.getVectorType()));
+              rw.replaceOp(tr, cst.getResult());
+            }
+          }
+        }
+      }
+
+      if (auto numErase = toErase.count()) {
+        // Rebuild gpu.launch_func without the erased operands.
+        SmallVector<Value> newOperands;
+        newOperands.reserve(numOperands - numErase);
+        for (unsigned i = 0; i < numOperands; ++i) {
+          if (!toErase.test(i))
+            newOperands.push_back(launch.getKernelOperand(i));
+        }
+        rw.setInsertionPoint(launch);
+        gpu::LaunchFuncOp::create(
+            rw, launch.getLoc(), gpuFunc,
+            gpu::KernelDim3{launch.getGridSizeX(), launch.getGridSizeY(),
+                            launch.getGridSizeZ()},
+            gpu::KernelDim3{launch.getBlockSizeX(), launch.getBlockSizeY(),
+                            launch.getBlockSizeZ()},
+            launch.getDynamicSharedMemorySize(), newOperands);
+        rw.eraseOp(launch);
+
+        if (gpuFunc.eraseArguments(toErase).succeeded()) {
+          // Erase the unused global constants.
+          for (unsigned i = 0; i < numOperands; ++i) {
+            if (toErase.test(i)) {
+              auto getGlobal = operands[i].getDefiningOp<memref::GetGlobalOp>();
+              if (getGlobal.use_empty()) {
+                auto globalOp =
+                    mod.lookupSymbol<memref::GlobalOp>(getGlobal.getNameAttr());
+                rw.eraseOp(getGlobal);
+                if (SymbolTable::symbolKnownUseEmpty(globalOp, mod))
+                  rw.eraseOp(globalOp);
+              }
+            }
+          }
+        }
+      }
     });
   }
 };

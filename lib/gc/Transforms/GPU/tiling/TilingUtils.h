@@ -388,6 +388,7 @@ protected:
     auto wgSize = getWgSize(tg);
     auto sgSize = getSgSize(tg);
     total = std::min(total / wgSize / sgSize, wgSize * sgSize * 8);
+    total = std::max<size_t>(sgSize, total);
     adjustTiles(std::max<size_t>(1, total), tiles);
     tg.setTiles(tiles, false);
   }
