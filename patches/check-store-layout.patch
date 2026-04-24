@@ -1,0 +1,14 @@
+diff --git a/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp b/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp
+index 43998ed41f7a..10a44332a2c1 100644
+--- a/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp
++++ b/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp
+@@ -1090,6 +1090,9 @@ void LayoutInfoPropagation::visitStoreScatterOp(
+     storeScatter.setLayoutAttr(requiredAnchorLayoutAttr);
+   }
+ 
++  if (!requiredAnchorLayoutAttr)
++    return;
++
+   LayoutInfo srcLayoutInfo = LayoutInfo(requiredAnchorLayoutAttr);
+   assert((chunkSize <= 1) || (layoutKind != xegpu::LayoutKind::Subgroup));
+   auto maskLayoutAttr = xegpu::inferMaskOffsetLayoutForScatterIO(
