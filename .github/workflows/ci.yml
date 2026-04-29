@@ -3,15 +3,22 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      GC_DEBUG:
+        description: 'Regex pattern matching GC files to enable debug for.'
+        default: ''
+      OV_MLIR_DEBUG:
+        description: 'Dump OV MLIRs'
+        default: ''
 
 env:
-  GC_DEBUG: .*
   GC_DYLINK: ON
   GC_BUILD_TYPE: Debug
   LLVM_BUILD_TYPE: RelWithDebInfo
   LLVM_INSTALL_DIR: externals/llvm
   OV_REPO: https://x-access-token:${{ secrets.OV_TOKEN }}@github.com/intel-sandbox/openvino-gc.git
-  OV_VERSION: 79935c36ef9484cdf220f91e7a80518651c66a16
+  OV_VERSION: 51ede59505224c676412a889c5acce7b88713e55
   OV_INSTALL_DIR: externals/openvino
 
 jobs:
@@ -19,7 +26,7 @@ jobs:
     runs-on: ${{ vars.RUNNER }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 2
 
@@ -85,6 +92,10 @@ jobs:
         run: |
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          [ -z '${{ github.event.inputs.GC_DEBUG }}' ] || \
+            echo 'GC_DEBUG=${{ github.event.inputs.GC_DEBUG }}' >> "$GITHUB_ENV"
+          [ -z '${{ github.event.inputs.OV_MLIR_DEBUG }}' ] || \
+            echo 'OV_MLIR_DEBUG=${{ github.event.inputs.OV_MLIR_DEBUG }}' >> "$GITHUB_ENV"
 
       - name: ruff-format
         run: |
@@ -210,12 +221,17 @@ jobs:
         run: |
           [ -z "$ONEAPI_ROOT" ] && . /opt/intel/oneapi/setvars.sh
           bin_dir="$PWD/${{env.OV_INSTALL_DIR}}/bin/intel64/Release"
-          export OV_MLIR_DEBUG=1
           export OV_MLIR_MODE=GC_GPU
-          $bin_dir/ov_gpu_func_tests --gtest_filter=MLIRExecution.SimpleMatmulf16
-          $bin_dir/ov_gpu_func_tests --gtest_filter=MLIRExecution.SDPABasic
-          $bin_dir/ov_gpu_func_tests --gtest_filter='*ScaledAttnLayerGPUMlirTest*'
-          $bin_dir/ov_gpu_func_tests --gtest_filter='*ReduceMeanTest*'
+          printf '%s\n' \
+            'MLIRExecution.SimpleMatmulf16' \
+            'MLIRExecution.SDPABasic' \
+            '*ScaledAttnLayerGPUMlirTest*' \
+            'smoke_ReduceMeanTest*' \
+            'smoke_ReduceMaxTest*' \
+            'smoke_ReduceMinTest*' \
+            'smoke_ReduceProdTest*' \
+            'smoke_ReduceSumTest*' \
+          | xargs -P 8 -I{} "$bin_dir/ov_gpu_func_tests" --gtest_filter='{}'
 
       - name: Run Python tests
         run: |
