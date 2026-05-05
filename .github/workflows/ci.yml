@@ -18,7 +18,7 @@ env:
   LLVM_BUILD_TYPE: RelWithDebInfo
   LLVM_INSTALL_DIR: externals/llvm
   OV_REPO: https://x-access-token:${{ secrets.OV_TOKEN }}@github.com/intel-sandbox/openvino-gc.git
-  OV_VERSION: 51ede59505224c676412a889c5acce7b88713e55
+  OV_VERSION: 9b1a4076f8788878daf4fe9c596e951e63d74ccc
   OV_INSTALL_DIR: externals/openvino
 
 jobs:
@@ -222,7 +222,7 @@ jobs:
           [ -z "$ONEAPI_ROOT" ] && . /opt/intel/oneapi/setvars.sh
           bin_dir="$PWD/${{env.OV_INSTALL_DIR}}/bin/intel64/Release"
           export OV_MLIR_MODE=GC_GPU
-          printf '%s\n' \
+          filter=$(printf '%s:' \
             'MLIRExecution.SimpleMatmulf16' \
             'MLIRExecution.SDPABasic' \
             '*ScaledAttnLayerGPUMlirTest*' \
@@ -231,7 +231,14 @@ jobs:
             'smoke_ReduceMinTest*' \
             'smoke_ReduceProdTest*' \
             'smoke_ReduceSumTest*' \
-          | xargs -P 8 -I{} "$bin_dir/ov_gpu_func_tests" --gtest_filter='{}'
+            'smoke_BinaryElementwise*Test*' \
+            'smoke_UnaryElementwise*Test*' \
+          )
+          tests=$("$bin_dir/ov_gpu_func_tests" --gtest_list_tests --gtest_filter="${filter%:}" \
+            | awk '/^  /{print suite $1} /^[^ ]/{suite=$1}')
+          start=$SECONDS
+          echo "$tests" | xargs -P 32 -I{} "$bin_dir/ov_gpu_func_tests" --gtest_filter='{}'
+          echo "Run $(echo "$tests" | wc -l) OV tests in $((SECONDS - start))s"
 
       - name: Run Python tests
         run: |
