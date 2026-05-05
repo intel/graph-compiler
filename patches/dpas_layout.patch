@@ -1,76 +1,74 @@
 diff --git a/mlir/lib/Dialect/XeGPU/Transforms/XeGPULayoutImpl.cpp b/mlir/lib/Dialect/XeGPU/Transforms/XeGPULayoutImpl.cpp
-index ec5751634fdf..806abc077384 100644
+index 9d187ac143ac..fb43e8f3b76f 100644
 --- a/mlir/lib/Dialect/XeGPU/Transforms/XeGPULayoutImpl.cpp
 +++ b/mlir/lib/Dialect/XeGPU/Transforms/XeGPULayoutImpl.cpp
-@@ -989,11 +989,11 @@ xegpu::setupDpasLayout(xegpu::LayoutKind layoutKind, VectorType aTy,
+@@ -1392,11 +1392,11 @@ getupDpasSubgroupLayouts(mlir::MLIRContext *context, VectorType aTy,
+   }
  
-     // Step 1. Get all valid layouts for A, B and C/D operands.
-     // Order them from most balanced to least balanced.
--    auto layoutsA = getValidLayouts(aTy.getShape(), instDataA, numSg);
--    auto layoutsB = getValidLayouts(bTy.getShape(), instDataB, numSg);
-     auto layoutsCD = getValidLayouts(cdTy.getShape(), instDataCD, numSg);
--    if (layoutsA.empty() || layoutsB.empty() || layoutsCD.empty())
-+    if (layoutsCD.empty())
-       return std::nullopt;
-+    auto layoutsA = getValidLayouts(aTy.getShape(), instDataA, numSg);
-+    auto layoutsB = getValidLayouts(bTy.getShape(), instDataB, numSg);
+   // Get all valid layouts for A, B and C/D operands
+-  auto layoutsA = getValidLayouts(aTy.getShape(), instDataA, numSg);
+-  auto layoutsB = getValidLayouts(bTy.getShape(), instDataB, numSg);
+   auto layoutsCD = getValidLayouts(cdTy.getShape(), instDataCD, numSg);
+-  if (layoutsA.empty() || layoutsB.empty() || layoutsCD.empty())
++  if (layoutsCD.empty())
+     return std::nullopt;
++  auto layoutsA = getValidLayouts(aTy.getShape(), instDataA, numSg);
++  auto layoutsB = getValidLayouts(bTy.getShape(), instDataB, numSg);
  
-     // Step 2. If the consumer layout can be reused for all operands, that
-     // layout is chosen. Otherwise, pick the most balanced subgroup layout
-@@ -1017,10 +1017,53 @@ xegpu::setupDpasLayout(xegpu::LayoutKind layoutKind, VectorType aTy,
-           bestPick = sgLayout;
-       }
+   // Pick the best subgroup layout
+   llvm::DenseSet<LayoutRepresentation> setA(layoutsA.begin(), layoutsA.end());
+@@ -1424,8 +1424,52 @@ getupDpasSubgroupLayouts(mlir::MLIRContext *context, VectorType aTy,
+         bestPick = sgLayout;
      }
+   }
+-  if (!bestPick)
+-    return std::nullopt;
++  // If there is no subgroup layout compatible with A, B and C (if
++  // present), find separate sg_layouts so that:
++  //   layoutCD[l0, l1] - picked from layoutsCD
++  //   layoutA[l0, 1]
++  //   layoutB[1, l1]
++  if (!bestPick) {
++    int M = static_cast<int>(aTy.getShape()[0]);
++    int K = static_cast<int>(aTy.getShape()[1]);
++    int N = static_cast<int>(bTy.getShape()[1]);
 +
-     // Step 3. If there is no subgroup layout compatible with A, B and C (if
--    // present) operands, we fail.
--    if (!bestPick)
--      return std::nullopt;
-+    // present), find separate sg_layouts so that:
-+    //   layoutCD[l0, l1] - picked from layoutsCD
-+    //   layoutA[l0, 1]
-+    //   layoutB[1, l1]
-+    if (!bestPick) {
-+      int M = static_cast<int>(aTy.getShape()[0]);
-+      int K = static_cast<int>(aTy.getShape()[1]);
-+      int N = static_cast<int>(bTy.getShape()[1]);
-+
-+      if (consumerSgLayout.has_value()) {
-+        bestPick = *consumerSgLayout;
-+      } else {
-+        int m = M / instDataA[0];
-+        int n = N / instDataB[1];
-+        for (auto [l0, l1] : layoutsCD) {
-+          if (m % l0 == 0 && n % l1 == 0) {
-+            bestPick = std::make_pair(l0, l1);
-+            break;
-+          }
++    if (consumerSgLayout.has_value()) {
++      bestPick = *consumerSgLayout;
++    } else {
++      int m = M / instDataA[0];
++      int n = N / instDataB[1];
++      for (auto [l0, l1] : layoutsCD) {
++        if (m % l0 == 0 && n % l1 == 0) {
++          bestPick = std::make_pair(l0, l1);
++          break;
 +        }
 +      }
-+
-+      if (!bestPick)
-+        return std::nullopt;
-+
-+      SmallVector<int> layoutA = {static_cast<int>(bestPick->first), 1};
-+      SmallVector<int> layoutB = {1, static_cast<int>(bestPick->second)};
-+      SmallVector<int> layoutCD = {layoutA[0], layoutB[1]};
-+      SmallVector<int> dataA = {M / layoutA[0], K};
-+      SmallVector<int> dataB = {K, N / layoutB[1]};
-+      SmallVector<int> dataCD = {M / layoutCD[0], N / layoutCD[1]};
-+      return std::make_tuple(
-+          xegpu::LayoutAttr::get(context,
-+                                 DenseI32ArrayAttr::get(context, layoutA),
-+                                 DenseI32ArrayAttr::get(context, dataA),
-+                                 nullptr, nullptr, nullptr, nullptr),
-+          xegpu::LayoutAttr::get(context,
-+                                 DenseI32ArrayAttr::get(context, layoutB),
-+                                 DenseI32ArrayAttr::get(context, dataB),
-+                                 nullptr, nullptr, nullptr, nullptr),
-+          xegpu::LayoutAttr::get(context,
-+                                 DenseI32ArrayAttr::get(context, layoutCD),
-+                                 DenseI32ArrayAttr::get(context, dataCD),
-+                                 nullptr, nullptr, nullptr, nullptr));
 +    }
-     SmallVector<int> sgLayout = {static_cast<int>(bestPick->first),
-                                  static_cast<int>(bestPick->second)};
-     SmallVector<int> sgDataA = {
++
++    if (!bestPick)
++      return std::nullopt;
++
++    SmallVector<int> layoutA = {static_cast<int>(bestPick->first), 1};
++    SmallVector<int> layoutB = {1, static_cast<int>(bestPick->second)};
++    SmallVector<int> layoutCD = {layoutA[0], layoutB[1]};
++    SmallVector<int> dataA = {M / layoutA[0], K};
++    SmallVector<int> dataB = {K, N / layoutB[1]};
++    SmallVector<int> dataCD = {M / layoutCD[0], N / layoutCD[1]};
++    return std::make_tuple(
++        xegpu::LayoutAttr::get(context,
++                               DenseI32ArrayAttr::get(context, layoutA),
++                               DenseI32ArrayAttr::get(context, dataA),
++                               nullptr, nullptr, nullptr, nullptr),
++        xegpu::LayoutAttr::get(context,
++                               DenseI32ArrayAttr::get(context, layoutB),
++                               DenseI32ArrayAttr::get(context, dataB),
++                               nullptr, nullptr, nullptr, nullptr),
++        xegpu::LayoutAttr::get(context,
++                               DenseI32ArrayAttr::get(context, layoutCD),
++                               DenseI32ArrayAttr::get(context, dataCD),
++                               nullptr, nullptr, nullptr, nullptr));
++  }
+ 
+   SmallVector<int> sgLayout = {static_cast<int>(bestPick->first),
+                                static_cast<int>(bestPick->second)};
