@@ -40,6 +40,14 @@ struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
           "Call finish() after each GPU kernel launch. This option is passed "
           "to the GpuToGpuOcl path, if use-gpu-ocl is true."),
       llvm::cl::init(false)};
+  Option<bool> enableAttentionPrefetch{
+      *this, "enable-attention-prefetch",
+      llvm::cl::desc("Enable the SetAttentionPrefetch pass."),
+      llvm::cl::init(false)};
+  Option<std::string> igcCmdOptions{
+      *this, "igc-cmd-options",
+      llvm::cl::desc("Command options to pass to IGC compiler."),
+      llvm::cl::init("")};
   const GpuDevicePropsOptions *deviceProps = nullptr;
 };
 

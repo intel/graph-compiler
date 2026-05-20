@@ -56,6 +56,15 @@ DialectRegistry &getDialectRegistry() {
   return registry;
 }
 
+static void
+addAttentionOptimizationPasses(OpPassManager &pm,
+                               const GPUPipelineOptions &pipelineOpts) {
+  pm.addPass(createHoistAttentionVLoad());
+  if (pipelineOpts.enableAttentionPrefetch)
+    pm.addPass(createSetAttentionPrefetch());
+  pm.addPass(createSetAttentionLayouts());
+}
+
 void populateGPUPipeline(OpPassManager &pm,
                          const GPUPipelineOptions &pipelineOpts) {
   auto phase = [&pm, &pipelineOpts](const char *name,
@@ -115,8 +124,9 @@ void populateGPUPipeline(OpPassManager &pm,
 
   phase("VectorToXegpu", [&]() {
     pm.addPass(createConvertVectorToXeGPU());
+    pm.addPass(createSetGpuFastMath());
     pm.addPass(memref::createExpandStridedMetadataPass());
-    pm.addPass(createSetAttentionLayouts());
+    addAttentionOptimizationPasses(pm, pipelineOpts);
     pm.addPass(createLoopInvariantCodeMotionPass());
     pm.addPass(createLoopInvariantSubsetHoistingPass());
   });
@@ -126,6 +136,7 @@ void populateGPUPipeline(OpPassManager &pm,
     opts.use64bitIndex = true;
     opts.binaryFormat = "binary";
     opts.zebinChip = deviceProps.arch;
+    opts.cmdOptions = pipelineOpts.igcCmdOptions;
     opts.optLevel = 3;
     gpu::buildLowerToXeVMPassPipeline(pm, opts);
   });

@@ -14,7 +14,11 @@ gc_add_mlir_library(
   Vectorize.cpp
   RemoveAllocs.cpp
   HoistForLoopTransferRead.cpp
-  SetAttentionLayouts.cpp
+  AttentionOptimizations/Utils.cpp
+  AttentionOptimizations/SetAttentionLayouts.cpp
+  AttentionOptimizations/SetAttentionPrefetch.cpp
+  AttentionOptimizations/HoistAttentionVLoad.cpp
+  SetGpuFastMath.cpp
   Pipeline.cpp
   DEPENDS
   GraphCompilerPassIncGen

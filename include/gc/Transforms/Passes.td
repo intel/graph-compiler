@@ -65,12 +65,38 @@ def Decomposition : Pass<"decomposition", "func::FuncOp"> {
   }];
 }
 
+def SetGpuFastMath : Pass<"set-gpu-fast-math"> {
+  let summary = "Set fastmath attribute on math.exp ops in GPU modules.";
+  let description = [{
+    Walks GPU modules and sets the fastmath=fast attribute on all math.exp
+    operations.
+  }];
+}
+
 def SetAttentionLayouts : Pass<"set-attention-layouts"> {
   let summary = "Set XeGPU layouts on attention-pattern dpas and store ops.";
   let description = [{
     Walks the module to find scf.for loops containing
     at least two xegpu.dpas ops, and sets layout attributes on those dpas ops
     and on any downstream xegpu.store_nd ops.
+  }];
+}
+
+def SetAttentionPrefetch : Pass<"set-attention-prefetch"> {
+  let summary = "Set XeGPU prefetches on attention-pattern dpas and store ops.";
+  let description = [{
+    Walks the module to find scf.for loops containing
+    at least two xegpu.dpas ops, and sets prefetch attributes on those dpas ops
+    and on any downstream xegpu.store_nd ops.
+  }];
+}
+
+def HoistAttentionVLoad : Pass<"hoist-attention-v-load"> {
+  let summary = "Hoist V-load to the beginning of flash-attention loop.";
+  let description = [{
+    Experimental pass that matches flash-attention patterns at the XeGPU level
+    and moves the V-load (xegpu.load_nd before the second xegpu.dpas) to right
+    after the K-load at the beginning of the scf.for loop.
   }];
 }
 
