@@ -18,7 +18,7 @@ env:
   LLVM_BUILD_TYPE: RelWithDebInfo
   LLVM_INSTALL_DIR: externals/llvm
   OV_REPO: https://x-access-token:${{ secrets.OV_TOKEN }}@github.com/intel-sandbox/openvino-gc.git
-  OV_VERSION: 9b1a4076f8788878daf4fe9c596e951e63d74ccc
+  OV_VERSION: 747c5df674fd47db78ad16f9a47c45fcbaa7683a
   OV_INSTALL_DIR: externals/openvino
 
 jobs:
@@ -226,13 +226,13 @@ jobs:
             'MLIRExecution.SimpleMatmulf16' \
             'MLIRExecution.SDPABasic' \
             '*ScaledAttnLayerGPUMlirTest*' \
-            'smoke_ReduceMeanTest*' \
-            'smoke_ReduceMaxTest*' \
-            'smoke_ReduceMinTest*' \
-            'smoke_ReduceProdTest*' \
-            'smoke_ReduceSumTest*' \
-            'smoke_BinaryElementwise*Test*' \
-            'smoke_UnaryElementwise*Test*' \
+            'mlir_ReduceMeanTest*' \
+            'mlir_ReduceMaxTest*' \
+            'mlir_ReduceMinTest*' \
+            'mlir_ReduceProdTest*' \
+            'mlir_ReduceSumTest*' \
+            'mlir_BinaryElementwise*Test*' \
+            'mlir_UnaryElementwise*Test*' \
           )
           tests=$("$bin_dir/ov_gpu_func_tests" --gtest_list_tests --gtest_filter="${filter%:}" \
             | awk '/^  /{print suite $1} /^[^ ]/{suite=$1}')
