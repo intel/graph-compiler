@@ -11,6 +11,7 @@
 #include "gc/Utils/Log.h"
 #include "gc/Utils/Misc.h"
 #include "gc/Utils/Transform.h"
+#include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
 using namespace mlir::gc;
@@ -55,169 +56,6 @@ inline void replaceEmptySlices(OpRewriter &rw, LoopLikeOpInterface loop) {
   });
 }
 
-// Controls the adjustment in case of more than 2 tiles.
-enum class AdjustTilesMode {
-  // Sort the input and switch to the First mode.
-  Sort,
-  // Adjust the first tile and call adjustTiles() recursively for the rest.
-  First,
-  // To allow for squeezing, set 1's for all tiles except the last 2.
-  XeGpu,
-};
-
-template <typename T>
-void adjustTwoTiles(T totalSize, T *aPtr, T *bPtr, AdjustTilesMode mode) {
-  T a = *aPtr;
-  T b = *bPtr;
-  assert(a >= b);
-
-  if (a * b <= totalSize) {
-    return;
-  }
-
-  T minSize = static_cast<T>(mode == AdjustTilesMode::XeGpu ? 8 : 1);
-  bool aPow2 = isPow2(a);
-  bool bPow2 = isPow2(b);
-  double ratio = static_cast<double>(a) / static_cast<double>(b);
-  T x = static_cast<T>(std::sqrt(totalSize)) * static_cast<T>(std::sqrt(ratio));
-  T y;
-
-  if (aPow2) {
-    x = std::min(ceilPow2(x), std::min(a, floorPow2(totalSize)));
-  } else {
-    x = std::min(findFactor(a, x), std::min(a, totalSize));
-  }
-  x = std::max(x, minSize);
-  if (bPow2) {
-    y = std::min(floorPow2(totalSize / x), b);
-  } else {
-    y = std::min(findFactor(b, totalSize / x), b);
-  }
-  if (y < minSize && a >= minSize && b >= minSize) {
-    if (auto newX = ceilPow2(totalSize / minSize); newX >= minSize) {
-      x = std::min(newX, a);
-      y = minSize;
-    }
-  }
-
-  // Adjust x and y to get the closest ratio
-  auto distance =
-      std::abs(ratio - static_cast<double>(x) / static_cast<double>(y));
-  auto ax = aPow2 ? x * 2 : findFactor(a, x * 2);
-  auto ay = std::max(bPow2 ? y / 2 : findFactor(b, y / 2), minSize);
-
-  if (ax * ay <= totalSize &&
-      std::abs(ratio - static_cast<double>(ax) / static_cast<double>(ay)) <
-          distance) {
-    x = ax;
-    y = ay;
-  } else {
-    ax = std::max(aPow2 ? x / 2 : findFactor(a, x / 2), minSize);
-    ay = bPow2 ? y * 2 : findFactor(b, y * 2);
-    if (ax * ay <= totalSize &&
-        std::abs(ratio - static_cast<double>(ax) / static_cast<double>(ay)) <
-            distance) {
-      x = ax;
-      y = ay;
-    }
-  }
-
-  *aPtr = x;
-  *bPtr = y;
-}
-
-// Adjust tile sizes that meet the following conditions:
-// 1. The product of all tiles is as close to totalSize as possible.
-// 2. The new sizes are proportional to the initial sizes.
-// 3. If the initial size is a power of 2, then the resulting size is a
-// power of
-//    2 either. Otherwise, the resulting size is a factor of the initial
-//    size and, if possible, is a power of 2.
-template <typename T>
-void adjustTiles(T totalSize, T *begin, T *end,
-                 AdjustTilesMode mode = AdjustTilesMode::Sort) {
-  auto count = end - begin;
-  if (count == 0) {
-    return;
-  }
-
-  if (count == 1) {
-    T minSize = static_cast<T>(mode == AdjustTilesMode::XeGpu ? 8 : 1);
-    if (T a = *begin; isPow2(a)) {
-      *begin = std::min(std::max(ceilPow2(a), minSize), floorPow2(totalSize));
-    } else {
-      *begin = std::min(findFactor(a, totalSize), minSize);
-    }
-    return;
-  }
-
-  if (count > 2) {
-    if (mode == AdjustTilesMode::XeGpu) {
-      for (unsigned i = 0; i < count - 2; ++i) {
-        *(begin + i) = 1;
-      }
-      T *aPtr = end - 2;
-      T *bPtr = end - 1;
-      if (*aPtr < *bPtr) {
-        std::swap(aPtr, bPtr);
-      }
-      adjustTwoTiles(totalSize, aPtr, bPtr, mode);
-      return;
-    }
-
-    SmallVector<T> sorted;
-    SmallVector<unsigned> indices;
-    T *head;
-    T *tail;
-
-    if (mode == AdjustTilesMode::First) {
-      head = begin;
-      tail = end;
-    } else {
-      assert(mode == AdjustTilesMode::Sort);
-      SmallVector<std::pair<T, unsigned>> pairs;
-      pairs.reserve(count);
-      for (unsigned i = 0; i < count; ++i) {
-        pairs.emplace_back(*(begin + i), i);
-      }
-      llvm::sort(pairs);
-      sorted.reserve(count);
-      indices.reserve(count);
-      for (auto &p : pairs) {
-        sorted.push_back(p.first);
-        indices.push_back(p.second);
-      }
-      head = sorted.data();
-      tail = head + count;
-    }
-
-    // Split the array in two. The first one consists of the 2 elements -
-    // the first one and the product of the rest. The second one is the
-    // rest.
-    T first[] = {*head, std::accumulate(head + 2, tail, *(head + 1),
-                                        std::multiplies<>())};
-    adjustTiles(totalSize, first, first + 2, AdjustTilesMode::First);
-    adjustTiles(totalSize / *first, head + 1, tail, AdjustTilesMode::First);
-    *head = *first;
-
-    if (mode == AdjustTilesMode::Sort) {
-      for (unsigned i = 0; i < count; ++i) {
-        *(begin + indices[i]) = sorted[i];
-      }
-    }
-  } else if (*begin >= *(end - 1)) {
-    adjustTwoTiles(totalSize, begin, end - 1, mode);
-  } else {
-    adjustTwoTiles(totalSize, end - 1, begin, mode);
-  }
-}
-
-template <typename T, unsigned N>
-void adjustTiles(T totalSize, SmallVector<T, N> &tiles, bool xeGpuMode = true) {
-  adjustTiles(totalSize, tiles.begin(), tiles.end(),
-              xeGpuMode ? AdjustTilesMode::XeGpu : AdjustTilesMode::Sort);
-}
-
 enum class Level : char { WG, SG };
 struct Target {
 private:
@@ -230,8 +68,9 @@ public:
   KernelAttrs kernelAttrs;
   TilingInterface op;
   Level level;
-  SmallVector<size_t> tiles{};
   SmallVector<size_t> sizes{};
+  SmallVector<size_t> tiles{};
+  SmallVector<size_t> sgTiles{};
   SmallVector<bool> reductions{};
 
   Target(func::FuncOp fn)
@@ -264,13 +103,15 @@ public:
           createAttr<unsigned>(fn->getContext(), numKernels));
     }
 
-    tiles.resize(0);
     sizes.resize(0);
+    tiles.resize(0);
+    sgTiles.resize(0);
     reductions.resize(0);
     for (auto [i, t, r] : llvm::enumerate(op.getLoopIteratorTypes(),
                                           op.getIterationDomain(rw))) {
       if (auto opt = getConstantIntValue(r.size)) {
         tiles.emplace_back(0);
+        sgTiles.emplace_back(1);
         sizes.emplace_back(static_cast<size_t>(*opt));
         reductions.emplace_back(t == utils::IteratorType::reduction);
       } else {
@@ -281,22 +122,22 @@ public:
     return true;
   }
 
-  std::pair<SmallVector<size_t>, size_t> getSizes(bool reduction) {
-    size_t product = 1;
+  SmallVector<size_t> getSizes(bool reduction) {
     SmallVector<size_t> filtered;
     for (size_t i = 0, n = sizes.size(); i < n; ++i) {
       if (reductions[i] == reduction) {
         filtered.push_back(sizes[i]);
-        product *= sizes[i];
       }
     }
-    return {filtered, product};
+    return filtered;
   }
 
-  void setTiles(SmallVector<size_t> tiles, bool reduction) {
+  void setTiles(SmallVector<size_t> &wgTiles, SmallVector<size_t> &sgTiles,
+                bool reduction) {
     for (size_t i = 0, j = 0, n = this->tiles.size(); i < n; ++i) {
       if (reductions[i] == reduction) {
-        this->tiles[i] = tiles[j++];
+        this->tiles[i] = wgTiles[j];
+        this->sgTiles[i] = sgTiles[j++];
       }
     }
   }
@@ -349,9 +190,8 @@ protected:
         return false;
       }
       computeWgTiles(tg);
+      tg.kernelAttrs.setThreads(computeThreads(tg));
       if (auto loop = apply(tg)) {
-        computeThreads(tg);
-        tg.kernelAttrs.setThreads(tg.tiles);
         if (!tileSg(tg, loop)) {
           return false;
         }
@@ -371,7 +211,7 @@ protected:
     std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
       return isSupportedOp(op);
     };
-    while (auto ti = findLast<TilingInterface, Filter>(tg.fn, predicate)) {
+    while (auto ti = findLast<TilingInterface, Filter>(wgLoop, predicate)) {
       if (!tg.set(ti, Level::SG)) {
         return false;
       }
@@ -383,38 +223,146 @@ protected:
     return true;
   }
 
-  virtual void computeWgTiles(Target &tg) {
-    auto [tiles, total] = tg.getSizes(false);
-    auto wgSize = getWgSize(tg);
-    auto sgSize = getSgSize(tg);
-    total = std::min(total / wgSize / sgSize, wgSize * sgSize * 8);
-    total = std::max<size_t>(sgSize, total);
-    adjustTiles(std::max<size_t>(1, total), tiles);
-    tg.setTiles(tiles, false);
-  }
+  virtual void computeWgTiles(Target &tg) { computeTiles(tg, false); }
 
-  virtual void computeSgTiles(Target &tg) {
-    auto [tiles, total] = tg.getSizes(true);
-    adjustTiles(std::max<size_t>(1, total / getSgSize(tg)), tiles);
-    tg.setTiles(tiles, true);
-  }
+  virtual void computeSgTiles(Target &tg) { computeTiles(tg, true); }
 
-  virtual void computeThreads(Target &tg) {
-    auto [sizes, _] = tg.getSizes(false);
-    for (auto [t, s] : llvm::zip(tg.tiles, sizes)) {
-      t = t == 0 ? 1 : std::max<size_t>(1, s / t);
-    }
-    size_t product = std::accumulate(tg.tiles.begin(), tg.tiles.end(), 1,
-                                     std::multiplies<>());
-    adjustTiles(std::max<size_t>(1, product / getSgSize(tg)), tg.tiles, false);
+  // Tile the last 2 dims and set all leading dims to 1.
+  virtual void computeTiles(Target &tg, bool reduction) {
+    auto wgTiles = tg.getSizes(reduction);
+    if (wgTiles.empty()) return;
+    SmallVector<size_t> sgTiles(wgTiles.size(), 1);
 
-    if (tg.tiles.size() > 3) {
-      product = std::accumulate(tg.tiles.begin(), tg.tiles.end(), 1,
-                                std::multiplies<>());
-      tg.tiles = {product, 1, 1};
+    bool unit = wgTiles.size() == 1;
+    for (auto &t :
+         llvm::make_range(wgTiles.begin(), wgTiles.end() - (unit ? 1 : 2)))
+      t = 1;
+
+    size_t dummy = 1;
+    auto &wTile = wgTiles.back();
+    auto &hTile = unit ? dummy : wgTiles[wgTiles.size() - 2];
+
+    // TODO: parameterize sgMul and wgMul in kernel attributes so they can
+    // be used for auto tuning.
+    auto [widths, heights, counts, sgMul, wgMul] =
+        getSupportedBlockSizes(tg, reduction, wTile, hTile);
+    if (unit) {
+      heights = {1};
+    } else if (reduction) {
+      sgMul = wgMul = 1;
     } else {
-      tg.tiles.resize(3, 1);
+      sgMul = std::sqrt(sgMul);
+      wgMul = std::sqrt(wgMul);
     }
+
+    auto sgSize = getSgSize(tg);
+    auto wgSize = getWgSize(tg);
+    auto maxMul = reduction ? 1 : wgSize / sgSize;
+
+    for (auto w : widths)
+      for (auto h : heights)
+        for (auto c : counts)
+          for (auto sm = sgMul; sm; sm /= 2)
+            for (auto wm = wgMul; wm; wm /= 2) {
+              if ((unit ? wm : wm * wm) > maxMul) continue;
+              auto sgw = w * c * sm, sgh = h * sm;
+              auto wgw = sgw * wm, wgh = sgh * wm;
+              if (wTile % wgw || (!unit && hTile % wgh)) continue;
+              if (wTile == wgw && (unit || hTile == wgh)) continue;
+              wTile = wgw;
+              hTile = wgh;
+              sgTiles.back() = sgw;
+              if (!unit) sgTiles[wgTiles.size() - 2] = sgh;
+              tg.setTiles(wgTiles, sgTiles, reduction);
+              return;
+            }
+
+    wTile = 1;
+    hTile = 1;
+    sgTiles.back() = 1;
+    if (!unit) sgTiles[wgTiles.size() - 2] = 1;
+    tg.setTiles(wgTiles, sgTiles, reduction);
+  }
+
+  // Get the supported block sizes, that can be used for tiling of the specified
+  // width and height.
+  //
+  // Returns block widths, heights, counts, SG-tile multiplier,
+  // WG-tile multiplier
+  virtual std::tuple<SmallVector<unsigned>, SmallVector<unsigned>,
+                     SmallVector<unsigned>, unsigned, unsigned>
+  getSupportedBlockSizes(Target &tg, bool reduction, size_t width,
+                         size_t height) {
+    Type elTy;
+    // Get the operand with maximum width
+    for (auto o : tg.op.getOperation()->getOperands()) {
+      if (auto t = dyn_cast<ShapedType>(o.getType())) {
+        auto et = t.getElementType();
+        if (!et.isIntOrFloat()) continue;
+        if (elTy) {
+          if (et.getIntOrFloatBitWidth() > elTy.getIntOrFloatBitWidth()) {
+            elTy = et;
+          }
+        } else {
+          elTy = et;
+        }
+      }
+    }
+
+    if (!elTy) {
+      tg.op->emitError() << "At least one operand must be of ShapedType";
+      return std::make_tuple(SmallVector<unsigned>{1}, SmallVector<unsigned>{1},
+                             SmallVector<unsigned>{1}, 1, 1);
+    }
+
+    // The block sizes computation is based on the assumption, that the kernel
+    // will have at least 2D block load/store instructions.
+    auto ua = tg.devAttrs.getUarch();
+    auto loadIns = dyn_cast<xegpu::uArch::Subgroup2DBlockLoadInstruction>(
+        ua->getInstruction(xegpu::uArch::InstructionKind::Subgroup2DBlockLoad));
+    auto storeIns = dyn_cast<xegpu::uArch::Subgroup2DBlockStoreInstruction>(
+        ua->getInstruction(
+            xegpu::uArch::InstructionKind::Subgroup2DBlockStore));
+    assert(loadIns && storeIns);
+    auto defaults = std::make_tuple(SmallVector<int>{1}, SmallVector<int>{1},
+                                    SmallVector<int>{1});
+    auto loadSizes = loadIns->getBlockWidthHeightCount(elTy, false, false)
+                         .value_or(defaults);
+    auto storeSizes =
+        storeIns->getBlockWidthHeightCount(elTy).value_or(defaults);
+
+    // Get only the common sizes from both instructions and filter out those
+    // that do not divide the tile sizes.
+    SmallVector<unsigned> widths, heights, counts;
+    for (unsigned w : std::get<0>(loadSizes))
+      if (width % w == 0 && llvm::is_contained(std::get<0>(storeSizes), w))
+        widths.push_back(w);
+    for (unsigned h : std::get<1>(loadSizes))
+      if (height % h == 0 && llvm::is_contained(std::get<1>(storeSizes), h))
+        heights.push_back(h);
+    for (unsigned c : std::get<2>(loadSizes))
+      if (llvm::is_contained(std::get<2>(storeSizes), c)) counts.push_back(c);
+    for (auto l : {&widths, &heights, &counts})
+      if (!llvm::is_contained(*l, 1)) l->push_back(1);
+
+    llvm::sort(widths, std::greater<unsigned>());
+    llvm::sort(heights, std::greater<unsigned>());
+    llvm::sort(counts, std::greater<unsigned>());
+    return std::make_tuple(widths, heights, counts, 2, getSgSize(tg));
+  }
+
+  virtual SmallVector<size_t> computeThreads(Target &tg) {
+    size_t threads = getSgSize(tg);
+    for (auto [wg, sg, r] : llvm::zip(tg.tiles, tg.sgTiles, tg.reductions)) {
+      if (!r) {
+        threads *= wg / sg;
+      }
+    }
+
+    auto wgSize = getWgSize(tg);
+    assert(threads <= wgSize && "wg/sg tiling exceeds max wg size");
+    // Divide by 2 due to -ze-opt-large-register-file
+    return {std::min(threads, wgSize / 2), 1, 1};
   }
 
   virtual size_t getWgSize(Target &tg) {
@@ -509,8 +457,8 @@ protected:
 
     static size_t stamp = 0;
     auto st = ++stamp;
-    // The loop's operation can be replaced by the patterns. Using a stamp to
-    // find it again.
+    // The loop's operation can be replaced by the patterns. Using a stamp
+    // to find it again.
     opReplacement->setDiscardableAttr("gc.tiling.stamp", createAttr(ctx, st));
     if (failed(applyPatternsGreedily(tg.fn, std::move(patterns)))) {
       return nullptr;

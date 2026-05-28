@@ -72,8 +72,7 @@ void populateGPUPipeline(OpPassManager &pm,
     func();
     pm.addPass(createCSEPass());
     pm.addPass(createCanonicalizerPass());
-    if (pipelineOpts.dump)
-      pm.addPass(createPrintIRPass({name}));
+    if (pipelineOpts.dump) pm.addPass(createPrintIRPass({name}));
   };
 
   GpuDevicePropsOptions deviceProps;
@@ -136,7 +135,8 @@ void populateGPUPipeline(OpPassManager &pm,
     opts.use64bitIndex = true;
     opts.binaryFormat = "binary";
     opts.zebinChip = deviceProps.arch;
-    opts.cmdOptions = pipelineOpts.igcCmdOptions;
+    opts.cmdOptions =
+        pipelineOpts.igcCmdOptions + " -ze-opt-large-register-file";
     opts.optLevel = 3;
     gpu::buildLowerToXeVMPassPipeline(pm, opts);
   });
