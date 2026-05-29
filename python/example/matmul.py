@@ -45,7 +45,7 @@ def bench():
     ua = ta.usm()
     ub = tb.usm()
     uc = tc.usm()
-    mod = gc.GpuModule(MLIR, dump=True, wait=True)
+    mod = gc.GpuModule(MLIR, dump=False, wait=True)
 
     # # Warmup
     ttc = tc.to(IDT)

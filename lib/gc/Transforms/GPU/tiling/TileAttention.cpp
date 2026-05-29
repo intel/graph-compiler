@@ -25,6 +25,8 @@ struct TileAttention final
     tg.tiles[tg.tiles.size() - 4] = 128;
   }
 
-  void computeThreads(Target &tg) override { tg.tiles = {128, 1, 1}; }
+  SmallVector<size_t> computeThreads(Target &tg) override {
+    return {128, 1, 1};
+  }
 };
 } // namespace
