@@ -86,3 +86,49 @@ def test_matmul_arith(M: int, K: int, N: int, DT: torch.dtype):
             return (a, b)
 
     Test().test()
+
+
+@pytest.mark.parametrize(
+    "H,DT",
+    (
+        (24, torch.float16),
+        (16, torch.float16),
+    ),
+)
+def test_concat(H: int, DT: torch.dtype):
+
+    class Test(TestModule):
+        def forward(self, a: torch.Tensor, b: torch.Tensor):
+            return torch.cat([a, b], dim=2)
+
+        def get_inputs(self, dev):
+            a = torch.randn(1, H, 128, 64, dtype=DT, device=dev)
+            b = torch.randn(1, H, 1024, 64, dtype=DT, device=dev)
+            return (a, b)
+
+    Test().test()
+
+
+@pytest.mark.parametrize(
+    "S0,S1,H,D,DT",
+    (
+        (1024, 128, 24, 64, torch.float16),
+        (512, 256, 16, 64, torch.float16),
+    ),
+)
+def test_transpose_concat(S0: int, S1: int, H: int, D: int, DT: torch.dtype):
+
+    class Test(TestModule):
+        def forward(self, a: torch.Tensor, b: torch.Tensor):
+            # [1, S0, H, D] -> [1, H, S0, D]
+            ta = a.permute(0, 2, 1, 3)
+            # [1, S1, H, D] -> [1, H, S1, D]
+            tb = b.permute(0, 2, 1, 3)
+            return torch.cat([ta, tb], dim=2)
+
+        def get_inputs(self, dev):
+            a = torch.randn(1, S0, H, D, dtype=DT, device=dev)
+            b = torch.randn(1, S1, H, D, dtype=DT, device=dev)
+            return (a, b)
+
+    Test().test()

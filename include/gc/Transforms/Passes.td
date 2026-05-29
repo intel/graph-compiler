@@ -115,6 +115,14 @@ def RemoveAllocs : Pass<"remove-allocs", "func::FuncOp"> {
   }];
 }
 
+def TensorConcatToLinalg : Pass<"tensor-concat-to-linalg", "func::FuncOp"> {
+  let summary = "Convert tensor.concat to linalg operations.";
+  let description = [{
+    Eliminate tensor.concat by routing producers into output subviews
+    or convert to linalg.copy.
+  }];
+}
+
 def HoistForLoopTransferRead : Pass<"hoist-for-loop-transfer-read", "func::FuncOp"> {
   let summary = "Hoist transfer read/write operations out of for loops.";
   let description = [{
@@ -128,6 +136,12 @@ def GpuKernelOutline : Pass<"gpu-kernel-outline", "ModuleOp"> {
     Convert scf.forall operations into GPU kernels.
   }];
   let dependentDialects = ["scf::SCFDialect", "gpu::GPUDialect", "xevm::XeVMDialect"];
+}
+
+def MemrefCopyToGpu : Pass<"memref-copy-to-gpu", "ModuleOp"> {
+  let summary = "Convert memref.copy to gpu.memcpy.";
+  let dependentDialects = ["scf::SCFDialect", "gpu::GPUDialect",
+                           "memref::MemRefDialect", "arith::ArithDialect"];
 }
 
 def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {

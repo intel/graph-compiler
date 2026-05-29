@@ -32,8 +32,7 @@ namespace mlir::gc::gpu {
 
 #define CHECK(cond, ...)                                                       \
   do {                                                                         \
-    if (!(cond))                                                               \
-      return gcMakeErr(__VA_ARGS__);                                           \
+    if (!(cond)) return gcMakeErr(__VA_ARGS__);                                \
   } while (0)
 #define CHECKE(expected, ...)                                                  \
   do {                                                                         \
@@ -720,10 +719,10 @@ void OclContext::setLastEvent(cl_event event) {
 }
 
 static void destroyKernels(const std::unique_ptr<ExecutionEngine> &engine) {
-  auto fn = engine->lookup(GPU_OCL_MOD_DESTRUCTOR);
-  if (fn) {
+  if (auto fn = engine->lookup(GPU_OCL_MOD_DESTRUCTOR)) {
     reinterpret_cast<void (*)()>(fn.get())();
   } else {
+    llvm::consumeError(fn.takeError());
     gcLogE("Module function ", GPU_OCL_MOD_DESTRUCTOR, " not found!");
   }
 }
@@ -999,8 +998,7 @@ OclModuleBuilder::build(const OclRuntime::Ext &ext) {
                op.getName().ends_with("SPIRV");
       };
 
-      if (!isaKernel(global))
-        return WalkResult::skip();
+      if (!isaKernel(global)) return WalkResult::skip();
 
       auto name = global.getName();
       gcLogD("Found a kernel to dump (", name.str(), ")");

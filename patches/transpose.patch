@@ -1,0 +1,85 @@
+commit 56a2b015d30778932a662087d42757a8e229a5bc
+Author: Andrey Pavlenko <andrey.a.pavlenko@gmail.com>
+Date:   Tue May 12 19:35:41 2026 +0000
+
+    [MLIR][XeGPU][VectorToXeGPU] Fixed transposed transfer_read/write
+    
+    The problem was that adjustStridesForPermutation() permutes strides,
+    but they are required to compute base offset from transfer read indices.
+    Added optional argument to computeMemrefMeta() to preserve the original
+    strides.
+
+diff --git a/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp b/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
+index 36e197501788..521f22af03bd 100644
+--- a/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
++++ b/mlir/lib/Conversion/VectorToXeGPU/VectorToXeGPU.cpp
+@@ -195,7 +195,8 @@ template <
+         std::decay_t<OpType>, vector::TransferReadOp, vector::TransferWriteOp,
+         vector::GatherOp, vector::ScatterOp>::value>>
+ static std::pair<SmallVector<Value>, Value>
+-computeMemrefMeta(OpType xferOp, PatternRewriter &rewriter) {
++computeMemrefMeta(OpType xferOp, PatternRewriter &rewriter,
++                  SmallVector<Value> *originalStrides = nullptr) {
+   SmallVector<Value> strides;
+   Value baseMemref = xferOp.getBase();
+   MemRefType memrefType = dyn_cast<MemRefType>(baseMemref.getType());
+@@ -248,6 +249,9 @@ computeMemrefMeta(OpType xferOp, PatternRewriter &rewriter) {
+       offsetVal = meta.getOffset();
+   }
+ 
++  if (originalStrides)
++    *originalStrides = strides;
++
+   if constexpr (llvm::is_one_of<std::decay_t<OpType>, vector::TransferReadOp,
+                                 vector::TransferWriteOp>::value) {
+     AffineMap permMap = xferOp.getPermutationMap();
+@@ -288,7 +292,7 @@ computeMemrefMeta(OpType xferOp, PatternRewriter &rewriter) {
+ //   %offsets =  memref_offset + orig_offset + local_offsets
+ static Value computeOffsets(VectorTransferOpInterface xferOp,
+                             PatternRewriter &rewriter, ArrayRef<Value> strides,
+-                            Value baseOffset) {
++                            ArrayRef<Value> originalStrides, Value baseOffset) {
+   Location loc = xferOp.getLoc();
+   VectorType vectorType = xferOp.getVectorType();
+   SmallVector<Value> indices(xferOp.getIndices().begin(),
+@@ -347,7 +351,7 @@ static Value computeOffsets(VectorTransferOpInterface xferOp,
+ 
+   // Compute base offset from transfer read indices
+   for (size_t i = 0; i < indices.size(); ++i) {
+-    Value strideVal = strides[i];
++    Value strideVal = originalStrides[i];
+     Value offsetContrib =
+         arith::MulIOp::create(rewriter, loc, indices[i], strideVal);
+     baseOffset =
+@@ -480,12 +484,13 @@ static LogicalResult lowerToScatteredLoadOp(vector::TransferReadOp readOp,
+   if (!memrefType)
+     return rewriter.notifyMatchFailure(readOp, "Expected memref source");
+ 
+-  auto meta = computeMemrefMeta(readOp, rewriter);
++  SmallVector<Value> origStrides;
++  auto meta = computeMemrefMeta(readOp, rewriter, &origStrides);
+   if (meta.first.empty())
+     return rewriter.notifyMatchFailure(readOp, "Failed to compute strides");
+ 
+   Value localOffsets =
+-      computeOffsets(readOp, rewriter, meta.first, meta.second);
++      computeOffsets(readOp, rewriter, meta.first, origStrides, meta.second);
+ 
+   Value flatMemref = memrefToIndexPtr(readOp, rewriter);
+ 
+@@ -515,12 +520,13 @@ static LogicalResult lowerToScatteredStoreOp(vector::TransferWriteOp writeOp,
+   if (!memrefType)
+     return rewriter.notifyMatchFailure(writeOp, "Expected memref source");
+ 
+-  auto meta = computeMemrefMeta(writeOp, rewriter);
++  SmallVector<Value> origStrides;
++  auto meta = computeMemrefMeta(writeOp, rewriter, &origStrides);
+   if (meta.first.empty())
+     return rewriter.notifyMatchFailure(writeOp, "Failed to compute strides");
+ 
+   Value localOffsets =
+-      computeOffsets(writeOp, rewriter, meta.first, meta.second);
++      computeOffsets(writeOp, rewriter, meta.first, origStrides, meta.second);
+ 
+   Value flatMemref = memrefToIndexPtr(writeOp, rewriter);
+ 

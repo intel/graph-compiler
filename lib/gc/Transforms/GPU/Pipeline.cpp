@@ -79,7 +79,12 @@ void populateGPUPipeline(OpPassManager &pm,
   if (pipelineOpts.deviceProps) {
     deviceProps = *pipelineOpts.deviceProps;
   }
-  phase("Initial", [&]() { pm.addPass(createGpuDeviceProps(deviceProps)); });
+  phase("Initial", [&]() {});
+
+  phase("Preprocess", [&]() {
+    pm.addPass(createGpuDeviceProps(deviceProps));
+    pm.addNestedPass<func::FuncOp>(createTensorConcatToLinalg());
+  });
 
   phase("Tiling", [&]() {
     pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
@@ -128,6 +133,7 @@ void populateGPUPipeline(OpPassManager &pm,
     addAttentionOptimizationPasses(pm, pipelineOpts);
     pm.addPass(createLoopInvariantCodeMotionPass());
     pm.addPass(createLoopInvariantSubsetHoistingPass());
+    pm.addPass(createMemrefCopyToGpu());
   });
 
   phase("XeGpu", [&]() {

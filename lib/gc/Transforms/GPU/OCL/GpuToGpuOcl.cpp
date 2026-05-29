@@ -10,12 +10,15 @@
 #define GC_GPU_OCL_CONST_ONLY
 #include "gc/ExecutionEngine/GPURuntime/GpuOclRuntime.h"
 
+#include "llvm/ADT/SmallSet.h"
+
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
 using namespace mlir::gc::gpu;
@@ -35,8 +38,10 @@ LLVM::CallOp funcCall(OpBuilder &builder, const StringRef name,
   auto function = module.lookupSymbol<LLVM::LLVMFuncOp>(name);
   if (!function) {
     auto type = LLVM::LLVMFunctionType::get(returnType, argTypes, isVarArg);
-    OpBuilder b = OpBuilder::atBlockEnd(module.getBody());
-    function = LLVM::LLVMFuncOp::create(b, loc, name, type);
+    auto ip = builder.saveInsertionPoint();
+    builder.setInsertionPointToEnd(module.getBody());
+    function = LLVM::LLVMFuncOp::create(builder, loc, name, type);
+    builder.restoreInsertionPoint(ip);
   }
   return LLVM::CallOp::create(builder, loc, function, arguments);
 }
@@ -214,13 +219,51 @@ struct ConvertMemcpy final : ConvertOpPattern<gpu::MemcpyOp> {
           getSizeInBytes(loc, srcType.getElementType(), rewriter));
     }
 
-    auto srcPtr = srcDsc.alignedPtr(rewriter, loc);
-    auto dstPtr = dstDsc.alignedPtr(rewriter, loc);
-    auto oclMemcpy = funcCall(
-        rewriter, GPU_OCL_MEMCPY, helper.voidType,
-        {helper.ptrType, helper.ptrType, helper.ptrType, helper.idxType}, loc,
-        {getCtxPtr(rewriter), srcPtr, dstPtr, size});
-    rewriter.replaceOp(gpuMemcpy, oclMemcpy);
+    auto ptrWithOffset = [&](MemRefDescriptor &dsc, MemRefType type) {
+      auto ptr = dsc.alignedPtr(rewriter, loc);
+      auto offset = dsc.offset(rewriter, loc);
+      return LLVM::GEPOp::create(
+                 rewriter, loc, helper.ptrType,
+                 helper.converter.convertType(type.getElementType()), ptr,
+                 offset)
+          .getResult();
+    };
+    auto srcPtr = ptrWithOffset(srcDsc, srcType);
+    auto dstPtr = ptrWithOffset(dstDsc, gpuMemcpy.getDst().getType());
+    funcCall(rewriter, GPU_OCL_MEMCPY, helper.voidType,
+             {helper.ptrType, helper.ptrType, helper.ptrType, helper.idxType},
+             loc, {getCtxPtr(rewriter), srcPtr, dstPtr, size});
+    if (gpuMemcpy.getAsyncToken()) {
+      // Replace the async token with a null ptr.
+      Value nullPtr = LLVM::ZeroOp::create(rewriter, loc, helper.ptrType);
+      rewriter.replaceOp(gpuMemcpy, nullPtr);
+    } else {
+      rewriter.eraseOp(gpuMemcpy);
+    }
+    return success();
+  }
+};
+
+struct ConvertMgpuMemcpy final : OpRewritePattern<LLVM::CallOp> {
+  const Helper &helper;
+
+  ConvertMgpuMemcpy(MLIRContext *ctx, const Helper &helper)
+      : OpRewritePattern(ctx), helper(helper) {}
+
+  LogicalResult matchAndRewrite(LLVM::CallOp callOp,
+                                PatternRewriter &rewriter) const override {
+    // mgpuMemcpy(dst, src, size, stream)
+    if (callOp.getCallee().value_or("") != "mgpuMemcpy" ||
+        callOp.getNumOperands() != 4)
+      return failure();
+
+    auto loc = callOp.getLoc();
+    auto size = callOp.getOperand(2);
+    auto ctx = getCtxPtr(rewriter);
+    funcCall(rewriter, GPU_OCL_MEMCPY, helper.voidType,
+             {helper.ptrType, helper.ptrType, helper.ptrType, size.getType()},
+             loc, {ctx, callOp.getOperand(1), callOp.getOperand(0), size});
+    rewriter.eraseOp(callOp);
     return success();
   }
 };
@@ -384,8 +427,7 @@ private:
       const std::function<SmallString<128> &(const char *chars)> &str) const {
     auto kernelModName = gpuLaunch.getKernelModuleName();
     auto binaryAttr = getBinaryAttr(rewriter, gpuLaunch, kernelModName);
-    if (!binaryAttr)
-      return false;
+    if (!binaryAttr) return false;
     rewriter.setInsertionPointToStart(mod.getBody());
     // The kernel pointer is stored here
     LLVM::GlobalOp::create(rewriter, loc, helper.ptrType, /*isConstant=*/false,
@@ -529,23 +571,57 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
     const LLVMConversionTarget target(getContext());
     LLVMTypeConverter converter(ctx);
     Helper helper(ctx, converter);
-    RewritePatternSet patterns(ctx);
 
-    populateGpuToLLVMConversionPatterns(converter, patterns);
-    patterns.insert<ConvertAlloc, ConvertMemcpy>(helper);
-    patterns.insert<ConvertLaunch>(helper, callFinish);
-    patterns.insert<ConvertDealloc>(helper);
-
-    if (failed(applyPartialConversion(getOperation(), target,
-                                      std::move(patterns)))) {
-      signalPassFailure();
-      return;
+    {
+      RewritePatternSet patterns(ctx);
+      patterns.add<ConvertMgpuMemcpy>(ctx, helper);
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+    {
+      RewritePatternSet patterns(ctx);
+      populateGpuToLLVMConversionPatterns(converter, patterns);
+      patterns.insert<ConvertAlloc, ConvertMemcpy>(helper);
+      patterns.insert<ConvertLaunch>(helper, callFinish);
+      patterns.insert<ConvertDealloc>(helper);
+      if (failed(applyPartialConversion(getOperation(), target,
+                                        std::move(patterns)))) {
+        signalPassFailure();
+        return;
+      }
     }
 
-    if (!helper.kernelNames.size())
-      return;
-    // Add gpuOclDestructor() function that destroys all the kernels
     auto mod = cast<ModuleOp>(getOperation());
+
+    // Delete llvm.call @mgpuStreamCreate() and all its users.
+    SmallPtrSet<Operation *, 8> toErase;
+    static constexpr StringLiteral mgpuFuncs[] = {
+        "mgpuStreamCreate", "mgpuStreamDestroy",    "mgpuStreamSynchronize",
+        "mgpuMemcpy",       "mgpuEventSynchronize", "mgpuEventDestroy",
+    };
+    auto isMgpu = [](StringRef name) {
+      for (auto f : mgpuFuncs)
+        if (name == f) return true;
+      return false;
+    };
+    mod.walk([&](LLVM::CallOp call) {
+      if (call.getCallee() == "mgpuStreamCreate") {
+        for (auto u : call.getOperation()->getUsers()) toErase.insert(u);
+        toErase.insert(call);
+      } else if (isMgpu(call.getCallee().value_or(""))) {
+        toErase.insert(call);
+      }
+      return WalkResult::skip();
+    });
+    for (auto fn : mod.getOps<LLVM::LLVMFuncOp>())
+      if (isMgpu(fn.getSymName())) toErase.insert(fn);
+    for (auto op : toErase) op->erase();
+
+    if (!helper.kernelNames.size()) return;
+
+    // Add gpuOclDestructor() function that destroys all the kernels.
     OpBuilder rewriter(mod.getBody(), mod.getBody()->end());
     auto destruct = LLVM::LLVMFuncOp::create(
         rewriter, mod.getLoc(), GPU_OCL_MOD_DESTRUCTOR,
@@ -574,28 +650,6 @@ struct GpuToGpuOcl final : gc::impl::GpuToGpuOclBase<GpuToGpuOcl> {
 
     helper.destroyKernels(rewriter, loc, kernelPtrs);
     LLVM::ReturnOp::create(rewriter, loc, ValueRange{});
-
-    // Delete llvm.call @mgpuStreamCreate() and all its users.
-    SmallVector<Operation *> toErase;
-    mod.walk([&](LLVM::CallOp call) {
-      if (call.getCallee() == "mgpuStreamCreate") {
-        for (auto u : call.getOperation()->getUsers()) {
-          toErase.push_back(u);
-        }
-        toErase.push_back(call);
-      }
-      return WalkResult::skip();
-    });
-    for (auto fn : mod.getOps<LLVM::LLVMFuncOp>()) {
-      auto name = fn.getSymName();
-      if (name == "mgpuStreamCreate" || name == "mgpuStreamDestroy" ||
-          name == "mgpuStreamSynchronize") {
-        toErase.push_back(fn);
-      }
-    }
-    for (auto op : toErase) {
-      op->erase();
-    }
   }
 };
 } // namespace

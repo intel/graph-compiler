@@ -11,6 +11,8 @@ gc_add_mlir_library(
   Decomposition.cpp
   GpuDeviceProps.cpp
   GpuKernelOutline.cpp
+  MemrefCopyToGpuMemcpy.cpp
+  TensorConcatToLinalg.cpp
   Vectorize.cpp
   RemoveAllocs.cpp
   HoistForLoopTransferRead.cpp

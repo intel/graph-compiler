@@ -1,5 +1,4 @@
-//===--------- Vectorize.cpp - Vectorize structured ops ----------*- C++
-//-*-===//
+//===------ GpuKernelOutline.cpp - GPU Kernel Outline ----------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -73,8 +72,7 @@ struct GpuKernelOutline final
         return WalkResult::skip();
       });
 
-      if (result.wasInterrupted())
-        return WalkResult::interrupt();
+      if (result.wasInterrupted()) return WalkResult::interrupt();
 
       OpPassManager pm(funcOp->getName().getIdentifier(),
                        OpPassManager::Nesting::Implicit);
@@ -88,8 +86,7 @@ struct GpuKernelOutline final
       return WalkResult::skip();
     });
 
-    if (result.wasInterrupted())
-      return;
+    if (result.wasInterrupted()) return;
 
     // Set the number of threads
     op.walk([&](gpu::LaunchOp launch) {
@@ -115,20 +112,21 @@ struct GpuKernelOutline final
       return WalkResult::skip();
     });
 
-    OpPassManager pm(op->getName().getIdentifier(),
-                     OpPassManager::Nesting::Implicit);
-    pm.addPass(createGpuKernelOutliningPass());
     {
-      GpuXeVMAttachTargetOptions opts;
-      auto arch = DevAttrs(op).getArch();
-      if (arch)
-        opts.chip = arch.value().str();
-      opts.optLevel = 3;
-      pm.addPass(createGpuXeVMAttachTarget(std::move(opts)));
-    }
-    if (failed(runPipeline(pm, op))) {
-      signalPassFailure();
-      return;
+      OpPassManager pm(op->getName().getIdentifier(),
+                       OpPassManager::Nesting::Implicit);
+      pm.addPass(createGpuKernelOutliningPass());
+      {
+        GpuXeVMAttachTargetOptions opts;
+        auto arch = DevAttrs(op).getArch();
+        if (arch) opts.chip = arch.value().str();
+        opts.optLevel = 3;
+        pm.addPass(createGpuXeVMAttachTarget(std::move(opts)));
+      }
+      if (failed(runPipeline(pm, op))) {
+        signalPassFailure();
+        return;
+      }
     }
 
     inlineSplatArgs(rw, op);
@@ -154,8 +152,7 @@ private:
       if (auto kmod = mod.lookupSymbol<gpu::GPUModuleOp>(
               launch.getKernelModuleName())) {
         gpuFunc = kmod.lookupSymbol<gpu::GPUFuncOp>(launch.getKernelName());
-        if (!gpuFunc)
-          return;
+        if (!gpuFunc) return;
       }
 
       auto operands = launch.getKernelOperands();
