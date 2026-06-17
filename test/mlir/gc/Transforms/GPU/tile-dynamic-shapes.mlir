@@ -1,22 +1,16 @@
 // RUN: gc-opt %s --gpu-dev-props --tile-contract --tile-attention --split-input-file | FileCheck %s
 
-// Tiling of a matmul + add with fully dynamic input shapes. The work-group
-// tile sizes stay static while the loop bounds are dynamic (tensor.dim).
 
 // CHECK-LABEL: func.func @entry
 // CHECK-DAG:     %[[C16:.+]] = arith.constant 16 : index
 // CHECK-DAG:     %[[C0:.+]] = arith.constant 0 : index
-//   The iteration domain is built from dynamic dims of the tensor operands:
-//   the M and N parallel dims and the K reduction dim.
 // CHECK:         %[[M:.+]] = tensor.dim
 // CHECK:         %[[K:.+]] = tensor.dim
 // CHECK:         %[[N:.+]] = tensor.dim
-//   WG loop: static step sizes over dynamic upper bounds.
 // CHECK:         scf.forall (%{{.+}}, %{{.+}}) = (0, 0) to (%[[M]], %[[N]]) step (256, 512)
-//   SG reduction loop with the static k-tile of 16 over the dynamic K dim.
 // CHECK:           scf.for %{{.+}} = %[[C0]] to %[[K]] step %[[C16]]
 // CHECK:             linalg.matmul {gc.tiling.level = 1
-// CHECK:         linalg.add {gc.tiling.level = 0
+// CHECK:           linalg.add {gc.tiling.level = 0
 func.func @entry(%arg0: memref<?x?xf16>, %arg1: memref<?x?xf16>, %arg2: memref<?x?xf16>) {
   %cst = arith.constant 0.000000e+00 : f16
   %c1 = arith.constant 1 : index
@@ -34,10 +28,6 @@ func.func @entry(%arg0: memref<?x?xf16>, %arg1: memref<?x?xf16>, %arg2: memref<?
 }
 
 // -----
-
-// Tiling of attention (SDPA) with dynamic batch and sequence-length dims.
-// The head dim (16) and feature dim (64) are static; the parallel WG loop
-// uses a static step of 128 over the dynamic sequence length.
 
 // CHECK-LABEL: func.func @entry
 // CHECK-DAG:     %[[C0:.+]] = arith.constant 0 : index
