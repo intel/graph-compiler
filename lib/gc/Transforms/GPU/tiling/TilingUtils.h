@@ -17,9 +17,8 @@ using namespace mlir;
 using namespace mlir::gc;
 using namespace mlir::scf;
 
-constexpr char GC_ATTR_LEVEL[] = "gc.tiling.level";
+// GC_ATTR_LEVEL and GC_ATTR_WG_TILE_SIZES are defined in gc/Utils/Transform.h.
 constexpr char GC_ATTR_NUM_KERNELS[] = "gc.num_kernels";
-constexpr char GC_ATTR_WG_TILE_SIZES[] = "gc.tiling.wg_tile_sizes";
 
 // Indexing map for an op's result tensor (via its DPS init operand).
 inline AffineMap getResultIndexingMap(Operation *op, unsigned resultNum) {

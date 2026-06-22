@@ -26,6 +26,8 @@ namespace mlir::gc {
 
 // ------------------- Attribute utilities ------------------ //
 constexpr char GC_ATTR_KERNEL_NAME[] = "gc.kernel_name";
+constexpr char GC_ATTR_LEVEL[] = "gc.tiling.level";
+constexpr char GC_ATTR_WG_TILE_SIZES[] = "gc.tiling.wg_tile_sizes";
 
 template <typename T> auto createAttr(MLIRContext *ctx, T value) {
   if constexpr (std::is_integral_v<T>) {
@@ -140,10 +142,8 @@ template <typename... Path> struct GcAttrs {
             NamedAttrList list(dyn_cast_if_present<DictionaryAttr>(
                 op->getDiscardableAttr(ROOT)));
             save(op, list, std::get<NamedAttrList>(attrs), p...);
-            if (list.empty())
-              op->removeDiscardableAttr(ROOT);
-            else
-              op->setDiscardableAttr(ROOT, toDict(op, list));
+            if (list.empty()) op->removeDiscardableAttr(ROOT);
+            else op->setDiscardableAttr(ROOT, toDict(op, list));
           },
           path);
       attrs = toDict(op, std::get<NamedAttrList>(attrs));
@@ -157,8 +157,7 @@ private:
   mutable std::variant<std::nullptr_t, DictionaryAttr, NamedAttrList> attrs;
 
   Operation *mod() {
-    if (!isa<ModuleOp>(op))
-      op = op->getParentOfType<ModuleOp>();
+    if (!isa<ModuleOp>(op)) op = op->getParentOfType<ModuleOp>();
     return op;
   }
 
@@ -181,10 +180,8 @@ private:
   template <typename T>
   static void save(Operation *op, NamedAttrList &list,
                    const NamedAttrList &newValues, T name) {
-    if (newValues.empty())
-      list.erase(name);
-    else
-      list.set(name, toDict(op, newValues));
+    if (newValues.empty()) list.erase(name);
+    else list.set(name, toDict(op, newValues));
   }
 
   template <typename T, typename... P>
@@ -192,10 +189,8 @@ private:
                    const NamedAttrList &newValues, T name, P... path) {
     NamedAttrList newList(dyn_cast_if_present<DictionaryAttr>(list.get(name)));
     save(op, newList, newValues, path...);
-    if (newList.empty())
-      list.erase(name);
-    else
-      list.set(name, toDict(op, newList));
+    if (newList.empty()) list.erase(name);
+    else list.set(name, toDict(op, newList));
   }
 
   static inline DictionaryAttr toDict(Operation *op,
@@ -351,10 +346,8 @@ template <typename Predicate = TruePredicate> struct ReverseIterator {
 
   static auto makeIterable(Block &block) {
     auto reversed = llvm::reverse(ForwardIterator::makeIterable(block));
-    if constexpr (std::is_same_v<Predicate, TruePredicate>)
-      return reversed;
-    else
-      return llvm::make_filter_range(reversed, Predicate{});
+    if constexpr (std::is_same_v<Predicate, TruePredicate>) return reversed;
+    else return llvm::make_filter_range(reversed, Predicate{});
   }
 
   template <typename T> static auto makeIterable(T &range) {
