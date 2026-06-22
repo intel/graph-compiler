@@ -107,17 +107,19 @@ public:
     tiles.resize(0);
     sgTiles.resize(0);
     reductions.resize(0);
+
+    // Set the insertion point before the op so that helper ops emitted for
+    // dynamic dims (e.g. tensor.dim) dominate their uses.
+    OpBuilder::InsertionGuard guard(rw);
+    rw.setInsertionPoint(op);
     for (auto [i, t, r] : llvm::enumerate(op.getLoopIteratorTypes(),
                                           op.getIterationDomain(rw))) {
-      if (auto opt = getConstantIntValue(r.size)) {
-        tiles.emplace_back(0);
-        sgTiles.emplace_back(1);
-        sizes.emplace_back(static_cast<size_t>(*opt));
-        reductions.emplace_back(t == utils::IteratorType::reduction);
-      } else {
-        op->emitError("Dynamic tiles are not supported!");
-        return false;
-      }
+      tiles.emplace_back(0);
+      sgTiles.emplace_back(1);
+      reductions.emplace_back(t == utils::IteratorType::reduction);
+      // Dynamic dims use 0 as a sentinel: computeTiles treats it as "any
+      // size" (0 % block == 0) and selects the largest supported block.
+      sizes.emplace_back(getConstantIntValue(r.size).value_or(0));
     }
     return true;
   }
