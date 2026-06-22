@@ -156,4 +156,13 @@ def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
     ];
 }
 
+def ApplyPaddingLevel : Pass<"apply-padding-level", "func::FuncOp"> {
+  let summary = "Pad operations to align iteration domains to tile sizes.";
+  let description = [{
+    Pads operations implementing TensorMaskingOpInterface so that their
+    iteration dimensions become multiples of the tile sizes specified in
+    gc.tiling.wg_tile_sizes.
+  }];
+}
+
 #endif // GC_DIALECT_GC_PASSES

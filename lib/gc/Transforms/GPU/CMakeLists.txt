@@ -8,6 +8,8 @@ gc_add_mlir_library(
   tiling/TileAttention.cpp
   tiling/TileParallel.cpp
   AddContextArg.cpp
+  ApplyPaddingLevel.cpp
+  TensorMaskingOpInterface.cpp
   Decomposition.cpp
   GpuDeviceProps.cpp
   GpuKernelOutline.cpp
@@ -24,6 +26,7 @@ gc_add_mlir_library(
   Pipeline.cpp
   DEPENDS
   GraphCompilerPassIncGen
+  GcTensorMaskingOpInterfaceIncGen
   LINK_LIBS
   PUBLIC
   ${MLIR_LINK_COMPONENTS}

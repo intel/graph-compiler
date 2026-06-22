@@ -34,6 +34,7 @@
 
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Transforms/Passes.h"
+#include "gc/Transforms/TensorMaskingOpInterface.h"
 #include "gc/Utils/Transform.h"
 
 namespace mlir::gc {
@@ -44,6 +45,7 @@ DialectRegistry &getDialectRegistry() {
     mlir::gc::registerGraphCompilerPasses();
     mlir::DialectRegistry registry;
     registry.insert<mlir::linalgx::LinalgxDialect>();
+    mlir::gc::registerTensorMaskingOpInterfaceForLinalg(registry);
     mlir::registerAllDialects(registry);
     mlir::registerAllExtensions(registry);
     mlir::registerAllToLLVMIRTranslations(registry);
@@ -95,6 +97,13 @@ void populateGPUPipeline(OpPassManager &pm,
 
   phase("Decomposition",
         [&]() { pm.addNestedPass<func::FuncOp>(createDecomposition()); });
+
+  phase("Padding", [&]() {
+    pm.addNestedPass<func::FuncOp>(createApplyPaddingLevel());
+    pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
+    pm.addNestedPass<func::FuncOp>(createApplyPaddingLevel());
+    pm.addNestedPass<func::FuncOp>(createLinalgSpecializeGenericOpsPass());
+  });
 
   phase("Vectorization", [&]() {
     pm.addNestedPass<func::FuncOp>(createVectorize());

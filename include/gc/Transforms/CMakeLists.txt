@@ -5,3 +5,8 @@ mlir_tablegen(Passes.capi.h.inc -gen-pass-capi-header --prefix GraphCompiler)
 mlir_tablegen(Passes.capi.cpp.inc -gen-pass-capi-impl --prefix GraphCompiler)
 add_public_tablegen_target(GraphCompilerPassIncGen)
 add_mlir_doc(Passes GraphCompilerPasses ./ -gen-pass-doc)
+
+set(LLVM_TARGET_DEFINITIONS TensorMaskingOpInterface.td)
+mlir_tablegen(TensorMaskingOpInterface.h.inc -gen-op-interface-decls)
+mlir_tablegen(TensorMaskingOpInterface.cpp.inc -gen-op-interface-defs)
+add_public_tablegen_target(GcTensorMaskingOpInterfaceIncGen)
