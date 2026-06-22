@@ -12,6 +12,8 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/Utils/MemRefUtils.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -33,33 +35,28 @@ namespace {
 static bool hasNoReads(Value memref, Operation *excludeOp) {
   for (OpOperand &use : memref.getUses()) {
     Operation *user = use.getOwner();
-    if (user == excludeOp)
-      continue;
+    if (user == excludeOp) continue;
 
     // View-like ops: recursively check their results.
     if (auto viewLike = dyn_cast<ViewLikeOpInterface>(user)) {
-      if (!hasNoReads(viewLike->getResult(0), excludeOp))
-        return false;
+      if (!hasNoReads(viewLike->getResult(0), excludeOp)) return false;
       continue;
     }
 
     // transfer_write with the memref as the base is a write-only use.
     if (auto write = dyn_cast<vector::TransferWriteOp>(user)) {
-      if (write.getBase() == memref)
-        continue;
+      if (write.getBase() == memref) continue;
       return false;
     }
 
     // copy target is write-only.
     if (auto copyOp = dyn_cast<memref::CopyOp>(user)) {
-      if (copyOp.getTarget() == memref)
-        continue;
+      if (copyOp.getTarget() == memref) continue;
       return false; // source of copy = read
     }
 
     // dealloc is not a read.
-    if (isa<memref::DeallocOp>(user))
-      continue;
+    if (isa<memref::DeallocOp>(user)) continue;
 
     // Conservatively treat any other use as a read.
     return false;
@@ -67,11 +64,62 @@ static bool hasNoReads(Value memref, Operation *excludeOp) {
   return true;
 }
 
+// Redirect all vector.transfer_write ops targeting `from` to write to `to`
+// instead, setting in_bounds=false for dynamic dimensions.
+static void redirectTransferWrites(PatternRewriter &rewriter, Value from,
+                                   Value to) {
+  auto toType = cast<MemRefType>(to.getType());
+  SmallVector<vector::TransferWriteOp> writes;
+  for (OpOperand &use : from.getUses())
+    if (auto tw = dyn_cast<vector::TransferWriteOp>(use.getOwner()))
+      writes.push_back(tw);
+
+  for (auto tw : writes) {
+    SmallVector<bool> newInBounds;
+    for (auto [i, dim] : llvm::enumerate(toType.getShape()))
+      newInBounds.push_back(!ShapedType::isDynamic(dim) &&
+                            tw.getInBoundsValues()[i]);
+    rewriter.setInsertionPoint(tw);
+    IRMapping mapping;
+    mapping.map(tw.getBase(), to);
+    auto *newOp = rewriter.clone(*tw, mapping);
+    cast<vector::TransferWriteOp>(newOp).setInBoundsAttr(
+        rewriter.getBoolArrayAttr(newInBounds));
+    rewriter.eraseOp(tw);
+  }
+}
+
+// Erase deallocs of `alloc`, then erase `copy` and (if dead) `viewOps`.
+// Finally erase alloc itself if dead.
+static void cleanupAllocCopyChain(PatternRewriter &rewriter,
+                                  memref::AllocOp alloc, memref::CopyOp copy,
+                                  ArrayRef<Operation *> viewOps) {
+  SmallVector<Operation *> deallocsToErase;
+  for (OpOperand &use : alloc.getResult().getUses())
+    if (isa<memref::DeallocOp>(use.getOwner()))
+      deallocsToErase.push_back(use.getOwner());
+
+  rewriter.eraseOp(copy);
+  for (Operation *op : viewOps)
+    if (op->use_empty()) rewriter.eraseOp(op);
+  for (Operation *op : deallocsToErase) rewriter.eraseOp(op);
+  if (alloc->use_empty()) rewriter.eraseOp(alloc);
+}
+
+// Move dst's defining op before alloc if needed for dominance.
+static void ensureDstDominatesAlloc(PatternRewriter &rewriter, Value dst,
+                                    memref::AllocOp alloc) {
+  if (auto *dstDef = dst.getDefiningOp()) {
+    if (dstDef->getBlock() == alloc->getBlock() &&
+        alloc->isBeforeInBlock(dstDef))
+      rewriter.moveOpBefore(dstDef, alloc);
+  }
+}
+
 // Trace backward through view-like ops to find the underlying memref.alloc.
 static memref::AllocOp traceToAlloc(Value v) {
   auto memrefVal = dyn_cast<MemrefValue>(v);
-  if (!memrefVal)
-    return nullptr;
+  if (!memrefVal) return nullptr;
   return memref::skipViewLikeOps(memrefVal).getDefiningOp<memref::AllocOp>();
 }
 
@@ -131,20 +179,50 @@ struct RemoveAllocDeallocPair : public OpRewritePattern<memref::AllocOp> {
   }
 };
 
+// Collect the chain of view-like ops from `src` back to `alloc`.
+// Returns the chain in alloc→src order (chain[0] is the op directly using
+// alloc, chain.back() produces src).
+static SmallVector<Operation *> collectViewChain(Value src,
+                                                 memref::AllocOp alloc) {
+  SmallVector<Operation *> chain;
+  Value cur = src;
+  while (cur.getDefiningOp() != alloc.getOperation()) {
+    Operation *op = cur.getDefiningOp();
+    if (!op || !isa<ViewLikeOpInterface>(op)) return {}; // invalid chain
+    chain.push_back(op);
+    cur = cast<ViewLikeOpInterface>(op).getViewSource();
+  }
+  std::reverse(chain.begin(), chain.end());
+  return chain;
+}
+
+// Try to build the inverse of reshape ops (after subviewIdx) applied to dst.
+// Returns the inverted value, or nullptr on failure.
+static Value invertChainOnDst(PatternRewriter &rewriter, Location loc,
+                              ArrayRef<Operation *> chain, int subviewIdx,
+                              Value dst) {
+  Value cur = dst;
+  for (int i = (int)chain.size() - 1; i > subviewIdx; --i) {
+    if (auto expand = dyn_cast<memref::ExpandShapeOp>(chain[i])) {
+      cur = memref::CollapseShapeOp::create(rewriter, loc, cur,
+                                            expand.getReassociationIndices());
+    } else if (auto collapse = dyn_cast<memref::CollapseShapeOp>(chain[i])) {
+      cur = memref::ExpandShapeOp::create(rewriter, loc, collapse.getSrcType(),
+                                          cur,
+                                          collapse.getReassociationIndices());
+    } else {
+      return nullptr;
+    }
+  }
+  return cur;
+}
+
 // When a memref.alloc is only written (never read) and then copied to a
-// destination, replace uses of the alloc with the destination and remove the
-// copy. Supports the copy source being the alloc directly, or separated by
-// a single view-like op (expand_shape / collapse_shape).
+// destination through an arbitrary chain of view-like ops, eliminate the
+// alloc by redirecting writes to dst (possibly reshaped).
 //
-// Example (with expand_shape):
-//   %alloc = memref.alloc() : memref<128x80xf16>
-//   vector.transfer_write %v, %alloc[%c0, %c0]
-//   %exp = memref.expand_shape %alloc [[0,1],[2]] ...
-//   memref.copy %exp, %subview
-// =>
-//   %col = memref.collapse_shape %subview [[0,1],[2]]
-//   vector.transfer_write %v, %col[%c0, %c0]
-//
+// Supports chains of expand_shape / collapse_shape, optionally with a single
+// subview (zero offsets, unit strides) indicating the alloc is padded.
 struct FoldAllocCopyIntoDirectWrite final : OpRewritePattern<memref::CopyOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -153,79 +231,59 @@ struct FoldAllocCopyIntoDirectWrite final : OpRewritePattern<memref::CopyOp> {
     Value src = copy.getSource();
     Value dst = copy.getTarget();
 
-    // Find the root alloc, possibly through a single view-like op.
     auto alloc = traceToAlloc(src);
-    if (!alloc)
+    if (!alloc) return failure();
+
+    // Collect view-like chain: alloc → chain[0] → ... → chain[N-1] = src.
+    auto chain = collectViewChain(src, alloc);
+    if (src.getDefiningOp() != alloc.getOperation() && chain.empty())
       return failure();
 
-    // Determine whether there's a view-like op between src and alloc.
-    Operation *viewOp = nullptr;
-    if (src.getDefiningOp() != alloc.getOperation()) {
-      // Only support a single view-like op between alloc and copy.
-      viewOp = src.getDefiningOp();
-      if (!isa<ViewLikeOpInterface>(viewOp))
-        return failure();
-      auto viewLike = cast<ViewLikeOpInterface>(viewOp);
-      if (viewLike.getViewSource().getDefiningOp() != alloc.getOperation())
-        return failure();
-    }
+    // All intermediate values in the chain must be single-use.
+    for (Operation *op : chain)
+      if (!op->getResult(0).hasOneUse()) return failure();
 
-    // No reads from the alloc (only writes).
-    if (!hasNoReads(alloc.getResult(), copy))
-      return failure();
+    if (!hasNoReads(alloc.getResult(), copy)) return failure();
+    if (!hasNoReads(dst, copy)) return failure();
 
-    // No reads from the destination either.
-    if (!hasNoReads(dst, copy))
-      return failure();
-
-    Value replacement;
-
-    if (!viewOp) {
-      // Direct alloc -> copy: types must match for substitution.
-      if (src.getType() != dst.getType())
-        return failure();
-      replacement = dst;
-    } else {
-      // Single view-like op between alloc and copy.  Create the inverse
-      // op on dst so that the result type matches the alloc type.
-      // The inverse op (and dst) must dominate all uses of alloc, so
-      // move dst before alloc if it's defined later in the same block.
-      if (auto *dstDef = dst.getDefiningOp()) {
-        if (dstDef->getBlock() == alloc->getBlock() &&
-            alloc->isBeforeInBlock(dstDef)) {
-          rewriter.moveOpBefore(dstDef, alloc);
+    // Find if there's a subview in the chain (at most one supported).
+    int subviewIdx = -1;
+    for (auto [i, op] : llvm::enumerate(chain)) {
+      if (auto sv = dyn_cast<memref::SubViewOp>(op)) {
+        if (!sv.hasUnitStride()) return failure();
+        for (auto off : sv.getMixedOffsets()) {
+          auto cst = getConstantIntValue(off);
+          if (!cst || *cst != 0) return failure();
         }
-      }
-      rewriter.setInsertionPoint(alloc);
-      if (auto expand = dyn_cast<memref::ExpandShapeOp>(viewOp)) {
-        replacement = memref::CollapseShapeOp::create(
-            rewriter, copy.getLoc(), dst, expand.getReassociationIndices());
-      } else if (auto collapse = dyn_cast<memref::CollapseShapeOp>(viewOp)) {
-        replacement = memref::ExpandShapeOp::create(
-            rewriter, copy.getLoc(), collapse.getSrcType(), dst,
-            collapse.getReassociationIndices());
-      } else {
-        return failure();
+        if (subviewIdx != -1)
+          return failure(); // multiple subviews not supported
+        subviewIdx = i;
       }
     }
 
-    // Collect deallocs of the alloc to erase after replacement.
-    SmallVector<Operation *> deallocsToErase;
-    for (OpOperand &use : alloc.getResult().getUses()) {
-      if (isa<memref::DeallocOp>(use.getOwner()))
-        deallocsToErase.push_back(use.getOwner());
+    ensureDstDominatesAlloc(rewriter, dst, alloc);
+    rewriter.setInsertionPoint(alloc);
+
+    if (subviewIdx == -1 && chain.empty()) {
+      // Direct alloc → copy: types must match.
+      if (src.getType() != dst.getType()) return failure();
+      rewriter.replaceAllUsesWith(alloc.getResult(), dst);
+    } else if (subviewIdx == -1) {
+      // Pure reshape chain — invert all ops on dst, replaceAllUses.
+      Value replacement = invertChainOnDst(rewriter, copy.getLoc(), chain,
+                                           /*subviewIdx=*/-1, dst);
+      if (!replacement) return failure();
+      rewriter.replaceAllUsesWith(alloc.getResult(), replacement);
+    } else {
+      // Chain contains a subview — redirect writes with masking.
+      Value writeTarget =
+          invertChainOnDst(rewriter, copy.getLoc(), chain, subviewIdx, dst);
+      if (!writeTarget) return failure();
+      redirectTransferWrites(rewriter, alloc.getResult(), writeTarget);
     }
 
-    // Replace alloc with the (possibly reshaped) destination.
-    rewriter.replaceAllUsesWith(alloc.getResult(), replacement);
-
-    rewriter.eraseOp(copy);
-    for (Operation *op : deallocsToErase)
-      rewriter.eraseOp(op);
-    if (viewOp && viewOp->use_empty())
-      rewriter.eraseOp(viewOp);
-    rewriter.eraseOp(alloc);
-
+    cleanupAllocCopyChain(rewriter, alloc, copy,
+                          SmallVector<Operation *>(chain.begin(), chain.end()));
     return success();
   }
 };
