@@ -19,6 +19,111 @@ using namespace mlir::scf;
 
 constexpr char GC_ATTR_LEVEL[] = "gc.tiling.level";
 constexpr char GC_ATTR_NUM_KERNELS[] = "gc.num_kernels";
+constexpr char GC_ATTR_WG_TILE_SIZES[] = "gc.tiling.wg_tile_sizes";
+
+// Indexing map for an op's result tensor (via its DPS init operand).
+inline AffineMap getResultIndexingMap(Operation *op, unsigned resultNum) {
+  auto dst = dyn_cast<DestinationStyleOpInterface>(op);
+  auto idx = dyn_cast<IndexingMapOpInterface>(op);
+  if (!dst || !idx) return {};
+  return idx.getMatchingIndexingMap(dst.getDpsInitOperand(resultNum));
+}
+
+// Remap `srcTiles` (indexed by `srcMap`'s iter dims) into a `dstNumDims`-sized
+// tile array indexed by `dstMap`'s iter dims, via the shared tensor dims.
+// Both maps must describe the same tensor and be projected permutations.
+inline SmallVector<int64_t> remapTiles(ArrayRef<size_t> srcTiles,
+                                       AffineMap srcMap, AffineMap dstMap,
+                                       unsigned dstNumDims) {
+  SmallVector<int64_t> out(dstNumDims, 0);
+  if (!srcMap || !dstMap || srcMap.getNumResults() != dstMap.getNumResults())
+    return out;
+  for (unsigned r = 0, n = srcMap.getNumResults(); r < n; ++r) {
+    auto sd = dyn_cast<AffineDimExpr>(srcMap.getResult(r));
+    auto dd = dyn_cast<AffineDimExpr>(dstMap.getResult(r));
+    if (!sd || !dd) continue;
+    if (sd.getPosition() < srcTiles.size() && dd.getPosition() < dstNumDims)
+      out[dd.getPosition()] = static_cast<int64_t>(srcTiles[sd.getPosition()]);
+  }
+  return out;
+}
+
+// Set/merge `gc.tiling.wg_tile_sizes` on `op`.
+// Is used to "merge" wg (parallel-dim) tiles and sg (reduction-dim) tiles.
+inline void mergeWgTileSizesAttr(Operation *op, ArrayRef<int64_t> tiles) {
+  if (tiles.empty()) return;
+  SmallVector<int64_t> merged(tiles.begin(), tiles.end());
+  if (auto existing =
+          op->getAttrOfType<DenseI64ArrayAttr>(GC_ATTR_WG_TILE_SIZES)) {
+    auto prev = existing.asArrayRef();
+    for (size_t i = 0, n = std::min(merged.size(), prev.size()); i < n; ++i)
+      if (merged[i] == 0) merged[i] = prev[i];
+  }
+  op->setDiscardableAttr(GC_ATTR_WG_TILE_SIZES,
+                         DenseI64ArrayAttr::get(op->getContext(), merged));
+}
+
+// Tag the tiled consumer and fused producers from an SCFTileAndFuseResult
+// with `gc.tiling.wg_tile_sizes` derived from `tiles` (indexed by the original
+// consumer's iteration domain).
+// Example of input args (linalg.fill + linalg.matmul case):
+//    origConsumer: untiled linalg.matmul
+//    tiles: [256, 512, 16]
+//    result.tiledAndFusedOps: [tiled_matmul, tiled_fill]
+//    result.fusedProducers:   [orig_fill]
+inline void tagTileAndFuseResult(Operation *origConsumer,
+                                 ArrayRef<size_t> tiles,
+                                 const scf::SCFTileAndFuseResult &result) {
+  if (result.tiledAndFusedOps.empty()) return;
+  // TODO: currently we have to cast 'tiles' size_t -> int64_t;
+  // we should rework our tiling logic to always use int64_t to
+  // avoid casts on the C++/mlir boundary.
+  auto consumerTiles = llvm::map_to_vector(
+      tiles, [](size_t v) { return static_cast<int64_t>(v); });
+  auto it = result.tiledAndFusedOps.begin();
+  // Set tile-size attribute for the tiled op itself (e.g. linalg.matmul),
+  // it's always the first element in the tiledAndFusedOps list.
+  mergeWgTileSizesAttr(*it++, consumerTiles);
+
+  auto consumerIdx = dyn_cast<IndexingMapOpInterface>(origConsumer);
+  // If the consumer doesn't have indexing maps, we can't remap the tiles to
+  // the fused producers.
+  if (!consumerIdx) return;
+
+  // Iterate over the tiled producers and set their tile-size attributes.
+  // Example:
+  // result.tiledAndFusedOps: [tiled_matmul, tiled_fill]
+  //                                         ^--*it
+  // result.fusedProducers:   [orig_fill]
+  //                          ^--*fp
+  auto fp = result.fusedProducers.begin();
+  for (;
+       it != result.tiledAndFusedOps.end() && fp != result.fusedProducers.end();
+       ++it, ++fp) {
+    auto *tiledProd = *it;
+    auto *origProd = *fp;
+    auto prodTi = dyn_cast<TilingInterface>(tiledProd);
+    if (!prodTi) continue;
+    AffineMap consumerMap, prodMap;
+    for (auto &operand : origConsumer->getOpOperands()) {
+      auto opRes = dyn_cast<OpResult>(operand.get());
+      if (!opRes || opRes.getOwner() != origProd) continue;
+      consumerMap = consumerIdx.getMatchingIndexingMap(&operand);
+      prodMap = getResultIndexingMap(origProd, opRes.getResultNumber());
+      break;
+    }
+    if (!consumerMap || !prodMap) {
+      tiledProd->emitWarning()
+          << "unable to find matching indexing maps for remapping tiles from "
+             "consumer to producer; skipping tile-size attribute propagation";
+      continue;
+    }
+
+    mergeWgTileSizesAttr(tiledProd,
+                         remapTiles(tiles, consumerMap, prodMap,
+                                    prodTi.getLoopIteratorTypes().size()));
+  }
+}
 
 inline bool isParallel(Operation *op) {
   auto ti = dyn_cast<TilingInterface>(op);
@@ -420,6 +525,8 @@ protected:
       return nullptr;
     }
 
+    tagTileAndFuseResult(tg.op.getOperation(), tg.tiles, *result);
+
     LoopLikeOpInterface opReplacement = nullptr;
     SmallVector<Operation *> opsToReplace{tg.op.getOperation()};
     append_range(opsToReplace, result->fusedProducers);
@@ -486,9 +593,13 @@ protected:
         if (!res.hasOneUse()) {
           continue;
         }
-        auto user = res.use_begin()->getOwner();
+        auto &uses_begin = *res.use_begin();
+        auto user = uses_begin.getOwner();
         if (user->getBlock() == loop->getBlock() && isParallel(user) &&
             user->getNumResults() == 1 && user->getResult(0).hasOneUse()) {
+          AffineMap userMap;
+          if (auto userIdx = dyn_cast<IndexingMapOpInterface>(user))
+            userMap = userIdx.getMatchingIndexingMap(&uses_begin);
           auto result = tileAndFuseConsumer(tg.rw, user, {loop});
           if (failed(result)) {
             tg.op->emitError() << "Failed to fuse consumers";
@@ -498,8 +609,15 @@ protected:
           tg.rw.replaceAllOpUsesWith(user, res);
           user->erase();
           tg.mark(loop);
+          AffineMap prodMap = getResultIndexingMap(tg.op.getOperation(), 0);
           for (auto tiled : result->tiledOps) {
             tg.mark(tiled);
+            if (auto ti = dyn_cast<TilingInterface>(tiled);
+                ti && userMap && prodMap) {
+              mergeWgTileSizesAttr(
+                  tiled, remapTiles(tg.tiles, prodMap, userMap,
+                                    ti.getLoopIteratorTypes().size()));
+            }
           }
         }
       }
