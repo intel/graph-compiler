@@ -103,9 +103,15 @@ void populateGPUPipeline(OpPassManager &pm,
 
   phase("Padding", [&]() {
     pm.addNestedPass<func::FuncOp>(createApplyPaddingLevel());
+    pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+    pm.addNestedPass<func::FuncOp>(createCSEPass());
     pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
     pm.addNestedPass<func::FuncOp>(createApplyPaddingLevel());
     pm.addNestedPass<func::FuncOp>(createLinalgSpecializeGenericOpsPass());
+    pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+    pm.addNestedPass<func::FuncOp>(createCSEPass());
+    pm.addNestedPass<func::FuncOp>(createHoistStaticForInit());
+    pm.addNestedPass<func::FuncOp>(createFoldPadRoundtrip());
   });
 
   phase("Vectorization", [&]() {

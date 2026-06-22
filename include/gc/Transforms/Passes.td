@@ -166,6 +166,40 @@ def PeeledForToIf : Pass<"peeled-for-to-if", "func::FuncOp"> {
   }];
 }
 
+def FoldPadRoundtrip : Pass<"fold-pad-roundtrip", "func::FuncOp"> {
+  let summary = "Fold pad(extract_slice(src)) → src and pad(empty) → empty.";
+  let description = [{
+    Folds two patterns that arise after padding and hoisting:
+
+    Pattern 1 — roundtrip elimination:
+      %val    = tensor.extract_slice %src [0,...][d,...][1,...]
+      %padded = tensor.pad %val low[0,...] high[S-d,...] → tensor<Sx...>
+    Folded to %src  (valid when padded positions are not observed).
+
+    Pattern 2 — padding of uninitialized tensor:
+      %empty  = tensor.empty(%d) : tensor<?x...>
+      %padded = tensor.pad %empty ... → tensor<Sx...>
+    Folded to tensor.empty() : tensor<Sx...>.
+  }];
+}
+
+def HoistStaticForInit : Pass<"hoist-static-for-init", "func::FuncOp"> {
+  let summary = "Hoist extract_slice out of scf.for/scf.if to make results static.";
+  let description = [{
+    Hoists tensor.extract_slice operations out of region-based control flow
+    (scf.for, scf.if) so that iter_args/results carry static types.
+
+    For scf.for: recognizes loops where iter_args are initialized by
+    linalg.fill(tensor.empty) or by extract_slice from a static tensor,
+    padded to static shape inside the body, and sliced back at the yield.
+    Transforms to carry static iter_args with a single extract_slice after.
+
+    For scf.if: when all yield paths produce extract_slice from the same
+    static type (zero offsets, unit strides), rewrites the if to yield
+    static values and places a single extract_slice after the if.
+  }];
+}
+
 def ApplyPaddingLevel : Pass<"apply-padding-level", "func::FuncOp"> {
   let summary = "Pad operations to align iteration domains to tile sizes.";
   let description = [{
