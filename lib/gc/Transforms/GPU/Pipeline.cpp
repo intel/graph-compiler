@@ -95,8 +95,11 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addNestedPass<func::FuncOp>(createTileParallel());
   });
 
-  phase("Decomposition",
-        [&]() { pm.addNestedPass<func::FuncOp>(createDecomposition()); });
+  phase("Decomposition", [&]() {
+    pm.addNestedPass<func::FuncOp>(createDecomposition());
+    pm.addPass(createSCFForLoopPeeling());
+    pm.addPass(createCanonicalizerPass());
+  });
 
   phase("Padding", [&]() {
     pm.addNestedPass<func::FuncOp>(createApplyPaddingLevel());
@@ -108,6 +111,7 @@ void populateGPUPipeline(OpPassManager &pm,
   phase("Vectorization", [&]() {
     pm.addNestedPass<func::FuncOp>(createVectorize());
     pm.addNestedPass<func::FuncOp>(createHoistForLoopTransferRead());
+    pm.addNestedPass<func::FuncOp>(createPeeledForToIf());
   });
 
   // Bufferization

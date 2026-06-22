@@ -156,6 +156,16 @@ def GpuToGpuOcl : Pass<"gpu-to-gpuocl", "ModuleOp"> {
     ];
 }
 
+def PeeledForToIf : Pass<"peeled-for-to-if", "func::FuncOp"> {
+  let summary = "Convert at-most-one-iteration peeled scf.for loops to scf.if.";
+  let description = [{
+    After loop peeling, the remainder loop has at most one iteration (trip count
+    is 0 or 1). This pass detects such loops by matching the affine.apply
+    pattern produced by peeling (lb = ub - (ub - orig_lb) % step) and converts
+    them to scf.if, eliminating loop control-flow overhead on GPU.
+  }];
+}
+
 def ApplyPaddingLevel : Pass<"apply-padding-level", "func::FuncOp"> {
   let summary = "Pad operations to align iteration domains to tile sizes.";
   let description = [{

@@ -18,6 +18,7 @@ gc_add_mlir_library(
   Vectorize.cpp
   RemoveAllocs.cpp
   HoistForLoopTransferRead.cpp
+  PeeledForToIf.cpp
   AttentionOptimizations/Utils.cpp
   AttentionOptimizations/SetAttentionLayouts.cpp
   AttentionOptimizations/SetAttentionPrefetch.cpp
