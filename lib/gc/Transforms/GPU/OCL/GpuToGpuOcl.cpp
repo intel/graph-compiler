@@ -284,9 +284,20 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
     const Location loc = gpuLaunch.getLoc();
     auto kernelArgs = adaptor.getKernelOperands();
     SmallVector<Value> args;
-    args.reserve(kernelArgs.size() + 2);
+    args.reserve(kernelArgs.size() + 5);
     args.emplace_back(getCtxPtr(rewriter));
     args.emplace_back(kernelPtr.value());
+
+    // Cast grid-size values to index type
+    auto castToIdx = [&](Value v) -> Value {
+      if (v.getType() == helper.idxType) return v;
+      return UnrealizedConversionCastOp::create(rewriter, loc, helper.idxType,
+                                                v)
+          .getResult(0);
+    };
+    args.emplace_back(castToIdx(gpuLaunch.getGridSizeX()));
+    args.emplace_back(castToIdx(gpuLaunch.getGridSizeY()));
+    args.emplace_back(castToIdx(gpuLaunch.getGridSizeZ()));
 
     int i = 0;
     for (auto arg : kernelArgs) {
@@ -308,7 +319,9 @@ struct ConvertLaunch final : ConvertOpPattern<gpu::LaunchFuncOp> {
 
     const auto gpuOclLaunch =
         funcCall(rewriter, GPU_OCL_KERNEL_LAUNCH, helper.voidType,
-                 {helper.ptrType, helper.ptrType}, loc, args, true);
+                 {helper.ptrType, helper.ptrType, helper.idxType,
+                  helper.idxType, helper.idxType},
+                 loc, args, true);
     rewriter.replaceOp(gpuLaunch, gpuOclLaunch);
 
     if (callFinish) {
@@ -457,12 +470,8 @@ private:
         IntegerAttr::get(helper.idxType,
                          static_cast<int64_t>(binaryAttr.size())));
 
-    SmallVector<Value> gridSize;
     SmallVector<Value> blockSize;
     SmallVector<Value> argSize;
-    gridSize.emplace_back(gpuLaunch.getGridSizeX());
-    gridSize.emplace_back(gpuLaunch.getGridSizeY());
-    gridSize.emplace_back(gpuLaunch.getGridSizeZ());
     blockSize.emplace_back(gpuLaunch.getBlockSizeX());
     blockSize.emplace_back(gpuLaunch.getBlockSizeY());
     blockSize.emplace_back(gpuLaunch.getBlockSizeZ());
@@ -521,9 +530,9 @@ private:
     auto createKernelCall = funcCall(
         rewriter, GPU_OCL_KERNEL_CREATE, helper.ptrType,
         {helper.ptrType, helper.idxType, helper.ptrType, helper.ptrType,
-         helper.ptrType, helper.ptrType, helper.idxType, helper.ptrType},
+         helper.ptrType, helper.idxType, helper.ptrType},
         loc,
-        {ctx, spirvSize, spirv, name, array(gridSize), array(blockSize), argNum,
+        {ctx, spirvSize, spirv, name, array(blockSize), argNum,
          array(argSize)});
     auto result = createKernelCall.getResult();
 

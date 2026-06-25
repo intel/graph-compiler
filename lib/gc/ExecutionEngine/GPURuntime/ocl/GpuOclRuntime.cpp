@@ -158,15 +158,12 @@ struct OclRuntime::Ext : OclDevCtxPair {
 struct Kernel {
   cl_program program;
   cl_kernel kernel;
-  const size_t globalSize[3];
   const size_t localSize[3];
   const SmallVector<size_t> argSize;
 
-  explicit Kernel(cl_program program, cl_kernel kernel, const size_t *gridSize,
-                  const size_t *blockSize, size_t argNum, const size_t *argSize)
+  explicit Kernel(cl_program program, cl_kernel kernel, const size_t *blockSize,
+                  size_t argNum, const size_t *argSize)
       : program(program), kernel(kernel),
-        globalSize{gridSize[0] * blockSize[0], gridSize[1] * blockSize[1],
-                   gridSize[2] * blockSize[2]},
         localSize{blockSize[0], blockSize[1], blockSize[2]},
         argSize(argSize, argSize + argNum) {
 #ifndef NDEBUG
@@ -177,10 +174,8 @@ struct Kernel {
         args += ", ";
       }
     }
-    gcLogD("Kernel ", kernel, " params: globalSize=[", globalSize[0], ", ",
-           globalSize[1], ", ", globalSize[2], "], localSize=[", localSize[0],
-           ", ", localSize[1], ", ", localSize[2], "], argSize=[", args.c_str(),
-           "]");
+    gcLogD("Kernel ", kernel, " params: localSize=[", localSize[0], ", ",
+           localSize[1], ", ", localSize[2], "], argSize=[", args.c_str(), "]");
 #endif
   }
 
@@ -257,8 +252,8 @@ private:
 
   static Kernel *kernelCreate(const OclContext *ctx, size_t spirvLen,
                               const unsigned char *spirv, const char *name,
-                              const size_t *gridSize, const size_t *blockSize,
-                              size_t argNum, const size_t *argSize) {
+                              const size_t *blockSize, size_t argNum,
+                              const size_t *argSize) {
     cl_int err;
     auto program =
         clCreateProgramWithIL(ctx->runtime.ext.context, spirv, spirvLen, &err);
@@ -291,7 +286,7 @@ private:
                               sizeof(enable), &enable);
     CL_CHECKR(err, "Failed to set indirect shared access.");
 
-    return new Kernel(program, kernel, gridSize, blockSize, argNum, argSize);
+    return new Kernel(program, kernel, blockSize, argNum, argSize);
   }
 
   static void kernelDestroy(size_t count, Kernel **kernels) {
@@ -303,7 +298,8 @@ private:
     }
   }
 
-  static void kernelLaunch(OclContext *ctx, Kernel *kernel, ...) {
+  static void kernelLaunch(OclContext *ctx, Kernel *kernel, size_t gridX,
+                           size_t gridY, size_t gridZ, ...) {
     struct ClonedKernel {
       cl_kernel kernel;
 
@@ -316,8 +312,12 @@ private:
       }
     };
 
+    const size_t globalSize[3] = {gridX * kernel->localSize[0],
+                                  gridY * kernel->localSize[1],
+                                  gridZ * kernel->localSize[2]};
+
     va_list args;
-    va_start(args, kernel);
+    va_start(args, gridZ);
     gcLogD("Launching kernel: ", kernel->kernel);
 
     cl_int err;
@@ -352,13 +352,13 @@ private:
     if (ctx->createEvents) {
       cl_event event = nullptr;
       err = clEnqueueNDRangeKernel(ctx->queue, cloned.kernel, 3, nullptr,
-                                   kernel->globalSize, kernel->localSize,
+                                   globalSize, kernel->localSize,
                                    ctx->waitListLen, ctx->waitList, &event);
       ctx->setLastEvent(event);
     } else {
       err = clEnqueueNDRangeKernel(ctx->queue, cloned.kernel, 3, nullptr,
-                                   kernel->globalSize, kernel->localSize, 0,
-                                   nullptr, nullptr);
+                                   globalSize, kernel->localSize, 0, nullptr,
+                                   nullptr);
     }
 
     if (err == CL_INVALID_WORK_GROUP_SIZE) {
