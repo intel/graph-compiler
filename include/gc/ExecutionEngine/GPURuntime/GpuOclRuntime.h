@@ -220,7 +220,7 @@ private:
     WrappedMainFunc wrappedMain;
   };
   const MainFunc main;
-  const ArrayRef<Type> argTypes;
+  const SmallVector<Type> argTypes;
   const uint64_t outArgsMask;
   std::unique_ptr<ExecutionEngine> engine;
 
@@ -228,8 +228,9 @@ private:
                      const MainFunc main, const ArrayRef<Type> argTypes,
                      const uint64_t outArgsMask,
                      std::unique_ptr<ExecutionEngine> engine)
-      : runtime(runtime), isStatic(isStatic), main(main), argTypes(argTypes),
-        outArgsMask(outArgsMask), engine(std::move(engine)) {}
+      : runtime(runtime), isStatic(isStatic), main(main),
+        argTypes(argTypes.begin(), argTypes.end()), outArgsMask(outArgsMask),
+        engine(std::move(engine)) {}
 };
 
 struct OclModuleBuilderOpts {
@@ -391,6 +392,7 @@ template <unsigned N = 64> struct DynamicExecutor : OclModuleExecutorBase<N> {
 #ifndef NDEBUG
     this->checkExec(ctx);
 #endif
+    ctx.clPtrs = &this->clPtrs;
     auto size = this->args.size();
     auto ctxPtr = &ctx;
     this->args.emplace_back(&ctxPtr);
