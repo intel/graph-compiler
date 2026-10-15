@@ -32,6 +32,9 @@ option(GC_ENABLE_ZE "Build Level Zero GPU runtime" ON)
 cmake_dependent_option(GC_ENABLE_PYTHON_BINDINGS "Build Python bindings" ON
                        "GC_ENABLE_ZE" OFF)
 option(GC_DYLINK "Link dynamic libraries of LLVM and MLIR" OFF)
+option(GC_FILE_CACHE_ON "Whether the file cache is on by default" OFF)
+option(GC_FILE_CACHE_CHECKSUM
+       "Whether the file cache checksum is on by default" ON)
 set(GC_EXTERNALS_DIR
     "${PROJECT_SOURCE_DIR}/externals"
     CACHE PATH "Directory for external dependencies")
@@ -88,6 +91,12 @@ target_include_directories(
 if(NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(GcInterface INTERFACE -ffunction-sections
                                                -fdata-sections)
+endif()
+if(GC_FILE_CACHE_ON)
+  target_compile_definitions(GcInterface INTERFACE GC_FILE_CACHE_ON)
+endif()
+if(GC_FILE_CACHE_CHECKSUM)
+  target_compile_definitions(GcInterface INTERFACE GC_FILE_CACHE_CHECKSUM)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")

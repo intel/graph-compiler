@@ -10,6 +10,7 @@
 #ifndef GC_TRANSFORM_H
 #define GC_TRANSFORM_H
 
+#include <atomic>
 #include <variant>
 
 #include <llvm/ADT/ArrayRef.h>
@@ -474,7 +475,7 @@ inline void canonicalizeLoop(LoopLikeOpInterface &loop) {
   }
 
   constexpr char stampAttrName[] = "gc.loop.stamp";
-  static size_t stamp = 0;
+  static std::atomic<size_t> stamp = 0;
   auto st = ++stamp;
   // The loop's operation can be replaced by the patterns. Using a stamp
   // to find it again.

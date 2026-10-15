@@ -10,6 +10,8 @@
 #include <utility>
 
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/MemoryBuffer.h>
 
 #include <mlir/ExecutionEngine/ExecutionEngine.h>
 
@@ -26,6 +28,30 @@ JitEngine::JitEngine(std::unique_ptr<mlir::ExecutionEngine> eng)
 JitEngine::JitEngine(std::unique_ptr<LLJIT> jit) : lljit(std::move(jit)) {}
 
 JitEngine::~JitEngine() = default;
+
+bool JitEngine::saveToFile(StringRef filename) {
+  if (!engine) return false;
+  engine->dumpToObjectFile(filename);
+  // dumpToObjectFile() reports no errors, an empty file means failure.
+  uint64_t size;
+  return !sys::fs::file_size(filename, size) && size;
+}
+
+std::unique_ptr<JitEngine> JitEngine::load(std::unique_ptr<MemoryBuffer> obj) {
+  if (!obj) return nullptr;
+
+  auto jitOrErr = LLJITBuilder().create();
+  if (!jitOrErr) {
+    consumeError(jitOrErr.takeError());
+    return nullptr;
+  }
+  auto &jit = *jitOrErr;
+  if (auto err = jit->addObjectFile(std::move(obj))) {
+    consumeError(std::move(err));
+    return nullptr;
+  }
+  return std::make_unique<JitEngine>(std::move(jit));
+}
 
 Expected<void *> JitEngine::lookup(StringRef name) const {
   if (engine) return engine->lookup(name);

@@ -2,6 +2,7 @@ add_subdirectory(Dialect)
 add_subdirectory(Transforms)
 add_subdirectory(ExecutionEngine)
 add_subdirectory(Runtime)
+add_subdirectory(Utils)
 
 gc_add_mlir_library(
   GcGpuCompiler
@@ -10,7 +11,8 @@ gc_add_mlir_library(
   PUBLIC
   GcInterface
   GcGpuPasses
-  GcJitEngine)
+  GcJitEngine
+  GcUtils)
 
 get_property(GC_MLIR_LIBS GLOBAL PROPERTY GC_MLIR_LIBS)
 get_property(GC_PASS_LIBS GLOBAL PROPERTY GC_PASS_LIBS)
