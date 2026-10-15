@@ -19,6 +19,9 @@
 namespace mlir {
 struct ExecutionEngine;
 } // namespace mlir
+namespace llvm {
+class MemoryBuffer;
+} // namespace llvm
 namespace llvm::orc {
 struct LLJIT;
 } // namespace llvm::orc
@@ -29,6 +32,10 @@ struct JitEngine {
   explicit JitEngine(std::unique_ptr<llvm::orc::LLJIT> jit);
   ~JitEngine();
   JitEngine(JitEngine &&) = default;
+
+  static std::unique_ptr<JitEngine>
+  load(std::unique_ptr<llvm::MemoryBuffer> obj);
+  bool saveToFile(llvm::StringRef filename);
 
   llvm::Expected<void *> lookup(llvm::StringRef name) const;
   llvm::Expected<void (*)(void **)> lookupPacked(llvm::StringRef name) const;
