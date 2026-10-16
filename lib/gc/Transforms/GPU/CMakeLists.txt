@@ -1,38 +1,39 @@
-set(IMEX_LIBS "")
-if(GC_ENABLE_IMEX)
-add_subdirectory(IMEX)
-set(IMEX_LIBS GcGpuIMEXPasses)
-endif()
-
-set(OCL_PASSES_LIBS "")
-if(GC_ENABLE_GPU)
-add_subdirectory(OCL)
-set(OCL_PASSES_LIBS GcGpuOclPasses)
-endif()
-
-gc_add_mlir_library(GcGpuPasses
+get_property(GC_PASS_LIBS GLOBAL PROPERTY GC_PASS_LIBS)
+get_property(GC_DIALECT_LIBS GLOBAL PROPERTY GC_DIALECT_LIBS)
+gc_add_mlir_library(
+  GcGpuPasses
+  tiling/TileContraction.cpp
+  tiling/TileAttention.cpp
+  tiling/TileGroupedMatmul.cpp
+  tiling/TileParallel.cpp
   AddContextArg.cpp
-  AllocsToSLM.cpp
-  GpuTilingAndFusion.cpp
+  ApplyPaddingLevel.cpp
+  TensorMaskingOpInterface.cpp
+  Decomposition.cpp
+  DropUnitDims.cpp
+  GpuDeviceProps.cpp
+  GpuKernelOutline.cpp
+  GpuToGcGpu.cpp
+  MemrefCopyToGpuMemcpy.cpp
+  TensorConcatToLinalg.cpp
+  TensorReshapeToLinalg.cpp
+  Vectorize.cpp
+  RemoveAllocs.cpp
+  SetKernelDepends.cpp
+  HoistForLoopTransferRead.cpp
+  FoldPadRoundtrip.cpp
+  HoistStaticForInit.cpp
+  PeeledForToIf.cpp
+  AttentionOptimizations/Utils.cpp
+  AttentionOptimizations/SetAttentionLayouts.cpp
+  AttentionOptimizations/SetAttentionPrefetch.cpp
+  AttentionOptimizations/HoistAttentionVLoad.cpp
+  SetLayouts.cpp
+  SetGpuFastMath.cpp
   Pipeline.cpp
-  XeVMAttachTarget.cpp
-
   DEPENDS
-    GraphCompilerPassIncGen
-
-  LINK_LIBS PUBLIC
-    MLIRGPUDialect
-    MLIRXeGPUDialect
-    MLIRGPUTransforms
-    MLIRGPUToSPIRV
-    MLIRSCFToGPU
-    MLIRSCFToSPIRV
-    MLIRMathToSPIRV
-    MLIRControlFlowToSPIRV
-    MLIRMemRefTransforms
-    MLIRXeVMToLLVMIRTranslation
-    GcInterface
-    GcUtilsIR
-    ${IMEX_LIBS}
-    ${OCL_PASSES_LIBS}
-)
+  GraphCompilerPassIncGen
+  GcTensorMaskingOpInterfaceIncGen
+  LINK_LIBS
+  PUBLIC
+  GcInterface)

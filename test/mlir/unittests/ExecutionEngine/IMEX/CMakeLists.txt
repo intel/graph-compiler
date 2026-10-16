@@ -1,9 +1,0 @@
-add_mlir_unittest(GCExecutionEngineIMEXGpuTests
-  IMEXGpuOclRuntimeTest.cpp
-)
-target_link_libraries(GCExecutionEngineIMEXGpuTests
-  PRIVATE
-  GcJitWrapper
-  GcGpuOclRuntime
-  GcGpuPasses
-)

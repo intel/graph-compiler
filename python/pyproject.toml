@@ -1,0 +1,27 @@
+# uv pip install -v -e 'python[test]'
+[project]
+name = "graph_compiler"
+version = "1.0.0"
+
+[build-system]
+requires = ["setuptools", "wheel", "nanobind==2.9"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+test = ["pytest", "torch", "torch-mlir", "triton-xpu"]
+xpu = ["torch", "triton-xpu"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-xpu" }
+triton-xpu = { index = "pytorch-xpu" }
+torch-mlir = { index = "torch_mlir" }
+
+[[tool.uv.index]]
+name = "pytorch-xpu"
+url = "https://download.pytorch.org/whl/xpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "torch_mlir"
+url = "https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels"
+explicit = true

@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "gc",
+      "displayName": "Graph Compiler",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "gc-dbg",
+      "displayName": "Graph Compiler - Debug",
+      "inherits": "gc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "gc-ldbg",
+      "displayName": "Graph Compiler - Debug with Dylink",
+      "inherits": "gc-dbg",
+      "cacheVariables": {
+        "GC_DYLINK": "ON"
+      }
+    }
+  ]
+}

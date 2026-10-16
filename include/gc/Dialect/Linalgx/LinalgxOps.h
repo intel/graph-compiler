@@ -22,7 +22,4 @@
 #define GET_OP_CLASSES
 #include "gc/Dialect/Linalgx/LinalgxOps.h.inc"
 
-#define GET_OP_CLASSES
-#include "gc/Dialect/Linalgx/LinalgxStructuredOps.h.inc"
-
 #endif // GC_DIALECTS_LINALGXOPS_H
