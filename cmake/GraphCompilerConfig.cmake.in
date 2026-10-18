@@ -1,0 +1,15 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(MLIR REQUIRED CONFIG)
+if(NOT TARGET LLVM)
+  find_dependency(LLVM REQUIRED CONFIG)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/GraphCompilerTargets.cmake")
+
+if(TARGET GcInterface)
+  set_property(TARGET GcInterface APPEND PROPERTY
+    INTERFACE_INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS};${MLIR_INCLUDE_DIRS}")
+endif()

@@ -1,6 +1,9 @@
-add_subdirectory(CPURuntime)
-add_subdirectory(Driver)
-if(GC_ENABLE_GPU)
-    add_subdirectory(GPURuntime)
-    add_subdirectory(OpenCLRuntime)
-endif()
+gc_add_mlir_library(
+  GcJitEngine
+  JitEngine.cpp
+  LINK_LIBS
+  PUBLIC
+  GcInterface
+  ${MLIR_EXECUTION_ENGINE}
+  LLVMOrcJIT
+  LLVMOrcTargetProcess)

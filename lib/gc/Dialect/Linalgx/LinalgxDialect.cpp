@@ -28,8 +28,4 @@ void LinalgxDialect::initialize() {
 #define GET_OP_LIST
 #include "gc/Dialect/Linalgx/LinalgxOps.cpp.inc"
       >();
-  addOperations<
-#define GET_OP_LIST
-#include "gc/Dialect/Linalgx/LinalgxStructuredOps.cpp.inc"
-      >();
 }

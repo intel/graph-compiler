@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format
+        entry: clang-format --dry-run --Werror
+        language: system
+        files: '\.(h|cpp)$'
+
+      - id: cmake-format
+        name: cmake-format
+        entry: cmake-format --check
+        language: system
+        files: '(CMakeLists\.txt|.+\.cmake)$'
+
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format --check
+        language: system
+        files: '\.py$'
+
+      - id: clang-tidy
+        name: clang-tidy
+        entry: clang-tidy -p build --warnings-as-errors='*'
+        language: system
+        files: '\.(h|cpp)$'
+        require_serial: false

@@ -20,7 +20,7 @@ def LinalgxDialect : Dialect {
     let summary = "A dialect for linalg extensions.";
     let description = [{
         The dialect primarily aims to fill the gap for matmul ops
-        missing tiling semantics when consuming packed tensors. 
+        missing tiling semantics when consuming packed tensors.
     }];
     let cppNamespace = "::mlir::linalgx";
 
@@ -30,21 +30,8 @@ def LinalgxDialect : Dialect {
         "math::MathDialect",
         "memref::MemRefDialect",
         "tensor::TensorDialect",
+        "linalg::LinalgDialect"
     ];
-
-    let extraClassDeclaration = [{
-        /// Attribute name used to memoize indexing maps for named ops.
-        constexpr const static ::llvm::StringLiteral
-            kMemoizedIndexingMapsAttrName = "linalg.memoized_indexing_maps";
-
-        using RegionBuilderFunType = llvm::function_ref<
-        void(ImplicitLocOpBuilder &b, Block &, ArrayRef<NamedAttribute>)>;
-        RegionBuilderFunType getRegionBuilder(StringRef name) {
-        return namedStructuredOpRegionBuilders.lookup(name);
-        }
-        private:
-        llvm::StringMap<RegionBuilderFunType> namedStructuredOpRegionBuilders;
-    }];
 }
 
 #endif // LINALGX_DIALECT

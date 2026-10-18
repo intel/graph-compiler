@@ -1,0 +1,56 @@
+diff --git a/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp b/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp
+index 1681d295ae0f..b711c61ed993 100644
+--- a/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp
++++ b/mlir/lib/Dialect/XeGPU/Transforms/XeGPUPropagateLayout.cpp
+@@ -149,6 +149,17 @@ public:
+ 
+   Attribute get() { return storage; }
+   void set(const xegpu::DistributeLayoutAttr &layout) { storage = layout; }
++
++  /// Returns a copy of this layout re-stamped as a *forwarded* demand, i.e. a
++  /// demand that reached this value by being carried unchanged across a
++  /// region/branch boundary (or up through a layout-agnostic op) rather than
++  /// by being freshly required by a consumer at this point. Its inherited
++  /// `programOrder` belongs to some unrelated op deeper in the def chain, so it
++  /// must not compete with real consumer demands; give it the authoritative
++  /// (smallest) index instead. See `LayoutInfoLattice::meet`.
++  LayoutInfo asForwardedDemand() const {
++    return LayoutInfo(storage, std::numeric_limits<int64_t>::min());
++  }
+ };
+ 
+ void LayoutInfo::print(raw_ostream &os) const {
+@@ -185,6 +196,33 @@ LayoutInfo LayoutInfo::join(const LayoutInfo &lhs, const LayoutInfo &rhs) {
+ struct LayoutInfoLattice : public Lattice<LayoutInfo> {
+   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LayoutInfoLattice)
+   using Lattice::Lattice;
++  // Keep the value-taking `meet(const LayoutInfo &)` visible: the override
++  // below would otherwise hide every inherited `meet` overload.
++  using Lattice::meet;
++
++  /// Lattice-to-lattice meet. The dataflow framework uses this overload only to
++  /// forward an *already computed* demand from one value to another that must
++  /// share its layout: across region/branch boundaries
++  /// (`visitRegionSuccessors`, `visitRegionSuccessorsFromTerminator`, so
++  /// scf.for/scf.if init <-> iter_arg <-> result <-> yield operand) and through
++  /// layout-agnostic ops in `visitOperation`'s default case.
++  ///
++  /// Such a forwarded demand carries the `programOrder` of whichever consumer
++  /// originally created it, which says nothing about the distance between *this*
++  /// value and its consumers. Left as-is it competes in the nearest-consumer
++  /// comparison and can lose to an unrelated nearer demand - which would break a
++  /// hard structural requirement, because all positions of a loop-carried group
++  /// must agree on one layout for the later type conversion to be well formed.
++  /// Re-stamp it as a forwarded demand so it always wins over local heuristic
++  /// preferences.
++  ChangeResult meet(const AbstractSparseLattice &rhs) override {
++    return Lattice::meet(
++        static_cast<const LayoutInfoLattice &>(rhs).getValue().isAssigned()
++            ? static_cast<const LayoutInfoLattice &>(rhs)
++                  .getValue()
++                  .asForwardedDemand()
++            : LayoutInfo());
++  }
+ };
+ 
+ //===----------------------------------------------------------------------===//
