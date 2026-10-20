@@ -4,7 +4,7 @@ name = "graph_compiler"
 version = "1.0.0"
 
 [build-system]
-requires = ["setuptools", "wheel", "nanobind==2.9"]
+requires = ["setuptools", "wheel", "nanobind==3.1.0"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
