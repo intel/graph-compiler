@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   build:
+    name: Build and smoke test
     runs-on: ubuntu-26.04
     env:
       GC_BUILD_TYPE: Release
@@ -26,7 +27,7 @@ jobs:
       CCACHE_COMPILERCHECK: content
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
           persist-credentials: false
@@ -70,13 +71,13 @@ jobs:
       # Caches are saved right after each build, so later failures do not discard them.
       # Eviction runs only after a successful build: entries unused by a complete build are stale.
       # A failed build still saves its ccache, unevicted, to keep the work done so far.
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: llvm
         with:
           path: externals/llvm/${{ env.LLVM_BUILD_TYPE }}
           key: llvm-${{ env.LLVM_BUILD_TYPE }}-${{ hashFiles('cmake/llvm-version.txt', 'patches/*.patch', 'scripts/build.sh') }}
 
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.llvm.outputs.cache-hit != 'true'
         id: llvm-ccache
         with:
@@ -99,19 +100,19 @@ jobs:
           ccache -s
           ccache --print-stats | awk -F'\t' '$1 == "cache_miss" { print $1 "=" $2 }' >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.llvm.outputs.cache-hit != 'true'
         with:
           path: externals/llvm/${{ env.LLVM_BUILD_TYPE }}
           key: ${{ steps.llvm.outputs.cache-primary-key }}
 
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ !cancelled() && (steps.llvm-build.outputs.cache_miss > 0 || steps.llvm-build.outcome == 'failure') }}
         with:
           path: ${{ env.CCACHE_ROOT }}/llvm
           key: ${{ steps.llvm-ccache.outputs.cache-primary-key }}
 
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: gc-ccache
         with:
           path: ${{ env.CCACHE_ROOT }}/gc
@@ -125,7 +126,7 @@ jobs:
           LLVM_BUILD_SKIP: 1
         run: *build
 
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ !cancelled() && (steps.gc-build.outputs.cache_miss > 0 || steps.gc-build.outcome == 'failure') }}
         with:
           path: ${{ env.CCACHE_ROOT }}/gc
