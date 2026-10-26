@@ -207,7 +207,8 @@ build_llvm() {
         -DPython3_EXECUTABLE=$(which python3) \
         -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF \
         -DLLVM_FORCE_VC_REPOSITORY="$LLVM_URL" \
-        -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL_DIR"
+        -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL_DIR" \
+        $LLVM_CMAKE_ARGS
     cmake --build "$LLVM_BUILD_DIR" --parallel $MAX_JOBS $build_target
     
     echo "$builds" | tr ':' '\n' | while read b; do
@@ -235,7 +236,8 @@ build_gc() {
       -DMLIR_DIR="$MLIR_DIR" \
       -DGC_EXTERNALS_DIR="$GC_EXTERNALS_DIR" \
       -DLLVM_EXTERNAL_LIT="$lit_path" \
-      -DCMAKE_INSTALL_PREFIX="$GC_INSTALL_DIR"
+      -DCMAKE_INSTALL_PREFIX="$GC_INSTALL_DIR" \
+      $GC_CMAKE_ARGS
   cmake --build "$GC_BUILD_DIR" --parallel $MAX_JOBS --target install
   set_gc_hash "$GC_INSTALL_DIR" "$GC_HASH"
 }
