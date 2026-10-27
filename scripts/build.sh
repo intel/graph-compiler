@@ -173,13 +173,14 @@ build_llvm() {
 
     local enable_assert=ON
     [ "$LLVM_BUILD_TYPE" = "Release" ] && enable_assert=OFF
-    export LLVM_HASH=$(repo_hash "$LLVM_DIR" "$LLVM_INSTALL_DIR" $LLVM_BUILD_TYPE $GC_DYLINK)
+    export LLVM_HASH=$(repo_hash "$LLVM_DIR" "$LLVM_INSTALL_DIR" $LLVM_BUILD_TYPE $GC_DYLINK $LLVM_CMAKE_ARGS)
     local hash_not_match=$(echo "$builds" | tr ':' '\n' | while read b; do
       [ "$(get_llvm_hash "$b")" = "$LLVM_HASH" ] || echo 1; done)
     [ -z "$hash_not_match" ] && echo "LLVM build is up-to-date" && return 0
 
     [ -z "$CLEANUP" ] || rm -rf "$LLVM_BUILD_DIR"
     mkdir -p "$LLVM_BUILD_DIR"
+    rm -f "$LLVM_BUILD_DIR/CMakeCache.txt"
 
     echo "Configuring LLVM..."
     # Configure checks compile in random TryCompile-* dirs and always miss ccache.
@@ -227,8 +228,9 @@ build_gc() {
   local lit_path="$LLVM_BUILD_DIR/bin/llvm-lit"
   [ -f "$lit_path" ] || lit_path=$(which lit)
   [ -z "$LLVM_HASH" ] && LLVM_HASH=$(get_llvm_hash "$MLIR_DIR/../../..")
-  GC_HASH=$(repo_hash . "$MLIR_DIR" "$lit_path" $LLVM_HASH $GC_BUILD_TYPE $GC_DYLINK)
+  GC_HASH=$(repo_hash . "$MLIR_DIR" "$lit_path" $LLVM_HASH $GC_BUILD_TYPE $GC_DYLINK $GC_CMAKE_ARGS)
   [ "$(get_gc_hash "$GC_INSTALL_DIR")" = "$GC_HASH" ] && echo "GC build is up-to-date" && return 0
+  rm -f "$GC_BUILD_DIR/CMakeCache.txt"
   
   CCACHE_DISABLE=1 cmake -G Ninja -S . -B "$GC_BUILD_DIR" \
       -DCMAKE_BUILD_TYPE=$GC_BUILD_TYPE \
