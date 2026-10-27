@@ -569,7 +569,7 @@ private:
         if (fn == "fabs" || fn == "abs" || fn == "exp" || fn == "exp2" ||
             fn == "log" || fn == "log2" || fn == "sqrt" || fn == "rsqrt" ||
             fn == "tanh" || fn == "ceil" || fn == "floor" || fn == "pow" ||
-            fn == "fma") {
+            fn == "fma" || fn == "erf" || fn == "sin" || fn == "cos") {
           expression = fn.str() + "(";
           for (size_t i = 0; i < operands.size(); ++i)
             expression += (i ? "," : "") + operands[i];

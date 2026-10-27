@@ -54,10 +54,11 @@ set(LLVM_DIR
 # ############################# Cmake options ##################################
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
+if(NOT MSVC)
+  set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+  set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
+endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-Werror -Werror=missing-declarations)
 endif()
@@ -95,7 +96,7 @@ target_include_directories(
   INTERFACE $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
             $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>)
-if(NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+if(NOT MSVC AND NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(GcInterface INTERFACE -ffunction-sections
                                                -fdata-sections)
 endif()
