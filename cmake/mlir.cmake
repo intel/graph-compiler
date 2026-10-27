@@ -120,6 +120,7 @@ else()
       MLIRGPUDialect
       MLIRGPUPipelines
       MLIRGPUTransforms
+      MLIRGPUXeVMTransforms
       MLIRIndexDialect
       MLIRLinalgDialect
       MLIRLinalgTransforms
@@ -182,6 +183,5 @@ else()
               ${MLIR_EXECUTION_ENGINE}
               ${GC_LLVM_LIBS}
               LLVMX86CodeGen
-              LLVMX86AsmParser
               LLVMSPIRVCodeGen)
 endif()

@@ -65,6 +65,7 @@ build_ov() {
     fi
     git -C "$OV_DIR" submodule update --init --recursive --depth 1 --jobs "$MAX_JOBS"
     [ -z "$CLEANUP" ] || rm -rf "$OV_BUILD_DIR" "$OV_INSTALL_DIR"
+    rm -f "$OV_BUILD_DIR/CMakeCache.txt"
 
     local llvm_dir=$(realpath -m "$MLIR_DIR/../../../lib/cmake/llvm")
     : "${LLVM_HASH:=$(get_llvm_hash "$llvm_dir")}"
