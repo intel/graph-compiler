@@ -18,7 +18,9 @@ if(GC_DYLINK)
 
   add_library(${PROJECT_NAME} SHARED ${GC_LIB_OBJECTS})
   target_link_libraries(${PROJECT_NAME} PUBLIC GcInterface)
-  target_link_libraries(${PROJECT_NAME} PRIVATE GcLevelZero)
+  if(GC_ENABLE_ZE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE GcLevelZero)
+  endif()
 else()
   add_library(${PROJECT_NAME} INTERFACE)
   target_link_libraries(

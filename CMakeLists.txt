@@ -21,14 +21,16 @@ project(
   LANGUAGES C CXX)
 
 include(GNUInstallDirs)
+include(CMakeDependentOption)
 include(CMakePackageConfigHelpers)
 
 # ########################### Build options ####################################
 option(GC_ENABLE_TEST "Build the tests" ON)
 option(GC_ENABLE_TOOLS "Build the tools" ON)
 option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
-option(GC_ENABLE_GPU_RUNNER "Build GPU runner" ${GC_ENABLE_TOOLS})
-option(GC_ENABLE_PYTHON_BINDINGS "Build Python bindings" ON)
+option(GC_ENABLE_ZE "Build Level Zero GPU runtime" ON)
+cmake_dependent_option(GC_ENABLE_PYTHON_BINDINGS "Build Python bindings" ON
+                       "GC_ENABLE_ZE" OFF)
 option(GC_DYLINK "Link dynamic libraries of LLVM and MLIR" OFF)
 set(GC_EXTERNALS_DIR
     "${PROJECT_SOURCE_DIR}/externals"
@@ -132,8 +134,12 @@ else()
               ${GC_DIALECT_LIBS})
 endif()
 
+if(GC_ENABLE_ZE)
+  list(APPEND GC_LIBS GcLevelZero)
+endif()
+
 install(
-  TARGETS GcInterface GcLevelZero ${GC_TOOLS} ${GC_LIBS}
+  TARGETS GcInterface ${GC_TOOLS} ${GC_LIBS}
   EXPORT ${PROJECT_NAME}Targets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
