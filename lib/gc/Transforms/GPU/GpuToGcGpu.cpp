@@ -526,13 +526,11 @@ private:
     {
       // The acquire load is paired with the release in the CAS above, ensuring
       // that the kernel object, created by another thread, is visible here.
-      auto kernel = LLVM::LoadOp::create(
-          rewriter, loc, helper.ptrType,
-          LLVM::AddressOfOp::create(rewriter, loc, global),
-          helper.converter.getPointerBitwidth() / 8, /*isVolatile=*/false,
-          /*isNonTemporal=*/false, /*isInvariant=*/false,
-          /*isInvariantGroup=*/false, /*isNoundef=*/false,
-          LLVM::AtomicOrdering::acquire);
+      auto kernel =
+          LLVM::LoadOp::create(rewriter, loc, helper.ptrType,
+                               LLVM::AddressOfOp::create(rewriter, loc, global),
+                               helper.converter.getPointerBitwidth() / 8);
+      kernel.setOrdering(LLVM::AtomicOrdering::acquire);
       auto isNull = LLVM::ICmpOp::create(rewriter, loc, LLVM::ICmpPredicate::eq,
                                          kernel, helper.nullPtr(rewriter, loc));
 

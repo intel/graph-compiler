@@ -23,7 +23,9 @@
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#if GC_ENABLE_IGC
 #include <mlir/Dialect/XeGPU/uArch/uArchCommon.h>
+#endif
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/OperationSupport.h>
 #include <mlir/IR/Value.h>
@@ -220,15 +222,19 @@ struct DevAttrs : public GcAttrs<const char *> {
   std::optional<StringRef> getArch() { return get<StringRef>(DEVICE_ARCH); }
   void setArch(StringRef arch) {
     set(DEVICE_ARCH, arch);
+#if GC_ENABLE_IGC
     this->arch = nullptr;
+#endif
   }
 
+#if GC_ENABLE_IGC
   const xegpu::uArch::uArch *getUarch() {
     if (!arch) {
       arch = xegpu::uArch::getUArch(getArch().value_or("bmg"));
     }
     return arch;
   }
+#endif
 
   std::optional<SmallVector<size_t>> getSgSizes() {
     return get<SmallVector<size_t>>(SG_SIZES);
@@ -256,7 +262,9 @@ private:
   static constexpr char DEVICE_ARCH[] = "arch";
   static constexpr char MAX_WG_SIZE[] = "max_wg_size";
   static constexpr char SG_SIZES[] = "sg_sizes";
+#if GC_ENABLE_IGC
   const xegpu::uArch::uArch *arch = nullptr;
+#endif
 };
 
 struct KernelAttrs : public GcAttrs<const char *, StringRef> {

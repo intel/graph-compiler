@@ -49,7 +49,6 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
-#include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/AllInterfaces.h"
@@ -66,6 +65,7 @@
 #include "mlir/Dialect/SCF/Transforms/BufferDeallocationOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
+#include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
 #include "mlir/Dialect/Tensor/Extensions/AllExtensions.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
@@ -80,19 +80,24 @@
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/IndexedAccessOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/Transforms/SubsetOpInterfaceImpl.h"
-#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Target/LLVM/XeVM/Target.h"
 #include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/XeVM/XeVMToLLVMIRTranslation.h"
+#include "mlir/Target/SPIRV/Target.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Transforms/Passes.h"
-#include "gc/Transforms/TensorMaskingOpInterface.h"
 #include "gc/Utils/Misc.h"
+
+#if GC_ENABLE_IGC
+#include "gc/Transforms/TensorMaskingOpInterface.h"
+#include "mlir/Dialect/LLVMIR/XeVMDialect.h"
+#include "mlir/Dialect/XeGPU/IR/XeGPU.h"
+#include "mlir/Target/LLVM/XeVM/Target.h"
+#include "mlir/Target/LLVMIR/Dialect/XeVM/XeVMToLLVMIRTranslation.h"
+#endif
 
 namespace mlir::gc {
 
@@ -155,18 +160,27 @@ struct TruncatingPrintIRPass
 
 DialectRegistry &getDialectRegistry() {
   static mlir::DialectRegistry registry = []() {
+#if GC_ENABLE_IGC
     mlir::gc::registerGraphCompilerPasses();
+#else
+    registerDecomposition();
+    registerTensorConcatToLinalg();
+    registerGpuToGcGpu();
+    registerMemrefCopyToGpu();
+#endif
     mlir::DialectRegistry registry;
-    registry.insert<mlir::affine::AffineDialect, mlir::arith::ArithDialect,
-                    mlir::bufferization::BufferizationDialect,
-                    mlir::cf::ControlFlowDialect, mlir::DLTIDialect,
-                    mlir::func::FuncDialect, mlir::gpu::GPUDialect,
-                    mlir::index::IndexDialect, mlir::linalg::LinalgDialect,
-                    mlir::linalgx::LinalgxDialect, mlir::LLVM::LLVMDialect,
-                    mlir::math::MathDialect, mlir::memref::MemRefDialect,
-                    mlir::scf::SCFDialect, mlir::tensor::TensorDialect,
-                    mlir::ub::UBDialect, mlir::vector::VectorDialect,
-                    mlir::xegpu::XeGPUDialect, mlir::xevm::XeVMDialect>();
+    registry.insert<
+        mlir::affine::AffineDialect, mlir::arith::ArithDialect,
+        mlir::bufferization::BufferizationDialect, mlir::cf::ControlFlowDialect,
+        mlir::DLTIDialect, mlir::func::FuncDialect, mlir::gpu::GPUDialect,
+        mlir::index::IndexDialect, mlir::linalg::LinalgDialect,
+        mlir::linalgx::LinalgxDialect, mlir::LLVM::LLVMDialect,
+        mlir::math::MathDialect, mlir::memref::MemRefDialect,
+        mlir::scf::SCFDialect, mlir::tensor::TensorDialect, mlir::ub::UBDialect,
+        mlir::vector::VectorDialect, mlir::spirv::SPIRVDialect>();
+#if GC_ENABLE_IGC
+    registry.insert<mlir::xegpu::XeGPUDialect, mlir::xevm::XeVMDialect>();
+#endif
     mlir::LLVM::registerInlinerInterface(registry);
     mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
     mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
@@ -200,7 +214,9 @@ DialectRegistry &getDialectRegistry() {
     mlir::memref::registerAllocationOpInterfaceExternalModels(registry);
     mlir::memref::registerRuntimeVerifiableOpInterfaceExternalModels(registry);
     mlir::memref::registerValueBoundsOpInterfaceExternalModels(registry);
+#if GC_ENABLE_IGC
     mlir::memref::registerDestructurableTypeExternalModels(registry);
+#endif
     mlir::scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
     mlir::scf::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
@@ -214,16 +230,23 @@ DialectRegistry &getDialectRegistry() {
     mlir::vector::registerIndexedAccessOpInterfaceExternalModels(registry);
     mlir::vector::registerSubsetOpInterfaceExternalModels(registry);
     mlir::vector::registerValueBoundsOpInterfaceExternalModels(registry);
+#if GC_ENABLE_IGC
     mlir::xevm::registerXeVMTargetInterfaceExternalModels(registry);
+#endif
+    mlir::spirv::registerSPIRVTargetInterfaceExternalModels(registry);
     mlir::registerBuiltinDialectTranslation(registry);
     mlir::registerConvertComplexToLLVMInterface(registry);
     mlir::registerLLVMDialectTranslation(registry);
     mlir::registerGPUDialectTranslation(registry);
 
+#if GC_ENABLE_IGC
     mlir::gc::registerTensorMaskingOpInterfaceForLinalg(registry);
+#endif
     mlir::gpu::registerOffloadingLLVMTranslationInterfaceExternalModels(
         registry);
+#if GC_ENABLE_IGC
     mlir::registerXeVMDialectTranslation(registry);
+#endif
 
     // Collect every dialect declared by the pipeline's passes before any
     // asynchronous compilation can start. The context loads this registry
@@ -241,6 +264,7 @@ DialectRegistry &getDialectRegistry() {
   return registry;
 }
 
+#if GC_ENABLE_IGC
 static void
 addAttentionOptimizationPasses(OpPassManager &pm,
                                const GPUPipelineOptions &pipelineOpts) {
@@ -250,8 +274,15 @@ addAttentionOptimizationPasses(OpPassManager &pm,
   pm.addPass(createSetAttentionLayouts());
 }
 
+#endif
+
 void populateGPUPipeline(OpPassManager &pm,
                          const GPUPipelineOptions &pipelineOpts) {
+  if (pipelineOpts.spirv || !GC_ENABLE_IGC) {
+    populateSPIRVPipeline(pm, pipelineOpts);
+    return;
+  }
+#if GC_ENABLE_IGC
   static bool dumpIr = gcGetEnv("GC_DUMP_IR", false);
   llvm::raw_ostream &dumpStream =
       pipelineOpts.dumpStream ? *pipelineOpts.dumpStream : llvm::dbgs();
@@ -376,6 +407,7 @@ void populateGPUPipeline(OpPassManager &pm,
 
   phase("GpuToGcGpu",
         [&]() { pm.addPass(createGpuToGcGpu({pipelineOpts.wait})); });
+#endif
 }
 
 void registerGPUPipeline() {

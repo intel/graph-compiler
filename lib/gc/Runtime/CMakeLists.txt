@@ -1,3 +1,7 @@
 if(GC_ENABLE_ZE)
   add_subdirectory(Ze)
 endif()
+if(GC_ENABLE_OCL)
+  find_package(OpenCL REQUIRED)
+  add_subdirectory(Ocl)
+endif()

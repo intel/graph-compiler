@@ -58,6 +58,7 @@ FutureProgram GpuCompiler::compile(mlir::OwningOpRef<mlir::ModuleOp> src,
     pipelineOpts.dump = opts.dump;
     pipelineOpts.igcCmdOptions = opts.igcOpts;
     pipelineOpts.wait = opts.wait;
+    pipelineOpts.spirv = opts.spirv;
     mlir::PassManager pm(src->getContext());
     mlir::gc::populateGPUPipeline(pm, pipelineOpts);
     if (mlir::failed(pm.run(*src))) {

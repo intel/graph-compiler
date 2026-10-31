@@ -10,6 +10,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -275,6 +276,9 @@ ZeGpuRuntime::Kernel *ZeGpuRuntime::createKernel(const uint8_t *data,
   ze_module_desc_t md{};
   md.stype = ZE_STRUCTURE_TYPE_MODULE_DESC;
   md.format = ZE_MODULE_FORMAT_NATIVE;
+  uint32_t magic = 0;
+  if (size >= sizeof(magic)) std::memcpy(&magic, data, sizeof(magic));
+  if (magic == 0x07230203) md.format = ZE_MODULE_FORMAT_IL_SPIRV;
   md.inputSize = size;
   md.pInputModule = data;
   ze_module_handle_t module = nullptr;
