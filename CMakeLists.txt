@@ -25,10 +25,18 @@ include(CMakeDependentOption)
 include(CMakePackageConfigHelpers)
 
 # ########################### Build options ####################################
+if(APPLE)
+  set(GC_ENABLE_IGC_DEFAULT OFF)
+else()
+  set(GC_ENABLE_IGC_DEFAULT ON)
+endif()
+option(GC_ENABLE_IGC "Build the Intel XeGPU/XeVM code generation backend"
+       ${GC_ENABLE_IGC_DEFAULT})
 option(GC_ENABLE_TEST "Build the tests" ON)
 option(GC_ENABLE_TOOLS "Build the tools" ON)
 option(GC_ENABLE_OPT "Build gc-opt" ${GC_ENABLE_TOOLS})
-option(GC_ENABLE_ZE "Build Level Zero GPU runtime" ON)
+option(GC_ENABLE_ZE "Build Level Zero GPU runtime" ${GC_ENABLE_IGC_DEFAULT})
+option(GC_ENABLE_OCL "Build OpenCL source GPU runtime" ON)
 cmake_dependent_option(GC_ENABLE_PYTHON_BINDINGS "Build Python bindings" ON
                        "GC_ENABLE_ZE" OFF)
 option(GC_DYLINK "Link dynamic libraries of LLVM and MLIR" OFF)
@@ -46,10 +54,11 @@ set(LLVM_DIR
 # ############################# Cmake options ##################################
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
+if(NOT MSVC)
+  set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+  set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
+endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-Werror -Werror=missing-declarations)
 endif()
@@ -80,12 +89,14 @@ endif()
 # All common options, includes etc. are added to this interface target.
 add_library(GcInterface INTERFACE)
 target_compile_features(GcInterface INTERFACE cxx_std_17)
+target_compile_definitions(GcInterface
+                           INTERFACE GC_ENABLE_IGC=$<BOOL:${GC_ENABLE_IGC}>)
 target_include_directories(
   GcInterface
   INTERFACE $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
             $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>)
-if(NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+if(NOT MSVC AND NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(GcInterface INTERFACE -ffunction-sections
                                                -fdata-sections)
 endif()
@@ -111,6 +122,9 @@ add_dependencies(GcInterface GcVersion)
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(src)
+if(GC_ENABLE_TEST)
+  enable_testing()
+endif()
 add_subdirectory(test)
 # ##############################################################################
 

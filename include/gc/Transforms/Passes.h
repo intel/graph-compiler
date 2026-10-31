@@ -25,6 +25,9 @@ class OpPassManager;
 namespace gc {
 struct GpuDevicePropsOptions;
 struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
+  Option<bool> spirv{*this, "spirv",
+                     llvm::cl::desc("Generate generic SPIR-V kernels."),
+                     llvm::cl::init(false)};
   Option<bool> truncate{
       *this, "truncate-bin",
       llvm::cl::desc("Truncate large binary blobs in the dumps."),
@@ -52,6 +55,8 @@ struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
 DialectRegistry &getDialectRegistry();
 
 void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
+void populateSPIRVPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
+void populateOclSourcePipeline(mlir::OpPassManager &);
 
 void registerGPUPipeline();
 
