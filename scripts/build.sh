@@ -226,7 +226,9 @@ build_gc() {
 
   mkdir -p "$GC_BUILD_DIR"
   local lit_path="$LLVM_BUILD_DIR/bin/llvm-lit"
-  [ -f "$lit_path" ] || lit_path=$(which lit)
+  # -s, not -f: the CI cache truncates unused bin/ files to 0 bytes.
+  [ -s "$lit_path" ] || lit_path="$LLVM_INSTALL_DIR/bin/llvm-lit"
+  [ -s "$lit_path" ] || lit_path=$(which lit || true)
   [ -z "$LLVM_HASH" ] && LLVM_HASH=$(get_llvm_hash "$MLIR_DIR/../../..")
   GC_HASH=$(repo_hash . "$MLIR_DIR" "$lit_path" $LLVM_HASH $GC_BUILD_TYPE $GC_DYLINK $GC_CMAKE_ARGS)
   [ "$(get_gc_hash "$GC_INSTALL_DIR")" = "$GC_HASH" ] && echo "GC build is up-to-date" && return 0

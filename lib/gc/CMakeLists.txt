@@ -3,8 +3,14 @@ add_subdirectory(Transforms)
 add_subdirectory(ExecutionEngine)
 add_subdirectory(Runtime)
 
-gc_add_mlir_library(GcGpuCompiler GpuCompiler.cpp LINK_LIBS PUBLIC GcInterface
-                    GcGpuPasses)
+gc_add_mlir_library(
+  GcGpuCompiler
+  GpuCompiler.cpp
+  LINK_LIBS
+  PUBLIC
+  GcInterface
+  GcGpuPasses
+  GcJitEngine)
 
 get_property(GC_MLIR_LIBS GLOBAL PROPERTY GC_MLIR_LIBS)
 get_property(GC_PASS_LIBS GLOBAL PROPERTY GC_PASS_LIBS)
