@@ -64,8 +64,8 @@ void log(
 inline bool isDebugEnabled(const char *fileName) {
   static std::regex pattern = []() {
     auto env = std::getenv("GC_DEBUG");
-    return env ? std::regex(env, std::regex::extended)
-               : std::regex("", std::regex::basic);
+    return env && *env ? std::regex(env, std::regex::extended)
+                       : std::regex("", std::regex::basic);
   }();
   // The flag 'basic' is used as a marker for an empty regex.
   return pattern.flags() != std::regex::basic &&

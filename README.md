@@ -3,17 +3,16 @@
 Create a virtual environment:
 
 ```bash
-python -m venv .venv --prompt gc
+./scripts/create-venv.sh
 . .venv/bin/activate
-pip install nanobind pytest torch torch-mlir \
-  --extra-index-url https://download.pytorch.org/whl/xpu \
-  --find-links https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
 ```
 
-Build the project and install the Python bindings in editable mode:
+Build the project and install the Python bindings in editable mode.
+`--no-build-isolation` is required to build against the nanobind version
+installed by `create-venv.sh`, which matches the LLVM requirement:
 
 ```bash
-pip install -v -e python/
+pip install --no-build-isolation -v -e python/
 ```
 
 ## Run Python examples
@@ -31,5 +30,5 @@ pytest python/test/test_torch.py -v -s
 ## Run gc-opt
 
 ```bash
-./build/bin/gc-opt --gpu-dev-props='arch=pvc' --gc-gpu-pipeline='dump' linalg_on_tensors.mlir
+./build/bin/gc-opt --gpu-dev-props='arch=bmg' --gc-gpu-pipeline='dump' linalg_on_tensors.mlir
 ```

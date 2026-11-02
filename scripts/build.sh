@@ -71,7 +71,7 @@ fi
 GC_EXTERNALS_DIR=$(realpath -m "$GC_EXTERNALS_DIR")
 
 : ${LLVM_URL:='https://github.com/llvm/llvm-project.git'}
-: ${LLVM_TAG:=$(cat "$PROJECT_DIR/cmake/llvm-version.txt")}
+: ${LLVM_TAG:=$(head -n1 "$PROJECT_DIR/cmake/llvm-version.txt")}
 : ${LLVM_DIR:="$GC_EXTERNALS_DIR/llvm-project"}
 : ${LLVM_BUILD_TYPE:=$GC_BUILD_TYPE}
 : ${LLVM_BUILD_SFX:="/$LLVM_BUILD_TYPE"}
@@ -89,7 +89,8 @@ MLIR_DIR=$(realpath -m "$MLIR_DIR")
 GC_BUILD_DIR=$(realpath -m "$GC_BUILD_DIR")
 GC_INSTALL_DIR=$(realpath -m "$GC_INSTALL_DIR")
 
-: ${MAX_JOBS:=$(nproc)}
+: ${CMAKE_BUILD_PARALLEL_LEVEL:=$(nproc)}
+: ${MAX_JOBS:=$CMAKE_BUILD_PARALLEL_LEVEL}
 
 repo_hash() {
   [ -d "$1" ] || { head -c 1000 /dev/random | sha1sum; return 0; }
@@ -153,10 +154,14 @@ build_llvm() {
         git remote add origin "$LLVM_URL"
         git fetch --no-tags --depth=1 origin ${LLVM_TAG}
         git checkout FETCH_HEAD
-    elif ! is_true "$LLVM_NO_PATCH"; then
+    elif [ "$GITHUB_ACTIONS" = 'true' ] || ! is_true "$LLVM_NO_PATCH"; then
         cd "$LLVM_DIR"
-        [ $(git -C "$LLVM_DIR" rev-parse HEAD) = "$LLVM_TAG" ] || git fetch --no-tags --depth=1 origin ${LLVM_TAG}
-        git reset --hard FETCH_HEAD
+        local ref=HEAD
+        if [ "$(git rev-parse HEAD)" != "$LLVM_TAG" ]; then
+            git fetch --no-tags --depth=1 "$LLVM_URL" "$LLVM_TAG"
+            ref=FETCH_HEAD
+        fi
+        git reset --hard "$ref"
         [ -z "$CLEANUP" ] || git clean -xffd;
     else
       cd "$LLVM_DIR"
@@ -238,6 +243,7 @@ build_gc() {
       -DCMAKE_BUILD_TYPE=$GC_BUILD_TYPE \
       -DGC_DYLINK=$GC_DYLINK \
       -DMLIR_DIR="$MLIR_DIR" \
+      -DLLVM_DIR="$MLIR_DIR/../llvm" \
       -DGC_EXTERNALS_DIR="$GC_EXTERNALS_DIR" \
       -DLLVM_EXTERNAL_LIT="$lit_path" \
       -DCMAKE_INSTALL_PREFIX="$GC_INSTALL_DIR" \

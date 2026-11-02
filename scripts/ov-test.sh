@@ -24,7 +24,6 @@
 : ${OV_TEST_DUMP_DIR:="$PWD/failed_test_dumps/ov"}
 test_ov() {
     export OV_GPU_ENABLE_MLIR=1
-    export OV_GPU_QUEUE_TYPE=out-of-order
     # Without this, mlir_RMS test fails due to shape [1,64,1,1].
     export OV_GPU_ALLOW_NEW_SHAPE_INFER=1
     ov_test_runner="$OV_INSTALL_DIR/bin/intel64/Release/ov_gpu_func_tests"

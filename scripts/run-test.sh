@@ -18,21 +18,21 @@
 DUMP_DIR="$1"
 shift
 
-echo "Running test: $*"
-OUTPUT="$(echo "$*" && echo "Test output:" && "$@" 2>&1)"
+printf 'Running test: %s\n' "$*"
+OUTPUT="$(printf '%s\n' "$*" && echo "Test output:" && "$@" 2>&1)"
 EC=$?
 if [ $EC -eq 0 ]; then
-    [ "$GC_DUMP_IR" = "1" ] && echo "$OUTPUT"
+    [ "$GC_DUMP_IR" = "1" ] && printf '%s\n' "$OUTPUT"
     exit 0
 fi
 
-DUMP_FILE="$DUMP_DIR/$(echo "$*" | sha1sum | cut -d' ' -f1).txt"
+DUMP_FILE="$DUMP_DIR/$(printf '%s\n' "$*" | sha1sum | cut -d' ' -f1).txt"
 mkdir -p "$DUMP_DIR"
-echo "Test '$*' failed with exit code $EC. Saving output to $DUMP_FILE."
-echo "$OUTPUT" > "$DUMP_FILE"
-[ "$GC_DUMP_IR" = "1" ] && echo "$OUTPUT" && exit $EC
+printf "Test '%s' failed with exit code %s. Saving output to %s.\n" "$*" "$EC" "$DUMP_FILE"
+printf '%s\n' "$OUTPUT" > "$DUMP_FILE"
+[ "$GC_DUMP_IR" = "1" ] && printf '%s\n' "$OUTPUT" && exit $EC
 
 echo "Running test again with IR dumps enabled:" >> "$DUMP_FILE"
-GC_DUMP_IR=1 GC_FILE_CACHE_OFF=1 OV_GPU_MLIR_DEBUG=1 "$@" >> "$DUMP_FILE" 2>&1
+GC_DUMP_IR=1 GC_FILE_CACHE_ON=0 OV_GPU_MLIR_DEBUG=1 "$@" >> "$DUMP_FILE" 2>&1
 cat "$DUMP_FILE"
 exit $EC

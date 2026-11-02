@@ -22,6 +22,12 @@ endif()
 nanobind_add_module(graph_compiler Nanobind.cpp)
 target_link_libraries(graph_compiler PRIVATE ${PROJECT_NAME})
 
-set_target_properties(
-  graph_compiler PROPERTIES LIBRARY_OUTPUT_DIRECTORY
-                            ${PROJECT_SOURCE_DIR}/python/src)
+set(GC_PYTHON_OUTPUT_DIR
+    "${PROJECT_SOURCE_DIR}/python/src"
+    CACHE PATH "Output directory of the graph_compiler Python module")
+set_target_properties(graph_compiler PROPERTIES LIBRARY_OUTPUT_DIRECTORY
+                                                ${GC_PYTHON_OUTPUT_DIR})
+if(NOT GC_PYTHON_OUTPUT_DIR STREQUAL "${PROJECT_SOURCE_DIR}/python/src")
+  configure_file(${PROJECT_SOURCE_DIR}/python/src/__init__.py
+                 ${GC_PYTHON_OUTPUT_DIR}/__init__.py COPYONLY)
+endif()

@@ -22,6 +22,7 @@ gc_add_mlir_library(
   SetKernelDepends.cpp
   HoistForLoopTransferRead.cpp
   FoldPadRoundtrip.cpp
+  SimplifyIndexingMaps.cpp
   HoistStaticForInit.cpp
   PeeledForToIf.cpp
   AttentionOptimizations/Utils.cpp
