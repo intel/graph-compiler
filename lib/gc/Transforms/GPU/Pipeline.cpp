@@ -56,7 +56,7 @@
 #include "mlir/Dialect/Linalg/Transforms/RuntimeOpVerification.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/MemRef/IR/MemRefMemorySlot.h"
+#include "mlir/Dialect/MemRef/IR/MemorySlotInterfacesImpl.h"
 #include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/MemRef/Transforms/AllocationOpInterfaceImpl.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
@@ -314,6 +314,7 @@ void populateGPUPipeline(OpPassManager &pm,
   });
 
   phase("Vectorization", [&]() {
+    pm.addNestedPass<func::FuncOp>(createSimplifyIndexingMaps());
     pm.addNestedPass<func::FuncOp>(createVectorize());
     pm.addNestedPass<func::FuncOp>(createHoistForLoopTransferRead());
     pm.addNestedPass<func::FuncOp>(createPeeledForToIf());

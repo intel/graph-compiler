@@ -114,6 +114,9 @@ def Vectorize : Pass<"vectorize", "func::FuncOp"> {
     Vectorize structured operations that have vectorization support and apply
     vector transformation patterns.
   }];
+  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
+                           "tensor::TensorDialect", "ub::UBDialect",
+                           "vector::VectorDialect"];
 }
 
 def DropUnitDims : Pass<"drop-unit-dims", "func::FuncOp"> {
@@ -265,6 +268,20 @@ def ApplyPaddingLevel : Pass<"apply-padding-level", "func::FuncOp"> {
     iteration dimensions become multiples of the tile sizes specified in
     gc.tiling.wg_tile_sizes.
   }];
+}
+
+def SimplifyIndexingMaps : Pass<"simplify-indexing-maps", "func::FuncOp"> {
+  let summary = "Turn grouped (floordiv) indexing maps into projected permutations.";
+  let description = [{
+    Replace input indexing-map results of the form `d floordiv c` with `d`
+    by broadcasting and collapsing the corresponding operand dimension.
+    This removes floordiv expressions that prevent linalg vectorization.
+
+    Requires static operand shapes, a static trip count at most c or divisible
+    by c, and exactly one operand value per group. The Vectorize pass folds
+    reads through the resulting tensor reshapes into vector shape casts.
+  }];
+  let dependentDialects = ["linalg::LinalgDialect", "tensor::TensorDialect"];
 }
 
 #endif // GC_DIALECT_GC_PASSES

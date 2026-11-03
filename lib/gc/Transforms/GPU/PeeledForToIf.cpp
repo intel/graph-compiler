@@ -16,6 +16,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "peeled-for-to-if"
@@ -36,19 +37,78 @@ static std::optional<int64_t> getConstantIndex(Value v) {
   return std::nullopt;
 }
 
+/// Strip index casts inserted by loop peeling for non-index loops.
+static Value skipIndexCasts(Value v) {
+  while (auto cast = v.getDefiningOp<arith::IndexCastOp>()) v = cast.getIn();
+  return v;
+}
+
+/// Determine whether `map`, applied to `operands`, produces the peeling split
+/// bound of a loop with the given `ub` and `step`, i.e.
+///
+///   split = ub - (ub - x) mod step
+///
+/// for any `x`. For a multi-result map (affine.max) one matching result is
+/// enough: the maximum is greater than or equal to each of its results, so
+/// ub - max(...) <= ub - split < step.
+static bool isSplitBoundMap(AffineMap map, ValueRange operands, Value ub,
+                            Value step, std::optional<int64_t> stepConst,
+                            MLIRContext *ctx) {
+  unsigned numDims = map.getNumDims();
+  auto exprOf = [&](unsigned i) {
+    return i < numDims ? getAffineDimExpr(i, ctx)
+                       : getAffineSymbolExpr(i - numDims, ctx);
+  };
+
+  SmallVector<AffineExpr> ubExprs, stepExprs, allExprs;
+  for (auto [i, operand] : llvm::enumerate(operands)) {
+    AffineExpr expr = exprOf(i);
+    allExprs.push_back(expr);
+    if (skipIndexCasts(operand) == ub) ubExprs.push_back(expr);
+    if (skipIndexCasts(operand) == step) stepExprs.push_back(expr);
+  }
+  // A constant step is folded into the map instead of being an operand.
+  if (stepConst && *stepConst > 0)
+    stepExprs.push_back(getAffineConstantExpr(*stepConst, ctx));
+
+  for (AffineExpr result : map.getResults()) {
+    for (AffineExpr ubExpr : ubExprs) {
+      for (AffineExpr stepExpr : stepExprs) {
+        // ub - (ub - x) mod step, x an operand of the map.
+        for (AffineExpr xExpr : allExprs)
+          if (result == ubExpr - (ubExpr - xExpr) % stepExpr) return true;
+        // Same with a constant lb = 0 folded into the map, plus the
+        // post-canonicalization spelling of it.
+        if (result == ubExpr - ubExpr % stepExpr) return true;
+        if (auto stepValue = dyn_cast<AffineConstantExpr>(stepExpr))
+          if (result ==
+              ubExpr.floorDiv(stepValue.getValue()) * stepValue.getValue())
+            return true;
+      }
+    }
+  }
+  return false;
+}
+
 /// Determine whether a scf.for loop has at most one iteration.
 ///
-/// Pattern 1 (pre-canonicalization):
-///   lb = affine.apply <()[s0, s1, s2] -> (s1 - (s1 - s0) % s2)>()[_, ub, step]
+/// All constants: ub - lb <= step.
 ///
-/// Pattern 2 (post-canonicalization with constant step):
-///   lb = affine.apply <()[s0] -> ((s0 floordiv C) * C)>()[ub], step = C
+/// Otherwise the loop must be the partial iteration of a peeled loop, whose
+/// lower bound is the split bound `ub - (ub - lb) mod step`, possibly clamped
+/// to lb. `scf::peelForLoopAndSimplifyBounds` has spelled that bound in
+/// several ways over time, all of which are accepted here:
 ///
-/// Pattern 3: all constants and ub - lb <= step.
+///   affine.apply <()[s0, s1, s2] -> (s1 - (s1 - s0) mod s2)>()[lb, ub, step]
+///   affine.max   <()[s0, s1, s2] -> (s1 - (s1 - s0) mod s2, s0)>()[lb, ub,
+///   step] affine.apply/affine.max with a constant step folded into the map,
+///   e.g.
+///     <()[s0] -> ((s0 floordiv C) * C)>()[ub] with step = C
+///   arith: ub - ((ub - min(lb, ub)) remui step)
 static bool isAtMostOneIteration(scf::ForOp forOp) {
-  Value lb = forOp.getLowerBound();
-  Value ub = forOp.getUpperBound();
-  Value step = forOp.getStep();
+  Value lb = skipIndexCasts(forOp.getLowerBound());
+  Value ub = skipIndexCasts(forOp.getUpperBound());
+  Value step = skipIndexCasts(forOp.getStep());
 
   auto lbConst = getConstantIndex(lb);
   auto ubConst = getConstantIndex(ub);
@@ -58,41 +118,24 @@ static bool isAtMostOneIteration(scf::ForOp forOp) {
     if (diff >= 0 && diff <= *stepConst) return true;
   }
 
-  auto affineApply = lb.getDefiningOp<affine::AffineApplyOp>();
-  if (!affineApply) return false;
+  MLIRContext *ctx = forOp.getContext();
+  if (auto applyOp = lb.getDefiningOp<affine::AffineApplyOp>())
+    return isSplitBoundMap(applyOp.getAffineMap(), applyOp.getMapOperands(), ub,
+                           step, stepConst, ctx);
 
-  AffineMap map = affineApply.getAffineMap();
-  if (map.getNumResults() != 1) return false;
+  if (auto maxOp = lb.getDefiningOp<affine::AffineMaxOp>())
+    return isSplitBoundMap(maxOp.getAffineMap(), maxOp.getMapOperands(), ub,
+                           step, stepConst, ctx);
 
-  // Pattern 1: map = s1 - (s1 - s0) % s2
-  if (map.getNumDims() == 0 && map.getNumSymbols() == 3) {
-    AffineExpr s0 = getAffineSymbolExpr(0, forOp.getContext());
-    AffineExpr s1 = getAffineSymbolExpr(1, forOp.getContext());
-    AffineExpr s2 = getAffineSymbolExpr(2, forOp.getContext());
-    AffineExpr expected = s1 - (s1 - s0) % s2;
-    if (map.getResult(0) == expected) {
-      auto operands = affineApply.getMapOperands();
-      if (operands.size() == 3 && operands[1] == ub && operands[2] == step)
-        return true;
-    }
+  // arith spelling: lb = ub - ((ub - min(lb, ub)) remui step).
+  if (auto subOp = lb.getDefiningOp<arith::SubIOp>()) {
+    if (skipIndexCasts(subOp.getLhs()) != ub) return false;
+    auto remOp = skipIndexCasts(subOp.getRhs()).getDefiningOp<arith::RemUIOp>();
+    if (!remOp || skipIndexCasts(remOp.getRhs()) != step) return false;
+    auto innerSub =
+        skipIndexCasts(remOp.getLhs()).getDefiningOp<arith::SubIOp>();
+    return innerSub && skipIndexCasts(innerSub.getLhs()) == ub;
   }
-
-  // Pattern 2: lb = (ub floordiv C) * C, step = C
-  if (!stepConst || *stepConst <= 0) return false;
-  int64_t C = *stepConst;
-
-  auto operands = affineApply.getMapOperands();
-  if (operands.size() != 1) return false;
-
-  AffineExpr var;
-  if (map.getNumDims() == 1 && map.getNumSymbols() == 0)
-    var = getAffineDimExpr(0, forOp.getContext());
-  else if (map.getNumDims() == 0 && map.getNumSymbols() == 1)
-    var = getAffineSymbolExpr(0, forOp.getContext());
-  else return false;
-
-  AffineExpr expected = (var.floorDiv(C)) * C;
-  if (map.getResult(0) == expected && operands[0] == ub) return true;
 
   return false;
 }

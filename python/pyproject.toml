@@ -1,10 +1,11 @@
-# uv pip install -v -e 'python[test]'
+# ./scripts/create-venv.sh && . .venv/bin/activate
+# uv pip install --no-build-isolation -v -e 'python[test]'
 [project]
 name = "graph_compiler"
 version = "1.0.0"
 
 [build-system]
-requires = ["setuptools", "wheel", "nanobind==3.1.0"]
+requires = ["setuptools", "wheel", "nanobind"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
