@@ -1,0 +1,373 @@
+// RUN: gc-opt %s --decomposition --split-input-file | FileCheck %s --implicit-check-not=gc.fused_
+
+// Decompose a tiled, dynamic-shape linalgx.attention and check that the
+// generated ops carry the propagated gc.tiling.wg_tile_sizes attribute with
+// the reduction (k-loop) step folded into the K2 dimension.
+
+#map = affine_map<(d0)[s0] -> (-d0 + s0, 128)>
+#map1 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3)>
+#map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d4, d3)>
+#map3 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d4, d5)>
+#map4 = affine_map<(d0, d1, d2, d3, d4, d5) -> ()>
+#map5 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d5)>
+
+// CHECK-LABEL: func.func @entry
+// The accumulator-init fills before the k-loop must NOT get tiling attributes.
+// CHECK:         linalg.fill ins
+// CHECK-NOT:       gc.tiling
+// CHECK:         linalg.fill ins
+// CHECK-NOT:       gc.tiling
+// CHECK:         linalg.fill ins
+// CHECK-NOT:       gc.tiling
+
+// The k-loop with the original 6D wg tile sizes preserved verbatim.
+// CHECK:         scf.for
+// CHECK:           linalg.transpose
+// CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 0, 64>
+// QK matmul: iteration (m, k2, k1) -> [128, 64, 0]
+// CHECK:           linalg.matmul {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128, 64, 0>
+// CHECK:           linalg.reduce
+// CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 128, 64>
+// CHECK:           linalg.generic {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128>
+// CHECK-NEXT:      ^bb0
+// CHECK-NEXT:        %{{.*}} = arith.maximumf
+// PV matmul: iteration (m, n, k2) -> [128, 0, 64]
+// CHECK:           linalg.matmul {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128, 0, 64>
+// CHECK:         } {gc.tiling.level = 1 : i8, gc.tiling.wg_tile_sizes = array<i64: 1, 1, 128, 0, 0, 0>}
+
+// Suffix ops (after the loop) use the 2D (m, n) tile space.
+// CHECK:         linalg.broadcast {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128, 0>
+// CHECK:         linalg.generic {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128, 0>
+// CHECK-NEXT:    ^bb0
+// CHECK-NEXT:      %{{.*}} = arith.divf
+
+module @fragment_name attributes {gc.module = {device = {arch = "bmg", max_wg_size = 1024 : i64, sg_sizes = [16, 32]}, kernels = {entry_kernel = {threads = [128, 1, 1]}}}} {
+  func.func @entry(%arg0: memref<?x16x?x64xf16>, %arg1: memref<?x16x?x64xf16>, %arg2: memref<?x16x?x64xf16>, %arg3: memref<?x16x?x64xf16>) attributes {gc.num_kernels = 1 : i32} {
+    %cst = arith.constant 0.000000e+00 : f16
+    %cst_0 = arith.constant 1.250000e-01 : f16
+    %c2 = arith.constant 2 : index
+    %c0 = arith.constant 0 : index
+    %0 = bufferization.to_tensor %arg0 restrict writable : memref<?x16x?x64xf16> to tensor<?x16x?x64xf16>
+    %dim = memref.dim %arg0, %c0 : memref<?x16x?x64xf16>
+    %1 = bufferization.to_tensor %arg1 restrict writable : memref<?x16x?x64xf16> to tensor<?x16x?x64xf16>
+    %2 = bufferization.to_tensor %arg2 restrict writable : memref<?x16x?x64xf16> to tensor<?x16x?x64xf16>
+    %dim_1 = memref.dim %arg2, %c2 : memref<?x16x?x64xf16>
+    %3 = tensor.empty(%dim, %dim_1) : tensor<?x16x?x64xf16>
+    %dim_2 = memref.dim %arg2, %c0 : memref<?x16x?x64xf16>
+    %dim_3 = memref.dim %arg2, %c2 : memref<?x16x?x64xf16>
+    %dim_4 = memref.dim %arg1, %c2 : memref<?x16x?x64xf16>
+    %4 = scf.forall (%arg4, %arg5, %arg6) = (0, 0, 0) to (%dim_2, 16, %dim_3) step (1, 1, 128) shared_outs(%arg7 = %3) -> (tensor<?x16x?x64xf16>) {
+      %5 = affine.min #map(%arg6)[%dim_3]
+      %extracted_slice = tensor.extract_slice %2[%arg4, %arg5, %arg6, 0] [1, 1, %5, 64] [1, 1, 1, 1] : tensor<?x16x?x64xf16> to tensor<1x1x?x64xf16>
+      %extracted_slice_5 = tensor.extract_slice %1[%arg4, %arg5, 0, 0] [1, 1, %dim_4, 64] [1, 1, 1, 1] : tensor<?x16x?x64xf16> to tensor<1x1x?x64xf16>
+      %extracted_slice_6 = tensor.extract_slice %0[%arg4, %arg5, 0, 0] [1, 1, %dim_4, 64] [1, 1, 1, 1] : tensor<?x16x?x64xf16> to tensor<1x1x?x64xf16>
+      %extracted_slice_7 = tensor.extract_slice %arg7[%arg4, %arg5, %arg6, 0] [1, 1, %5, 64] [1, 1, 1, 1] : tensor<?x16x?x64xf16> to tensor<1x1x?x64xf16>
+      %6 = linalg.fill ins(%cst : f16) outs(%extracted_slice_7 : tensor<1x1x?x64xf16>) -> tensor<1x1x?x64xf16>
+      %7 = linalgx.attention {gc.tiling.level = 1 : i8, gc.tiling.wg_tile_sizes = array<i64: 1, 1, 128, 0, 0, 0>} <{indexing_maps = [#map1, #map2, #map3, #map4, #map5]}> ins(%extracted_slice, %extracted_slice_5, %extracted_slice_6, %cst_0 : tensor<1x1x?x64xf16>, tensor<1x1x?x64xf16>, tensor<1x1x?x64xf16>, f16) outs(%6 : tensor<1x1x?x64xf16>) -> tensor<1x1x?x64xf16>
+      scf.forall.in_parallel {
+        tensor.parallel_insert_slice %7 into %arg7[%arg4, %arg5, %arg6, 0] [1, 1, %5, 64] [1, 1, 1, 1] : tensor<1x1x?x64xf16> into tensor<?x16x?x64xf16>
+      }
+    } {gc.kernel_name = "entry_kernel", gc.tiling.stamp = 1 : i64}
+    bufferization.materialize_in_destination %4 in restrict writable %arg3 : (tensor<?x16x?x64xf16>, memref<?x16x?x64xf16>) -> ()
+    return
+  }
+}
+
+// -----
+
+// A tile-local fused generic with shared LHS. Decomposition must produce two
+// matmuls in the existing K loop, keeping the common input, separate accumulators,
+// mixed-precision arithmetic and tiling attributes. No tiling pass runs here.
+#lhs = affine_map<(m, n, k) -> (m, k)>
+#weights = affine_map<(m, n, k) -> (n, k)>
+#out = affine_map<(m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @fused_shared_lhs
+// CHECK-SAME:    %[[LHS:[^:]+]]: tensor<64x256xf16>, %[[WEIGHTS0:[^:]+]]: tensor<64x256xf16>, %[[WEIGHTS1:[^:]+]]: tensor<64x256xf16>
+// CHECK-DAG:     %[[ZERO:.+]] = arith.constant 0 : index
+// CHECK-DAG:     %[[STEP:.+]] = arith.constant 64 : index
+// CHECK-DAG:     %[[KEND:.+]] = arith.constant 256 : index
+// CHECK:         %[[OUTER:.+]]:2 = scf.forall (%[[M:[^)]+]])
+// CHECK-SAME:      shared_outs(%[[DST0:[^ ]+]] = %{{.*}}, %[[DST1:[^ ]+]] = %{{.*}})
+// CHECK-DAG:       %[[INIT0:.+]] = tensor.extract_slice %[[DST0]][%[[M]], 0] [32, 64]
+// CHECK-DAG:       %[[INIT1:.+]] = tensor.extract_slice %[[DST1]][%[[M]], 0] [32, 64]
+// CHECK-NEXT:      %[[LOOP:.+]]:2 = scf.for %[[K:[^ ]+]] = %[[ZERO]] to %[[KEND]] step %[[STEP]]
+// CHECK-SAME:        iter_args(%[[ACC0:[^ ]+]] = %[[INIT0]], %[[ACC1:[^ ]+]] = %[[INIT1]])
+// CHECK-DAG:         %[[A:.+]] = tensor.extract_slice %[[LHS]][%[[M]], %[[K]]] [32, 64]
+// CHECK-DAG:         %[[W0:.+]] = tensor.extract_slice %[[WEIGHTS0]][0, %[[K]]] [64, 64]
+// CHECK-DAG:         %[[W1:.+]] = tensor.extract_slice %[[WEIGHTS1]][0, %[[K]]] [64, 64]
+// CHECK-NEXT:        %[[R0:.+]] = linalg.matmul
+// CHECK-SAME:          gc.tiling.level = 1
+// CHECK-SAME:          gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:          ins(%[[A]], %[[W0]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:          outs(%[[ACC0]] : tensor<32x64xf32>)
+// CHECK-NEXT:        %[[R1:.+]] = linalg.matmul
+// CHECK-SAME:          gc.tiling.level = 1
+// CHECK-SAME:          gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:          ins(%[[A]], %[[W1]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:          outs(%[[ACC1]] : tensor<32x64xf32>)
+// CHECK-NEXT:        scf.yield %[[R0]], %[[R1]] : tensor<32x64xf32>, tensor<32x64xf32>
+// CHECK-NEXT:      }
+// CHECK-NEXT:      scf.forall.in_parallel {
+// CHECK-DAG:         tensor.parallel_insert_slice %[[LOOP]]#0 into %[[DST0]][%[[M]], 0] [32, 64]
+// CHECK-DAG:         tensor.parallel_insert_slice %[[LOOP]]#1 into %[[DST1]][%[[M]], 0] [32, 64]
+// CHECK-NEXT:      }
+// CHECK-NEXT:    }
+// CHECK-NEXT:    return %[[OUTER]]#0, %[[OUTER]]#1
+func.func @fused_shared_lhs(%a: tensor<64x256xf16>, %w0: tensor<64x256xf16>,
+                           %w1: tensor<64x256xf16>, %init0: tensor<64x64xf32>,
+                           %init1: tensor<64x64xf32>)
+    -> (tensor<64x64xf32>, tensor<64x64xf32>) {
+  %c0 = arith.constant 0 : index
+  %c64 = arith.constant 64 : index
+  %c256 = arith.constant 256 : index
+  %r:2 = scf.forall (%m) = (0) to (64) step (32)
+      shared_outs(%c0tile = %init0, %c1tile = %init1)
+      -> (tensor<64x64xf32>, tensor<64x64xf32>) {
+    %o0 = tensor.extract_slice %c0tile[%m, 0] [32, 64] [1, 1] : tensor<64x64xf32> to tensor<32x64xf32>
+    %o1 = tensor.extract_slice %c1tile[%m, 0] [32, 64] [1, 1] : tensor<64x64xf32> to tensor<32x64xf32>
+    %kloop:2 = scf.for %k = %c0 to %c256 step %c64
+        iter_args(%acc0 = %o0, %acc1 = %o1) -> (tensor<32x64xf32>, tensor<32x64xf32>) {
+      %at = tensor.extract_slice %a[%m, %k] [32, 64] [1, 1] : tensor<64x256xf16> to tensor<32x64xf16>
+      %w0t = tensor.extract_slice %w0[0, %k] [64, 64] [1, 1] : tensor<64x256xf16> to tensor<64x64xf16>
+      %w1t = tensor.extract_slice %w1[0, %k] [64, 64] [1, 1] : tensor<64x256xf16> to tensor<64x64xf16>
+      %tile:2 = linalg.generic
+          {indexing_maps = [#lhs, #weights, #weights, #out, #out],
+           iterator_types = ["parallel", "parallel", "reduction"]}
+          ins(%at, %w0t, %w1t : tensor<32x64xf16>, tensor<64x64xf16>, tensor<64x64xf16>)
+          outs(%acc0, %acc1 : tensor<32x64xf32>, tensor<32x64xf32>)
+          attrs = {gc.fused_grouped_matmul, gc.tiling.level = 1 : i8,
+                   gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>} {
+        ^bb0(%av: f16, %w0v: f16, %w1v: f16, %cv0: f32, %cv1: f32):
+          %af = arith.extf %av : f16 to f32
+          %w0f = arith.extf %w0v : f16 to f32
+          %w1f = arith.extf %w1v : f16 to f32
+          %p0 = arith.mulf %af, %w0f : f32
+          %s0 = arith.addf %cv0, %p0 : f32
+          %p1 = arith.mulf %af, %w1f : f32
+          %s1 = arith.addf %cv1, %p1 : f32
+          linalg.yield %s0, %s1 : f32, f32
+      } -> (tensor<32x64xf32>, tensor<32x64xf32>)
+      scf.yield %tile#0, %tile#1 : tensor<32x64xf32>, tensor<32x64xf32>
+    }
+    scf.forall.in_parallel {
+      tensor.parallel_insert_slice %kloop#0 into %c0tile[%m, 0] [32, 64] [1, 1] : tensor<32x64xf32> into tensor<64x64xf32>
+      tensor.parallel_insert_slice %kloop#1 into %c1tile[%m, 0] [32, 64] [1, 1] : tensor<32x64xf32> into tensor<64x64xf32>
+    }
+  }
+  return %r#0, %r#1 : tensor<64x64xf32>, tensor<64x64xf32>
+}
+
+// -----
+
+// Shared weights use a different input order: [A0, W, A1]. Both decomposed
+// matmuls must use the same W tile, without mixing up their LHS or initializers.
+#lhs = affine_map<(m, n, k) -> (m, k)>
+#weights = affine_map<(m, n, k) -> (n, k)>
+#out = affine_map<(m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @fused_shared_weights
+// CHECK-SAME:    %[[LHS0:[^:]+]]: tensor<64x256xf16>, %[[LHS1:[^:]+]]: tensor<64x256xf16>, %[[WEIGHTS:[^:]+]]: tensor<64x256xf16>
+// CHECK-DAG:     %[[ZERO:.+]] = arith.constant 0 : index
+// CHECK-DAG:     %[[STEP:.+]] = arith.constant 64 : index
+// CHECK-DAG:     %[[KEND:.+]] = arith.constant 256 : index
+// CHECK:         %[[OUTER:.+]]:2 = scf.forall (%[[M:[^)]+]])
+// CHECK-SAME:      shared_outs(%[[DST0:[^ ]+]] = %{{.*}}, %[[DST1:[^ ]+]] = %{{.*}})
+// CHECK-DAG:       %[[INIT0:.+]] = tensor.extract_slice %[[DST0]][%[[M]], 0] [32, 64]
+// CHECK-DAG:       %[[INIT1:.+]] = tensor.extract_slice %[[DST1]][%[[M]], 0] [32, 64]
+// CHECK-NEXT:      %[[LOOP:.+]]:2 = scf.for %[[K:[^ ]+]] = %[[ZERO]] to %[[KEND]] step %[[STEP]]
+// CHECK-SAME:        iter_args(%[[ACC0:[^ ]+]] = %[[INIT0]], %[[ACC1:[^ ]+]] = %[[INIT1]])
+// CHECK-DAG:         %[[A0:.+]] = tensor.extract_slice %[[LHS0]][%[[M]], %[[K]]] [32, 64]
+// CHECK-DAG:         %[[W:.+]] = tensor.extract_slice %[[WEIGHTS]][0, %[[K]]] [64, 64]
+// CHECK-DAG:         %[[A1:.+]] = tensor.extract_slice %[[LHS1]][%[[M]], %[[K]]] [32, 64]
+// CHECK-NEXT:        %[[R0:.+]] = linalg.matmul
+// CHECK-SAME:          gc.tiling.level = 1
+// CHECK-SAME:          gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:          ins(%[[A0]], %[[W]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:          outs(%[[ACC0]] : tensor<32x64xf32>)
+// CHECK-NEXT:        %[[R1:.+]] = linalg.matmul
+// CHECK-SAME:          gc.tiling.level = 1
+// CHECK-SAME:          gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:          ins(%[[A1]], %[[W]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:          outs(%[[ACC1]] : tensor<32x64xf32>)
+// CHECK-NEXT:        scf.yield %[[R0]], %[[R1]] : tensor<32x64xf32>, tensor<32x64xf32>
+// CHECK-NEXT:      }
+// CHECK-NEXT:      scf.forall.in_parallel {
+// CHECK-DAG:         tensor.parallel_insert_slice %[[LOOP]]#0 into %[[DST0]][%[[M]], 0] [32, 64]
+// CHECK-DAG:         tensor.parallel_insert_slice %[[LOOP]]#1 into %[[DST1]][%[[M]], 0] [32, 64]
+// CHECK-NEXT:      }
+// CHECK-NEXT:    }
+// CHECK-NEXT:    return %[[OUTER]]#0, %[[OUTER]]#1
+func.func @fused_shared_weights(%a0: tensor<64x256xf16>, %a1: tensor<64x256xf16>,
+                               %w: tensor<64x256xf16>, %init0: tensor<64x64xf32>,
+                               %init1: tensor<64x64xf32>)
+    -> (tensor<64x64xf32>, tensor<64x64xf32>) {
+  %c0 = arith.constant 0 : index
+  %c64 = arith.constant 64 : index
+  %c256 = arith.constant 256 : index
+  %r:2 = scf.forall (%m) = (0) to (64) step (32)
+      shared_outs(%c0tile = %init0, %c1tile = %init1)
+      -> (tensor<64x64xf32>, tensor<64x64xf32>) {
+    %o0 = tensor.extract_slice %c0tile[%m, 0] [32, 64] [1, 1] : tensor<64x64xf32> to tensor<32x64xf32>
+    %o1 = tensor.extract_slice %c1tile[%m, 0] [32, 64] [1, 1] : tensor<64x64xf32> to tensor<32x64xf32>
+    %kloop:2 = scf.for %k = %c0 to %c256 step %c64
+        iter_args(%acc0 = %o0, %acc1 = %o1) -> (tensor<32x64xf32>, tensor<32x64xf32>) {
+      %a0t = tensor.extract_slice %a0[%m, %k] [32, 64] [1, 1] : tensor<64x256xf16> to tensor<32x64xf16>
+      %wt = tensor.extract_slice %w[0, %k] [64, 64] [1, 1] : tensor<64x256xf16> to tensor<64x64xf16>
+      %a1t = tensor.extract_slice %a1[%m, %k] [32, 64] [1, 1] : tensor<64x256xf16> to tensor<32x64xf16>
+      %tile:2 = linalg.generic
+          {indexing_maps = [#lhs, #weights, #lhs, #out, #out],
+           iterator_types = ["parallel", "parallel", "reduction"]}
+          ins(%a0t, %wt, %a1t : tensor<32x64xf16>, tensor<64x64xf16>, tensor<32x64xf16>)
+          outs(%acc0, %acc1 : tensor<32x64xf32>, tensor<32x64xf32>)
+          attrs = {gc.fused_grouped_matmul, gc.tiling.level = 1 : i8,
+                   gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>} {
+        ^bb0(%a0v: f16, %wv: f16, %a1v: f16, %cv0: f32, %cv1: f32):
+          %a0f = arith.extf %a0v : f16 to f32
+          %wf = arith.extf %wv : f16 to f32
+          %a1f = arith.extf %a1v : f16 to f32
+          %p0 = arith.mulf %a0f, %wf : f32
+          %s0 = arith.addf %cv0, %p0 : f32
+          %p1 = arith.mulf %a1f, %wf : f32
+          %s1 = arith.addf %cv1, %p1 : f32
+          linalg.yield %s0, %s1 : f32, f32
+      } -> (tensor<32x64xf32>, tensor<32x64xf32>)
+      scf.yield %tile#0, %tile#1 : tensor<32x64xf32>, tensor<32x64xf32>
+    }
+    scf.forall.in_parallel {
+      tensor.parallel_insert_slice %kloop#0 into %c0tile[%m, 0] [32, 64] [1, 1] : tensor<32x64xf32> into tensor<64x64xf32>
+      tensor.parallel_insert_slice %kloop#1 into %c1tile[%m, 0] [32, 64] [1, 1] : tensor<32x64xf32> into tensor<64x64xf32>
+    }
+  }
+  return %r#0, %r#1 : tensor<64x64xf32>, tensor<64x64xf32>
+}
+
+// -----
+
+// Ordinary matmuls use RHS (k, n), not grouped matmul's (n, k). Split the
+// already-tiled shared-LHS generic without changing its shared reduction loop.
+#lhs = affine_map<(m, n, k) -> (m, k)>
+#rhs = affine_map<(m, n, k) -> (k, n)>
+#out = affine_map<(m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @fused_matmul_shared_lhs
+// CHECK-SAME:    %[[LHS:[^:]+]]: tensor<32x256xf16>, %[[RHS0:[^:]+]]: tensor<256x64xf16>, %[[RHS1:[^:]+]]: tensor<256x64xf16>, %[[INIT0:[^:]+]]: tensor<32x64xf32>, %[[INIT1:[^:]+]]: tensor<32x64xf32>
+// CHECK-DAG:     %[[ZERO:.+]] = arith.constant 0 : index
+// CHECK-DAG:     %[[STEP:.+]] = arith.constant 64 : index
+// CHECK-DAG:     %[[KEND:.+]] = arith.constant 256 : index
+// CHECK:         %[[LOOP:.+]]:2 = scf.for %[[K:[^ ]+]] = %[[ZERO]] to %[[KEND]] step %[[STEP]]
+// CHECK-SAME:      iter_args(%[[ACC0:[^ ]+]] = %[[INIT0]], %[[ACC1:[^ ]+]] = %[[INIT1]])
+// CHECK-DAG:       %[[A:.+]] = tensor.extract_slice %[[LHS]][0, %[[K]]] [32, 64]
+// CHECK-DAG:       %[[B0:.+]] = tensor.extract_slice %[[RHS0]][%[[K]], 0] [64, 64]
+// CHECK-DAG:       %[[B1:.+]] = tensor.extract_slice %[[RHS1]][%[[K]], 0] [64, 64]
+// CHECK-NEXT:      %[[R0:.+]] = linalg.matmul {
+// CHECK-SAME:        gc.tiling.level = 1
+// CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:        ins(%[[A]], %[[B0]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:        outs(%[[ACC0]] : tensor<32x64xf32>)
+// CHECK-NEXT:      %[[R1:.+]] = linalg.matmul {
+// CHECK-SAME:        gc.tiling.level = 1
+// CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:        ins(%[[A]], %[[B1]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:        outs(%[[ACC1]] : tensor<32x64xf32>)
+// CHECK-NEXT:      scf.yield %[[R0]], %[[R1]] : tensor<32x64xf32>, tensor<32x64xf32>
+// CHECK-NEXT:    } {gc.tiling.level = 1 : i8}
+// CHECK-NEXT:    return %[[LOOP]]#0, %[[LOOP]]#1
+func.func @fused_matmul_shared_lhs(%a: tensor<32x256xf16>, %b0: tensor<256x64xf16>,
+                                  %b1: tensor<256x64xf16>, %init0: tensor<32x64xf32>,
+                                  %init1: tensor<32x64xf32>)
+    -> (tensor<32x64xf32>, tensor<32x64xf32>) {
+  %c0 = arith.constant 0 : index
+  %c64 = arith.constant 64 : index
+  %c256 = arith.constant 256 : index
+  %r:2 = scf.for %k = %c0 to %c256 step %c64
+      iter_args(%acc0 = %init0, %acc1 = %init1) -> (tensor<32x64xf32>, tensor<32x64xf32>) {
+    %at = tensor.extract_slice %a[0, %k] [32, 64] [1, 1] : tensor<32x256xf16> to tensor<32x64xf16>
+    %b0t = tensor.extract_slice %b0[%k, 0] [64, 64] [1, 1] : tensor<256x64xf16> to tensor<64x64xf16>
+    %b1t = tensor.extract_slice %b1[%k, 0] [64, 64] [1, 1] : tensor<256x64xf16> to tensor<64x64xf16>
+    %tile:2 = linalg.generic
+        {indexing_maps = [#lhs, #rhs, #rhs, #out, #out],
+         iterator_types = ["parallel", "parallel", "reduction"]}
+        ins(%at, %b0t, %b1t : tensor<32x64xf16>, tensor<64x64xf16>, tensor<64x64xf16>)
+        outs(%acc0, %acc1 : tensor<32x64xf32>, tensor<32x64xf32>)
+        attrs = {gc.fused_matmul, gc.tiling.level = 1 : i8,
+                 gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>} {
+      ^bb0(%av: f16, %b0v: f16, %b1v: f16, %cv0: f32, %cv1: f32):
+        %af = arith.extf %av : f16 to f32
+        %b0f = arith.extf %b0v : f16 to f32
+        %b1f = arith.extf %b1v : f16 to f32
+        %p0 = arith.mulf %af, %b0f : f32
+        %s0 = arith.addf %cv0, %p0 : f32
+        %p1 = arith.mulf %af, %b1f : f32
+        %s1 = arith.addf %cv1, %p1 : f32
+        linalg.yield %s0, %s1 : f32, f32
+    } -> (tensor<32x64xf32>, tensor<32x64xf32>)
+    scf.yield %tile#0, %tile#1 : tensor<32x64xf32>, tensor<32x64xf32>
+  } {gc.tiling.level = 1 : i8}
+  return %r#0, %r#1 : tensor<32x64xf32>, tensor<32x64xf32>
+}
+
+// -----
+
+// The shared-RHS form [A0, B, A1] uses the same normal matmul map for B. Each
+// decomposed matmul must retain its own LHS and accumulator, but reuse B.
+#lhs = affine_map<(m, n, k) -> (m, k)>
+#rhs = affine_map<(m, n, k) -> (k, n)>
+#out = affine_map<(m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @fused_matmul_shared_rhs
+// CHECK-SAME:    %[[LHS0:[^:]+]]: tensor<32x256xf16>, %[[LHS1:[^:]+]]: tensor<32x256xf16>, %[[RHS:[^:]+]]: tensor<256x64xf16>, %[[INIT0:[^:]+]]: tensor<32x64xf32>, %[[INIT1:[^:]+]]: tensor<32x64xf32>
+// CHECK-DAG:     %[[ZERO:.+]] = arith.constant 0 : index
+// CHECK-DAG:     %[[STEP:.+]] = arith.constant 64 : index
+// CHECK-DAG:     %[[KEND:.+]] = arith.constant 256 : index
+// CHECK:         %[[LOOP:.+]]:2 = scf.for %[[K:[^ ]+]] = %[[ZERO]] to %[[KEND]] step %[[STEP]]
+// CHECK-SAME:      iter_args(%[[ACC0:[^ ]+]] = %[[INIT0]], %[[ACC1:[^ ]+]] = %[[INIT1]])
+// CHECK-DAG:       %[[A0:.+]] = tensor.extract_slice %[[LHS0]][0, %[[K]]] [32, 64]
+// CHECK-DAG:       %[[B:.+]] = tensor.extract_slice %[[RHS]][%[[K]], 0] [64, 64]
+// CHECK-DAG:       %[[A1:.+]] = tensor.extract_slice %[[LHS1]][0, %[[K]]] [32, 64]
+// CHECK-NEXT:      %[[R0:.+]] = linalg.matmul {
+// CHECK-SAME:        gc.tiling.level = 1
+// CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:        ins(%[[A0]], %[[B]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:        outs(%[[ACC0]] : tensor<32x64xf32>)
+// CHECK-NEXT:      %[[R1:.+]] = linalg.matmul {
+// CHECK-SAME:        gc.tiling.level = 1
+// CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>
+// CHECK-SAME:        ins(%[[A1]], %[[B]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-SAME:        outs(%[[ACC1]] : tensor<32x64xf32>)
+// CHECK-NEXT:      scf.yield %[[R0]], %[[R1]] : tensor<32x64xf32>, tensor<32x64xf32>
+// CHECK-NEXT:    } {gc.tiling.level = 1 : i8}
+// CHECK-NEXT:    return %[[LOOP]]#0, %[[LOOP]]#1
+func.func @fused_matmul_shared_rhs(%a0: tensor<32x256xf16>, %a1: tensor<32x256xf16>,
+                                  %b: tensor<256x64xf16>, %init0: tensor<32x64xf32>,
+                                  %init1: tensor<32x64xf32>)
+    -> (tensor<32x64xf32>, tensor<32x64xf32>) {
+  %c0 = arith.constant 0 : index
+  %c64 = arith.constant 64 : index
+  %c256 = arith.constant 256 : index
+  %r:2 = scf.for %k = %c0 to %c256 step %c64
+      iter_args(%acc0 = %init0, %acc1 = %init1) -> (tensor<32x64xf32>, tensor<32x64xf32>) {
+    %a0t = tensor.extract_slice %a0[0, %k] [32, 64] [1, 1] : tensor<32x256xf16> to tensor<32x64xf16>
+    %bt = tensor.extract_slice %b[%k, 0] [64, 64] [1, 1] : tensor<256x64xf16> to tensor<64x64xf16>
+    %a1t = tensor.extract_slice %a1[0, %k] [32, 64] [1, 1] : tensor<32x256xf16> to tensor<32x64xf16>
+    %tile:2 = linalg.generic
+        {indexing_maps = [#lhs, #rhs, #lhs, #out, #out],
+         iterator_types = ["parallel", "parallel", "reduction"]}
+        ins(%a0t, %bt, %a1t : tensor<32x64xf16>, tensor<64x64xf16>, tensor<32x64xf16>)
+        outs(%acc0, %acc1 : tensor<32x64xf32>, tensor<32x64xf32>)
+        attrs = {gc.fused_matmul, gc.tiling.level = 1 : i8,
+                 gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>} {
+      ^bb0(%a0v: f16, %bv: f16, %a1v: f16, %cv0: f32, %cv1: f32):
+        %a0f = arith.extf %a0v : f16 to f32
+        %bf = arith.extf %bv : f16 to f32
+        %a1f = arith.extf %a1v : f16 to f32
+        %p0 = arith.mulf %a0f, %bf : f32
+        %s0 = arith.addf %cv0, %p0 : f32
+        %p1 = arith.mulf %a1f, %bf : f32
+        %s1 = arith.addf %cv1, %p1 : f32
+        linalg.yield %s0, %s1 : f32, f32
+    } -> (tensor<32x64xf32>, tensor<32x64xf32>)
+    scf.yield %tile#0, %tile#1 : tensor<32x64xf32>, tensor<32x64xf32>
+  } {gc.tiling.level = 1 : i8}
+  return %r#0, %r#1 : tensor<32x64xf32>, tensor<32x64xf32>
+}

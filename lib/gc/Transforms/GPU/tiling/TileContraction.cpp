@@ -14,7 +14,9 @@ namespace {
 struct TileContraction final
     : TilingPass<::mlir::gc::impl::TileContractionBase<TileContraction>> {
 
-  bool isSupportedOp(TilingInterface ti) override { return isMatmulOp(ti); }
+  bool isSupportedOp(TilingInterface ti) override {
+    return isMatmulOp(ti) || isFusedMatmulOp(ti);
+  }
 
   BlockSizes getSupportedBlockSizes(Target &tg, bool reduction,
                                     const DimConstraint &cw,

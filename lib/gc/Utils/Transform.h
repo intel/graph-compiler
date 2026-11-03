@@ -38,6 +38,9 @@ namespace mlir::gc {
 constexpr char GC_ATTR_KERNEL_NAME[] = "gc.kernel_name";
 constexpr char GC_ATTR_LEVEL[] = "gc.tiling.level";
 constexpr char GC_ATTR_WG_TILE_SIZES[] = "gc.tiling.wg_tile_sizes";
+// Distinct fusion kinds retain their identity through tiling and decomposition.
+constexpr char GC_ATTR_FUSED_MATMUL[] = "gc.fused_matmul";
+constexpr char GC_ATTR_FUSED_GROUPED_MATMUL[] = "gc.fused_grouped_matmul";
 
 template <typename T> auto createAttr(MLIRContext *ctx, T value) {
   if constexpr (std::is_integral_v<T>) {
@@ -419,11 +422,26 @@ inline bool isMatmulOp(Operation *op) {
   // TODO: Check matmul like generics
 }
 
+inline bool isFusedMatmulOp(Operation *op) {
+  return isa<linalg::GenericOp>(op) && op->hasAttr(GC_ATTR_FUSED_MATMUL);
+}
+
+inline bool isFusedGroupedMatmulOp(Operation *op) {
+  return isa<linalg::GenericOp>(op) &&
+         op->hasAttr(GC_ATTR_FUSED_GROUPED_MATMUL);
+}
+
+// Plain contractions and the multi-output generics created by horizontal
+// fusion.
+inline bool isAnyMatmulOp(Operation *op) {
+  return isMatmulOp(op) || isFusedMatmulOp(op) || isFusedGroupedMatmulOp(op);
+}
+
 inline bool containsMatmulOp(Operation *op) {
-  if (isMatmulOp(op)) return true;
+  if (isAnyMatmulOp(op)) return true;
   bool found = false;
   op->walk([&](Operation *nested) {
-    if (nested != op && isMatmulOp(nested)) {
+    if (nested != op && isAnyMatmulOp(nested)) {
       found = true;
       return WalkResult::interrupt();
     }

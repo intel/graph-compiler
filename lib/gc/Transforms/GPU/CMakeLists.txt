@@ -15,6 +15,7 @@ gc_add_mlir_library(
   GpuDeviceProps.cpp
   GpuKernelOutline.cpp
   GpuToGcGpu.cpp
+  HorizontalFusion.cpp
   MemrefCopyToGpuMemcpy.cpp
   TensorConcatToLinalg.cpp
   TensorReshapeToLinalg.cpp

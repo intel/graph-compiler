@@ -286,6 +286,10 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addNestedPass<func::FuncOp>(createTensorReshapeToLinalg());
   });
 
+  phase("HorizontalFusion", [&]() {
+    pm.addNestedPass<func::FuncOp>(createHorizontalFusionPass());
+  });
+
   phase("Tiling", [&]() {
     pm.addNestedPass<func::FuncOp>(createTileContraction());
     pm.addNestedPass<func::FuncOp>(createTileGroupedMatmul());

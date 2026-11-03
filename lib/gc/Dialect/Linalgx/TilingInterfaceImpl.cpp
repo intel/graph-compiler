@@ -2,6 +2,7 @@
 #include "IndexingUtils.h"
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Utils/Transform.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Utils.h"
@@ -322,14 +323,14 @@ SmallVector<Range> GroupedMatmulOp::getIterationDomain(OpBuilder &b) {
   // The row dim is group-relative, so its bound is the largest group. Without
   // the hint, the total row count is the only safe bound. Everything else comes
   // from the operand shapes.
-  bounds[kExpertDim].size = getDim(b, loc, getWeights(), 0);
+  bounds[kExpertDim].size = getDim(b, loc, getWeights().front(), 0);
   if (Value maxGroupSize = getMaxGroupSize()) {
     bounds[kMDim].size = maxGroupSize;
   } else {
-    bounds[kMDim].size = getDim(b, loc, getLhs(), 0);
+    bounds[kMDim].size = getDim(b, loc, getLhs().front(), 0);
   }
-  bounds[kNDim].size = getDim(b, loc, getWeights(), 1);
-  bounds[kKDim].size = getDim(b, loc, getLhs(), 1);
+  bounds[kNDim].size = getDim(b, loc, getWeights().front(), 1);
+  bounds[kKDim].size = getDim(b, loc, getLhs().front(), 1);
   return bounds;
 }
 
@@ -397,9 +398,11 @@ GroupedMatmulOp::getTiledImplementation(OpBuilder &builder,
   return getTiledImplementation(builder, offsets, sizes, {});
 }
 
-/// Replaces a tile of the grouped matmul with a plain linalg.matmul. The tile
-/// covers a single expert, so the expert's weight matrix is just a slice of
-/// `weights`, and the rows of the tile are those of the expert's group.
+/// Replaces a tile with a plain matmul, or a multi-output generic for fused
+/// branches. The generic survives reduction tiling and is split in
+/// decomposition. The tile covers a single expert, so the expert's weight
+/// matrix is just a slice of `weights`, and the rows of the tile are those of
+/// the expert's group.
 ///
 /// E.g. for offsets = [2, 2, 5], the tile of expert 2 with group-relative rows
 /// [0, 32), N cols [n0, n0 + 64) and the full K = 256 is clamped to the 3 rows
@@ -448,61 +451,117 @@ FailureOr<TilingResult> GroupedMatmulOp::getTiledImplementation(
     return RankedTensorType::get(t.getShape().drop_front(), t.getElementType());
   };
 
-  // lhs [total, K] -> [rows, tile_k] and output [total, N] -> [rows, tile_n]:
-  // both natively 2-D, nothing to rank-reduce.
-  SmallVector<OpFoldResult> strides2(2, one);
-  auto lhsSlice = tensor::ExtractSliceOp::create(
-      builder, loc, getLhs(),
-      SmallVector<OpFoldResult>{rowOffset, offsets[kKDim]},
-      SmallVector<OpFoldResult>{rowSize, sizes[kKDim]}, strides2);
-  auto outSlice = tensor::ExtractSliceOp::create(
-      builder, loc, getOutput(),
-      SmallVector<OpFoldResult>{rowOffset, offsets[kNDim]},
-      SmallVector<OpFoldResult>{rowSize, sizes[kNDim]}, strides2);
-
-  // weights [E, N, K] -> [tile_n, tile_k]: the expert dim is sliced to 1 and
-  // then dropped. Rank-reducing extract_slice is handled by the tile-and-fuse
-  // driver - tensor::replaceExtractSliceWithTiledProducer restores the reduced
-  // type after fusing a producer.
-  SmallVector<OpFoldResult> strides3(3, one);
-  SmallVector<OpFoldResult> weiOffsets{expertIdx, offsets[kNDim],
-                                       offsets[kKDim]};
-  SmallVector<OpFoldResult> weiSizes{one, sizes[kNDim], sizes[kKDim]};
-  auto weiTileType = dropLeadingDim(tensor::ExtractSliceOp::inferResultType(
-      cast<RankedTensorType>(getWeights().getType()), weiSizes));
-  auto weiSlice = tensor::ExtractSliceOp::create(
-      builder, loc, weiTileType, getWeights(), weiOffsets, weiSizes, strides3);
-
-  auto outTileType = cast<RankedTensorType>(outSlice.getResult().getType());
-
-  // With the expert resolved, the tile is a plain matmul with a transposed B:
+  // With the expert resolved, each branch is a matmul with a transposed B:
   //   out[m, n] += lhs[m, k] * wei[n, k]
   MLIRContext *ctx = builder.getContext();
   AffineExpr m, n, k;
   bindDims(ctx, m, n, k);
-  SmallVector<Attribute> maps = {
-      AffineMapAttr::get(AffineMap::get(3, 0, {m, k}, ctx)),
-      AffineMapAttr::get(AffineMap::get(3, 0, {n, k}, ctx)),
-      AffineMapAttr::get(AffineMap::get(3, 0, {m, n}, ctx))};
-  NamedAttribute indexingMaps(builder.getStringAttr("indexing_maps"),
-                              builder.getArrayAttr(maps));
+  SmallVector<AffineMap> maps = {AffineMap::get(3, 0, {m, k}, ctx),
+                                 AffineMap::get(3, 0, {n, k}, ctx),
+                                 AffineMap::get(3, 0, {m, n}, ctx)};
 
-  auto matmul = linalg::MatmulOp::create(
-      builder, loc, TypeRange{outTileType},
-      ValueRange{lhsSlice.getResult(), weiSlice.getResult()},
-      ValueRange{outSlice.getResult()}, ArrayRef<NamedAttribute>{indexingMaps});
+  SmallVector<Operation *> slices;
+  DenseMap<Value, Value> lhsTiles, weightTiles;
+  SmallVector<Value> outputs;
+  for (unsigned i = 0; i < getNumBranches(); ++i) {
+    Value lhs = getLhs()[i], weights = getWeights()[i];
+    if (!lhsTiles.count(lhs)) {
+      auto slice = tensor::ExtractSliceOp::create(
+          builder, loc, lhs,
+          SmallVector<OpFoldResult>{rowOffset, offsets[kKDim]},
+          SmallVector<OpFoldResult>{rowSize, sizes[kKDim]},
+          SmallVector<OpFoldResult>(2, one));
+      lhsTiles[lhs] = slice.getResult();
+      slices.push_back(slice);
+    }
+    auto outSlice = tensor::ExtractSliceOp::create(
+        builder, loc, getOutputs()[i],
+        SmallVector<OpFoldResult>{rowOffset, offsets[kNDim]},
+        SmallVector<OpFoldResult>{rowSize, sizes[kNDim]},
+        SmallVector<OpFoldResult>(2, one));
+    slices.push_back(outSlice);
+    outputs.push_back(outSlice.getResult());
+    if (!weightTiles.count(weights)) {
+      SmallVector<OpFoldResult> weiOffsets{expertIdx, offsets[kNDim],
+                                           offsets[kKDim]};
+      SmallVector<OpFoldResult> weiSizes{one, sizes[kNDim], sizes[kKDim]};
+      auto weiTileType = dropLeadingDim(tensor::ExtractSliceOp::inferResultType(
+          cast<RankedTensorType>(weights.getType()), weiSizes));
+      auto slice = tensor::ExtractSliceOp::create(
+          builder, loc, weiTileType, weights, weiOffsets, weiSizes,
+          SmallVector<OpFoldResult>(3, one));
+      weightTiles[weights] = slice.getResult();
+      slices.push_back(slice);
+    }
+  }
 
-  return TilingResult{{matmul.getOperation()},
-                      SmallVector<Value>(matmul->getResults()),
-                      {lhsSlice.getOperation(), weiSlice.getOperation(),
-                       outSlice.getOperation()}};
+  if (getNumBranches() == 1) {
+    auto indexingMaps = builder.getNamedAttr(
+        "indexing_maps", builder.getAffineMapArrayAttr(maps));
+    auto matmul = linalg::MatmulOp::create(
+        builder, loc, TypeRange{outputs.front().getType()},
+        ValueRange{lhsTiles[getLhs().front()],
+                   weightTiles[getWeights().front()]},
+        outputs, ArrayRef<NamedAttribute>{indexingMaps});
+    return TilingResult{
+        {matmul}, SmallVector<Value>(matmul->getResults()), slices};
+  }
+
+  // Deduplicate identical inputs and maps so a shared matrix is read only once.
+  SmallVector<Value> inputs;
+  SmallVector<AffineMap> genericMaps;
+  SmallVector<std::pair<unsigned, unsigned>> branchInputs;
+  auto addInput = [&](Value input, AffineMap map) -> unsigned {
+    for (unsigned i = 0; i < inputs.size(); ++i)
+      if (inputs[i] == input && genericMaps[i] == map) return i;
+    inputs.push_back(input);
+    genericMaps.push_back(map);
+    return inputs.size() - 1;
+  };
+  for (unsigned i = 0; i < getNumBranches(); ++i) {
+    unsigned a = addInput(lhsTiles[getLhs()[i]], maps[0]);
+    unsigned w = addInput(weightTiles[getWeights()[i]], maps[1]);
+    branchInputs.emplace_back(a, w);
+  }
+  genericMaps.append(outputs.size(), maps[2]);
+  SmallVector<utils::IteratorType> iterators = {utils::IteratorType::parallel,
+                                                utils::IteratorType::parallel,
+                                                utils::IteratorType::reduction};
+  auto fused = linalg::GenericOp::create(
+      builder, loc, TypeRange(outputs), inputs, outputs, genericMaps, iterators,
+      [&](OpBuilder &bodyBuilder, Location bodyLoc, ValueRange args) {
+        // Promote floating-point inputs to the accumulator type before
+        // multiplying. All outputs have the same element type, so shared
+        // inputs only need one scalar cast.
+        Type accumulatorType = args[inputs.size()].getType();
+        SmallVector<Value> castInputs;
+        for (Value input : args.take_front(inputs.size()))
+          castInputs.push_back(convertScalarToDtype(bodyBuilder, bodyLoc, input,
+                                                    accumulatorType,
+                                                    /*isUnsignedCast=*/false));
+
+        SmallVector<Value> results;
+        for (auto [i, inputIndices] : llvm::enumerate(branchInputs)) {
+          auto [a, w] = inputIndices;
+          Value lhs = castInputs[a], rhs = castInputs[w];
+          Value accumulator = args[inputs.size() + i];
+          Value product = arith::MulFOp::create(bodyBuilder, bodyLoc, lhs, rhs);
+          Value result =
+              arith::AddFOp::create(bodyBuilder, bodyLoc, accumulator, product);
+          results.push_back(result);
+        }
+        linalg::YieldOp::create(bodyBuilder, bodyLoc, results);
+      });
+  fused->setDiscardableAttr(gc::GC_ATTR_FUSED_GROUPED_MATMUL,
+                            builder.getUnitAttr());
+  return TilingResult{{fused}, SmallVector<Value>(fused->getResults()), slices};
 }
 
 LogicalResult GroupedMatmulOp::getResultTilePosition(
     OpBuilder &builder, unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
     ArrayRef<OpFoldResult> sizes, SmallVector<OpFoldResult> &resultOffsets,
     SmallVector<OpFoldResult> &resultSizes) {
-  if (resultNumber != 0) return failure();
+  if (resultNumber >= getNumBranches()) return failure();
   Location loc = getLoc();
   Value expertIdx =
       getValueOrCreateConstantIndexOp(builder, loc, offsets[kExpertDim]);
