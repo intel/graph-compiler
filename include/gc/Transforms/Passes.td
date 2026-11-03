@@ -42,6 +42,9 @@ def TileGroupedMatmul : Pass<"tile-grouped-matmul", "func::FuncOp"> {
   let description = [{
     Tile 'linalgx.grouped_matmul' ops (work-group level) and the contractions
     they decompose into (sub-group level). Must run after 'tile-contract'.
+    Constrain N sub-group tiles to the block-load widths of narrow inputs
+    reached through the weights' elementwise producers and slices. Inputs
+    contiguous along K and the group offsets do not constrain the N split.
   }];
 }
 
