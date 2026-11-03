@@ -16,6 +16,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -505,6 +506,87 @@ private:
   }
 };
 
+static Value stripCasts(Value v) {
+  while (auto cast = v.getDefiningOp<memref::CastOp>()) v = cast.getSource();
+  return v;
+}
+
+// Whether two values denote the same buffer: the same value up to casts, or
+// subviews of the same source with the same offsets, sizes and strides.
+static bool isSameBuffer(Value a, Value b) {
+  a = stripCasts(a);
+  b = stripCasts(b);
+  if (a == b) return true;
+  auto subA = a.getDefiningOp<memref::SubViewOp>();
+  auto subB = b.getDefiningOp<memref::SubViewOp>();
+  return subA && subB &&
+         OperationEquivalence::isEquivalentTo(
+             subA, subB, OperationEquivalence::IgnoreLocations);
+}
+
+// Bufferization turns a guarded tile into an scf.if yielding either a
+// temporary buffer or the copy's destination (possibly as an equivalent
+// subview computed in the else branch). The copy is a no-op on the else path,
+// so move it into the then branch and remove the unused result. This exposes
+// the alloc-to-copy chain to FoldAllocCopyIntoDirectWrite, allowing writes to
+// target the destination directly instead of retaining a temporary allocation.
+struct SinkCopyIntoGuard final : OpRewritePattern<memref::CopyOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::CopyOp copy,
+                                PatternRewriter &rewriter) const override {
+    auto ifOp = copy.getSource().getDefiningOp<scf::IfOp>();
+    if (!ifOp || ifOp.getNumResults() != 1 || !ifOp.getResult(0).hasOneUse() ||
+        ifOp.getElseRegion().empty() || ifOp->getBlock() != copy->getBlock())
+      return failure();
+    // Moving the copy before intervening reads or writes could change results.
+    // Only cross operations without memory effects.
+    Operation *op = ifOp->getNextNode();
+    for (; op != copy; op = op->getNextNode())
+      if (!isMemoryEffectFree(op)) return failure();
+    // The else branch must yield the copy's target, computed without memory
+    // effects so that it can be hoisted ahead of the scf.if, where it dominates
+    // the moved copy.
+    scf::YieldOp elseYield = ifOp.elseYield();
+    if (!isSameBuffer(elseYield.getOperand(0), copy.getTarget()))
+      return failure();
+    for (Operation &op : ifOp.elseBlock()->without_terminator())
+      if (!isMemoryEffectFree(&op)) return failure();
+
+    Value dst = stripCasts(elseYield.getOperand(0));
+    scf::YieldOp thenYield = ifOp.thenYield();
+    Value src = stripCasts(thenYield.getOperand(0));
+
+    rewriter.setInsertionPoint(ifOp);
+    auto guard = scf::IfOp::create(rewriter, ifOp.getLoc(), ifOp.getCondition(),
+                                   /*withElseRegion=*/false);
+    rewriter.eraseOp(elseYield);
+    rewriter.inlineBlockBefore(ifOp.elseBlock(), guard);
+    rewriter.setInsertionPoint(thenYield);
+    memref::CopyOp::create(rewriter, copy.getLoc(), src, dst);
+    rewriter.eraseOp(thenYield);
+    rewriter.inlineBlockBefore(ifOp.thenBlock(),
+                               guard.thenBlock()->getTerminator());
+    rewriter.eraseOp(copy);
+    rewriter.eraseOp(ifOp);
+    return success();
+  }
+};
+
+// A copy between two views of the same buffer is a no-op. SinkCopyIntoGuard
+// leaves one behind when the guarded tile already wrote its destination in
+// place.
+struct RemoveSameBufferCopy final : OpRewritePattern<memref::CopyOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::CopyOp copy,
+                                PatternRewriter &rewriter) const override {
+    if (!isSameBuffer(copy.getSource(), copy.getTarget())) return failure();
+    rewriter.eraseOp(copy);
+    return success();
+  }
+};
+
 struct RemoveAllocs final : ::mlir::gc::impl::RemoveAllocsBase<RemoveAllocs> {
 
   void runOnOperation() override {
@@ -514,9 +596,9 @@ struct RemoveAllocs final : ::mlir::gc::impl::RemoveAllocsBase<RemoveAllocs> {
     }
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<RemoveCopyToArg, RemoveAllocDeallocPair,
-                 FoldAllocCopyIntoDirectWrite, FoldAllocWriteReshapeRead>(
-        &getContext());
+    patterns.add<RemoveCopyToArg, RemoveAllocDeallocPair, SinkCopyIntoGuard,
+                 RemoveSameBufferCopy, FoldAllocCopyIntoDirectWrite,
+                 FoldAllocWriteReshapeRead>(&getContext());
 
     if (failed(applyPatternsGreedily(fn, std::move(patterns)))) {
       signalPassFailure();
