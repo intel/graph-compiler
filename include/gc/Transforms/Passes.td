@@ -84,10 +84,16 @@ def SetGpuFastMath : Pass<"set-gpu-fast-math"> {
 def SetAttentionLayouts : Pass<"set-attention-layouts"> {
   let summary = "Set XeGPU layouts on attention-pattern dpas and store ops.";
   let description = [{
-    Walks the module to find scf.for loops containing
-    at least two xegpu.dpas ops, and sets layout attributes on those dpas ops
-    and on any downstream xegpu.store_nd ops.
+    Walks the module to find scf.for loops containing at least two xegpu.dpas
+    ops (the flash-attention k-loop: S = Q K^T and O += P V), distributes
+    query rows across subgroups and sets the layouts on the dpas ops, their
+    loads and the downstream xegpu.store_nd ops.
   }];
+  let options = [
+    Option<"qInLoop", "q-in-loop", "bool", "true",
+           "Re-load the Q tile inside the k-loop (next to the Q K^T dpas) "
+           "instead of keeping it resident in registers across the loop.">
+  ];
 }
 
 def SetAttentionPrefetch : Pass<"set-attention-prefetch"> {
