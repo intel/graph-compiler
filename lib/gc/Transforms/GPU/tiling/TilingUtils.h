@@ -937,10 +937,12 @@ private:
         if (!ins) continue;
         auto type = cast<RankedTensorType>(res.getType());
         tg.rw.setInsertionPoint(loop);
-        auto empty =
-            tg.rw
-                .create<tensor::EmptyOp>(type.getShape(), type.getElementType())
-                .getResult();
+        Value init = forall.getOutputs()[res.getResultNumber()];
+        auto sizes = tensor::getMixedSizes(tg.rw, user->getLoc(), init);
+        auto empty = tg.rw
+                         .create<tensor::EmptyOp>(sizes, type.getElementType(),
+                                                  type.getEncoding())
+                         .getResult();
         emptyToTile.push_back({empty, ins.getSource(), res});
         operand.set(empty);
       }
