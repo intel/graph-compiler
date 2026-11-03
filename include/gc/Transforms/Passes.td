@@ -34,6 +34,8 @@ def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
   let summary = "Tile contraction operations.";
   let description = [{
     Tile contraction operations and fuse their producers.
+    Producer fusion requires projected-permutation result maps, but allows
+    non-projected input maps.
   }];
 }
 
@@ -42,6 +44,8 @@ def TileGroupedMatmul : Pass<"tile-grouped-matmul", "func::FuncOp"> {
   let description = [{
     Tile 'linalgx.grouped_matmul' ops (work-group level) and the contractions
     they decompose into (sub-group level). Must run after 'tile-contract'.
+    Fuse producers into sub-group reduction loops through rank-reducing
+    work-group slices.
   }];
 }
 

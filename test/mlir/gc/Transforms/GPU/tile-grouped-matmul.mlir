@@ -34,16 +34,14 @@
 // CHECK:           %[[AVAIL:.+]] = arith.subi %[[END]], %[[ROW0]]
 // CHECK:           %[[CLAMPED:.+]] = arith.minsi %[[TILE]], %[[AVAIL]]
 // CHECK:           %[[SIZE:.+]] = arith.maxsi {{.*}}%[[CLAMPED]]
-// CHECK:           %[[LHS_T:.+]] = tensor.extract_slice %[[LHS]][%[[ROW0]], 0] [%[[SIZE]], 256] [1, 1]
 // CHECK:           %[[OUT_T:.+]] = tensor.extract_slice %[[OUT]][%[[ROW0]], %[[N]]] [%[[SIZE]], [[#TN]]] [1, 1]
 // CHECK:           %[[INIT:.+]] = linalg.fill {{.*}}gc.tiling.wg_tile_sizes = array<i64: [[#TM]], [[#TN]]>{{.*}} outs(%[[OUT_T]]
-//                  The expert dim of the weights is sliced to 1 and dropped.
-// CHECK:           %[[WEI_T:.+]] = tensor.extract_slice %[[WEI]][%[[E]], %[[N]], 0] [1, [[#TN]], 256] [1, 1, 1]
-// CHECK-SAME:        : tensor<8x512x256xf16> to tensor<[[#TN]]x256xf16>
 //                  The K loop of the plain matmul.
 // CHECK:           %[[RES:.+]] = scf.for %[[K:[^ ]+]] = %{{.+}} to %{{.+}} step %{{.+}} iter_args(%{{[^ ]+}} = %[[INIT]])
-// CHECK:             tensor.extract_slice %[[LHS_T]][0, %[[K]]] [%[[SIZE]], 64]
-// CHECK:             tensor.extract_slice %[[WEI_T]][0, %[[K]]] {{\[}}[[#TN]], 64]
+//                  Consecutive WG/SG slices are merged; the expert dim is dropped.
+// CHECK:             tensor.extract_slice %[[LHS]][%[[ROW0]], %[[K]]] [%[[SIZE]], 64] [1, 1]
+// CHECK:             tensor.extract_slice %[[WEI]][%[[E]], %[[N]], %[[K]]] [1, [[#TN]], 64] [1, 1, 1]
+// CHECK-SAME:          : tensor<8x512x256xf16> to tensor<[[#TN]]x64xf16>
 // CHECK:             linalg.matmul indexing_maps = [#[[MAP_A]], #[[MAP_B]], #[[MAP_C]]]
 // CHECK-SAME:          gc.tiling.level = 1
 // CHECK-SAME:          gc.tiling.wg_tile_sizes = array<i64: [[#TM]], [[#TN]], 64>
