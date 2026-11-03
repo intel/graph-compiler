@@ -188,6 +188,10 @@ build_llvm() {
     rm -f "$LLVM_BUILD_DIR/CMakeCache.txt"
 
     echo "Configuring LLVM..."
+    # LLVM_ENABLE_DUMP keeps the MLIR dump() methods in a release build. Since
+    # llvm/llvm-project@4d787f35aaba they are compiled only under
+    # !NDEBUG || LLVM_ENABLE_DUMP, and the OpenVINO GPU plugin still calls
+    # ModuleOp::dump(). Drop this once that caller switches to print().
     # Configure checks compile in random TryCompile-* dirs and always miss ccache.
     CCACHE_DISABLE=1 cmake -G Ninja -S llvm -B "$LLVM_BUILD_DIR" \
         -DCMAKE_BUILD_TYPE=$LLVM_BUILD_TYPE \
@@ -209,6 +213,7 @@ build_llvm() {
         -DLLVM_INSTALL_GTEST=ON \
         -DLLVM_USE_PERF=OFF \
         -DLLVM_ENABLE_BINDINGS=OFF \
+        -DLLVM_ENABLE_DUMP=ON \
         -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
         -DPython3_EXECUTABLE=$(which python3) \
         -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF \

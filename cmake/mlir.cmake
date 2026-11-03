@@ -100,17 +100,23 @@ else()
   set(MLIR_DIALECT_LIBS
       MLIRAffineDialect
       MLIRAffineTransforms
+      MLIRArithBufferDeallocationOpInterfaceImpl
+      MLIRArithBufferizableOpInterfaceImpl
       MLIRArithDialect
       MLIRArithTransforms
       MLIRArithValueBoundsOpInterfaceImpl
       MLIRBufferizationAllExtensions
+      MLIRBufferizationBufferizableOpInterfaceImpl
       MLIRBufferizationDialect
       MLIRBufferizationTransforms
+      MLIRControlFlowBufferDeallocationOpInterfaceImpl
+      MLIRControlFlowBufferizableOpInterfaceImpl
       MLIRControlFlowDialect
       MLIRControlFlowTransforms
       MLIRDLTIDialect
       MLIRFuncAllExtensions
       MLIRFuncDialect
+      MLIRGPUBufferDeallocationOpInterfaceImpl
       MLIRGPUDialect
       MLIRGPUPipelines
       MLIRGPUTransforms
@@ -118,16 +124,21 @@ else()
       MLIRLinalgDialect
       MLIRLinalgTransforms
       MLIRMathDialect
+      MLIRMemRefAllocationOpInterfaceImpl
       MLIRMemRefDialect
       MLIRMemRefTransforms
+      MLIRSCFBufferDeallocationOpInterfaceImpl
+      MLIRSCFBufferizableOpInterfaceImpl
       MLIRSCFDialect
       MLIRSCFTransforms
       MLIRShapeDialect
       MLIRTensorAllExtensions
+      MLIRTensorBufferizableOpInterfaceImpl
       MLIRTensorDialect
       MLIRTensorInferTypeOpInterfaceImpl
       MLIRTensorTilingInterfaceImpl
       MLIRUBDialect
+      MLIRVectorBufferizableOpInterfaceImpl
       MLIRVectorDialect
       MLIRVectorTransforms
       MLIRXeGPUDialect
