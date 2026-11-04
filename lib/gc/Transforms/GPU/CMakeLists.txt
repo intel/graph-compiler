@@ -25,6 +25,7 @@ gc_add_mlir_library(
   SimplifyIndexingMaps.cpp
   HoistStaticForInit.cpp
   PeeledForToIf.cpp
+  NormalizeMemrefLayouts.cpp
   AttentionOptimizations/Utils.cpp
   AttentionOptimizations/SetAttentionLayouts.cpp
   AttentionOptimizations/SetAttentionPrefetch.cpp
