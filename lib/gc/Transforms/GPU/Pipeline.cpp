@@ -342,6 +342,7 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
     pm.addNestedPass<func::FuncOp>(createRemoveAllocs());
     pm.addNestedPass<func::FuncOp>(createDropUnitDims());
+    pm.addNestedPass<func::FuncOp>(createNormalizeMemrefLayouts());
   });
 
   phase("KernelOutlining", [&]() {

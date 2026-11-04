@@ -302,4 +302,31 @@ def SimplifyIndexingMaps : Pass<"simplify-indexing-maps", "func::FuncOp"> {
   let dependentDialects = ["linalg::LinalgDialect", "tensor::TensorDialect"];
 }
 
+def NormalizeMemrefLayouts : Pass<"normalize-memref-layouts", "func::FuncOp"> {
+  let summary = "Access memrefs with a transposed strided layout through a row-major view.";
+  let description = [{
+    A memref whose innermost dimension is not the contiguous one, such as a
+    column-major matrix `memref<512x2048xf16, strided<[1, 512]>>` received from
+    the framework, cannot be accessed with 2D block loads and stores, so the
+    XeGPU lowering rejects every vector transfer on it.
+
+    This pass transposes the dims of such a memref into decreasing-stride
+    order with `memref.transpose`, which gives a row-major view of the same
+    memory, and redirects the vector transfers to that view. The transfers
+    reorder their indices and rename the dims in their permutation map, so the
+    access stays the same; only the dim order of the memref type changes.
+    For the matrix above, a read of the `[n, k]` tile becomes a transposing
+    read of a `[k, n]` tile of `memref<2048x512xf16>`, which the lowering
+    handles like any other transposed operand.
+
+    The view is created next to the definition of the memref, so for a
+    function argument it stays in the host code and the kernels receive the
+    row-major memref directly. Memrefs with no unit stride are left alone.
+    Explicit transfer masks and enclosing `vector.mask` masks are transposed
+    to match the new memref dimension order. Mask transposes are inserted
+    outside `vector.mask` regions to preserve their single-operation structure.
+  }];
+  let dependentDialects = ["memref::MemRefDialect", "vector::VectorDialect"];
+}
+
 #endif // GC_DIALECT_GC_PASSES
