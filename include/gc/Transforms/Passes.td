@@ -59,6 +59,24 @@ def TileParallel : Pass<"tile-parallel", "func::FuncOp"> {
   }];
 }
 
+def GuardEmptyTiles : Pass<"guard-empty-tiles", "func::FuncOp"> {
+  let summary = "Skip work-group tiles that have no elements.";
+  let description = [{
+    Wraps the body of an 'scf.forall' in 'scf.if' when a tile it writes through
+    'tensor.parallel_insert_slice' has a dynamic size that cannot be proven
+    positive, e.g. the rows of a grouped matmul tile whose expert has no tokens.
+    The guard covers the whole tile, including fused producers and consumers;
+    the else branch yields the untouched output slices. GPU block loads and
+    stores cannot describe a zero-sized surface, so an empty tile must not
+    access memory at all. The body is only guarded when skipping it is a no-op
+    for an empty tile: all output tiles must be empty under the same condition
+    and the body must be free of side effects; otherwise a warning is emitted
+    and the loop is left alone. Must run after the tiling passes.
+  }];
+  let dependentDialects = ["arith::ArithDialect", "scf::SCFDialect",
+                           "tensor::TensorDialect"];
+}
+
 def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
   let summary = "Add a context argument.";
   let description = [{
