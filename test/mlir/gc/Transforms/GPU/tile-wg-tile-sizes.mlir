@@ -1,4 +1,4 @@
-// RUN: gc-opt %s --gpu-dev-props --tile-contract --tile-attention --split-input-file | FileCheck %s
+// RUN: gc-opt %s --gpu-dev-props --horizontal-fusion --tile-contract --tile-attention --split-input-file | FileCheck %s
 
 // CHECK-LABEL: func.func @matmul_add
 // CHECK: scf.forall
@@ -217,4 +217,43 @@ func.func @fused_matmul_duplicated_z(%b0: tensor<256x128xf16>,
       linalg.yield %s0, %s1 : f32, f32
   } -> (tensor<128x128xf32>, tensor<128x128xf32>)
   return %r#0, %r#1 : tensor<128x128xf32>, tensor<128x128xf32>
+}
+
+// -----
+
+// The sibling matmuls share one tile loop. The pointwise consumer needs a
+// transposed slice of the second result, so it must read the completed results
+// outside that loop.
+#id = affine_map<(m, n) -> (m, n)>
+#transpose = affine_map<(m, n) -> (n, m)>
+// CHECK-LABEL: func.func @fused_matmul_transposed_consumer
+// CHECK:         %[[OUTER:.+]]:2 = scf.forall
+// CHECK:           %[[KLOOP:.+]]:2 = scf.for
+// CHECK:             %[[FUSED:.+]]:2 = linalg.generic
+// CHECK-SAME:          gc.fused_matmul
+// CHECK:           scf.forall.in_parallel {
+// CHECK-DAG:         tensor.parallel_insert_slice %[[KLOOP]]#0
+// CHECK-DAG:         tensor.parallel_insert_slice %[[KLOOP]]#1
+// CHECK:         %[[ADD:.+]] = linalg.generic
+// CHECK-SAME:      ins(%[[OUTER]]#0, %[[OUTER]]#1 :
+// CHECK:         return %[[ADD]] : tensor<64x64xf32>
+func.func @fused_matmul_transposed_consumer(
+    %a: tensor<64x256xf16>, %b0: tensor<256x64xf16>,
+    %b1: tensor<256x64xf16>, %i0: tensor<64x64xf32>,
+    %i1: tensor<64x64xf32>, %sum_init: tensor<64x64xf32>)
+    -> tensor<64x64xf32> {
+  %r0 = linalg.matmul ins(%a, %b0 : tensor<64x256xf16>, tensor<256x64xf16>)
+      outs(%i0 : tensor<64x64xf32>) -> tensor<64x64xf32>
+  %r1 = linalg.matmul ins(%a, %b1 : tensor<64x256xf16>, tensor<256x64xf16>)
+      outs(%i1 : tensor<64x64xf32>) -> tensor<64x64xf32>
+  %sum = linalg.generic
+      {indexing_maps = [#id, #transpose, #id],
+       iterator_types = ["parallel", "parallel"]}
+      ins(%r0, %r1 : tensor<64x64xf32>, tensor<64x64xf32>)
+      outs(%sum_init : tensor<64x64xf32>) {
+    ^bb0(%x: f32, %y: f32, %out: f32):
+      %add = arith.addf %x, %y : f32
+      linalg.yield %add : f32
+  } -> tensor<64x64xf32>
+  return %sum : tensor<64x64xf32>
 }

@@ -930,11 +930,28 @@ private:
     SmallVector<std::tuple<Value, Value, Value>> emptyToTile;
     auto loopOp = loop.getOperation();
     if (auto forall = dyn_cast<scf::ForallOp>(loopOp)) {
-      for (auto &operand : user->getOpOperands()) {
-        auto res = dyn_cast<OpResult>(operand.get());
+      SmallVector<std::pair<OpOperand *, tensor::ParallelInsertSliceOp>> extras;
+      auto userIdx = dyn_cast<IndexingMapOpInterface>(user);
+      auto sourceInsert = findParallelInsertSlice(forall, loopRes);
+      AffineMap sourceMap =
+          userIdx ? userIdx.getMatchingIndexingMap(operand) : AffineMap();
+      for (OpOperand &otherOperand : user->getOpOperands()) {
+        auto res = dyn_cast<OpResult>(otherOperand.get());
         if (!res || res == loopRes || res.getDefiningOp() != loopOp) continue;
         auto ins = findParallelInsertSlice(forall, res);
-        if (!ins) continue;
+        if (!ins || !sourceInsert || !sourceMap ||
+            userIdx.getMatchingIndexingMap(&otherOperand) != sourceMap ||
+            !llvm::equal(ins.getMixedOffsets(),
+                         sourceInsert.getMixedOffsets()) ||
+            !llvm::equal(ins.getMixedSizes(), sourceInsert.getMixedSizes()) ||
+            !llvm::equal(ins.getMixedStrides(), sourceInsert.getMixedStrides()))
+          return false;
+        extras.emplace_back(&otherOperand, ins);
+      }
+      // A different consumer map or insert slice needs data from another tile,
+      // which cannot be substituted with the current tile of this result.
+      for (auto [otherOperand, ins] : extras) {
+        auto res = cast<OpResult>(otherOperand->get());
         auto type = cast<RankedTensorType>(res.getType());
         tg.rw.setInsertionPoint(loop);
         Value init = forall.getOutputs()[res.getResultNumber()];
@@ -944,7 +961,7 @@ private:
                                                   type.getEncoding())
                          .getResult();
         emptyToTile.push_back({empty, ins.getSource(), res});
-        operand.set(empty);
+        otherOperand->set(empty);
       }
     }
 
