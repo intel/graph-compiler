@@ -37,7 +37,7 @@ fi
 . "$PROJECT_DIR/scripts/build.sh"
 
 : ${OV_URL:='https://github.com/openvinotoolkit/openvino.git'}
-: ${OV_TAG:='e357b2c0ac8a9ee461fbd09655c16beebd21abed'}
+: ${OV_TAG:=$(head -n1 "$PROJECT_DIR/cmake/ov-version.txt")}
 : ${OV_DIR:="$GC_EXTERNALS_DIR/openvino"}
 : ${OV_BUILD_TYPE:=$GC_BUILD_TYPE}
 : ${OV_BUILD_SFX:="/$OV_BUILD_TYPE"}
