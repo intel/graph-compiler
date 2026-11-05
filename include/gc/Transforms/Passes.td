@@ -33,14 +33,12 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
 def HorizontalFusionPass : Pass<"horizontal-fusion", "func::FuncOp"> {
   let summary = "Horizontally fuse matmuls sharing a matrix input.";
   let description = [{
-    Fuse independent tensor matmuls in the same block before tiling. Regular
-    matmuls become a multi-output generic marked gc.fused_matmul. Grouped
-    matmuls become a multi-branch linalgx.grouped_matmul and must also share
-    offsets and compatible max_group_size bounds. Shapes and element types
-    must agree; unknown dynamic matrix dimensions are fused only when their
+    Fuse independent tensor matmuls in the same block before tiling into a
+    multi-output generic marked gc.fused_matmul. Shapes and element types must
+    agree; unknown dynamic matrix dimensions are fused only when their
     equality can be proven. Only pure operand definitions may be hoisted.
   }];
-  let dependentDialects = ["linalg::LinalgDialect", "linalgx::LinalgxDialect"];
+  let dependentDialects = ["linalg::LinalgDialect"];
 }
 
 def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
@@ -53,10 +51,8 @@ def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
 def TileGroupedMatmul : Pass<"tile-grouped-matmul", "func::FuncOp"> {
   let summary = "Tile grouped matmul operations.";
   let description = [{
-    Tile single-branch or horizontally fused 'linalgx.grouped_matmul' ops at
-    work-group level and their tile-local contractions or multi-output generics
-    at reduction level. Fused generics are split in decomposition. Must run
-    after 'tile-contract'.
+    Tile 'linalgx.grouped_matmul' ops (work-group level) and the contractions
+    they decompose into (sub-group level). Must run after 'tile-contract'.
   }];
 }
 

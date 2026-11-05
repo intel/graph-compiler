@@ -32,16 +32,22 @@ namespace mlir::gc {
 
 namespace {
 
-// Share only branch extraction and reconstruction. Each concrete pattern owns
-// its fusion marker and operand-map rules. Neither rewrite changes the loops.
-struct FusedMatmulDecompositionBase
-    : public OpRewritePattern<linalg::GenericOp> {
+// Split a fused regular matmul back into branch matmuls after tiling.
+struct DecomposeFusedMatmul final : public OpRewritePattern<linalg::GenericOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult decompose(linalg::GenericOp op, PatternRewriter &rw,
-                          ArrayRef<AffineMap> lhsMaps,
-                          ArrayRef<AffineMap> rhsMaps, AffineMap outputMap,
-                          StringRef fusionMarker) const {
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
+                                PatternRewriter &rw) const override {
+    if (!mlir::gc::isFusedMatmulOp(op)) return failure();
+    AffineExpr m, n, k;
+    bindDims(op.getContext(), m, n, k);
+    SmallVector<AffineMap> lhsMaps = {
+        AffineMap::get(3, 0, {m, k}, op.getContext()),
+        AffineMap::get(3, 0, {k, m}, op.getContext())};
+    SmallVector<AffineMap> rhsMaps = {
+        AffineMap::get(3, 0, {k, n}, op.getContext()),
+        AffineMap::get(3, 0, {n, k}, op.getContext())};
+    AffineMap outputMap = AffineMap::get(3, 0, {m, n}, op.getContext());
     if (!op.hasPureTensorSemantics()) return failure();
     SmallVector<utils::IteratorType> matmulIterators = {
         utils::IteratorType::parallel, utils::IteratorType::parallel,
@@ -125,7 +131,7 @@ struct FusedMatmulDecompositionBase
           ValueRange{op.getOutputs()[i]},
           ArrayRef<NamedAttribute>{indexingMaps});
       for (NamedAttribute attr : op->getDiscardableAttrDictionary())
-        if (attr.getName() != fusionMarker)
+        if (attr.getName() != mlir::gc::GC_ATTR_FUSED_MATMUL)
           matmul->setDiscardableAttr(attr.getName(), attr.getValue());
       // Preserve the original scalar casts and arithmetic, including mixed
       // precision accumulation, rather than re-inferring their semantics.
@@ -148,43 +154,6 @@ struct FusedMatmulDecompositionBase
     }
     rw.replaceOp(op, results);
     return success();
-  }
-};
-
-struct DecomposeFusedMatmul final : FusedMatmulDecompositionBase {
-  using FusedMatmulDecompositionBase::FusedMatmulDecompositionBase;
-
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
-                                PatternRewriter &rw) const override {
-    if (!mlir::gc::isFusedMatmulOp(op)) return failure();
-    AffineExpr m, n, k;
-    bindDims(op.getContext(), m, n, k);
-    SmallVector<AffineMap> lhsMaps = {
-        AffineMap::get(3, 0, {m, k}, op.getContext()),
-        AffineMap::get(3, 0, {k, m}, op.getContext())};
-    SmallVector<AffineMap> rhsMaps = {
-        AffineMap::get(3, 0, {k, n}, op.getContext()),
-        AffineMap::get(3, 0, {n, k}, op.getContext())};
-    return decompose(op, rw, lhsMaps, rhsMaps,
-                     AffineMap::get(3, 0, {m, n}, op.getContext()),
-                     mlir::gc::GC_ATTR_FUSED_MATMUL);
-  }
-};
-
-struct DecomposeFusedGroupedMatmul final : FusedMatmulDecompositionBase {
-  using FusedMatmulDecompositionBase::FusedMatmulDecompositionBase;
-
-  LogicalResult matchAndRewrite(linalg::GenericOp op,
-                                PatternRewriter &rw) const override {
-    if (!mlir::gc::isFusedGroupedMatmulOp(op)) return failure();
-    // Grouped tiling has already selected the expert and clamped its rows.
-    // Its LHS uses (m, k); its transposed weights use (n, k).
-    AffineExpr m, n, k;
-    bindDims(op.getContext(), m, n, k);
-    return decompose(op, rw, {AffineMap::get(3, 0, {m, k}, op.getContext())},
-                     {AffineMap::get(3, 0, {n, k}, op.getContext())},
-                     AffineMap::get(3, 0, {m, n}, op.getContext()),
-                     mlir::gc::GC_ATTR_FUSED_GROUPED_MATMUL);
   }
 };
 
@@ -291,7 +260,7 @@ struct Decomposition final : mlir::gc::impl::DecompositionBase<Decomposition> {
     RewritePatternSet patterns(ctx);
 
     patterns.add<DecomposeAggregatedOp>(ctx);
-    patterns.add<DecomposeFusedMatmul, DecomposeFusedGroupedMatmul>(ctx);
+    patterns.add<DecomposeFusedMatmul>(ctx);
     patterns.add<PackToExpandShape, UnPackToCollapseShape>(ctx, /*benefit=*/2);
     linalg::populateDecomposePackUnpackPatterns(patterns);
 

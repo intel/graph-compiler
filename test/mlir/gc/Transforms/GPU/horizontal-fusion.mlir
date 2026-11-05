@@ -53,60 +53,6 @@ func.func @matmul_shared_rhs(%a0: tensor<64x256xf16>, %a1: tensor<64x256xf16>,
 
 // -----
 
-// A shared dynamic row extent is known because the LHS value is shared. Fuse
-// grouped matmuls at Linalgx level; their generic marker is added during tiling.
-#lhs = affine_map<(e, m, n, k) -> (m, k)>
-#weights = affine_map<(e, m, n, k) -> (e, n, k)>
-#offsets = affine_map<(e, m, n, k) -> (e)>
-#out = affine_map<(e, m, n, k) -> (m, n)>
-// CHECK-LABEL: func.func @grouped_shared_lhs
-// CHECK-NEXT:    %[[FUSED:.+]]:2 = linalgx.grouped_matmul
-// CHECK-SAME:      ins(%arg0, %arg1, %arg0, %arg2, %arg3 :
-// CHECK-SAME:      max_group_size(%arg4)
-// CHECK-SAME:      outs(%arg5, %arg6 : tensor<?x64xf32>, tensor<?x64xf32>)
-// CHECK-NEXT:    return %[[FUSED]]#0, %[[FUSED]]#1
-func.func @grouped_shared_lhs(%a: tensor<?x256xf16>, %w0: tensor<2x64x256xf16>,
-                            %w1: tensor<2x64x256xf16>, %offs: tensor<2xi32>,
-                            %bound: index, %init0: tensor<?x64xf32>,
-                            %init1: tensor<?x64xf32>)
-    -> (tensor<?x64xf32>, tensor<?x64xf32>) {
-  %r0 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w0, %offs : tensor<?x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      max_group_size(%bound) outs(%init0 : tensor<?x64xf32>) -> tensor<?x64xf32>
-  %r1 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w1, %offs : tensor<?x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      max_group_size(%bound) outs(%init1 : tensor<?x64xf32>) -> tensor<?x64xf32>
-  return %r0, %r1 : tensor<?x64xf32>, tensor<?x64xf32>
-}
-
-// -----
-
-#lhs = affine_map<(e, m, n, k) -> (m, k)>
-#weights = affine_map<(e, m, n, k) -> (e, n, k)>
-#offsets = affine_map<(e, m, n, k) -> (e)>
-#out = affine_map<(e, m, n, k) -> (m, n)>
-// CHECK-LABEL: func.func @grouped_shared_weights
-// CHECK-NEXT:    %[[FUSED:.+]]:2 = linalgx.grouped_matmul
-// CHECK-SAME:      ins(%arg0, %arg2, %arg1, %arg2, %arg3 :
-// CHECK-SAME:      max_group_size(%arg4)
-// CHECK-SAME:      outs(%arg5, %arg6 : tensor<128x64xf32>, tensor<128x64xf32>)
-// CHECK-NEXT:    return %[[FUSED]]#0, %[[FUSED]]#1
-func.func @grouped_shared_weights(%a0: tensor<128x256xf16>, %a1: tensor<128x256xf16>,
-                                %w: tensor<2x64x256xf16>, %offs: tensor<2xi64>,
-                                %bound: index, %init0: tensor<128x64xf32>,
-                                %init1: tensor<128x64xf32>)
-    -> (tensor<128x64xf32>, tensor<128x64xf32>) {
-  %r0 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a0, %w, %offs : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi64>)
-      max_group_size(%bound) outs(%init0 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  %r1 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a1, %w, %offs : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi64>)
-      max_group_size(%bound) outs(%init1 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  return %r0, %r1 : tensor<128x64xf32>, tensor<128x64xf32>
-}
-
-// -----
-
 // Identical matrix shapes alone are not sharing.
 // CHECK-LABEL: func.func @no_shared_input
 // CHECK-NEXT:    %[[R0:.+]] = linalg.matmul
@@ -135,33 +81,6 @@ func.func @dependent_matmuls(%a: tensor<64x64xf32>, %b: tensor<64x64xf32>,
   %view = tensor.cast %r0 : tensor<64x64xf32> to tensor<64x64xf32>
   %r1 = linalg.matmul ins(%a, %view : tensor<64x64xf32>, tensor<64x64xf32>) outs(%init1 : tensor<64x64xf32>) -> tensor<64x64xf32>
   return %r0, %r1 : tensor<64x64xf32>, tensor<64x64xf32>
-}
-
-// -----
-
-// Shared matrices cannot overcome different expert partitions.
-#lhs = affine_map<(e, m, n, k) -> (m, k)>
-#weights = affine_map<(e, m, n, k) -> (e, n, k)>
-#offsets = affine_map<(e, m, n, k) -> (e)>
-#out = affine_map<(e, m, n, k) -> (m, n)>
-// CHECK-LABEL: func.func @different_offsets
-// CHECK-NEXT:    %[[R0:.+]] = linalgx.grouped_matmul
-// CHECK-SAME:      ins(%arg0, %arg1, %arg3 :
-// CHECK-NEXT:    %[[R1:.+]] = linalgx.grouped_matmul
-// CHECK-SAME:      ins(%arg0, %arg2, %arg4 :
-// CHECK-NEXT:    return %[[R0]], %[[R1]]
-func.func @different_offsets(%a: tensor<128x256xf16>, %w0: tensor<2x64x256xf16>,
-                             %w1: tensor<2x64x256xf16>, %offs0: tensor<2xi32>,
-                             %offs1: tensor<2xi32>, %init0: tensor<128x64xf32>,
-                             %init1: tensor<128x64xf32>)
-    -> (tensor<128x64xf32>, tensor<128x64xf32>) {
-  %r0 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w0, %offs0 : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      outs(%init0 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  %r1 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w1, %offs1 : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      outs(%init1 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  return %r0, %r1 : tensor<128x64xf32>, tensor<128x64xf32>
 }
 
 // -----
@@ -328,44 +247,4 @@ func.func @attribute_mismatch(%a: tensor<64x256xf16>, %b0: tensor<256x64xf16>,
   %r0 = linalg.matmul {foo} ins(%a, %b0 : tensor<64x256xf16>, tensor<256x64xf16>) outs(%i0 : tensor<64x64xf32>) -> tensor<64x64xf32>
   %r1 = linalg.matmul ins(%a, %b1 : tensor<64x256xf16>, tensor<256x64xf16>) outs(%i1 : tensor<64x64xf32>) -> tensor<64x64xf32>
   return %r0, %r1 : tensor<64x64xf32>, tensor<64x64xf32>
-}
-
-// -----
-
-// Grouped matmuls need the same max_group_size bound, or no bound on both.
-#lhs = affine_map<(e, m, n, k) -> (m, k)>
-#weights = affine_map<(e, m, n, k) -> (e, n, k)>
-#offsets = affine_map<(e, m, n, k) -> (e)>
-#out = affine_map<(e, m, n, k) -> (m, n)>
-// CHECK-LABEL: func.func @grouped_bound_missing
-// CHECK-NEXT:    linalgx.grouped_matmul {{.*}} max_group_size(%arg4) outs(%arg5 :
-// CHECK-NEXT:    linalgx.grouped_matmul {{.*}} outs(%arg6 :
-// CHECK-LABEL: func.func @grouped_bound_mismatch
-// CHECK-NEXT:    linalgx.grouped_matmul {{.*}} max_group_size(%arg4) outs(%arg6 :
-// CHECK-NEXT:    linalgx.grouped_matmul {{.*}} max_group_size(%arg5) outs(%arg7 :
-func.func @grouped_bound_missing(%a: tensor<128x256xf16>, %w0: tensor<2x64x256xf16>,
-                                %w1: tensor<2x64x256xf16>, %offs: tensor<2xi32>,
-                                %bound: index, %init0: tensor<128x64xf32>,
-                                %init1: tensor<128x64xf32>)
-    -> (tensor<128x64xf32>, tensor<128x64xf32>) {
-  %r0 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w0, %offs : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      max_group_size(%bound) outs(%init0 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  %r1 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w1, %offs : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      outs(%init1 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  return %r0, %r1 : tensor<128x64xf32>, tensor<128x64xf32>
-}
-func.func @grouped_bound_mismatch(%a: tensor<128x256xf16>, %w0: tensor<2x64x256xf16>,
-                                 %w1: tensor<2x64x256xf16>, %offs: tensor<2xi32>,
-                                 %bound0: index, %bound1: index,
-                                 %init0: tensor<128x64xf32>, %init1: tensor<128x64xf32>)
-    -> (tensor<128x64xf32>, tensor<128x64xf32>) {
-  %r0 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w0, %offs : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      max_group_size(%bound0) outs(%init0 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  %r1 = linalgx.grouped_matmul <{indexing_maps = [#lhs, #weights, #offsets, #out]}>
-      ins(%a, %w1, %offs : tensor<128x256xf16>, tensor<2x64x256xf16>, tensor<2xi32>)
-      max_group_size(%bound1) outs(%init1 : tensor<128x64xf32>) -> tensor<128x64xf32>
-  return %r0, %r1 : tensor<128x64xf32>, tensor<128x64xf32>
 }

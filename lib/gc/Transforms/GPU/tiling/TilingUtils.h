@@ -32,22 +32,6 @@ using namespace mlir::scf;
 // GC_ATTR_LEVEL and GC_ATTR_WG_TILE_SIZES are defined in gc/Utils/Transform.h.
 constexpr char GC_ATTR_NUM_KERNELS[] = "gc.num_kernels";
 
-// Return the widest integer or floating-point element type among shaped values.
-// Ignore scalar and non-numeric operands; keep the first type on equal widths.
-inline Type getWidestElementType(ValueRange values) {
-  Type elementType;
-  for (Value value : values) {
-    auto shapedType = dyn_cast<ShapedType>(value.getType());
-    if (!shapedType) continue;
-    Type type = shapedType.getElementType();
-    if (!type.isIntOrFloat()) continue;
-    if (!elementType ||
-        type.getIntOrFloatBitWidth() > elementType.getIntOrFloatBitWidth())
-      elementType = type;
-  }
-  return elementType;
-}
-
 // Indexing map for an op's result tensor (via its DPS init operand).
 inline AffineMap getResultIndexingMap(Operation *op, unsigned resultNum) {
   auto dst = dyn_cast<DestinationStyleOpInterface>(op);
@@ -543,16 +527,27 @@ protected:
     }
   }
 
-  virtual Type getTilingElementType(Target &tg) {
-    return getWidestElementType(tg.op.getOperation()->getOperands());
-  }
-
   // Get the supported block sizes, that can be used for tiling of the dims
   // described by the width and height constraints.
   virtual BlockSizes getSupportedBlockSizes(Target &tg, bool reduction,
                                             const DimConstraint &cw,
                                             const DimConstraint &ch) {
-    Type elTy = getTilingElementType(tg);
+    Type elTy;
+    // Get the operand with maximum width
+    for (auto o : tg.op.getOperation()->getOperands()) {
+      if (auto t = dyn_cast<ShapedType>(o.getType())) {
+        auto et = t.getElementType();
+        if (!et.isIntOrFloat()) continue;
+        if (elTy) {
+          if (et.getIntOrFloatBitWidth() > elTy.getIntOrFloatBitWidth()) {
+            elTy = et;
+          }
+        } else {
+          elTy = et;
+        }
+      }
+    }
+
     if (!elTy) {
       tg.op->emitError() << "At least one operand must be of ShapedType";
       return {};

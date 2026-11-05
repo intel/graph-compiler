@@ -6,8 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Dialect/Linalgx/LinalgxDialect.h"
-#include "gc/Dialect/Linalgx/LinalgxOps.h"
 #include "gc/Utils/Transform.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -30,43 +28,20 @@ namespace mlir::gc {
 
 namespace {
 
-// Matrix values, not destinations or the grouped offsets, establish sharing.
+// Matrix values, not destinations, establish sharing.
 static SmallVector<Value> matrixInputs(Operation *op) {
-  if (auto matmul = dyn_cast<linalg::MatmulOp>(op))
-    return llvm::to_vector(matmul.getInputs());
-  auto grouped = cast<linalgx::GroupedMatmulOp>(op);
-  return {grouped.getLhs().front(), grouped.getWeights().front()};
+  return llvm::to_vector(cast<linalg::MatmulOp>(op).getInputs());
 }
 
 static Value destination(Operation *op) {
-  if (auto matmul = dyn_cast<linalg::MatmulOp>(op))
-    return matmul.getOutputs().front();
-  return cast<linalgx::GroupedMatmulOp>(op).getOutputs().front();
+  return cast<linalg::MatmulOp>(op).getOutputs().front();
 }
 
 static LogicalResult isValidMatmulCandidate(Operation *op,
                                             PatternRewriter &rw) {
   if (op->hasAttr(mlir::gc::GC_ATTR_LEVEL))
     return rw.notifyMatchFailure(op, "matmul has already been tiled");
-  if (auto grouped = dyn_cast<linalgx::GroupedMatmulOp>(op)) {
-    if (!grouped.hasPureTensorSemantics())
-      return rw.notifyMatchFailure(op, "expected tensor semantics");
-    if (grouped.getNumBranches() != 1)
-      return rw.notifyMatchFailure(op, "grouped matmul is already fused");
-    if (llvm::any_of(
-            llvm::concat<Value>(grouped.getLhs(), grouped.getWeights(),
-                                grouped.getOutputs()),
-            [](Value operand) {
-              return !isa<FloatType>(
-                  cast<ShapedType>(operand.getType()).getElementType());
-            }))
-      return rw.notifyMatchFailure(op, "grouped matmul fusion only supports "
-                                       "floating-point inputs and outputs");
-    return success();
-  }
-  auto matmul = dyn_cast<linalg::MatmulOp>(op);
-  if (!matmul)
-    return rw.notifyMatchFailure(op, "expected a regular or grouped matmul");
+  auto matmul = cast<linalg::MatmulOp>(op);
   if (!matmul.hasPureTensorSemantics())
     return rw.notifyMatchFailure(op, "expected tensor semantics");
   if (matmul.getCast() != linalg::TypeFn::cast_signed)
@@ -130,8 +105,6 @@ static LogicalResult checkMatrixShape(Value lhs, Value rhs,
 
 static LogicalResult isValidSiblingMatmul(Operation *lhs, Operation *rhs,
                                           PatternRewriter &rw) {
-  if (lhs->getName() != rhs->getName())
-    return rw.notifyMatchFailure(rhs, "matmul operation kinds differ");
   if (lhs->getDiscardableAttrDictionary() !=
       rhs->getDiscardableAttrDictionary())
     return rw.notifyMatchFailure(rhs, "matmul discardable attributes differ");
@@ -147,25 +120,9 @@ static LogicalResult isValidSiblingMatmul(Operation *lhs, Operation *rhs,
   for (auto [a, b] : llvm::zip_equal(lhsOut.getShape(), rhsOut.getShape()))
     if (!ShapedType::isDynamic(a) && !ShapedType::isDynamic(b) && a != b)
       return rw.notifyMatchFailure(rhs, "destination static dimensions differ");
-  if (auto matmul = dyn_cast<linalg::MatmulOp>(lhs)) {
-    if (matmul.getIndexingMapsArray() !=
-        cast<linalg::MatmulOp>(rhs).getIndexingMapsArray())
-      return rw.notifyMatchFailure(rhs, "matmul indexing maps differ");
-    return success();
-  }
-  auto a = cast<linalgx::GroupedMatmulOp>(lhs);
-  auto b = cast<linalgx::GroupedMatmulOp>(rhs);
-  if (a.getOffsets() != b.getOffsets())
-    return rw.notifyMatchFailure(rhs, "grouped matmul offsets differ");
-  Value aBound = a.getMaxGroupSize(), bBound = b.getMaxGroupSize();
-  if (aBound == bBound) return success();
-  if (!aBound || !bBound)
-    return rw.notifyMatchFailure(rhs,
-                                 "only one grouped matmul has max_group_size");
-  auto equal = ValueBoundsConstraintSet::areEqual(aBound, bBound);
-  if (failed(equal) || !*equal)
-    return rw.notifyMatchFailure(rhs,
-                                 "cannot prove equal max_group_size bounds");
+  if (cast<linalg::MatmulOp>(lhs).getIndexingMapsArray() !=
+      cast<linalg::MatmulOp>(rhs).getIndexingMapsArray())
+    return rw.notifyMatchFailure(rhs, "matmul indexing maps differ");
   return success();
 }
 
@@ -282,41 +239,11 @@ static linalg::GenericOp fuseMatmuls(ArrayRef<Operation *> group,
   return fused;
 }
 
-// Build one multi-branch grouped_matmul from a legal group, preserving each
-// (lhs, weights) pair and destination/result in branch order. Use the first
-// op's common offsets and compatible max_group_size bound. Tiling later creates
-// the gc.fused_grouped_matmul-marked generic; the caller replaces the original
-// ops.
-static linalgx::GroupedMatmulOp fuseGroupedMatmuls(ArrayRef<Operation *> group,
-                                                   PatternRewriter &rw,
-                                                   Location loc) {
-  auto first = cast<linalgx::GroupedMatmulOp>(group.front());
-  SmallVector<Value> lhs, weights, outputs;
-  for (Operation *op : group) {
-    auto grouped = cast<linalgx::GroupedMatmulOp>(op);
-    lhs.push_back(grouped.getLhs().front());
-    weights.push_back(grouped.getWeights().front());
-    outputs.push_back(grouped.getOutputs().front());
-  }
-  SmallVector<AffineMap> maps(group.size(), first.getLhsMap());
-  maps.append(group.size(), first.getWeightsMap());
-  maps.push_back(first.getOffsetsMap());
-  maps.append(group.size(), first.getOutputMap());
-  auto fused = linalgx::GroupedMatmulOp::create(
-      rw, loc, TypeRange(outputs), lhs, weights, first.getOffsets(),
-      first.getMaxGroupSize(), outputs, rw.getAffineMapArrayAttr(maps));
-  for (NamedAttribute attr : first->getDiscardableAttrDictionary())
-    fused->setDiscardableAttr(attr.getName(), attr.getValue());
-  return fused;
-}
+struct HorizontalFusionPattern final : OpRewritePattern<linalg::MatmulOp> {
+  using OpRewritePattern::OpRewritePattern;
 
-// The two pattern instantiations have distinct roots; each only combines
-// siblings of its own operation kind in the same block.
-template <typename OpTy>
-struct HorizontalFusionPattern final : OpRewritePattern<OpTy> {
-  using OpRewritePattern<OpTy>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(OpTy root, PatternRewriter &rw) const override {
+  LogicalResult matchAndRewrite(linalg::MatmulOp root,
+                                PatternRewriter &rw) const override {
     Operation *seed = root.getOperation();
     if (failed(isValidMatmulCandidate(seed, rw))) return failure();
     SmallVector<Operation *> group{seed}, toHoist;
@@ -326,8 +253,8 @@ struct HorizontalFusionPattern final : OpRewritePattern<OpTy> {
     SetVector<Operation *> candidateSet;
     for (Value input : commonInputs)
       for (Operation *user : input.getUsers())
-        if (isa<OpTy>(user) && user->getBlock() == seed->getBlock() &&
-            seed->isBeforeInBlock(user))
+        if (isa<linalg::MatmulOp>(user) &&
+            user->getBlock() == seed->getBlock() && seed->isBeforeInBlock(user))
           candidateSet.insert(user);
     auto candidates = candidateSet.takeVector();
     llvm::sort(candidates, [](Operation *lhs, Operation *rhs) {
@@ -364,9 +291,7 @@ struct HorizontalFusionPattern final : OpRewritePattern<OpTy> {
     SmallVector<Location> locations;
     for (Operation *op : group) locations.push_back(op->getLoc());
     Location loc = FusedLoc::get(seed->getContext(), locations);
-    Operation *fused = isa<linalg::MatmulOp>(seed)
-                           ? fuseMatmuls(group, rw, loc).getOperation()
-                           : fuseGroupedMatmuls(group, rw, loc).getOperation();
+    Operation *fused = fuseMatmuls(group, rw, loc).getOperation();
     for (auto [i, op] : llvm::enumerate(group))
       rw.replaceOp(op, fused->getResult(i));
 
@@ -380,9 +305,7 @@ struct HorizontalFusionPass final
     auto func = getOperation();
     if (func.isExternal()) return;
     RewritePatternSet patterns(&getContext());
-    patterns.add<HorizontalFusionPattern<linalg::MatmulOp>,
-                 HorizontalFusionPattern<linalgx::GroupedMatmulOp>>(
-        &getContext());
+    patterns.add<HorizontalFusionPattern>(&getContext());
     GreedyRewriteConfig config;
     // Start with the earliest sibling so one rewrite can collect all branches.
     config.setUseTopDownTraversal();

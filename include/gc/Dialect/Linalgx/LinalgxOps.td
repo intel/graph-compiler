@@ -126,18 +126,15 @@ def Linalgx_AttentionOp : Linalgx_Op<"attention",
 
 def Linalgx_GroupedMatmulOp : Linalgx_Op<"grouped_matmul",
     [
-     AttrSizedOperandSegments,
      DeclareOpInterfaceMethods<IndexingMapOpInterface, ["getMatchingIndexingMap"]>,
      DeclareOpInterfaceMethods<DestinationStyleOpInterface>,
-     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
      DeclareOpInterfaceMethods<TilingInterface,
       ["getIterationDomain",
        "getLoopIteratorTypes",
        "getResultTilePosition",
        "getTiledImplementation",
        "generateResultTileValue"]>]> {
-   let summary = [{Grouped matmul, optionally with horizontally fused branches.}];
+  let summary = [{Grouped matmul with the semantics of PyTorch's grouped_mm.}];
   let description = [{
     Same as `torch._grouped_mm(lhs, weights.transpose(-2, -1), offs=offsets)`:
     the rows of `lhs` are split into consecutive groups, one per expert, and
@@ -155,37 +152,17 @@ def Linalgx_GroupedMatmulOp : Linalgx_Op<"grouped_matmul",
       rows [2, 2) -> expert 1 has no rows
       rows [2, 5) -> out = lhs[2:5] * weights[2]^T
 
-     `max_group_size` is an optional performance hint: an upper bound on the
+    `max_group_size` is an optional performance hint: an upper bound on the
     number of rows in any group. It defaults to `total` and only shrinks the
     loop over rows, but it must be a real bound - rows of a group longer than
-     `max_group_size` are not computed.
+    `max_group_size` are not computed.
+  }];
 
-     Multiple branches share the same offsets and iteration domain. Branch i
-     accumulates lhs[i] * weights[i]^T into outputs[i]. All branches must share
-     either their lhs value or their weights value, and have compatible shapes
-     and element types. Dynamic dimensions must agree at runtime.
-     Fused branches currently support floating-point inputs and outputs only.
-
-     The custom `ins` syntax lists (lhs, weights) pairs followed by the shared
-     offsets; `outs` lists one initialization tensor per branch. For example:
-
-       ins(%a, %w0, %a, %w1, %offsets : ...)
-       outs(%c0, %c1 : ...) -> (tensor<...>, tensor<...>)
-
-     The single-branch syntax is unchanged. `indexing_maps` contains one map
-     per shaped operand in storage order: all lhs operands, all weights,
-      offsets, then all outputs. The optional scalar bound has no map.
-
-     Tensor forms have no memory effects and are speculatable. Memref forms
-     read lhs, weights and offsets, and read/write each output accumulator;
-     they are not speculatable.
-   }];
-
-   let arguments = (ins Variadic<AnyShaped>:$lhs,
-                        Variadic<AnyShaped>:$weights,
-                        AnyShaped:$offsets,
-                        Optional<Index>:$max_group_size,
-                        Variadic<AnyShaped>:$outputs,
+  let arguments = (ins AnyShaped:$lhs,
+                       AnyShaped:$weights,
+                       AnyShaped:$offsets,
+                       Optional<Index>:$max_group_size,
+                       AnyShaped:$output,
                        AffineMapArrayAttr:$indexing_maps
   );
 
@@ -194,11 +171,11 @@ def Linalgx_GroupedMatmulOp : Linalgx_Op<"grouped_matmul",
   let assemblyFormat = [{
     attr-dict
     prop-dict
-     `ins` `(` custom<GroupedMatmulInputs>($lhs, $weights, $offsets,
-                                        type($lhs), type($weights), type($offsets)) `)`
+    `ins` `(` $lhs `,` $weights `,` $offsets `:`
+              type($lhs) `,` type($weights) `,` type($offsets) `)`
     (`max_group_size` `(` $max_group_size^ `)`)?
-     `outs` `(` $outputs `:` type($outputs) `)`
-     (`->` custom<GroupedMatmulResults>(type($results))^)?
+    `outs` `(` $output `:` type($output) `)`
+    (`->` type($results)^)?
   }];
 
   let extraClassDeclaration = [{
@@ -208,19 +185,10 @@ def Linalgx_GroupedMatmulOp : Linalgx_Op<"grouped_matmul",
 
     /* `indexing_maps` holds one map per *shaped* operand, in operand order;
        `max_group_size` is a scalar and has no map. */
-     unsigned getNumBranches() { return getOutputs().size(); }
-     AffineMap getLhsMap(unsigned branch = 0) {
-       return getIndexingMapsArray()[branch];
-     }
-     AffineMap getWeightsMap(unsigned branch = 0) {
-       return getIndexingMapsArray()[getLhs().size() + branch];
-     }
-     AffineMap getOffsetsMap() {
-       return getIndexingMapsArray()[getLhs().size() + getWeights().size()];
-     }
-     AffineMap getOutputMap(unsigned branch = 0) {
-       return getIndexingMapsArray()[getLhs().size() + getWeights().size() + 1 + branch];
-     }
+    AffineMap getLhsMap() { return getIndexingMapsArray()[0]; }
+    AffineMap getWeightsMap() { return getIndexingMapsArray()[1]; }
+    AffineMap getOffsetsMap() { return getIndexingMapsArray()[2]; }
+    AffineMap getOutputMap() { return getIndexingMapsArray()[3]; }
 
     int64_t getIterationDomainRank() { return getLhsMap().getNumDims(); }
 
