@@ -26,6 +26,22 @@ struct TileGroupedMatmul final
     return isa<linalgx::GroupedMatmulOp>(ti) || isMatmulOp(ti);
   }
 
+  bool isHorizontallyFusible(TilingInterface ti) override {
+    return isa<linalgx::GroupedMatmulOp>(ti);
+  }
+
+  // Both ops must use the same expert boundaries and read the same token or
+  // weight tensor over the same iteration dimensions.
+  bool isCompatibleForHorizontalFusion(TilingInterface lhs,
+                                       TilingInterface rhs) override {
+    auto a = cast<linalgx::GroupedMatmulOp>(lhs.getOperation());
+    auto b = cast<linalgx::GroupedMatmulOp>(rhs.getOperation());
+    if (a.getOffsets() != b.getOffsets()) return false;
+    return (a.getLhs() == b.getLhs() && a.getLhsMap() == b.getLhsMap()) ||
+           (a.getWeights() == b.getWeights() &&
+            a.getWeightsMap() == b.getWeightsMap());
+  }
+
   void computeWgTiles(Target &tg) override {
     // The generic search handles the (expert, m, n) parallel domain as-is: it
     // sets the leading dims to 1 and picks the M/N tiles from the target's

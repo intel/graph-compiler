@@ -26,6 +26,7 @@
 #include "llvm/Support/Casting.h"
 #include <cmath>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -396,22 +397,16 @@ inline bool haveCompatibleKernelSettings(func::FuncOp fn,
          settings == kernels.getAttr(b.kernelName);
 }
 
-// Check the preconditions of MLIR's fuseIndependentSiblingForallLoops, which
-// performs no legality checks. Its result is placed after `later`, so collect
-// pure consumers of `earlier` between the loops to move after `later` before
-// merging. Equivalent bounds need no rewrite: the fused loop uses `later`'s
-// bounds.
+// Both MLIR sibling-loop fusion helpers insert their result after `later` and
+// leave legality to the caller. Defer pure users of `earlier` that sit between
+// the loops, provided they do not feed `later`.
 inline bool
-haveCompatibleSiblingLoops(TiledWorkgroup &first, TiledWorkgroup &second,
-                           SmallVectorImpl<Operation *> &deferredConsumers) {
-  auto earlier = first.loop, later = second.loop;
+haveIndependentSiblingLoops(Operation *earlier, Operation *later,
+                            SmallVectorImpl<Operation *> &deferredConsumers) {
   if (!earlier || !later || earlier->getBlock() != later->getBlock() ||
-      earlier.getNumResults() == 0 || later.getNumResults() == 0 ||
-      !earlier->isBeforeInBlock(later) ||
-      earlier.getMixedLowerBound() != later.getMixedLowerBound() ||
-      earlier.getMixedStep() != later.getMixedStep() ||
-      earlier.getMapping() != later.getMapping() ||
-      !isMemoryEffectFree(earlier) || !isMemoryEffectFree(later))
+      earlier->getNumResults() == 0 || later->getNumResults() == 0 ||
+      !earlier->isBeforeInBlock(later) || !isMemoryEffectFree(earlier) ||
+      !isMemoryEffectFree(later))
     return false;
 
   llvm::SmallPtrSet<Operation *, 8> deferred;
@@ -421,8 +416,7 @@ haveCompatibleSiblingLoops(TiledWorkgroup &first, TiledWorkgroup &second,
     op->walk([&](Operation *nested) {
       for (Value operand : nested->getOperands()) {
         Operation *def = operand.getDefiningOp();
-        usesDeferredValue |=
-            def == earlier.getOperation() || deferred.contains(def);
+        usesDeferredValue |= def == earlier || deferred.contains(def);
       }
     });
     if (usesDeferredValue) {
@@ -432,7 +426,7 @@ haveCompatibleSiblingLoops(TiledWorkgroup &first, TiledWorkgroup &second,
   }
 
   DominanceInfo dom(earlier->getParentOp());
-  for (auto result : earlier.getResults()) {
+  for (auto result : earlier->getResults()) {
     for (auto *user : result.getUsers()) {
       Operation *enclosing = user;
       while (enclosing && enclosing->getBlock() != earlier->getBlock())
@@ -451,6 +445,22 @@ haveCompatibleSiblingLoops(TiledWorkgroup &first, TiledWorkgroup &second,
       usesDeferred |= deferred.contains(operand.getDefiningOp());
   });
   if (usesDeferred) return false;
+
+  return true;
+}
+
+// Match the workgroup loop configuration. The fused loop uses `later`'s
+// bounds, so equivalent dynamic upper bounds need no rewrite.
+inline bool
+haveCompatibleSiblingLoops(TiledWorkgroup &first, TiledWorkgroup &second,
+                           SmallVectorImpl<Operation *> &deferredConsumers) {
+  auto earlier = first.loop, later = second.loop;
+  if (!earlier || !later ||
+      earlier.getMixedLowerBound() != later.getMixedLowerBound() ||
+      earlier.getMixedStep() != later.getMixedStep() ||
+      earlier.getMapping() != later.getMapping() ||
+      !haveIndependentSiblingLoops(earlier, later, deferredConsumers))
+    return false;
 
   auto upperA = earlier.getMixedUpperBound();
   auto upperB = later.getMixedUpperBound();
@@ -536,18 +546,57 @@ protected:
     return result;
   }
 
+  // Coiterate reduction loops produced by matmuls already merged into one
+  // workgroup. Each scf.for keeps its own accumulator as an iter_arg.
+  void fuseSiblingReductionLoops(Target &tg, scf::ForallOp workgroup) {
+    SmallVector<scf::ForOp> loops;
+    for (Operation &op : workgroup.getBody()->getOperations()) {
+      auto loop = dyn_cast<scf::ForOp>(&op);
+      if (loop &&
+          llvm::any_of(loop.getBody()->getOperations(),
+                       [](Operation &nested) { return isMatmulOp(&nested); }))
+        loops.push_back(loop);
+    }
+
+    auto equalBound = [](Value a, Value b) {
+      if (a == b) return true;
+      auto equal = ValueBoundsConstraintSet::areEqual(a, b);
+      return succeeded(equal) && *equal;
+    };
+    for (size_t i = 1; i < loops.size(); ++i) {
+      scf::ForOp earlier = loops[i - 1], later = loops[i];
+      SmallVector<Operation *> deferredConsumers;
+      if (earlier.getUnsignedCmp() != later.getUnsignedCmp() ||
+          !equalBound(earlier.getLowerBound(), later.getLowerBound()) ||
+          !equalBound(earlier.getUpperBound(), later.getUpperBound()) ||
+          !equalBound(earlier.getStep(), later.getStep()) ||
+          !haveIndependentSiblingLoops(earlier, later, deferredConsumers))
+        continue;
+
+      // MLIR creates the new loop immediately after `later`.
+      Operation *insertAfter = later;
+      for (Operation *consumer : deferredConsumers) {
+        consumer->moveAfter(insertAfter);
+        insertAfter = consumer;
+      }
+      loops[i] = fuseIndependentSiblingForLoops(earlier, later, tg.rw);
+      tg.mark(loops[i]);
+    }
+  }
+
   // Restore a surviving workgroup's settings, fuse its consumers and remaining
-  // producers, then tile its operations at the subgroup level.
+  // producers, tile its operations at the subgroup level, then merge K loops
+  // from sibling matmuls.
   bool fuseConsumersAndTileSubgroups(Target &tg, const TiledWorkgroup &tiled) {
     // Other loops may have been rewritten while tiling the remaining groups.
     // Look up the current loop by its kernel name instead of retaining an
     // operation handle across those rewrites.
     scf::ForallOp currentLoop;
-    tg.fn.walk([&](scf::ForallOp loop) {
-      auto name = loop->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME);
+    tg.fn.walk([&](scf::ForallOp candidate) {
+      auto name = candidate->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME);
       if (!name || name.getValue() != tiled.kernelName)
         return WalkResult::advance();
-      currentLoop = loop;
+      currentLoop = candidate;
       return WalkResult::interrupt();
     });
     if (!currentLoop) return false;
@@ -563,7 +612,10 @@ protected:
       // Not simplified
     }
     tg.mark(loop);
-    return tileSg(tg, loop);
+    auto sgTiledLoop = tileSg(tg, loop);
+    if (!sgTiledLoop) return false;
+    fuseSiblingReductionLoops(tg, *sgTiledLoop);
+    return true;
   }
 
   virtual bool tileWg(Target &tg) {
@@ -674,7 +726,10 @@ protected:
     return true;
   }
 
-  virtual bool tileSg(Target &tg, LoopLikeOpInterface wgLoop) {
+  virtual std::optional<scf::ForallOp> tileSg(Target &tg,
+                                              LoopLikeOpInterface wgLoop) {
+    auto kernelName = wgLoop->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME);
+    if (!kernelName) return std::nullopt;
     struct Filter {
       bool operator()(Operation &op) const {
         return getDiscardableAttr(&op, GC_ATTR_LEVEL, Level::WG) != Level::SG;
@@ -685,14 +740,24 @@ protected:
     };
     while (auto ti = findLast<TilingInterface, Filter>(wgLoop, predicate)) {
       if (!tg.set(ti, Level::SG)) {
-        return false;
+        return std::nullopt;
       }
       computeSgTiles(tg);
       if (auto loop = apply(tg); !loop && tg.hasTiles()) {
-        return false;
+        return std::nullopt;
       }
     }
-    return true;
+    // Subgroup tiling may replace the workgroup operation.
+    scf::ForallOp updatedLoop;
+    tg.fn.walk([&](scf::ForallOp candidate) {
+      if (candidate->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME) !=
+          kernelName)
+        return WalkResult::advance();
+      updatedLoop = candidate;
+      return WalkResult::interrupt();
+    });
+    if (!updatedLoop) return std::nullopt;
+    return updatedLoop;
   }
 
   virtual void computeWgTiles(Target &tg) { computeTiles(tg, false); }

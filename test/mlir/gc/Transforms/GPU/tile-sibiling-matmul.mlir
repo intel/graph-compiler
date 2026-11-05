@@ -1,8 +1,8 @@
 // RUN: gc-opt %s --gpu-dev-props --tile-contract --split-input-file | FileCheck %s
 
 // The gate and up contractions share the tokens input and have the same
-// workgroup tile space. They use one workgroup loop, with their fills and the
-// downstream swish and multiply inside it.
+// workgroup tile space. They use one workgroup loop and one K loop, with the
+// downstream swish and multiply inside the workgroup loop.
 
 #lhs_map = affine_map<(m, n, k) -> (m, k)>
 #rhs_map = affine_map<(m, n, k) -> (n, k)>
@@ -15,13 +15,14 @@
 // CHECK-DAG:     bufferization.to_tensor %arg2 restrict writable : memref<512x2048xf16>
 // CHECK:         %[[RESULT:.+]] = scf.forall
 // CHECK:           linalg.fill {__gate_fill__, gc.tiling.wg_tile_sizes = array<i64: 32, 64>}
-// CHECK:           %[[GATE:.+]] = scf.for
-// CHECK:             linalg.matmul {{.*}}{__gate__, gc.tiling.level = 1 : i8, gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>}
 // CHECK:           linalg.fill {__up_fill__, gc.tiling.wg_tile_sizes = array<i64: 32, 64>}
-// CHECK:           %[[UP:.+]] = scf.for
+// CHECK:           %[[K:[^: ]+]]:2 = scf.for
+// CHECK:             linalg.matmul {{.*}}{__gate__, gc.tiling.level = 1 : i8, gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>}
 // CHECK:             linalg.matmul {{.*}}{__up__, gc.tiling.level = 1 : i8, gc.tiling.wg_tile_sizes = array<i64: 32, 64, 64>}
-// CHECK:           %[[SWISH:.+]] = linalg.generic {{.*}} ins(%[[GATE]] {{.*}} attrs = {{ *}}{__swish__
-// CHECK:           %[[MUL:.+]] = linalg.generic {{.*}} ins(%[[SWISH]], %[[UP]] {{.*}} attrs = {{ *}}{__mul__,
+// CHECK:             scf.yield {{.*}}, {{.*}} : tensor<?x64xf16>, tensor<?x64xf16>
+// CHECK-NOT:       = scf.for
+// CHECK:           %[[SWISH:.+]] = linalg.generic {{.*}} ins(%[[K]]#0 {{.*}} attrs = {{ *}}{__swish__
+// CHECK:           %[[MUL:.+]] = linalg.generic {{.*}} ins(%[[SWISH]], %[[K]]#1 {{.*}} attrs = {{ *}}{__mul__,
 // CHECK:           scf.forall.in_parallel {
 // CHECK-NEXT:        tensor.parallel_insert_slice %[[MUL]] into
 // CHECK-NEXT:      }
@@ -90,9 +91,12 @@ func.func @entry(%tokens_buf: memref<?x2048xf16>,
 // CHECK-LABEL: func.func @three(
 // CHECK-SAME: attributes {gc.num_kernels = 1 : i32}
 // CHECK: = scf.forall (
+// CHECK: = scf.for
 // CHECK: linalg.matmul
 // CHECK: linalg.matmul
 // CHECK: linalg.matmul
+// CHECK: scf.yield
+// CHECK-NOT: = scf.for
 // CHECK: } {gc.kernel_name = "three_kernel"}
 // CHECK-NOT: = scf.forall (
 // CHECK: return
@@ -229,9 +233,11 @@ func.func @one_pair_one_other(%x: tensor<64x128xf16>,
 // CHECK-LABEL: func.func @interleaved_cast(
 // CHECK-SAME: attributes {gc.num_kernels = 1 : i32}
 // CHECK: = scf.forall (
+// CHECK: = scf.for
 // CHECK: linalg.matmul
 // CHECK: linalg.matmul
 // CHECK: arith.truncf
+// CHECK-NOT: = scf.for
 // CHECK-NOT: = scf.forall (
 // CHECK: return
 func.func @interleaved_cast(%x: tensor<64x128xf16>,
