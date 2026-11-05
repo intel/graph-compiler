@@ -235,7 +235,6 @@ DialectRegistry &getDialectRegistry() {
 
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
-    llvm::InitializeNativeTargetAsmParser();
     return registry;
   }();
   return registry;
