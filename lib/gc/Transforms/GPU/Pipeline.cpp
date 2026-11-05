@@ -52,14 +52,14 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/AllInterfaces.h"
-#include "mlir/Dialect/Linalg/Transforms/RuntimeOpVerification.h"
+#include "mlir/Dialect/Linalg/Transforms/RuntimeVerifiableOpInterfaceImpl.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/MemRef/IR/MemRefMemorySlot.h"
+#include "mlir/Dialect/MemRef/IR/MemorySlotInterfacesImpl.h"
 #include "mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/MemRef/Transforms/AllocationOpInterfaceImpl.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
-#include "mlir/Dialect/MemRef/Transforms/RuntimeOpVerification.h"
+#include "mlir/Dialect/MemRef/Transforms/RuntimeVerifiableOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/SCF/Transforms/BufferDeallocationOpInterfaceImpl.h"
@@ -72,8 +72,8 @@
 #include "mlir/Dialect/Tensor/IR/TensorTilingInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
-#include "mlir/Dialect/Tensor/Transforms/RuntimeOpVerification.h"
-#include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/RuntimeVerifiableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/SubsetOpInterfaceImpl.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/ValueBoundsOpInterfaceImpl.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -215,7 +215,7 @@ DialectRegistry &getDialectRegistry() {
     mlir::memref::registerRuntimeVerifiableOpInterfaceExternalModels(registry);
     mlir::memref::registerValueBoundsOpInterfaceExternalModels(registry);
 #if GC_ENABLE_IGC
-    mlir::memref::registerDestructurableTypeExternalModels(registry);
+    mlir::memref::registerDestructurableTypeInterfaceExternalModels(registry);
 #endif
     mlir::scf::registerBufferDeallocationOpInterfaceExternalModels(registry);
     mlir::scf::registerBufferizableOpInterfaceExternalModels(registry);
@@ -258,7 +258,6 @@ DialectRegistry &getDialectRegistry() {
 
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
-    llvm::InitializeNativeTargetAsmParser();
     return registry;
   }();
   return registry;
@@ -322,6 +321,7 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addNestedPass<func::FuncOp>(createTileGroupedMatmul());
     pm.addNestedPass<func::FuncOp>(createTileAttention());
     pm.addNestedPass<func::FuncOp>(createTileParallel());
+    pm.addNestedPass<func::FuncOp>(createGuardEmptyTiles());
     pm.addNestedPass<func::FuncOp>(createSetKernelDepends());
   });
 
@@ -345,6 +345,7 @@ void populateGPUPipeline(OpPassManager &pm,
   });
 
   phase("Vectorization", [&]() {
+    pm.addNestedPass<func::FuncOp>(createSimplifyIndexingMaps());
     pm.addNestedPass<func::FuncOp>(createVectorize());
     pm.addNestedPass<func::FuncOp>(createHoistForLoopTransferRead());
     pm.addNestedPass<func::FuncOp>(createPeeledForToIf());
@@ -371,6 +372,7 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
     pm.addNestedPass<func::FuncOp>(createRemoveAllocs());
     pm.addNestedPass<func::FuncOp>(createDropUnitDims());
+    pm.addNestedPass<func::FuncOp>(createNormalizeMemrefLayouts());
   });
 
   phase("KernelOutlining", [&]() {

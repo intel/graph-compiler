@@ -18,10 +18,3 @@ repos:
         entry: ruff format --check
         language: system
         files: '\.py$'
-
-      - id: clang-tidy
-        name: clang-tidy
-        entry: clang-tidy -p build --warnings-as-errors='*'
-        language: system
-        files: '\.(h|cpp)$'
-        require_serial: false

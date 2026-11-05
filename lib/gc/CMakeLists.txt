@@ -3,8 +3,14 @@ add_subdirectory(Transforms)
 add_subdirectory(ExecutionEngine)
 add_subdirectory(Runtime)
 
-gc_add_mlir_library(GcGpuCompiler GpuCompiler.cpp LINK_LIBS PUBLIC GcInterface
-                    GcGpuCommonPasses)
+gc_add_mlir_library(
+  GcGpuCompiler
+  GpuCompiler.cpp
+  LINK_LIBS
+  PUBLIC
+  GcInterface
+  GcGpuCommonPasses
+  GcJitEngine)
 if(GC_ENABLE_IGC)
   target_link_libraries(GcGpuCompiler PUBLIC GcGpuPasses)
 endif()

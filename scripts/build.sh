@@ -71,7 +71,7 @@ fi
 GC_EXTERNALS_DIR=$(realpath -m "$GC_EXTERNALS_DIR")
 
 : ${LLVM_URL:='https://github.com/llvm/llvm-project.git'}
-: ${LLVM_TAG:=$(cat "$PROJECT_DIR/cmake/llvm-version.txt")}
+: ${LLVM_TAG:=$(head -n1 "$PROJECT_DIR/cmake/llvm-version.txt")}
 : ${LLVM_DIR:="$GC_EXTERNALS_DIR/llvm-project"}
 : ${LLVM_BUILD_TYPE:=$GC_BUILD_TYPE}
 : ${LLVM_BUILD_SFX:="/$LLVM_BUILD_TYPE"}
@@ -89,7 +89,8 @@ MLIR_DIR=$(realpath -m "$MLIR_DIR")
 GC_BUILD_DIR=$(realpath -m "$GC_BUILD_DIR")
 GC_INSTALL_DIR=$(realpath -m "$GC_INSTALL_DIR")
 
-: ${MAX_JOBS:=$(nproc)}
+: ${CMAKE_BUILD_PARALLEL_LEVEL:=$(nproc)}
+: ${MAX_JOBS:=$CMAKE_BUILD_PARALLEL_LEVEL}
 
 repo_hash() {
   [ -d "$1" ] || { head -c 1000 /dev/random | sha1sum; return 0; }
@@ -153,10 +154,14 @@ build_llvm() {
         git remote add origin "$LLVM_URL"
         git fetch --no-tags --depth=1 origin ${LLVM_TAG}
         git checkout FETCH_HEAD
-    elif ! is_true "$LLVM_NO_PATCH"; then
+    elif [ "$GITHUB_ACTIONS" = 'true' ] || ! is_true "$LLVM_NO_PATCH"; then
         cd "$LLVM_DIR"
-        [ $(git -C "$LLVM_DIR" rev-parse HEAD) = "$LLVM_TAG" ] || git fetch --no-tags --depth=1 origin ${LLVM_TAG}
-        git reset --hard FETCH_HEAD
+        local ref=HEAD
+        if [ "$(git rev-parse HEAD)" != "$LLVM_TAG" ]; then
+            git fetch --no-tags --depth=1 "$LLVM_URL" "$LLVM_TAG"
+            ref=FETCH_HEAD
+        fi
+        git reset --hard "$ref"
         [ -z "$CLEANUP" ] || git clean -xffd;
     else
       cd "$LLVM_DIR"
@@ -171,8 +176,6 @@ build_llvm() {
       done
     fi
 
-    local enable_assert=ON
-    [ "$LLVM_BUILD_TYPE" = "Release" ] && enable_assert=OFF
     export LLVM_HASH=$(repo_hash "$LLVM_DIR" "$LLVM_INSTALL_DIR" $LLVM_BUILD_TYPE $GC_DYLINK $LLVM_CMAKE_ARGS)
     local hash_not_match=$(echo "$builds" | tr ':' '\n' | while read b; do
       [ "$(get_llvm_hash "$b")" = "$LLVM_HASH" ] || echo 1; done)
@@ -182,14 +185,24 @@ build_llvm() {
     mkdir -p "$LLVM_BUILD_DIR"
     rm -f "$LLVM_BUILD_DIR/CMakeCache.txt"
 
+    local rel_off=ON
+    [ "$LLVM_BUILD_TYPE" = "Release" ] && rel_off=OFF
     echo "Configuring LLVM..."
+    # LLVM_ENABLE_DUMP keeps the MLIR dump() methods in a release build. Since
+    # llvm/llvm-project@4d787f35aaba they are compiled only under
+    # !NDEBUG || LLVM_ENABLE_DUMP, and the OpenVINO GPU plugin still calls
+    # ModuleOp::dump(). Drop this once that caller switches to print().
     # Configure checks compile in random TryCompile-* dirs and always miss ccache.
     CCACHE_DISABLE=1 cmake -G Ninja -S llvm -B "$LLVM_BUILD_DIR" \
         -DCMAKE_BUILD_TYPE=$LLVM_BUILD_TYPE \
         -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
+        -DCMAKE_C_FLAGS_RELEASE="-Oz -DNDEBUG" \
+        -DCMAKE_CXX_FLAGS_RELEASE="-Oz -DNDEBUG" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-        -DLLVM_ENABLE_ASSERTIONS=$enable_assert \
-        -DLLVM_ENABLE_RTTI=ON \
+        -DLLVM_ENABLE_RTTI=OFF \
+        -DLLVM_ENABLE_ASSERTIONS=$rel_off \
+        -DLLVM_ENABLE_RELATIVE_OFFSETS=$rel_off \
+        -DLLVM_ENABLE_UNWIND_TABLES=$rel_off \
         -DLLVM_ENABLE_PROJECTS="mlir" \
         -DLLVM_TARGETS_TO_BUILD="X86" \
         -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV" \
@@ -197,16 +210,20 @@ build_llvm() {
         -DLLVM_LINK_LLVM_DYLIB=$GC_DYLINK \
         -DLLVM_INCLUDE_RUNTIMES=OFF \
         -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_TESTS=ON \
+        -DLLVM_INCLUDE_TESTS=OFF \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_INCLUDE_DOCS=OFF \
         -DLLVM_INSTALL_UTILS=ON \
-        -DLLVM_INSTALL_GTEST=ON \
+        -DLLVM_INSTALL_GTEST=OFF \
         -DLLVM_USE_PERF=OFF \
+        -DLLVM_ENABLE_DUMP=ON \
         -DLLVM_ENABLE_BINDINGS=OFF \
-        -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
+        -DMLIR_ENABLE_BINDINGS_PYTHON=OFF \
         -DPython3_EXECUTABLE=$(which python3) \
         -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF \
+        -DMLIR_ENABLE_PDL_IN_PATTERNMATCH=OFF \
+        -DLLVM_ENABLE_ZLIB=OFF \
+        -DLLVM_ENABLE_ZSTD=OFF \
         -DLLVM_FORCE_VC_REPOSITORY="$LLVM_URL" \
         -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL_DIR" \
         $LLVM_CMAKE_ARGS
@@ -226,7 +243,9 @@ build_gc() {
 
   mkdir -p "$GC_BUILD_DIR"
   local lit_path="$LLVM_BUILD_DIR/bin/llvm-lit"
-  [ -f "$lit_path" ] || lit_path=$(which lit)
+  # -s, not -f: the CI cache truncates unused bin/ files to 0 bytes.
+  [ -s "$lit_path" ] || lit_path="$LLVM_INSTALL_DIR/bin/llvm-lit"
+  [ -s "$lit_path" ] || lit_path=$(which lit || true)
   [ -z "$LLVM_HASH" ] && LLVM_HASH=$(get_llvm_hash "$MLIR_DIR/../../..")
   GC_HASH=$(repo_hash . "$MLIR_DIR" "$lit_path" $LLVM_HASH $GC_BUILD_TYPE $GC_DYLINK $GC_CMAKE_ARGS)
   [ "$(get_gc_hash "$GC_INSTALL_DIR")" = "$GC_HASH" ] && echo "GC build is up-to-date" && return 0
@@ -236,6 +255,7 @@ build_gc() {
       -DCMAKE_BUILD_TYPE=$GC_BUILD_TYPE \
       -DGC_DYLINK=$GC_DYLINK \
       -DMLIR_DIR="$MLIR_DIR" \
+      -DLLVM_DIR="$MLIR_DIR/../llvm" \
       -DGC_EXTERNALS_DIR="$GC_EXTERNALS_DIR" \
       -DLLVM_EXTERNAL_LIT="$lit_path" \
       -DCMAKE_INSTALL_PREFIX="$GC_INSTALL_DIR" \

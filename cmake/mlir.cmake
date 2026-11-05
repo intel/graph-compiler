@@ -100,35 +100,46 @@ else()
   set(MLIR_DIALECT_LIBS
       MLIRAffineDialect
       MLIRAffineTransforms
+      MLIRArithBufferDeallocationOpInterfaceImpl
+      MLIRArithBufferizableOpInterfaceImpl
       MLIRArithDialect
       MLIRArithTransforms
       MLIRArithValueBoundsOpInterfaceImpl
       MLIRBufferizationAllExtensions
+      MLIRBufferizationBufferizableOpInterfaceImpl
       MLIRBufferizationDialect
       MLIRBufferizationPipelines
       MLIRBufferizationTransforms
+      MLIRControlFlowBufferDeallocationOpInterfaceImpl
+      MLIRControlFlowBufferizableOpInterfaceImpl
       MLIRControlFlowDialect
       MLIRControlFlowTransforms
       MLIRDLTIDialect
       MLIRFuncAllExtensions
       MLIRFuncDialect
+      MLIRGPUBufferDeallocationOpInterfaceImpl
       MLIRGPUDialect
       MLIRGPUTransforms
       MLIRIndexDialect
       MLIRLinalgDialect
       MLIRLinalgTransforms
       MLIRMathDialect
+      MLIRMemRefAllocationOpInterfaceImpl
       MLIRMemRefDialect
       MLIRMemRefTransforms
+      MLIRSCFBufferDeallocationOpInterfaceImpl
+      MLIRSCFBufferizableOpInterfaceImpl
       MLIRSCFDialect
       MLIRSCFTransforms
       MLIRShapeDialect
       MLIRTensorAllExtensions
+      MLIRTensorBufferizableOpInterfaceImpl
       MLIRTensorDialect
       MLIRTensorInferTypeOpInterfaceImpl
       MLIRTensorTilingInterfaceImpl
       MLIRTensorTransforms
       MLIRUBDialect
+      MLIRVectorBufferizableOpInterfaceImpl
       MLIRVectorDialect
       MLIRVectorTransforms
       MLIRSPIRVDialect
@@ -139,6 +150,7 @@ else()
       APPEND
       MLIR_DIALECT_LIBS
       MLIRGPUPipelines
+      MLIRGPUXeVMTransforms
       MLIRXeGPUDialect
       MLIRXeGPUTransforms
       MLIRXeGPUUtils

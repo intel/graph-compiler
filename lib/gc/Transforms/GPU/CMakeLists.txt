@@ -29,7 +29,7 @@ gc_add_mlir_library(
   tiling/TileAttention.cpp
   tiling/TileGroupedMatmul.cpp
   tiling/TileParallel.cpp
-  AddContextArg.cpp
+  GuardEmptyTiles.cpp
   ApplyPaddingLevel.cpp
   TensorMaskingOpInterface.cpp
   DropUnitDims.cpp
@@ -41,8 +41,10 @@ gc_add_mlir_library(
   SetKernelDepends.cpp
   HoistForLoopTransferRead.cpp
   FoldPadRoundtrip.cpp
+  SimplifyIndexingMaps.cpp
   HoistStaticForInit.cpp
   PeeledForToIf.cpp
+  NormalizeMemrefLayouts.cpp
   AttentionOptimizations/Utils.cpp
   AttentionOptimizations/SetAttentionLayouts.cpp
   AttentionOptimizations/SetAttentionPrefetch.cpp
