@@ -16,6 +16,25 @@ struct TileContraction final
 
   bool isSupportedOp(TilingInterface ti) override { return isMatmulOp(ti); }
 
+  bool isHorizontallyFusible(TilingInterface ti) override {
+    return isMatmulOp(ti);
+  }
+
+  // The shared input must represent the same part of both iteration domains.
+  // Destination operands are deliberately excluded.
+  bool isCompatibleForHorizontalFusion(TilingInterface lhs,
+                                       TilingInterface rhs) override {
+    auto a = cast<linalg::LinalgOp>(lhs.getOperation());
+    auto b = cast<linalg::LinalgOp>(rhs.getOperation());
+    for (auto *inputA : a.getDpsInputOperands())
+      for (auto *inputB : b.getDpsInputOperands())
+        if (inputA->get() == inputB->get() &&
+            a.getMatchingIndexingMap(inputA) ==
+                b.getMatchingIndexingMap(inputB))
+          return true;
+    return false;
+  }
+
   BlockSizes getSupportedBlockSizes(Target &tg, bool reduction,
                                     const DimConstraint &cw,
                                     const DimConstraint &ch) override {
