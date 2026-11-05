@@ -47,7 +47,9 @@ set(LLVM_DIR
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
+set(CMAKE_CXX_FLAGS_RELEASE
+    "-Oz -DNDEBUG -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
+)
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
