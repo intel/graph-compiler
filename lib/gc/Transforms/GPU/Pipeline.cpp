@@ -246,7 +246,9 @@ addAttentionOptimizationPasses(OpPassManager &pm,
   pm.addPass(createHoistAttentionVLoad());
   if (pipelineOpts.enableAttentionPrefetch)
     pm.addPass(createSetAttentionPrefetch());
-  pm.addPass(createSetAttentionLayouts());
+  SetAttentionLayoutsOptions layoutOpts;
+  layoutOpts.qInLoop = pipelineOpts.attentionQInLoop;
+  pm.addPass(createSetAttentionLayouts(layoutOpts));
 }
 
 void populateGPUPipeline(OpPassManager &pm,
