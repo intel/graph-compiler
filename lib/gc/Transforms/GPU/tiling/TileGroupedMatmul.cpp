@@ -14,7 +14,7 @@ namespace {
 
 size_t getNarrowInputLoadWidth(
     Value value, unsigned dim,
-  const xegpu::uArch::Subgroup2DBlockLoadInstruction *load) {
+    const xegpu::uArch::Subgroup2DBlockLoadInstruction *load) {
   auto type = cast<RankedTensorType>(value.getType());
   Type element = type.getElementType();
   if (type.getRank() < 2 || !element.isIntOrFloat() ||
