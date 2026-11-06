@@ -440,12 +440,15 @@ inline void replaceEmptySlices(OpRewriter &rw, LoopLikeOpInterface loop) {
     if (auto empty = slice.getSource().getDefiningOp<tensor::EmptyOp>();
         empty && empty->getParentOfType<LoopLikeOpInterface>() != loop) {
       auto type = slice.getType();
-      rw.setInsertionPointAfter(slice);
+      rw.setInsertionPoint(slice);
       SmallVector<Value> dynDims;
-      for (int64_t i = 0, r = type.getRank(); i < r; ++i) {
-        if (type.isDynamicDim(i)) {
-          dynDims.push_back(rw.create<tensor::DimOp>(slice, i));
-        }
+      auto dropped = slice.getDroppedDims();
+      unsigned resultDim = 0;
+      for (auto [sourceDim, size] : llvm::enumerate(slice.getMixedSizes())) {
+        if (dropped[sourceDim]) continue;
+        if (type.isDynamicDim(resultDim++))
+          dynDims.push_back(
+              getValueOrCreateConstantIndexOp(rw, slice.getLoc(), size));
       }
       rw.replaceOp(slice, rw.create<tensor::EmptyOp>(
                               type.getShape(), type.getElementType(), dynDims));
