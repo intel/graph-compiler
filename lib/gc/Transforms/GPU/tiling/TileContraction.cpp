@@ -16,6 +16,21 @@ struct TileContraction final
 
   bool isSupportedOp(TilingInterface ti) override { return isMatmulOp(ti); }
 
+  void computeWgTiles(Target &tg) override {
+    TilingPass::computeWgTiles(tg);
+    auto tiles = tg.kernelAttrs.getTiles();
+    if (!tiles) return;
+    SmallVector<size_t> parallelTiles;
+    for (auto [tile, reduction] : llvm::zip(tg.tiles, tg.reductions))
+      if (!reduction) parallelTiles.push_back(tile);
+    (*tiles)[0] = parallelTiles[parallelTiles.size() - 2];
+    (*tiles)[1] = parallelTiles.back();
+    auto widths = getRequiredLoadWidths(tg);
+    for (auto [width, reduction] : llvm::zip(widths, tg.reductions))
+      if (reduction) tiles->back() = std::lcm(tiles->back(), width);
+    tg.kernelAttrs.setTiles(*tiles);
+  }
+
   BlockSizes getSupportedBlockSizes(Target &tg, bool reduction,
                                     const DimConstraint &cw,
                                     const DimConstraint &ch) override {
@@ -97,7 +112,18 @@ struct TileContraction final
     size_t m = 1, n = 1;
     for (size_t i = std::max<size_t>(1, count / getSgSize(tg)); i > 1; i /= 2)
       (m <= n ? m : n) *= 2;
-    return {m, n};
+    layout = {m, n};
+    auto widths = getRequiredLoadWidths(tg);
+    SmallVector<std::pair<size_t, size_t>> parallelDims;
+    for (auto [tile, width, reduction] :
+         llvm::zip(tg.tiles, widths, tg.reductions))
+      if (!reduction) parallelDims.emplace_back(tile, width);
+    for (auto [groups, dim] :
+         llvm::zip(layout, ArrayRef(parallelDims).take_back(2))) {
+      auto [tile, width] = dim;
+      if (width > 1) groups = std::gcd(groups, tile / width);
+    }
+    return layout;
   }
 };
 } // namespace

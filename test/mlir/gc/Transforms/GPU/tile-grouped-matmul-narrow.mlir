@@ -1,6 +1,126 @@
 // RUN: gc-opt %s --gpu-dev-props --tile-contract --tile-grouped-matmul --split-input-file | FileCheck %s
 // RUN: gc-opt %s --gpu-dev-props --tile-contract --tile-grouped-matmul --apply-padding-level --split-input-file | FileCheck %s --check-prefix=PAD
 
+// CHECK: regular_n_contiguous_kernel = {{.*}}sg_layout = [{{[0-9]+}}, 1]
+// CHECK-LABEL: func.func @regular_n_contiguous
+// CHECK: scf.forall
+// CHECK: linalg.matmul
+// CHECK-SAME: gc.tiling.wg_tile_sizes = array<i64: {{[0-9]+}}, 64, {{[0-9]+}}>
+// PAD-LABEL: func.func @regular_n_contiguous
+// PAD: return {{.*}} : tensor<64x96xf16>
+func.func @regular_n_contiguous(%a: tensor<64x128xf16>, %w: tensor<128x96xf16>, %z: tensor<1x96xi4>) -> tensor<64x96xf16> {
+  %zero = arith.constant 0.0 : f16
+  %we = tensor.empty() : tensor<128x96xf16>
+  %dw = linalg.generic {
+    indexing_maps = [affine_map<(k, n) -> (k, n)>, affine_map<(k, n) -> (0, n)>, affine_map<(k, n) -> (k, n)>],
+    iterator_types = ["parallel", "parallel"]
+  } ins(%w, %z : tensor<128x96xf16>, tensor<1x96xi4>) outs(%we : tensor<128x96xf16>) {
+  ^bb0(%f: f16, %zi: i4, %unused: f16):
+    %zf = arith.uitofp %zi : i4 to f16
+    %v = arith.subf %f, %zf : f16
+    linalg.yield %v : f16
+  } -> tensor<128x96xf16>
+  %ce = tensor.empty() : tensor<64x96xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%ce : tensor<64x96xf16>) -> tensor<64x96xf16>
+  %r = linalg.matmul ins(%a, %dw : tensor<64x128xf16>, tensor<128x96xf16>) outs(%init : tensor<64x96xf16>) -> tensor<64x96xf16>
+  return %r : tensor<64x96xf16>
+}
+
+// -----
+
+// CHECK: regular_n_contiguous_i8_kernel = {{.*}}sg_layout = [{{[0-9]+}}, 1]
+// CHECK-LABEL: func.func @regular_n_contiguous_i8
+// CHECK: linalg.matmul
+// CHECK-SAME: gc.tiling.wg_tile_sizes = array<i64: {{[0-9]+}}, 32, {{[0-9]+}}>
+// PAD-LABEL: func.func @regular_n_contiguous_i8
+// PAD: return {{.*}} : tensor<64x48xf16>
+func.func @regular_n_contiguous_i8(%a: tensor<64x128xf16>, %w: tensor<128x48xf16>, %z: tensor<1x48xi8>) -> tensor<64x48xf16> {
+  %zero = arith.constant 0.0 : f16
+  %we = tensor.empty() : tensor<128x48xf16>
+  %dw = linalg.generic {
+    indexing_maps = [affine_map<(k, n) -> (k, n)>, affine_map<(k, n) -> (0, n)>, affine_map<(k, n) -> (k, n)>],
+    iterator_types = ["parallel", "parallel"]
+  } ins(%w, %z : tensor<128x48xf16>, tensor<1x48xi8>) outs(%we : tensor<128x48xf16>) {
+  ^bb0(%f: f16, %zi: i8, %unused: f16):
+    %zf = arith.uitofp %zi : i8 to f16
+    %v = arith.subf %f, %zf : f16
+    linalg.yield %v : f16
+  } -> tensor<128x48xf16>
+  %ce = tensor.empty() : tensor<64x48xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%ce : tensor<64x48xf16>) -> tensor<64x48xf16>
+  %r = linalg.matmul ins(%a, %dw : tensor<64x128xf16>, tensor<128x48xf16>) outs(%init : tensor<64x48xf16>) -> tensor<64x48xf16>
+  return %r : tensor<64x48xf16>
+}
+
+// -----
+
+// CHECK: regular_transposed_parameter_kernel = {{.*}}sg_layout = [{{[0-9]+}}, 1]
+// CHECK-LABEL: func.func @regular_transposed_parameter
+// CHECK: linalg.matmul
+// CHECK-SAME: gc.tiling.wg_tile_sizes = array<i64: {{[0-9]+}}, 64, {{[0-9]+}}>
+// PAD-LABEL: func.func @regular_transposed_parameter
+// PAD: return {{.*}} : tensor<64x96xf16>
+func.func @regular_transposed_parameter(%a: tensor<64x128xf16>, %w: tensor<96x128xf16>, %z: tensor<1x96xi4>) -> tensor<64x96xf16> {
+  %zero = arith.constant 0.0 : f16
+  %we = tensor.empty() : tensor<96x128xf16>
+  %dw = linalg.generic {
+    indexing_maps = [affine_map<(n, k) -> (n, k)>, affine_map<(n, k) -> (0, n)>, affine_map<(n, k) -> (n, k)>],
+    iterator_types = ["parallel", "parallel"]
+  } ins(%w, %z : tensor<96x128xf16>, tensor<1x96xi4>) outs(%we : tensor<96x128xf16>) {
+  ^bb0(%f: f16, %zi: i4, %unused: f16):
+    %zf = arith.uitofp %zi : i4 to f16
+    %v = arith.subf %f, %zf : f16
+    linalg.yield %v : f16
+  } -> tensor<96x128xf16>
+  %ce = tensor.empty() : tensor<64x96xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%ce : tensor<64x96xf16>) -> tensor<64x96xf16>
+  %r = linalg.matmul indexing_maps = [affine_map<(m, n, k) -> (m, k)>, affine_map<(m, n, k) -> (n, k)>, affine_map<(m, n, k) -> (m, n)>] ins(%a, %dw : tensor<64x128xf16>, tensor<96x128xf16>) outs(%init : tensor<64x96xf16>) -> tensor<64x96xf16>
+  return %r : tensor<64x96xf16>
+}
+
+// -----
+
+// CHECK: regular_k_contiguous_kernel = {{.*}}sg_layout = [1, 1]
+// CHECK-LABEL: func.func @regular_k_contiguous
+// CHECK: linalg.matmul
+// CHECK-SAME: gc.tiling.wg_tile_sizes = array<i64: 32, 32, 64>
+// PAD-LABEL: func.func @regular_k_contiguous
+// PAD: return {{.*}} : tensor<64x96xf16>
+func.func @regular_k_contiguous(%a: tensor<64x96xf16>, %w: tensor<96x96xi4>) -> tensor<64x96xf16> {
+  %zero = arith.constant 0.0 : f16
+  %we = tensor.empty() : tensor<96x96xf16>
+  %dw = linalg.generic {
+    indexing_maps = [affine_map<(n, k) -> (n, k)>, affine_map<(n, k) -> (n, k)>],
+    iterator_types = ["parallel", "parallel"]
+  } ins(%w : tensor<96x96xi4>) outs(%we : tensor<96x96xf16>) {
+  ^bb0(%q: i4, %unused: f16):
+    %v = arith.uitofp %q : i4 to f16
+    linalg.yield %v : f16
+  } -> tensor<96x96xf16>
+  %ce = tensor.empty() : tensor<64x96xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%ce : tensor<64x96xf16>) -> tensor<64x96xf16>
+  %r = linalg.matmul indexing_maps = [affine_map<(m, n, k) -> (m, k)>, affine_map<(m, n, k) -> (n, k)>, affine_map<(m, n, k) -> (m, n)>] ins(%a, %dw : tensor<64x96xf16>, tensor<96x96xf16>) outs(%init : tensor<64x96xf16>) -> tensor<64x96xf16>
+  return %r : tensor<64x96xf16>
+}
+
+// -----
+
+// CHECK: regular_wide_kernel = {{.*}}sg_layout = [1, 1]
+// CHECK-LABEL: func.func @regular_wide
+// CHECK: linalg.matmul
+// CHECK-SAME: gc.tiling.wg_tile_sizes = array<i64: 32, 32, 32>
+// PAD-LABEL: func.func @regular_wide
+// PAD: return {{.*}} : tensor<64x96xf16>
+func.func @regular_wide(%a: tensor<64x128xf16>, %w: tensor<128x96xf16>) -> tensor<64x96xf16> {
+  %zero = arith.constant 0.0 : f16
+  %ce = tensor.empty() : tensor<64x96xf16>
+  %init = linalg.fill ins(%zero : f16) outs(%ce : tensor<64x96xf16>) -> tensor<64x96xf16>
+  %r = linalg.matmul ins(%a, %w : tensor<64x128xf16>, tensor<128x96xf16>) outs(%init : tensor<64x96xf16>) -> tensor<64x96xf16>
+  return %r : tensor<64x96xf16>
+}
+
+// -----
+
 // The i32 expert offsets must not hide the i4 parameter's 64-wide N load.
 // CHECK: n_contiguous_kernel = {{.*}}sg_layout = [1, 4, 1]
 // CHECK-SAME: threads = [64, 1, 1]
