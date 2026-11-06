@@ -22,6 +22,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "gc/Utils/Transform.h"
+#include <algorithm>
 
 using namespace mlir;
 using namespace mlir::gc;
@@ -527,35 +528,53 @@ static bool isSameBuffer(Value a, Value b) {
 // Bufferization turns a guarded tile into an scf.if yielding either a
 // temporary buffer or the copy's destination (possibly as an equivalent
 // subview computed in the else branch). The copy is a no-op on the else path,
-// so move it into the then branch and remove the unused result. This exposes
-// the alloc-to-copy chain to FoldAllocCopyIntoDirectWrite, allowing writes to
-// target the destination directly instead of retaining a temporary allocation.
+// so move all result copies into the then branch and remove the unused results.
+// Keep the copies in block order in case their destinations depend on one
+// another. This exposes alloc-to-copy chains to FoldAllocCopyIntoDirectWrite.
 struct SinkCopyIntoGuard final : OpRewritePattern<memref::CopyOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(memref::CopyOp copy,
                                 PatternRewriter &rewriter) const override {
     auto ifOp = copy.getSource().getDefiningOp<scf::IfOp>();
-    if (!ifOp || ifOp.getNumResults() != 1 || !ifOp.getResult(0).hasOneUse() ||
-        ifOp.getElseRegion().empty() || ifOp->getBlock() != copy->getBlock())
+    if (!ifOp || ifOp.getNumResults() == 0 || ifOp.getElseRegion().empty() ||
+        ifOp->getBlock() != copy->getBlock())
       return failure();
-    // Moving the copy before intervening reads or writes could change results.
-    // Only cross operations without memory effects.
-    Operation *op = ifOp->getNextNode();
-    for (; op != copy; op = op->getNextNode())
-      if (!isMemoryEffectFree(op)) return failure();
-    // The else branch must yield the copy's target, computed without memory
-    // effects so that it can be hoisted ahead of the scf.if, where it dominates
-    // the moved copy.
-    scf::YieldOp elseYield = ifOp.elseYield();
-    if (!isSameBuffer(elseYield.getOperand(0), copy.getTarget()))
-      return failure();
+
+    SmallVector<memref::CopyOp> copies;
+    for (OpResult result : ifOp.getResults()) {
+      if (!result.hasOneUse()) return failure();
+      auto user = dyn_cast<memref::CopyOp>(result.use_begin()->getOwner());
+      if (!user || user.getSource() != result ||
+          user->getBlock() != ifOp->getBlock() ||
+          !isSameBuffer(ifOp.elseYield().getOperand(result.getResultNumber()),
+                        user.getTarget()))
+        return failure();
+      copies.push_back(user);
+    }
     for (Operation &op : ifOp.elseBlock()->without_terminator())
       if (!isMemoryEffectFree(&op)) return failure();
 
-    Value dst = stripCasts(elseYield.getOperand(0));
+    std::sort(copies.begin(), copies.end(),
+              [](memref::CopyOp a, memref::CopyOp b) {
+                return a->isBeforeInBlock(b);
+              });
+    // Moving the copies before intervening reads or writes could change
+    // results. Only cross the selected copies and effect-free operations.
+    SmallPtrSet<Operation *, 4> copyOps;
+    for (memref::CopyOp selected : copies) copyOps.insert(selected);
+    for (Operation *op = ifOp->getNextNode();
+         op != copies.back().getOperation(); op = op->getNextNode())
+      if (!copyOps.contains(op) && !isMemoryEffectFree(op)) return failure();
+
     scf::YieldOp thenYield = ifOp.thenYield();
-    Value src = stripCasts(thenYield.getOperand(0));
+    scf::YieldOp elseYield = ifOp.elseYield();
+    SmallVector<std::pair<Value, Value>> sourcesAndTargets;
+    for (memref::CopyOp selected : copies) {
+      unsigned index = cast<OpResult>(selected.getSource()).getResultNumber();
+      sourcesAndTargets.emplace_back(stripCasts(thenYield.getOperand(index)),
+                                     stripCasts(elseYield.getOperand(index)));
+    }
 
     rewriter.setInsertionPoint(ifOp);
     auto guard = scf::IfOp::create(rewriter, ifOp.getLoc(), ifOp.getCondition(),
@@ -563,25 +582,37 @@ struct SinkCopyIntoGuard final : OpRewritePattern<memref::CopyOp> {
     rewriter.eraseOp(elseYield);
     rewriter.inlineBlockBefore(ifOp.elseBlock(), guard);
     rewriter.setInsertionPoint(thenYield);
-    memref::CopyOp::create(rewriter, copy.getLoc(), src, dst);
+    for (auto [src, dst] : sourcesAndTargets)
+      memref::CopyOp::create(rewriter, copy.getLoc(), src, dst);
     rewriter.eraseOp(thenYield);
     rewriter.inlineBlockBefore(ifOp.thenBlock(),
                                guard.thenBlock()->getTerminator());
-    rewriter.eraseOp(copy);
+    for (memref::CopyOp selected : copies) rewriter.eraseOp(selected);
     rewriter.eraseOp(ifOp);
     return success();
   }
 };
 
-// A copy between two views of the same buffer is a no-op. SinkCopyIntoGuard
-// leaves one behind when the guarded tile already wrote its destination in
-// place.
+// A copy between two views of the same buffer is a no-op. This also applies
+// when an scf.if yields that same view from both branches.
 struct RemoveSameBufferCopy final : OpRewritePattern<memref::CopyOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(memref::CopyOp copy,
                                 PatternRewriter &rewriter) const override {
-    if (!isSameBuffer(copy.getSource(), copy.getTarget())) return failure();
+    bool sameBuffer = isSameBuffer(copy.getSource(), copy.getTarget());
+    if (!sameBuffer) {
+      auto result = dyn_cast<OpResult>(stripCasts(copy.getSource()));
+      auto ifOp = result ? dyn_cast<scf::IfOp>(result.getOwner()) : nullptr;
+      if (ifOp && !ifOp.getElseRegion().empty()) {
+        unsigned index = result.getResultNumber();
+        sameBuffer =
+            isSameBuffer(ifOp.thenYield().getOperand(index),
+                         copy.getTarget()) &&
+            isSameBuffer(ifOp.elseYield().getOperand(index), copy.getTarget());
+      }
+    }
+    if (!sameBuffer) return failure();
     rewriter.eraseOp(copy);
     return success();
   }
