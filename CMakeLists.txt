@@ -95,6 +95,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(functions)
 include(mlir)
+include(sdl)
 
 find_package(Git QUIET)
 add_custom_target(
