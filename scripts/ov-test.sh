@@ -26,7 +26,7 @@ test_ov() {
     export OV_GPU_ENABLE_MLIR=1
     # Without this, mlir_RMS test fails due to shape [1,64,1,1].
     export OV_GPU_ALLOW_NEW_SHAPE_INFER=1
-    ov_test_runner="$OV_INSTALL_DIR/bin/intel64/Release/ov_gpu_func_tests"
+    ov_test_runner="$OV_INSTALL_DIR/bin/intel64/$OV_BUILD_TYPE/ov_gpu_func_tests"
     test_runner="$PROJECT_DIR/scripts/run-test.sh"
     rm -rf "$OV_TEST_DUMP_DIR"
 
@@ -37,9 +37,9 @@ test_ov() {
         'mlir_*' \
     )
 
-    export LD_LIBRARY_PATH="$OV_INSTALL_DIR/bin/intel64/Release:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="$OV_INSTALL_DIR/bin/intel64/$OV_BUILD_TYPE:$LD_LIBRARY_PATH"
     tests=$("$ov_test_runner" --gtest_list_tests --gtest_filter="${filter%:}" \
-        | awk -v exclude="$OV_TEST_EXCLUDE" '/^  /{print suite $1} /^[^ ]/{suite=$1}')
+        | tr -d '\r' | awk -v exclude="$OV_TEST_EXCLUDE" '/^  /{print suite $1} /^[^ ]/{suite=$1}')
     [ -n "$OV_TEST_EXCLUDE" ] && tests=$(echo "$tests" | grep -v -E "$OV_TEST_EXCLUDE")
     [ -n "$tests" ] || { echo "No tests found" >&2 && exit 1; }
 

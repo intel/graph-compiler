@@ -18,6 +18,7 @@
 set -e
 
 : ${PROJECT_DIR:="$(cd "$(dirname "$0")/.." && pwd)"}
+. "$PROJECT_DIR/scripts/utils.sh"
 : ${LLVM_TAG:="$(head -n1 "$PROJECT_DIR/cmake/llvm-version.txt")"}
 : ${NANOBIND:="$(curl -fsSL "https://raw.githubusercontent.com/llvm/llvm-project/${LLVM_TAG}/mlir/python/requirements.txt" | tr -d ' ' | grep -E '^nanobind')"}
 : "${NANOBIND:?Failed to get nanobind version for LLVM $LLVM_TAG}"
@@ -28,8 +29,8 @@ create() {
     [ "${1:-}" = '-m' ] || packages="$packages lit pre-commit pytest pytest-xdist ruff torch torch-mlir"
     local dest_dir="$PROJECT_DIR/.venv"
 
-    python3 -m venv "$dest_dir" --prompt gc
-    . "$dest_dir"/bin/activate
+    "$PYTHON" -m venv "$dest_dir" --prompt gc
+    . "$dest_dir/$VENV_BIN/activate"
     pip install $packages \
         --extra-index-url https://download.pytorch.org/whl/xpu \
         --find-links https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
