@@ -296,7 +296,7 @@ struct SetAttentionLayouts final
           static_cast<int>(llvm::product_of(knownBlockSize.value()));
 
       auto dpasOps = gc::attention::collectDpasOps(forOp);
-      if (dpasOps.size() < 2) return;
+      if (!gc::attention::hasAttentionDataflow(forOp, dpasOps)) return;
 
       // Set layouts on dpas and loads inside the for loop.
       if (setDpasAndLoadLayouts(forOp, flatBlockSize, /*isTail=*/false))

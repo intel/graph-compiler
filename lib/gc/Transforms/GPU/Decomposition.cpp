@@ -9,12 +9,15 @@
 
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
+#include "gc/Utils/Transform.h"
+#include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -28,6 +31,131 @@ namespace mlir::gc {
 } // namespace mlir::gc
 
 namespace {
+
+// Split a fused regular matmul back into branch matmuls after tiling.
+struct DecomposeFusedMatmul final : public OpRewritePattern<linalg::GenericOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::GenericOp op,
+                                PatternRewriter &rw) const override {
+    if (!mlir::gc::isFusedMatmulOp(op)) return failure();
+    AffineExpr m, n, k;
+    bindDims(op.getContext(), m, n, k);
+    SmallVector<AffineMap> lhsMaps = {
+        AffineMap::get(3, 0, {m, k}, op.getContext()),
+        AffineMap::get(3, 0, {k, m}, op.getContext())};
+    SmallVector<AffineMap> rhsMaps = {
+        AffineMap::get(3, 0, {k, n}, op.getContext()),
+        AffineMap::get(3, 0, {n, k}, op.getContext())};
+    AffineMap outputMap = AffineMap::get(3, 0, {m, n}, op.getContext());
+    if (!op.hasPureTensorSemantics()) return failure();
+    SmallVector<utils::IteratorType> matmulIterators = {
+        utils::IteratorType::parallel, utils::IteratorType::parallel,
+        utils::IteratorType::reduction};
+    if (op.getIteratorTypesArray() != matmulIterators)
+      return rw.notifyMatchFailure(op, "expected a 2D matmul iteration domain");
+    Block &body = op.getRegion().front();
+    auto yield = cast<linalg::YieldOp>(body.getTerminator());
+    auto maps = op.getIndexingMapsArray();
+    unsigned numInputs = op.getNumDpsInputs();
+    // Slice only scalar definitions in this body. Block arguments are leaves
+    // that are matched to each branch's matrix inputs and accumulator below.
+    BackwardSliceOptions options;
+    options.inclusive = true;
+    options.omitBlockArguments = true;
+    options.filter = [&](Operation *scalarOp) {
+      return scalarOp->getBlock() == &body;
+    };
+    struct Branch {
+      unsigned lhs, rhs;
+      SetVector<Operation *> operations;
+    };
+    SmallVector<Branch> branches;
+    for (auto item : llvm::enumerate(yield.getValues())) {
+      unsigned i = item.index();
+      Value result = item.value();
+      Branch branch{numInputs, numInputs, {}};
+      Operation *root = result.getDefiningOp();
+      if (maps[numInputs + i] != outputMap || !root ||
+          root->getBlock() != &body)
+        return rw.notifyMatchFailure(op,
+                                     "expected independent matmul branches");
+      if (failed(getBackwardSlice(root, &branch.operations, options)))
+        return rw.notifyMatchFailure(
+            op, "could not compute scalar branch backward slice");
+      bool usesInit = false;
+      auto matchInput = [&](Value value) {
+        auto arg = dyn_cast<BlockArgument>(value);
+        if (!arg || arg.getOwner() != &body) return false;
+        unsigned index = arg.getArgNumber();
+        if (index == numInputs + i) {
+          usesInit = true;
+          return true;
+        }
+        if (index >= numInputs) return false;
+        unsigned *input = nullptr;
+        if (llvm::is_contained(lhsMaps, maps[index])) {
+          input = &branch.lhs;
+        } else if (llvm::is_contained(rhsMaps, maps[index])) {
+          input = &branch.rhs;
+        }
+        if (!input || (*input != numInputs && *input != index)) return false;
+        *input = index;
+        return true;
+      };
+      for (Operation *scalarOp : branch.operations) {
+        if (scalarOp->getNumRegions() || !isMemoryEffectFree(scalarOp))
+          return rw.notifyMatchFailure(
+              op, "expected region-less, memory-effect-free branch arithmetic");
+        for (Value operand : scalarOp->getOperands())
+          if (!branch.operations.contains(operand.getDefiningOp()) &&
+              !matchInput(operand))
+            return rw.notifyMatchFailure(
+                op, "expected independent matmul branches");
+      }
+      if (!usesInit || branch.lhs == numInputs || branch.rhs == numInputs)
+        return rw.notifyMatchFailure(op,
+                                     "expected independent matmul branches");
+      branches.push_back(std::move(branch));
+    }
+
+    SmallVector<Value> results;
+    for (auto [i, branch] : llvm::enumerate(branches)) {
+      auto indexingMaps = rw.getNamedAttr(
+          "indexing_maps",
+          rw.getAffineMapArrayAttr(
+              {maps[branch.lhs], maps[branch.rhs], maps[numInputs + i]}));
+      auto matmul = linalg::MatmulOp::create(
+          rw, op.getLoc(), TypeRange{op.getResult(i).getType()},
+          ValueRange{op.getInputs()[branch.lhs], op.getInputs()[branch.rhs]},
+          ValueRange{op.getOutputs()[i]},
+          ArrayRef<NamedAttribute>{indexingMaps});
+      for (NamedAttribute attr : op->getDiscardableAttrDictionary())
+        if (attr.getName() != mlir::gc::GC_ATTR_FUSED_MATMUL)
+          matmul->setDiscardableAttr(attr.getName(), attr.getValue());
+      // Preserve the original scalar casts and arithmetic, including mixed
+      // precision accumulation, rather than re-inferring their semantics.
+      Block &target = matmul.getRegion().front();
+      while (!target.empty()) rw.eraseOp(&target.back());
+      IRMapping mapping;
+      mapping.map(body.getArgument(branch.lhs), target.getArgument(0));
+      mapping.map(body.getArgument(branch.rhs), target.getArgument(1));
+      mapping.map(body.getArgument(numInputs + i), target.getArgument(2));
+      {
+        OpBuilder::InsertionGuard guard(rw);
+        rw.setInsertionPointToEnd(&target);
+        // A single-root backward slice is already in dependency order.
+        for (Operation *scalarOp : branch.operations)
+          rw.clone(*scalarOp, mapping);
+        linalg::YieldOp::create(rw, op.getLoc(),
+                                mapping.lookup(yield.getValues()[i]));
+      }
+      results.push_back(matmul.getResult(0));
+    }
+    rw.replaceOp(op, results);
+    return success();
+  }
+};
 
 // Decomposes any operation that implements AggregatedOpInterface by calling
 // its decomposeOperation method.
@@ -124,7 +252,7 @@ struct UnPackToCollapseShape : public OpRewritePattern<linalg::UnPackOp> {
   }
 };
 
-struct Decomposition final : gc::impl::DecompositionBase<Decomposition> {
+struct Decomposition final : mlir::gc::impl::DecompositionBase<Decomposition> {
 
   void runOnOperation() override {
     auto funcOp = getOperation();
@@ -132,6 +260,7 @@ struct Decomposition final : gc::impl::DecompositionBase<Decomposition> {
     RewritePatternSet patterns(ctx);
 
     patterns.add<DecomposeAggregatedOp>(ctx);
+    patterns.add<DecomposeFusedMatmul>(ctx);
     patterns.add<PackToExpandShape, UnPackToCollapseShape>(ctx, /*benefit=*/2);
     linalg::populateDecomposePackUnpackPatterns(patterns);
 

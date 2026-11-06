@@ -16,6 +16,15 @@ SmallVector<xegpu::DpasOp> collectDpasOps(scf::ForOp forOp) {
   return dpasOps;
 }
 
+bool hasAttentionDataflow(scf::ForOp forOp, ArrayRef<xegpu::DpasOp> dpasOps) {
+  if (dpasOps.size() < 2) return false;
+  auto first = dpasOps[0], second = dpasOps[1];
+  SmallVector<Operation *> deps;
+  DenseSet<Operation *> visited;
+  collectDepsInRegion(second.getLhs(), &forOp.getRegion(), deps, visited);
+  return llvm::is_contained(deps, first.getOperation());
+}
+
 void collectDepsInRegion(Value value, Region *region,
                          SmallVectorImpl<Operation *> &deps,
                          DenseSet<Operation *> &visited) {

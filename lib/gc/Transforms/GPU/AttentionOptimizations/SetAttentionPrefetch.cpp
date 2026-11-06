@@ -92,7 +92,7 @@ struct SetAttentionPrefetch final
     moduleOp->walk([&](scf::ForOp forOp) {
       auto dpasOps = gc::attention::collectDpasOps(forOp);
 
-      if (dpasOps.size() < 2) return;
+      if (!gc::attention::hasAttentionDataflow(forOp, dpasOps)) return;
 
       auto loads = collectLoads(forOp);
       if (loads.empty()) return;

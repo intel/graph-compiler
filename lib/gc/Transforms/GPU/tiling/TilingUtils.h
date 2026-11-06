@@ -14,7 +14,9 @@
 #include "gc/Utils/Misc.h"
 #include "gc/Utils/Transform.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
@@ -72,6 +74,33 @@ inline void mergeWgTileSizesAttr(Operation *op, ArrayRef<int64_t> tiles) {
                          DenseI64ArrayAttr::get(op->getContext(), merged));
 }
 
+// Compute direct producer annotations from original SSA operand/result links,
+// before tiling creates multiple copies. A producer used through incompatible
+// maps cannot carry one annotation for all copies and must remain unfused.
+inline void collectProducerTileSizes(
+    Operation *consumer, ArrayRef<size_t> tiles,
+    DenseMap<Operation *, SmallVector<int64_t>> &producerTiles,
+    SmallPtrSetImpl<Operation *> &ambiguousProducers) {
+  auto consumerIdx = dyn_cast<IndexingMapOpInterface>(consumer);
+  if (!consumerIdx) return;
+  for (OpOperand &operand : consumer->getOpOperands()) {
+    auto result = dyn_cast<OpResult>(operand.get());
+    if (!result) continue;
+    Operation *producer = result.getOwner();
+    auto producerTi = dyn_cast<TilingInterface>(producer);
+    if (!producerTi) continue;
+    AffineMap consumerMap = consumerIdx.getMatchingIndexingMap(&operand);
+    AffineMap producerMap =
+        getResultIndexingMap(producer, result.getResultNumber());
+    if (!consumerMap || !producerMap) continue;
+    auto mappedTiles = remapTiles(tiles, consumerMap, producerMap,
+                                  producerTi.getLoopIteratorTypes().size());
+    auto [it, inserted] = producerTiles.try_emplace(producer, mappedTiles);
+    if (!inserted && it->second != mappedTiles)
+      ambiguousProducers.insert(producer);
+  }
+}
+
 // Whether `tiled` iterates over the same domain as `orig`, i.e. tiles indexed
 // by `orig`'s loops can be attached to `tiled` as is.
 inline bool hasSameIterationDomain(Operation *orig, Operation *tiled) {
@@ -87,14 +116,9 @@ inline bool hasSameIterationDomain(Operation *orig, Operation *tiled) {
   return origIdx.getIndexingMapsArray() == tiledIdx.getIndexingMapsArray();
 }
 
-// Tag the tiled consumer and fused producers from an SCFTileAndFuseResult
-// with `gc.tiling.wg_tile_sizes` derived from `tiles` (indexed by the original
-// consumer's iteration domain).
-// Example of input args (linalg.fill + linalg.matmul case):
-//    origConsumer: untiled linalg.matmul
-//    tiles: [256, 512, 16]
-//    result.tiledAndFusedOps: [tiled_matmul, tiled_fill]
-//    result.fusedProducers:   [orig_fill]
+// Tag the tiled consumer with tile sizes in its own iteration domain. Producers
+// inherit their annotations from the originals tagged before tiling; no pairing
+// of original and tiled producer lists is needed.
 inline void tagTileAndFuseResult(Operation *origConsumer,
                                  ArrayRef<size_t> tiles,
                                  const scf::SCFTileAndFuseResult &result) {
@@ -104,13 +128,12 @@ inline void tagTileAndFuseResult(Operation *origConsumer,
   // avoid casts on the C++/mlir boundary.
   auto consumerTiles = llvm::map_to_vector(
       tiles, [](size_t v) { return static_cast<int64_t>(v); });
-  auto it = result.tiledAndFusedOps.begin();
   // Set tile-size attribute for the tiled op itself (e.g. linalg.matmul),
   // it's always the first element in the tiledAndFusedOps list. The tiled op
   // may have a different iteration domain (e.g. linalgx.grouped_matmul is
   // tiled into linalg.matmul), in which case the tiles are remapped through
   // the result indexing maps.
-  Operation *tiled = *it++;
+  Operation *tiled = result.tiledAndFusedOps.front();
   auto tiledTi = dyn_cast<TilingInterface>(tiled);
   if (tiledTi && !hasSameIterationDomain(origConsumer, tiled)) {
     assert(llvm::none_of(
@@ -136,45 +159,6 @@ inline void tagTileAndFuseResult(Operation *origConsumer,
                           tiledTi.getLoopIteratorTypes().size()));
   } else {
     mergeWgTileSizesAttr(tiled, consumerTiles);
-  }
-
-  auto consumerIdx = dyn_cast<IndexingMapOpInterface>(origConsumer);
-  // If the consumer doesn't have indexing maps, we can't remap the tiles to
-  // the fused producers.
-  if (!consumerIdx) return;
-
-  // Iterate over the tiled producers and set their tile-size attributes.
-  // Example:
-  // result.tiledAndFusedOps: [tiled_matmul, tiled_fill]
-  //                                         ^--*it
-  // result.fusedProducers:   [orig_fill]
-  //                          ^--*fp
-  auto fp = result.fusedProducers.begin();
-  for (;
-       it != result.tiledAndFusedOps.end() && fp != result.fusedProducers.end();
-       ++it, ++fp) {
-    auto *tiledProd = *it;
-    auto *origProd = *fp;
-    auto prodTi = dyn_cast<TilingInterface>(tiledProd);
-    if (!prodTi) continue;
-    AffineMap consumerMap, prodMap;
-    for (auto &operand : origConsumer->getOpOperands()) {
-      auto opRes = dyn_cast<OpResult>(operand.get());
-      if (!opRes || opRes.getOwner() != origProd) continue;
-      consumerMap = consumerIdx.getMatchingIndexingMap(&operand);
-      prodMap = getResultIndexingMap(origProd, opRes.getResultNumber());
-      break;
-    }
-    if (!consumerMap || !prodMap) {
-      tiledProd->emitWarning()
-          << "unable to find matching indexing maps for remapping tiles from "
-             "consumer to producer; skipping tile-size attribute propagation";
-      continue;
-    }
-
-    mergeWgTileSizesAttr(tiledProd,
-                         remapTiles(tiles, consumerMap, prodMap,
-                                    prodTi.getLoopIteratorTypes().size()));
   }
 }
 
@@ -657,16 +641,25 @@ protected:
       return nullptr;
     }
 
+    DenseMap<Operation *, SmallVector<int64_t>> producerTiles;
+    SmallPtrSet<Operation *, 8> ambiguousProducers;
+    collectProducerTileSizes(tg.op.getOperation(), tg.tiles, producerTiles,
+                             ambiguousProducers);
+
     SCFTileAndFuseOptions opts;
     opts.tilingOptions.loopType = tg.level == Level::SG
                                       ? SCFTilingOptions::LoopType::ForOp
                                       : SCFTilingOptions::LoopType::ForallOp;
-    opts.setFusionControlFn([this, &tg](tensor::ExtractSliceOp candidateSliceOp,
-                                        OpResult originalProducer,
-                                        bool isDestinationOperand) {
-      return this->fusionControl(tg, candidateSliceOp, originalProducer,
-                                 isDestinationOperand);
-    });
+    opts.setFusionControlFn(
+        [this, &tg, &ambiguousProducers](
+            tensor::ExtractSliceOp candidateSliceOp, OpResult originalProducer,
+            bool isDestinationOperand)
+            -> std::optional<SCFTileAndFuseOptions::ControlFnResult> {
+          if (ambiguousProducers.contains(originalProducer.getOwner()))
+            return std::nullopt;
+          return this->fusionControl(tg, candidateSliceOp, originalProducer,
+                                     isDestinationOperand);
+        });
 
     if (tg.hasReductions()) {
       SmallVector<unsigned> reductionDims;
@@ -689,7 +682,27 @@ protected:
     // below, so getResultIndexingMap must not be recomputed from it later.
     AffineMap prodMap = getResultIndexingMap(tg.op.getOperation(), 0);
 
+    // Tiled linalg producers clone the original attributes. Tag by provenance
+    // before fusion so every copy (including duplicated destinations) inherits
+    // the correct tiles. Restore surviving originals before replacing any ops.
+    DenseMap<Operation *, Attribute> originalTileAttrs;
+    for (auto &entry : producerTiles) {
+      Operation *producer = entry.first;
+      auto &tiles = entry.second;
+      if (ambiguousProducers.contains(producer)) continue;
+      originalTileAttrs[producer] = producer->getAttr(GC_ATTR_WG_TILE_SIZES);
+      tg.rw.modifyOpInPlace(producer,
+                            [&]() { mergeWgTileSizesAttr(producer, tiles); });
+    }
     auto result = tileConsumerAndFuseProducersUsingSCF(tg.rw, tg.op, opts);
+    for (auto &entry : originalTileAttrs) {
+      Operation *producer = entry.first;
+      Attribute attr = entry.second;
+      tg.rw.modifyOpInPlace(producer, [&]() {
+        if (attr) producer->setDiscardableAttr(GC_ATTR_WG_TILE_SIZES, attr);
+        else producer->removeDiscardableAttr(GC_ATTR_WG_TILE_SIZES);
+      });
+    }
     if (failed(result)) {
       tg.op->emitError() << "Failed to tile and fuse using SCF";
       return nullptr;
@@ -726,7 +739,7 @@ protected:
 
     if (tg.level == Level::WG) {
       if (!fuseConsumers(tg, opReplacement, prodMap)) return nullptr;
-      else fuseProducers(tg, opReplacement);
+      else fuseProducers(tg, opReplacement, ambiguousProducers);
     }
 
     canonicalizeLoop(opReplacement);
@@ -752,8 +765,8 @@ protected:
 
     // If the result of this slice is used by a MatmulOp and the slice
     // has an operand produced by a previous MatmulOp, do not fuse.
-    if (isOpDependsOnResult<0>(isMatmulOp, candidateSliceOp) &&
-        isOperandDependsOnOp(isMatmulOp, candidateSliceOp)) {
+    if (isOpDependsOnResult<0>(isAnyMatmulOp, candidateSliceOp) &&
+        isOperandDependsOnOp(isAnyMatmulOp, candidateSliceOp)) {
       return std::nullopt;
     }
 
@@ -835,13 +848,17 @@ protected:
   }
 
   // Fuse producers of extract_slice ops inside the loop
-  static void fuseProducers(Target &tg, LoopLikeOpInterface &loop) {
+  static void
+  fuseProducers(Target &tg, LoopLikeOpInterface &loop,
+                const SmallPtrSetImpl<Operation *> &ambiguousProducers) {
     SmallVector<tensor::ExtractSliceOp> candidates;
     loop->walk([&](tensor::ExtractSliceOp slice) {
       auto producer = slice.getSource().getDefiningOp();
-      if (!producer || !canFuse(loop, producer, false)) return;
-      if (isOpDependsOnResult<0>(isMatmulOp, slice) &&
-          isOperandDependsOnOp(isMatmulOp, slice))
+      if (!producer || ambiguousProducers.contains(producer) ||
+          !canFuse(loop, producer, false))
+        return;
+      if (isOpDependsOnResult<0>(isAnyMatmulOp, slice) &&
+          isOperandDependsOnOp(isAnyMatmulOp, slice))
         return;
       candidates.push_back(slice);
     });
@@ -908,19 +925,38 @@ private:
     SmallVector<std::tuple<Value, Value, Value>> emptyToTile;
     auto loopOp = loop.getOperation();
     if (auto forall = dyn_cast<scf::ForallOp>(loopOp)) {
-      for (auto &operand : user->getOpOperands()) {
-        auto res = dyn_cast<OpResult>(operand.get());
+      SmallVector<std::pair<OpOperand *, tensor::ParallelInsertSliceOp>> extras;
+      auto userIdx = dyn_cast<IndexingMapOpInterface>(user);
+      auto sourceInsert = findParallelInsertSlice(forall, loopRes);
+      AffineMap sourceMap =
+          userIdx ? userIdx.getMatchingIndexingMap(operand) : AffineMap();
+      for (OpOperand &otherOperand : user->getOpOperands()) {
+        auto res = dyn_cast<OpResult>(otherOperand.get());
         if (!res || res == loopRes || res.getDefiningOp() != loopOp) continue;
         auto ins = findParallelInsertSlice(forall, res);
-        if (!ins) continue;
+        if (!ins || !sourceInsert || !sourceMap ||
+            userIdx.getMatchingIndexingMap(&otherOperand) != sourceMap ||
+            !llvm::equal(ins.getMixedOffsets(),
+                         sourceInsert.getMixedOffsets()) ||
+            !llvm::equal(ins.getMixedSizes(), sourceInsert.getMixedSizes()) ||
+            !llvm::equal(ins.getMixedStrides(), sourceInsert.getMixedStrides()))
+          return false;
+        extras.emplace_back(&otherOperand, ins);
+      }
+      // A different consumer map or insert slice needs data from another tile,
+      // which cannot be substituted with the current tile of this result.
+      for (auto [otherOperand, ins] : extras) {
+        auto res = cast<OpResult>(otherOperand->get());
         auto type = cast<RankedTensorType>(res.getType());
         tg.rw.setInsertionPoint(loop);
-        auto empty =
-            tg.rw
-                .create<tensor::EmptyOp>(type.getShape(), type.getElementType())
-                .getResult();
+        Value init = forall.getOutputs()[res.getResultNumber()];
+        auto sizes = tensor::getMixedSizes(tg.rw, user->getLoc(), init);
+        auto empty = tg.rw
+                         .create<tensor::EmptyOp>(sizes, type.getElementType(),
+                                                  type.getEncoding())
+                         .getResult();
         emptyToTile.push_back({empty, ins.getSource(), res});
-        operand.set(empty);
+        otherOperand->set(empty);
       }
     }
 

@@ -30,6 +30,17 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
     ];
 }
 
+def HorizontalFusionPass : Pass<"horizontal-fusion", "func::FuncOp"> {
+  let summary = "Horizontally fuse matmuls sharing a matrix input.";
+  let description = [{
+    Fuse independent tensor matmuls in the same block before tiling into a
+    multi-output generic marked gc.fused_matmul. Shapes and element types must
+    agree; unknown dynamic matrix dimensions are fused only when their
+    equality can be proven. Only pure operand definitions may be hoisted.
+  }];
+  let dependentDialects = ["linalg::LinalgDialect"];
+}
+
 def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
   let summary = "Tile contraction operations.";
   let description = [{

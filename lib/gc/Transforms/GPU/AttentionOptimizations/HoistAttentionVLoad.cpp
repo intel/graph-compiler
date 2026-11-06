@@ -131,7 +131,7 @@ struct HoistAttentionVLoad final
       auto dpasOps = gc::attention::collectDpasOps(forOp);
 
       // We're looking for flash-attention pattern with at least 2 dpas ops
-      if (dpasOps.size() < 2) return;
+      if (!gc::attention::hasAttentionDataflow(forOp, dpasOps)) return;
 
       // Take the first and second dpas operations
       xegpu::DpasOp firstDpas = dpasOps[0];

@@ -17,6 +17,11 @@ namespace mlir::gc::attention {
 /// Collect all xegpu.dpas operations in the loop body.
 SmallVector<xegpu::DpasOp> collectDpasOps(scf::ForOp forOp);
 
+/// Attention's second matmul consumes the first matmul's result. Independent
+/// horizontally fused matmuls must not receive attention-specific
+/// optimizations.
+bool hasAttentionDataflow(scf::ForOp forOp, ArrayRef<xegpu::DpasOp> dpasOps);
+
 /// Recursively collect all operations inside `region` that `value`
 /// transitively depends on. Returns them in topological order
 /// (dependencies first).

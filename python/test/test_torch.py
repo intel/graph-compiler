@@ -72,6 +72,43 @@ def test_matmul(M: int, K: int, N: int, DT: torch.dtype):
     Test().test()
 
 
+@pytest.mark.skipif(not torch.xpu.is_available(), reason="requires an Intel GPU")
+@pytest.mark.parametrize("shared", ("lhs", "rhs"))
+def test_horizontal_fusion(shared, capfd):
+    # Static, aligned dimensions keep this focused on fusion rather than edge
+    # cases in matrix memory lowering. K=256 also retains a shared K loop.
+    m, k, n = 64, 256, 64
+
+    class Test(TestModule):
+        def forward(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+            if shared == "lhs":
+                return torch.matmul(a, b), torch.matmul(a, c)
+            return torch.matmul(a, c), torch.matmul(b, c)
+
+        def get_inputs(self, dev):
+            shapes = (
+                ((m, k), (k, n), (k, n))
+                if shared == "lhs"
+                else ((m, k), (m, k), (k, n))
+            )
+            return tuple(
+                torch.randn(shape, dtype=torch.float16, device=dev) * 0.01
+                for shape in shapes
+            )
+
+    Test().test()
+    captured = capfd.readouterr()
+    dump = captured.out + captured.err
+    # Keep phase dumps visible with pytest -s while also proving that the
+    # sibling operations were fused, not merely executed independently.
+    print(dump, end="")
+    assert "IR Dump HorizontalFusion" in dump
+    fusion_ir = dump.split("IR Dump HorizontalFusion", 1)[1].split("IR Dump Tiling", 1)[
+        0
+    ]
+    assert "gc.fused_matmul" in fusion_ir
+
+
 @pytest.mark.parametrize("M,K,N,DT", ((2048, 8192, 4096, torch.float16),))
 def test_matmul_arith(M: int, K: int, N: int, DT: torch.dtype):
 
