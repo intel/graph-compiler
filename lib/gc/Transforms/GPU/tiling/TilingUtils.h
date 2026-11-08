@@ -4,9 +4,13 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
+#include "mlir/Dialect/SCF/Utils/Utils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
 
@@ -15,12 +19,15 @@
 #include "gc/Utils/Transform.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
 #include <cmath>
 #include <numeric>
+#include <optional>
+#include <string>
 #include <utility>
 
 using namespace mlir;
@@ -261,6 +268,13 @@ public:
     rw.setInsertionPointToStart(&fn.getBody().front());
   }
 
+  void selectKernel(StringRef name) {
+    kernelAttrs.save();
+    kernelName.clear();
+    kernelName.append(name);
+    kernelAttrs = KernelAttrs(fn, kernelName);
+  }
+
   bool set(TilingInterface &op, Level level) {
     this->op = op;
     this->level = level;
@@ -346,6 +360,148 @@ public:
   }
 };
 
+// Save a tiled loop and its settings while Target is reused for other ops.
+// The result map is needed when consumers are fused after sibling merging.
+struct TiledWorkgroup {
+  scf::ForallOp loop;
+  AffineMap resultMap;
+  SmallVector<size_t> tiles;
+  SmallVector<size_t> sgTiles;
+  std::string kernelName;
+};
+
+// Independent ops of the same kind can become sibling workgroup loops. Keep
+// the current one-result and equal-result-map constraint: downstream consumer
+// fusion uses one result map for the entire merged loop.
+inline bool areIndependentSiblingOps(Operation *lhs, Operation *rhs) {
+  if (lhs == rhs || lhs->getName() != rhs->getName() ||
+      lhs->getBlock() != rhs->getBlock() || lhs->getNumResults() != 1 ||
+      rhs->getNumResults() != 1 ||
+      !isa<RankedTensorType>(lhs->getResult(0).getType()) ||
+      lhs->getResult(0).getType() != rhs->getResult(0).getType() ||
+      getResultIndexingMap(lhs, 0) != getResultIndexingMap(rhs, 0))
+    return false;
+
+  auto isA = [lhs](Operation *op) { return op == lhs; };
+  auto isB = [rhs](Operation *op) { return op == rhs; };
+  return !isOperandDependsOnOp(isB, lhs) && !isOperandDependsOnOp(isA, rhs);
+}
+
+// A merged workgroup loop has one launch configuration.
+inline bool haveCompatibleKernelSettings(func::FuncOp fn,
+                                         const TiledWorkgroup &a,
+                                         const TiledWorkgroup &b) {
+  KernelCollectionAttrs kernels(fn);
+  Attribute settings = kernels.getAttr(a.kernelName);
+  return a.tiles == b.tiles && a.sgTiles == b.sgTiles && settings &&
+         settings == kernels.getAttr(b.kernelName);
+}
+
+// Both MLIR sibling-loop fusion helpers insert their result after `later` and
+// leave legality to the caller. Defer pure users of `earlier` that sit between
+// the loops, provided they do not feed `later`.
+inline bool
+haveIndependentSiblingLoops(Operation *earlier, Operation *later,
+                            SmallVectorImpl<Operation *> &deferredConsumers) {
+  if (!earlier || !later || earlier->getBlock() != later->getBlock() ||
+      earlier->getNumResults() == 0 || later->getNumResults() == 0 ||
+      !earlier->isBeforeInBlock(later) || !isMemoryEffectFree(earlier) ||
+      !isMemoryEffectFree(later))
+    return false;
+
+  llvm::SmallPtrSet<Operation *, 8> deferred;
+  for (auto *op = earlier->getNextNode(); op != later; op = op->getNextNode()) {
+    if (!isMemoryEffectFree(op)) return false;
+    bool usesDeferredValue = false;
+    op->walk([&](Operation *nested) {
+      for (Value operand : nested->getOperands()) {
+        Operation *def = operand.getDefiningOp();
+        usesDeferredValue |= def == earlier || deferred.contains(def);
+      }
+    });
+    if (usesDeferredValue) {
+      deferred.insert(op);
+      deferredConsumers.push_back(op);
+    }
+  }
+
+  DominanceInfo dom(earlier->getParentOp());
+  for (auto result : earlier->getResults()) {
+    for (auto *user : result.getUsers()) {
+      Operation *enclosing = user;
+      while (enclosing && enclosing->getBlock() != earlier->getBlock())
+        enclosing = enclosing->getParentOp();
+      if (deferred.contains(enclosing)) continue;
+      if (!dom.properlyDominates(later, user, /*enclosingOpOk=*/false))
+        return false;
+    }
+  }
+
+  // The dominance check above rejects uses of `earlier` in `later`. A
+  // deferred consumer also cannot move if it feeds `later`.
+  bool usesDeferred = false;
+  later->walk([&](Operation *op) {
+    for (Value operand : op->getOperands())
+      usesDeferred |= deferred.contains(operand.getDefiningOp());
+  });
+  if (usesDeferred) return false;
+
+  return true;
+}
+
+// Match the workgroup loop configuration. The fused loop uses `later`'s
+// bounds, so equivalent dynamic upper bounds need no rewrite.
+inline bool
+haveCompatibleSiblingLoops(TiledWorkgroup &first, TiledWorkgroup &second,
+                           SmallVectorImpl<Operation *> &deferredConsumers) {
+  auto earlier = first.loop, later = second.loop;
+  if (!earlier || !later ||
+      earlier.getMixedLowerBound() != later.getMixedLowerBound() ||
+      earlier.getMixedStep() != later.getMixedStep() ||
+      earlier.getMapping() != later.getMapping() ||
+      !haveIndependentSiblingLoops(earlier, later, deferredConsumers))
+    return false;
+
+  auto upperA = earlier.getMixedUpperBound();
+  auto upperB = later.getMixedUpperBound();
+  if (upperA.size() != upperB.size()) return false;
+  for (auto [a, b] : llvm::zip(upperA, upperB)) {
+    if (a != b) {
+      auto equal = ValueBoundsConstraintSet::areEqual(a, b);
+      if (failed(equal) || !*equal) return false;
+    }
+  }
+  return true;
+}
+
+// Remove metadata for merged-away loops and number surviving kernels
+// contiguously so later tiling passes can allocate new names without clashes.
+inline void renumberKernels(func::FuncOp fn, ArrayRef<std::string> oldNames) {
+  KernelCollectionAttrs kernels(fn);
+  SmallVector<std::pair<scf::ForallOp, Attribute>> loops;
+  fn.walk([&](scf::ForallOp loop) {
+    if (auto name = loop->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME))
+      loops.emplace_back(loop, kernels.getAttr(name.getValue()));
+  });
+
+  for (const auto &name : oldNames) kernels.erase(name);
+  for (auto &entry : loops) {
+    auto name = cast<StringAttr>(entry.first->getAttr(GC_ATTR_KERNEL_NAME));
+    kernels.erase(name.getValue());
+  }
+  for (auto [i, entry] : llvm::enumerate(loops)) {
+    std::string name = fn.getName().str() + "_kernel";
+    if (i) name += "_" + std::to_string(i);
+    entry.first->setDiscardableAttr(GC_ATTR_KERNEL_NAME,
+                                    StringAttr::get(fn.getContext(), name));
+    if (entry.second) kernels.set(name, entry.second);
+  }
+
+  kernels.save();
+  fn->setDiscardableAttr(GC_ATTR_NUM_KERNELS,
+                         createAttr<unsigned>(fn.getContext(), loops.size()));
+}
+
 template <typename BaseT> class TilingPass : public BaseT {
 
   void runOnOperation() override {
@@ -359,7 +515,119 @@ template <typename BaseT> class TilingPass : public BaseT {
 protected:
   virtual bool isSupportedOp(TilingInterface ti) = 0;
 
+  // Horizontal fusion is opt-in. The second hook checks any pass-specific
+  // relationship between otherwise independent ops, such as a shared input.
+  virtual bool isHorizontallyFusible(TilingInterface) { return false; }
+  virtual bool isCompatibleForHorizontalFusion(TilingInterface,
+                                               TilingInterface) {
+    return false;
+  }
+
+  // Build one workgroup loop and save its settings.
+  TiledWorkgroup tileWgOnly(Target &tg, TilingInterface op) {
+    TiledWorkgroup result;
+    if (!op->getNumResults()) {
+      op->emitError("Cannot tile an operation without tensor results");
+      return result;
+    }
+    result.resultMap = getResultIndexingMap(op.getOperation(), 0);
+    if (!tg.set(op, Level::WG)) return result;
+    computeWgTiles(tg);
+    tg.kernelAttrs.setThreads(computeThreads(tg));
+    // Function-wide canonicalization can erase the other group members.
+    auto loop = apply(tg, /*fuseWgOps=*/false, /*simplify=*/false);
+    if (!loop) return result;
+    result.loop = dyn_cast<scf::ForallOp>(loop.getOperation());
+    result.tiles = tg.tiles;
+    result.sgTiles = tg.sgTiles;
+    result.kernelName =
+        cast<StringAttr>(loop->getAttr(GC_ATTR_KERNEL_NAME)).getValue().str();
+    tg.kernelAttrs.save();
+    return result;
+  }
+
+  // Coiterate reduction loops produced by matmuls already merged into one
+  // workgroup. Each scf.for keeps its own accumulator as an iter_arg.
+  void fuseSiblingReductionLoops(Target &tg, scf::ForallOp workgroup) {
+    SmallVector<scf::ForOp> loops;
+    for (Operation &op : workgroup.getBody()->getOperations()) {
+      auto loop = dyn_cast<scf::ForOp>(&op);
+      if (loop &&
+          llvm::any_of(loop.getBody()->getOperations(),
+                       [](Operation &nested) { return isMatmulOp(&nested); }))
+        loops.push_back(loop);
+    }
+
+    auto equalBound = [](Value a, Value b) {
+      if (a == b) return true;
+      auto equal = ValueBoundsConstraintSet::areEqual(a, b);
+      return succeeded(equal) && *equal;
+    };
+    for (size_t i = 1; i < loops.size(); ++i) {
+      scf::ForOp earlier = loops[i - 1], later = loops[i];
+      SmallVector<Operation *> deferredConsumers;
+      if (earlier.getUnsignedCmp() != later.getUnsignedCmp() ||
+          !equalBound(earlier.getLowerBound(), later.getLowerBound()) ||
+          !equalBound(earlier.getUpperBound(), later.getUpperBound()) ||
+          !equalBound(earlier.getStep(), later.getStep()) ||
+          !haveIndependentSiblingLoops(earlier, later, deferredConsumers))
+        continue;
+
+      // MLIR creates the new loop immediately after `later`.
+      Operation *insertAfter = later;
+      for (Operation *consumer : deferredConsumers) {
+        consumer->moveAfter(insertAfter);
+        insertAfter = consumer;
+      }
+      loops[i] = fuseIndependentSiblingForLoops(earlier, later, tg.rw);
+      tg.mark(loops[i]);
+    }
+  }
+
+  // Restore a surviving workgroup's settings, fuse its consumers and remaining
+  // producers, tile its operations at the subgroup level, then merge K loops
+  // from sibling matmuls.
+  bool fuseConsumersAndTileSubgroups(Target &tg, const TiledWorkgroup &tiled) {
+    // Other loops may have been rewritten while tiling the remaining groups.
+    // Look up the current loop by its kernel name instead of retaining an
+    // operation handle across those rewrites.
+    scf::ForallOp currentLoop;
+    tg.fn.walk([&](scf::ForallOp candidate) {
+      auto name = candidate->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME);
+      if (!name || name.getValue() != tiled.kernelName)
+        return WalkResult::advance();
+      currentLoop = candidate;
+      return WalkResult::interrupt();
+    });
+    if (!currentLoop) return false;
+
+    tg.selectKernel(tiled.kernelName);
+    tg.tiles = tiled.tiles;
+    tg.sgTiles = tiled.sgTiles;
+    tg.level = Level::WG;
+    LoopLikeOpInterface loop = currentLoop;
+    if (!fuseWgOperations(tg, loop, tiled.resultMap)) return false;
+    canonicalizeLoop(loop);
+    if (failed(simplifyRegions(tg.rw, tg.fn->getRegions()))) {
+      // Not simplified
+    }
+    tg.mark(loop);
+    auto sgTiledLoop = tileSg(tg, loop);
+    if (!sgTiledLoop) return false;
+    fuseSiblingReductionLoops(tg, *sgTiledLoop);
+    return true;
+  }
+
   virtual bool tileWg(Target &tg) {
+    // Remove dead use chains before collecting sibling pointers. Tiling a
+    // group defers function-wide canonicalization until all its members are
+    // processed, so the remaining candidates stay valid during that group.
+    RewritePatternSet noPatterns(tg.fn.getContext());
+    GreedyRewriteConfig dceConfig;
+    dceConfig.enableFolding(false).enableCSEBetweenIterations(false);
+    if (failed(applyPatternsGreedily(tg.fn, std::move(noPatterns), dceConfig)))
+      return false;
+
     struct Filter {
       bool operator()(Operation &op) const {
         return !op.hasAttr(GC_ATTR_LEVEL) &&
@@ -367,27 +635,101 @@ protected:
       }
     };
     std::function<bool(TilingInterface)> predicate = [&](TilingInterface op) {
-      return isSupportedOp(op);
+      return isSupportedOp(op) && (!isHorizontallyFusible(op) ||
+                                   !isOpTriviallyDead(op.getOperation()));
     };
 
+    SmallVector<std::string> oldNames;
+    SmallVector<TiledWorkgroup> ready;
+    bool mergedAny = false;
+
     while (auto ti = findLast<TilingInterface, Filter>(tg.fn, predicate)) {
-      if (!tg.set(ti, Level::WG)) {
-        return false;
+      if (!isHorizontallyFusible(ti)) {
+        // Preserve the existing path for passes that do not opt in.
+        if (!tg.set(ti, Level::WG)) return false;
+        computeWgTiles(tg);
+        tg.kernelAttrs.setThreads(computeThreads(tg));
+        auto loop = apply(tg);
+        if (!loop || !tileSg(tg, loop)) return false;
+        continue;
       }
-      computeWgTiles(tg);
-      tg.kernelAttrs.setThreads(computeThreads(tg));
-      if (auto loop = apply(tg)) {
-        if (!tileSg(tg, loop)) {
-          return false;
+
+      // Find same-kind operations that pass both generic independence checks
+      // and the derived pass's compatibility policy before tiling erases them.
+      SmallVector<Operation *> group{ti.getOperation()};
+      tg.fn.walk([&](Operation *candidate) {
+        auto other = dyn_cast<TilingInterface>(candidate);
+        if (candidate == ti.getOperation() || !other ||
+            isOpTriviallyDead(candidate) || candidate->hasAttr(GC_ATTR_LEVEL) ||
+            !isSupportedOp(other) || !isHorizontallyFusible(other))
+          return;
+        if (llvm::all_of(group, [&](Operation *member) {
+              return areIndependentSiblingOps(member, candidate) &&
+                     isCompatibleForHorizontalFusion(
+                         cast<TilingInterface>(member), other);
+            }))
+          group.push_back(candidate);
+      });
+
+      SmallVector<TiledWorkgroup> tiled;
+      for (Operation *member : group) {
+        auto result = tileWgOnly(tg, cast<TilingInterface>(member));
+        if (!result.loop) return false;
+        oldNames.push_back(result.kernelName);
+        tiled.push_back(std::move(result));
+      }
+      if (tiled.size() == 1) {
+        ready.push_back(std::move(tiled.front()));
+        continue;
+      }
+
+      // The MLIR helper requires identical loop configurations and leaves
+      // kernel naming to this pass. Merge legal loops in source order.
+      tg.kernelAttrs.save();
+      llvm::sort(tiled, [](const TiledWorkgroup &a, const TiledWorkgroup &b) {
+        return a.loop->isBeforeInBlock(b.loop);
+      });
+      TiledWorkgroup current = std::move(tiled.front());
+      for (auto &next : llvm::drop_begin(tiled)) {
+        SmallVector<Operation *> deferredConsumers;
+        if (!haveCompatibleKernelSettings(tg.fn, current, next) ||
+            !haveCompatibleSiblingLoops(current, next, deferredConsumers)) {
+          ready.push_back(std::move(current));
+          current = std::move(next);
+          continue;
         }
-      } else {
-        return false;
+        // Keep consumers after the new loop, which MLIR inserts after `next`.
+        Operation *insertAfter = next.loop;
+        for (Operation *consumer : deferredConsumers) {
+          consumer->moveAfter(insertAfter);
+          insertAfter = consumer;
+        }
+        tg.selectKernel(next.kernelName);
+        tg.tiles = next.tiles;
+        tg.sgTiles = next.sgTiles;
+        tg.level = Level::WG;
+        current.loop =
+            fuseIndependentSiblingForallLoops(current.loop, next.loop, tg.rw);
+        tg.mark(current.loop);
+        current.kernelName = next.kernelName;
+        mergedAny = true;
       }
+      ready.push_back(std::move(current));
     }
+
+    tg.kernelAttrs.save();
+    // Fuse consumers and tile subgroups after all sibling decisions are made.
+    for (const auto &tiled : ready)
+      if (!fuseConsumersAndTileSubgroups(tg, tiled)) return false;
+    tg.kernelAttrs.save();
+    if (mergedAny) renumberKernels(tg.fn, oldNames);
     return true;
   }
 
-  virtual bool tileSg(Target &tg, LoopLikeOpInterface wgLoop) {
+  virtual std::optional<scf::ForallOp> tileSg(Target &tg,
+                                              LoopLikeOpInterface wgLoop) {
+    auto kernelName = wgLoop->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME);
+    if (!kernelName) return std::nullopt;
     struct Filter {
       bool operator()(Operation &op) const {
         return getDiscardableAttr(&op, GC_ATTR_LEVEL, Level::WG) != Level::SG;
@@ -398,14 +740,24 @@ protected:
     };
     while (auto ti = findLast<TilingInterface, Filter>(wgLoop, predicate)) {
       if (!tg.set(ti, Level::SG)) {
-        return false;
+        return std::nullopt;
       }
       computeSgTiles(tg);
       if (auto loop = apply(tg); !loop && tg.hasTiles()) {
-        return false;
+        return std::nullopt;
       }
     }
-    return true;
+    // Subgroup tiling may replace the workgroup operation.
+    scf::ForallOp updatedLoop;
+    tg.fn.walk([&](scf::ForallOp candidate) {
+      if (candidate->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME) !=
+          kernelName)
+        return WalkResult::advance();
+      updatedLoop = candidate;
+      return WalkResult::interrupt();
+    });
+    if (!updatedLoop) return std::nullopt;
+    return updatedLoop;
   }
 
   virtual void computeWgTiles(Target &tg) { computeTiles(tg, false); }
@@ -652,7 +1004,8 @@ protected:
     return tg.devAttrs.getUarch()->getSubgroupSize();
   }
 
-  virtual LoopLikeOpInterface apply(Target &tg) {
+  virtual LoopLikeOpInterface apply(Target &tg, bool fuseWgOps = true,
+                                    bool simplify = true) {
     if (!tg.hasTiles()) {
       return nullptr;
     }
@@ -724,17 +1077,25 @@ protected:
       return nullptr;
     }
 
-    if (tg.level == Level::WG) {
-      if (!fuseConsumers(tg, opReplacement, prodMap)) return nullptr;
-      else fuseProducers(tg, opReplacement);
-    }
+    if (tg.level == Level::WG && fuseWgOps &&
+        !fuseWgOperations(tg, opReplacement, prodMap))
+      return nullptr;
 
-    canonicalizeLoop(opReplacement);
-    if (failed(simplifyRegions(tg.rw, tg.fn->getRegions()))) {
-      // Not simplified
+    if (simplify) {
+      canonicalizeLoop(opReplacement);
+      if (failed(simplifyRegions(tg.rw, tg.fn->getRegions()))) {
+        // Not simplified
+      }
     }
     tg.mark(opReplacement);
     return opReplacement;
+  }
+
+  bool fuseWgOperations(Target &tg, LoopLikeOpInterface &loop,
+                        AffineMap resultMap) {
+    if (!fuseConsumers(tg, loop, resultMap)) return false;
+    fuseProducers(tg, loop);
+    return true;
   }
 
   virtual std::optional<SCFTileAndFuseOptions::ControlFnResult>
@@ -915,9 +1276,16 @@ private:
         if (!ins) continue;
         auto type = cast<RankedTensorType>(res.getType());
         tg.rw.setInsertionPoint(loop);
+        SmallVector<Value> dynamicSizes;
+        Value init = forall.getOutputs()[res.getResultNumber()];
+        for (int64_t i = 0, e = type.getRank(); i < e; ++i)
+          if (type.isDynamicDim(i))
+            dynamicSizes.push_back(
+                tg.rw.createOrFold<tensor::DimOp>(user->getLoc(), init, i));
         auto empty =
             tg.rw
-                .create<tensor::EmptyOp>(type.getShape(), type.getElementType())
+                .create<tensor::EmptyOp>(type.getShape(), type.getElementType(),
+                                         dynamicSizes)
                 .getResult();
         emptyToTile.push_back({empty, ins.getSource(), res});
         operand.set(empty);
