@@ -144,3 +144,117 @@ func.func @copy_same_buffer(%arg0: memref<?x64xf16>, %arg1: index, %arg2: index)
   memref.copy %a, %b : memref<?x64xf16, strided<[64, 1], offset: ?>> to memref<?x64xf16, strided<[64, 1], offset: ?>>
   return
 }
+
+// -----
+
+// Each branch of the guard yields the destination's own subview. The two
+// copies are no-ops even though their sources are scf.if results.
+// CHECK-LABEL: func.func @multi_result_guarded_same_buffer
+// CHECK:         scf.if
+// CHECK:           memref.store
+// CHECK-NOT:     memref.copy
+// CHECK:         return
+func.func @multi_result_guarded_same_buffer(
+    %dst0: memref<?x64xf32>, %dst1: memref<?x64xf32>,
+    %row: index, %rows: index, %cond: i1, %value: f32) {
+  %c0 = arith.constant 0 : index
+  %r:2 = scf.if %cond ->
+      (memref<?x64xf32, strided<[64, 1], offset: ?>>,
+       memref<?x64xf32, strided<[64, 1], offset: ?>>) {
+    %a = memref.subview %dst0[%row, 0] [%rows, 64] [1, 1]
+        : memref<?x64xf32> to memref<?x64xf32, strided<[64, 1], offset: ?>>
+    %b = memref.subview %dst1[%row, 0] [%rows, 64] [1, 1]
+        : memref<?x64xf32> to memref<?x64xf32, strided<[64, 1], offset: ?>>
+    memref.store %value, %a[%c0, %c0]
+        : memref<?x64xf32, strided<[64, 1], offset: ?>>
+    scf.yield %a, %b
+        : memref<?x64xf32, strided<[64, 1], offset: ?>>,
+          memref<?x64xf32, strided<[64, 1], offset: ?>>
+  } else {
+    %a = memref.subview %dst0[%row, 0] [%rows, 64] [1, 1]
+        : memref<?x64xf32> to memref<?x64xf32, strided<[64, 1], offset: ?>>
+    %b = memref.subview %dst1[%row, 0] [%rows, 64] [1, 1]
+        : memref<?x64xf32> to memref<?x64xf32, strided<[64, 1], offset: ?>>
+    scf.yield %a, %b
+        : memref<?x64xf32, strided<[64, 1], offset: ?>>,
+          memref<?x64xf32, strided<[64, 1], offset: ?>>
+  }
+  %a = memref.subview %dst0[%row, 0] [%rows, 64] [1, 1]
+      : memref<?x64xf32> to memref<?x64xf32, strided<[64, 1], offset: ?>>
+  %b = memref.subview %dst1[%row, 0] [%rows, 64] [1, 1]
+      : memref<?x64xf32> to memref<?x64xf32, strided<[64, 1], offset: ?>>
+  memref.copy %r#0, %a
+      : memref<?x64xf32, strided<[64, 1], offset: ?>>
+        to memref<?x64xf32, strided<[64, 1], offset: ?>>
+  memref.copy %r#1, %b
+      : memref<?x64xf32, strided<[64, 1], offset: ?>>
+        to memref<?x64xf32, strided<[64, 1], offset: ?>>
+  return
+}
+
+// -----
+
+// Both guarded results come from temporary buffers in the then branch and
+// from the destinations in the else branch. Sink both copies into the guard,
+// then redirect their writes to the two destination views.
+// CHECK-LABEL: func.func @multi_result_guarded_alloc_copies
+// CHECK-NOT:     memref.alloc
+// CHECK:         scf.if
+// CHECK-DAG:       vector.transfer_write %arg5
+// CHECK-DAG:       vector.transfer_write %arg6
+// CHECK-NOT:     memref.copy
+// CHECK:         return
+func.func @multi_result_guarded_alloc_copies(
+    %dst0: memref<?x64xf16>, %dst1: memref<?x64xf16>,
+    %row: index, %rows: index, %cond: i1,
+    %v0: vector<32x64xf16>, %v1: vector<32x64xf16>) {
+  %c0 = arith.constant 0 : index
+  %r:2 = scf.if %cond ->
+      (memref<?x64xf16, strided<[?, ?], offset: ?>>,
+       memref<?x64xf16, strided<[?, ?], offset: ?>>) {
+    %alloc0 = memref.alloc() alignment = 64 : memref<32x64xf16>
+    %alloc1 = memref.alloc() alignment = 64 : memref<32x64xf16>
+    vector.transfer_write %v0, %alloc0[%c0, %c0] {in_bounds = [true, true]}
+        : vector<32x64xf16>, memref<32x64xf16>
+    vector.transfer_write %v1, %alloc1[%c0, %c0] {in_bounds = [true, true]}
+        : vector<32x64xf16>, memref<32x64xf16>
+    %a = memref.subview %alloc0[0, 0] [%rows, 64] [1, 1]
+        : memref<32x64xf16> to memref<?x64xf16, strided<[64, 1]>>
+    %b = memref.subview %alloc1[0, 0] [%rows, 64] [1, 1]
+        : memref<32x64xf16> to memref<?x64xf16, strided<[64, 1]>>
+    %cast_a = memref.cast %a
+        : memref<?x64xf16, strided<[64, 1]>>
+          to memref<?x64xf16, strided<[?, ?], offset: ?>>
+    %cast_b = memref.cast %b
+        : memref<?x64xf16, strided<[64, 1]>>
+          to memref<?x64xf16, strided<[?, ?], offset: ?>>
+    scf.yield %cast_a, %cast_b
+        : memref<?x64xf16, strided<[?, ?], offset: ?>>,
+          memref<?x64xf16, strided<[?, ?], offset: ?>>
+  } else {
+    %a = memref.subview %dst0[%row, 0] [%rows, 64] [1, 1]
+        : memref<?x64xf16> to memref<?x64xf16, strided<[64, 1], offset: ?>>
+    %b = memref.subview %dst1[%row, 0] [%rows, 64] [1, 1]
+        : memref<?x64xf16> to memref<?x64xf16, strided<[64, 1], offset: ?>>
+    %cast_a = memref.cast %a
+        : memref<?x64xf16, strided<[64, 1], offset: ?>>
+          to memref<?x64xf16, strided<[?, ?], offset: ?>>
+    %cast_b = memref.cast %b
+        : memref<?x64xf16, strided<[64, 1], offset: ?>>
+          to memref<?x64xf16, strided<[?, ?], offset: ?>>
+    scf.yield %cast_a, %cast_b
+        : memref<?x64xf16, strided<[?, ?], offset: ?>>,
+          memref<?x64xf16, strided<[?, ?], offset: ?>>
+  }
+  %target0 = memref.subview %dst0[%row, 0] [%rows, 64] [1, 1]
+      : memref<?x64xf16> to memref<?x64xf16, strided<[64, 1], offset: ?>>
+  memref.copy %r#0, %target0
+      : memref<?x64xf16, strided<[?, ?], offset: ?>>
+        to memref<?x64xf16, strided<[64, 1], offset: ?>>
+  %target1 = memref.subview %dst1[%row, 0] [%rows, 64] [1, 1]
+      : memref<?x64xf16> to memref<?x64xf16, strided<[64, 1], offset: ?>>
+  memref.copy %r#1, %target1
+      : memref<?x64xf16, strided<[?, ?], offset: ?>>
+        to memref<?x64xf16, strided<[64, 1], offset: ?>>
+  return
+}
