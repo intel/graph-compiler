@@ -137,7 +137,6 @@ else()
       MLIRTensorDialect
       MLIRTensorInferTypeOpInterfaceImpl
       MLIRTensorTilingInterfaceImpl
-      MLIRTensorTransforms
       MLIRUBDialect
       MLIRVectorBufferizableOpInterfaceImpl
       MLIRVectorDialect
@@ -145,6 +144,9 @@ else()
       MLIRSPIRVDialect
       MLIRSPIRVTransforms
       MLIRSPIRVTarget)
+  if(GC_ENABLE_OCL)
+    list(APPEND MLIR_DIALECT_LIBS MLIRTensorTransforms)
+  endif()
   if(GC_ENABLE_IGC)
     list(
       APPEND

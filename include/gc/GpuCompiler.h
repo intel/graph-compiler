@@ -43,6 +43,7 @@ struct CompileOptions {
   std::string arch;
   std::string igcOpts;
   bool spirv{false};
+  bool source{false};
   bool wait{true};
   bool dump{false};
 };

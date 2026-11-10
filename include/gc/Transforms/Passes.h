@@ -25,6 +25,11 @@ class OpPassManager;
 namespace gc {
 struct GpuDevicePropsOptions;
 struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
+#if GC_ENABLE_OCL
+  Option<bool> source{*this, "source",
+                      llvm::cl::desc("Generate OpenCL C kernels."),
+                      llvm::cl::init(false)};
+#endif
   Option<bool> spirv{*this, "spirv",
                      llvm::cl::desc("Generate generic SPIR-V kernels."),
                      llvm::cl::init(false)};
@@ -57,6 +62,10 @@ DialectRegistry &getDialectRegistry();
 void populateGPUPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
 void populateSPIRVPipeline(mlir::OpPassManager &, const GPUPipelineOptions &);
 void populateOclSourcePipeline(mlir::OpPassManager &);
+#if GC_ENABLE_OCL
+void populateOclCompilationPipeline(mlir::OpPassManager &,
+                                    const GPUPipelineOptions &);
+#endif
 
 void registerGPUPipeline();
 

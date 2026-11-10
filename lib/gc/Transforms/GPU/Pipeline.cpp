@@ -277,6 +277,12 @@ addAttentionOptimizationPasses(OpPassManager &pm,
 
 void populateGPUPipeline(OpPassManager &pm,
                          const GPUPipelineOptions &pipelineOpts) {
+#if GC_ENABLE_OCL
+  if (pipelineOpts.source) {
+    populateOclCompilationPipeline(pm, pipelineOpts);
+    return;
+  }
+#endif
   if (pipelineOpts.spirv || !GC_ENABLE_IGC) {
     populateSPIRVPipeline(pm, pipelineOpts);
     return;

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "gc/Runtime/OclSourceModule.h"
+#include "gc/GpuCompiler.h"
+#include "gc/Runtime/OclRuntime.h"
 #include "gc/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Parser/Parser.h"
 #include <climits>
 #include <cmath>
@@ -11,41 +13,69 @@
 #include <vector>
 
 using namespace mlir;
-using namespace mlir::gc::gpu;
+using ::gc::gpu::GpuCompiler;
+using ::gc::gpu::OclRuntime;
 
 template <typename T>
-static bool run(MLIRContext &ctx, cl_context context, cl_device_id device,
-                cl_command_queue queue, const char *ir,
-                std::vector<std::vector<T>> inputs,
+static bool run(MLIRContext &ctx, cl_context context, cl_command_queue queue,
+                const char *ir, std::vector<std::vector<T>> inputs,
                 const std::vector<T> &expected) {
-  auto module = parseSourceString<ModuleOp>(ir, &ctx);
-  if (!module) return false;
-  auto compiled = OclSourceModule::build(*module, device, context);
-  if (!compiled) {
-    std::cerr << llvm::toString(compiled.takeError()) << '\n';
-    return false;
-  }
   inputs.emplace_back(expected.size(), -999.0f);
-  std::vector<cl_mem> args;
-  for (auto &input : inputs) {
-    cl_int status;
-    auto buffer =
-        clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-                       input.size() * sizeof(T), input.data(), &status);
-    if (status != CL_SUCCESS) return false;
-    args.push_back(buffer);
-  }
-  cl_event ready = nullptr, done = nullptr;
-  clEnqueueMarkerWithWaitList(queue, 0, nullptr, &ready);
-  auto err = compiled->invoke(queue, args, {ready}, &done);
-  clReleaseEvent(ready);
-  bool ok = !err;
-  if (err) std::cerr << llvm::toString(std::move(err)) << '\n';
-  if (ok) {
+  for (bool wait : {true, false}) {
+    std::fill(inputs.back().begin(), inputs.back().end(), T(-999));
+    auto runtime = OclRuntime::create(queue);
+    auto module = parseSourceString<ModuleOp>(ir, &ctx);
+    if (!module) return false;
+    auto fn = *module->getOps<func::FuncOp>().begin();
+    std::vector<std::vector<int64_t>> shapes, strides;
+    for (auto type : fn.getArgumentTypes()) {
+      auto memref = cast<MemRefType>(type);
+      auto &shape = shapes.emplace_back(memref.getShape().begin(),
+                                        memref.getShape().end());
+      int64_t product = 1;
+      for (int64_t dim : shape)
+        if (dim != ShapedType::kDynamic) product *= dim;
+      for (auto &dim : shape)
+        if (dim == ShapedType::kDynamic)
+          dim = inputs[shapes.size() - 1].size() / product;
+      auto &stride = strides.emplace_back(shape.size());
+      int64_t value = 1;
+      for (size_t i = shape.size(); i-- > 0;) {
+        stride[i] = value;
+        value *= shape[i];
+      }
+    }
+    ::gc::gpu::CompileOptions options;
+    options.source = true;
+    options.wait = wait;
+    auto program = GpuCompiler::get()
+                       .compile<OclRuntime>(std::move(module), options)
+                       .get();
+    if (!program || (wait && program->eventNum())) return false;
+    ::gc::gpu::SmallBuilder<> builder;
+    std::vector<cl_mem> args;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      cl_int status;
+      auto buffer = clCreateBuffer(
+          context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
+          inputs[i].size() * sizeof(T), inputs[i].data(), &status);
+      if (status != CL_SUCCESS) return false;
+      args.push_back(buffer);
+      builder.storeMemref(runtime->importBuffer(buffer), shapes[i].size(),
+                          shapes[i].data(), strides[i].data());
+    }
+    cl_event ready = nullptr;
+    clEnqueueMarkerWithWaitList(queue, 0, nullptr, &ready);
+    auto events =
+        program->main(builder.build(*program), runtime.get(), &ready, 1);
     auto &out = inputs.back();
-    ok = clEnqueueReadBuffer(queue, args.back(), CL_TRUE, 0,
-                             out.size() * sizeof(T), out.data(), 1, &done,
-                             nullptr) == CL_SUCCESS;
+    bool ok =
+        clEnqueueReadBuffer(queue, args.back(), CL_TRUE, 0,
+                            out.size() * sizeof(T), out.data(),
+                            program->eventNum(), events, nullptr) == CL_SUCCESS;
+    if (events) runtime->wait(events, program->eventNum());
+    clReleaseEvent(ready);
+    for (auto arg : args) clReleaseMemObject(arg);
     for (size_t i = 0; i < expected.size(); ++i) {
       bool matches;
       if constexpr (std::is_floating_point_v<T>)
@@ -60,10 +90,57 @@ static bool run(MLIRContext &ctx, cl_context context, cl_device_id device,
         ok = false;
       }
     }
+    if (!ok) return false;
   }
-  if (done) clReleaseEvent(done);
-  for (auto arg : args) clReleaseMemObject(arg);
-  return ok;
+  return true;
+}
+
+static bool runBinary(cl_context context, cl_device_id device,
+                      cl_command_queue queue) {
+  const char *text = "__kernel void twice(__global float *a,__global float *b){"
+                     "int i=get_global_id(0);b[i]=a[i]*2;}";
+  cl_int status;
+  auto program = clCreateProgramWithSource(context, 1, &text, nullptr, &status);
+  if (status != CL_SUCCESS || clBuildProgram(program, 1, &device, nullptr,
+                                             nullptr, nullptr) != CL_SUCCESS)
+    return false;
+  size_t size;
+  if (clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size), &size,
+                       nullptr) != CL_SUCCESS)
+    return false;
+  std::vector<uint8_t> binary(size);
+  auto data = binary.data();
+  if (clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(data), &data,
+                       nullptr) != CL_SUCCESS)
+    return false;
+  clReleaseProgram(program);
+  auto runtime = OclRuntime::create(queue);
+  ::gc::gpu::ArgType types[] = {::gc::gpu::ArgType::PTR,
+                                ::gc::gpu::ArgType::PTR};
+  auto kernel =
+      runtime->createKernel(binary.data(), binary.size(), "twice", 2, types);
+  auto a = runtime->allocDevice(4 * sizeof(float), 0);
+  auto b = runtime->allocShared(4 * sizeof(float), 0);
+  float input[] = {-1, 0, 1, 2}, output[4]{};
+  auto host = runtime->allocHost(sizeof(input), 64);
+  if (reinterpret_cast<uintptr_t>(host) % 64) return false;
+  std::copy(std::begin(input), std::end(input),
+            reinterpret_cast<float *>(host));
+  auto upload = runtime->memcpy(host, a, sizeof(input), nullptr, 0);
+  auto copy = runtime->memcpy(a, b, sizeof(input), &upload, 1);
+  void *args[] = {&b, &a};
+  auto launch = runtime->launch(kernel, args, 2, 4, 1, 1, 1, 1, 1, &copy, 1);
+  auto read = runtime->memcpy(a, reinterpret_cast<OclRuntime::Memory *>(output),
+                              sizeof(output), &launch, 1);
+  cl_event events[] = {upload, copy, launch, read};
+  runtime->wait(events, 4);
+  runtime->free(a);
+  runtime->free(b);
+  runtime->free(host);
+  OclRuntime::destroyKernel(kernel);
+  for (size_t i = 0; i < 4; ++i)
+    if (output[i] != 2 * input[i]) return false;
+  return true;
 }
 
 int main() {
@@ -81,7 +158,7 @@ int main() {
   auto context =
       clCreateContext(nullptr, 1, &device, nullptr, nullptr, &status);
   if (status != CL_SUCCESS) return 1;
-  MLIRContext ctx(gc::getDialectRegistry());
+  MLIRContext ctx(mlir::gc::getDialectRegistry());
   ctx.loadAllAvailableDialects();
   const char *fusion = R"mlir(
 func.func @entry(%a: memref<4xf32>, %b: memref<4xf32>, %out: memref<4xf32>) {
@@ -136,6 +213,24 @@ func.func @entry(%a: memref<4xi32>, %b: memref<4xi32>, %out: memref<4xi32>) {
   }
   return
 })mlir";
+  const char *dynamic = R"mlir(
+func.func @entry(%a: memref<?xf32>, %out: memref<?xf32>) {
+  linalg.generic {indexing_maps = [affine_map<(d0)->(d0)>, affine_map<(d0)->(d0)>], iterator_types = ["parallel"]} ins(%a : memref<?xf32>) outs(%out : memref<?xf32>) {
+  ^bb0(%x: f32, %unused: f32):
+    %e = math.erf %x : f32
+    %s = math.sin %e : f32
+    %c = math.cos %s : f32
+    linalg.yield %c : f32
+  }
+  return
+})mlir";
+  const char *constant = R"mlir(
+memref.global "private" constant @values : memref<4xf32> = dense<[1.0, 2.0, 3.0, 4.0]>
+func.func @entry(%out: memref<4xf32>) {
+  %values = memref.get_global @values : memref<4xf32>
+  memref.copy %values, %out : memref<4xf32> to memref<4xf32>
+  return
+})mlir";
   const char *attention = R"mlir(
 func.func @entry(%q: memref<1x2x2x2xf32>, %k: memref<1x2x2x2xf32>, %v: memref<1x2x2x3xf32>, %out: memref<1x2x2x3xf32>) {
   %qt = bufferization.to_tensor %q restrict writable : memref<1x2x2x2xf32> to tensor<1x2x2x2xf32>
@@ -166,22 +261,29 @@ func.func @entry(%q: memref<1x2x2x2xf32>, %k: memref<1x2x2x2xf32>, %v: memref<1x
       ok = false;
       break;
     }
+    ok &= runBinary(context, device, queue);
     std::cout << "queue properties " << properties << '\n';
-    ok &= run<float>(ctx, context, device, queue, fusion,
+    ok &= run<float>(ctx, context, queue, fusion,
                      {{-3, 1, 2, -4}, {1, 2, 3, 5}}, {0, 3, 5, 1});
     ok &=
-        run<float>(ctx, context, device, queue, matmul,
+        run<float>(ctx, context, queue, matmul,
                    {{1, 2, 3, 4, 5, 6}, {1, 2, 3, 4, 5, 6}}, {22, 28, 49, 64});
-    ok &= run<float>(ctx, context, device, queue, views, {{1, 2, 3, 4, 5, 6}},
-                     {2, 5});
-    ok &= run<float>(ctx, context, device, queue, compare, {{NAN, 1, 0, -1}},
+    ok &= run<float>(ctx, context, queue, views, {{1, 2, 3, 4, 5, 6}}, {2, 5});
+    ok &= run<float>(ctx, context, queue, compare, {{NAN, 1, 0, -1}},
                      {1, 1, 0, 0});
-    ok &= run<float>(ctx, context, device, queue, fusion,
+    ok &= run<float>(ctx, context, queue, fusion,
                      {{NAN, 1, 2, -4}, {0, 2, 3, 5}}, {NAN, 3, 5, 1});
-    ok &= run<int32_t>(ctx, context, device, queue, integers,
+    ok &= run<int32_t>(ctx, context, queue, integers,
                        {{INT_MAX, INT_MIN, -2, 0}, {1, -1, -2, 0}},
                        {INT_MIN, INT_MAX, -4, 0});
-    ok &= run<float>(ctx, context, device, queue, attention,
+    std::vector<float> mathExpected;
+    for (float x : {-1.0f, 0.0f, 0.5f, 1.0f})
+      mathExpected.push_back(std::cos(std::sin(std::erf(x))));
+    ok &= run<float>(ctx, context, queue, dynamic, {{-1, 0, 0.5, 1}},
+                     mathExpected);
+    ok &= run<float>(ctx, context, queue, dynamic, {{0}}, {1});
+    ok &= run<float>(ctx, context, queue, constant, {}, {1, 2, 3, 4});
+    ok &= run<float>(ctx, context, queue, attention,
                      {std::vector<float>(8, 0),
                       std::vector<float>(8, 0),
                       {0, 2, 4, 2, 4, 6, 4, 6, 8, 8, 10, 12}},
@@ -190,7 +292,7 @@ func.func @entry(%q: memref<1x2x2x2xf32>, %k: memref<1x2x2x2xf32>, %v: memref<1x
   }
   clReleaseContext(context);
   if (ok)
-    std::cout
-        << "OpenCL source fusion, matmul, views and event ordering passed\n";
+    std::cout << "OpenCL compilation, dynamic shapes, constants and event "
+                 "ordering passed\n";
   return ok ? 0 : 1;
 }

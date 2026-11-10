@@ -41,6 +41,16 @@ FutureProgram GpuCompiler::compile(mlir::OwningOpRef<mlir::ModuleOp> src,
     gcLogE("Invalid MLIR module.");
     return ready(nullptr);
   }
+  if (opts.source && opts.spirv) {
+    gcLogE("Select either OpenCL source or SPIR-V.");
+    return ready(nullptr);
+  }
+#if !GC_ENABLE_OCL
+  if (opts.source) {
+    gcLogE("OpenCL source code generation is disabled.");
+    return ready(nullptr);
+  }
+#endif
 
   static const Options defaults = [] {
     Options o(mlir::gc::GpuDevicePropsOptions().arch);
@@ -59,6 +69,9 @@ FutureProgram GpuCompiler::compile(mlir::OwningOpRef<mlir::ModuleOp> src,
     pipelineOpts.igcCmdOptions = opts.igcOpts;
     pipelineOpts.wait = opts.wait;
     pipelineOpts.spirv = opts.spirv;
+#if GC_ENABLE_OCL
+    pipelineOpts.source = opts.source;
+#endif
     mlir::PassManager pm(src->getContext());
     mlir::gc::populateGPUPipeline(pm, pipelineOpts);
     if (mlir::failed(pm.run(*src))) {

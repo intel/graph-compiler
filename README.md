@@ -43,10 +43,10 @@ static shapes and requires a runtime that accepts OpenCL SPIR-V. The Level Zero
 runtime recognizes SPIR-V binaries automatically. Set `GC_ENABLE_ZE=OFF` if
 Level Zero is unavailable.
 
-`GC_ENABLE_OCL=ON` also builds the OpenCL C source backend. Use
-`mlir::gc::gpu::OclSourceModule` from `gc/Runtime/OclSourceModule.h` to compile
-and invoke kernels with OpenCL buffers, including on macOS. Attention
-materializes its score matrix. Python bindings require Level Zero.
-
-Run `ctest --test-dir <build> --output-on-failure` to check SPIR-V compilation
-and JIT dispatch, plus source execution on an available OpenCL GPU.
+`GC_ENABLE_OCL=ON` enables the optional OpenCL runtime and source backend.
+Create `gc::gpu::OclRuntime` from a command queue and compile with
+`GpuCompiler::compile<OclRuntime>()` and `CompileOptions::source=true`.
+Import external OpenCL buffers with `OclRuntime::importBuffer()` before passing
+them to `Program::main()`. The runtime accepts source, SPIR-V and native binaries.
+Source supports dynamic shapes and macOS. Attention materializes its score
+matrix. Python bindings require Level Zero.

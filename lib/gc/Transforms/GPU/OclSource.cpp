@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "gc/Runtime/OclSourceModule.h"
 #include "gc/Transforms/Passes.h"
+#include "gc/Utils/Transform.h"
+#include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
@@ -24,11 +28,8 @@
 
 using namespace mlir;
 
-namespace mlir::gc::gpu {
+namespace mlir::gc {
 namespace {
-llvm::Error error(const std::string &message) {
-  return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
-}
 std::string typeName(Type type) {
   if (type.isF32()) return "float";
   if (type.isF16()) return "gc_half";
@@ -80,20 +81,23 @@ std::string literal(Attribute attr) {
 }
 struct SizeExpr {
   std::string code;
-  std::function<std::optional<int64_t>(ArrayRef<int64_t>)> evaluate;
+  std::optional<int64_t> constant;
+  std::function<Value(OpBuilder &, Location, ValueRange)> build;
 
-  SizeExpr(int64_t value = 0)
-      : code(std::to_string(value)),
-        evaluate([value](ArrayRef<int64_t>) { return value; }) {}
+  SizeExpr(int64_t value = 0) : code(std::to_string(value)), constant(value) {}
   SizeExpr(std::string code,
-           std::function<std::optional<int64_t>(ArrayRef<int64_t>)> evaluate)
-      : code(std::move(code)), evaluate(std::move(evaluate)) {}
+           std::function<Value(OpBuilder &, Location, ValueRange)> build)
+      : code(std::move(code)), build(std::move(build)) {}
+
+  Value materialize(OpBuilder &b, Location loc, ValueRange dims) const {
+    if (constant) return arith::ConstantIndexOp::create(b, loc, *constant);
+    return build(b, loc, dims);
+  }
 };
 
 SizeExpr sizeBinary(SizeExpr lhs, SizeExpr rhs, char op) {
-  auto evaluate = [lhs, rhs,
-                   op](ArrayRef<int64_t> sizes) -> std::optional<int64_t> {
-    auto a = lhs.evaluate(sizes), b = rhs.evaluate(sizes);
+  auto fold = [&]() -> std::optional<int64_t> {
+    auto a = lhs.constant, b = rhs.constant;
     if (!a || !b) return std::nullopt;
     switch (op) {
     case '+':
@@ -110,12 +114,29 @@ SizeExpr sizeBinary(SizeExpr lhs, SizeExpr rhs, char op) {
     }
     return std::nullopt;
   };
-  if (auto constant = evaluate({})) return SizeExpr(*constant);
+  if (auto constant = fold()) return SizeExpr(*constant);
   if (op == '*' && lhs.code == "1") return rhs;
   if (op == '*' && rhs.code == "1") return lhs;
   if (op == '+' && lhs.code == "0") return rhs;
   if (op == '+' && rhs.code == "0") return lhs;
-  return SizeExpr("(" + lhs.code + op + rhs.code + ")", evaluate);
+  auto materialize = [lhs, rhs, op](OpBuilder &b, Location loc,
+                                    ValueRange dims) -> Value {
+    Value a = lhs.materialize(b, loc, dims), c = rhs.materialize(b, loc, dims);
+    switch (op) {
+    case '+':
+      return arith::AddIOp::create(b, loc, a, c);
+    case '-':
+      return arith::SubIOp::create(b, loc, a, c);
+    case '*':
+      return arith::MulIOp::create(b, loc, a, c);
+    case '/':
+      return arith::DivSIOp::create(b, loc, a, c);
+    case '%':
+      return arith::RemSIOp::create(b, loc, a, c);
+    }
+    llvm_unreachable("Invalid size operation");
+  };
+  return SizeExpr("(" + lhs.code + op + rhs.code + ")", materialize);
 }
 
 struct Buffer {
@@ -141,11 +162,11 @@ class SourceBuilder {
 public:
   SmallVector<Buffer> buffers;
   SmallVector<Kernel> kernels;
-  SmallVector<MemRefType> argTypes;
   SmallVector<std::pair<size_t, size_t>> dynamicDims;
 
-  LogicalResult build(ModuleOp module, bool fp16) {
-    supportsFp16 = fp16;
+  bool needsFp16 = false;
+
+  LogicalResult build(ModuleOp module) {
     auto funcs = module.getOps<func::FuncOp>();
     auto it = funcs.begin();
     if (it == funcs.end())
@@ -155,7 +176,7 @@ public:
         fn.getNumResults())
       return fn.emitError(
           "OpenCL source requires one function with buffer arguments");
-    for (Value arg : fn.getArguments()) {
+    for (auto [argIndex, arg] : llvm::enumerate(fn.getArguments())) {
       auto type = dyn_cast<MemRefType>(arg.getType());
       if (!type || !type.getLayout().isIdentity())
         return fn.emitError("OpenCL source requires contiguous memrefs");
@@ -163,16 +184,13 @@ public:
       for (int64_t i = 0; i < type.getRank(); ++i) {
         if (!type.isDynamicDim(i)) continue;
         size_t index = dynamicDims.size();
-        dynamicDims.emplace_back(argTypes.size(), i);
-        sizes.emplace_back(
-            "s" + std::to_string(index),
-            [index](ArrayRef<int64_t> dims) -> std::optional<int64_t> {
-              if (index >= dims.size()) return std::nullopt;
-              return dims[index];
-            });
+        dynamicDims.emplace_back(argIndex, i);
+        sizes.emplace_back("s" + std::to_string(index),
+                           [index](OpBuilder &, Location, ValueRange dims) {
+                             return dims[index];
+                           });
       }
       if (failed(addBuffer(arg, type, {}, sizes))) return failure();
-      argTypes.push_back(type);
     }
     for (Operation &op : fn.getBody().front()) {
       if (auto c = dyn_cast<arith::ConstantOp>(op)) {
@@ -242,7 +260,6 @@ public:
   }
 
 private:
-  bool supportsFp16 = false;
   llvm::DenseMap<Value, View> views;
   llvm::DenseMap<Value, std::string> scalars;
   llvm::DenseMap<Value, SizeExpr> shapeValues;
@@ -312,7 +329,7 @@ private:
     auto bytes = sizeBinary(stride, SizeExpr(elementBytes), '*');
     Buffer buffer{type.getElementType(), bytes, {}};
     if (init) {
-      auto count = bytes.evaluate({});
+      auto count = bytes.constant;
       if (!count || *count < 0)
         return emitError(value.getLoc(), "OpenCL buffer size overflow");
       buffer.initial.resize(*count);
@@ -435,13 +452,12 @@ private:
                        llvm::DenseMap<Value, std::string> &values, Kernel &k) {
     if (op.getNumResults() != 1)
       return op.emitError("Unsupported OpenCL scalar operation");
-    if (!supportsFp16 &&
-        !isa<arith::ConstantOp, memref::LoadOp, arith::BitcastOp,
+    if (!isa<arith::ConstantOp, memref::LoadOp, arith::BitcastOp,
              arith::SelectOp>(op) &&
         (op.getResult(0).getType().isF16() ||
          llvm::any_of(op.getOperandTypes(),
                       [](Type type) { return type.isF16(); })))
-      return op.emitError("OpenCL device does not support fp16 arithmetic");
+      needsFp16 = true;
     std::string expression;
     if (auto c = dyn_cast<arith::ConstantOp>(op))
       expression = literal(c.getValue());
@@ -607,7 +623,7 @@ private:
     for (size_t i = bounds.size(); i-- > 0;) {
       if (iterators[i] == utils::IteratorType::parallel) {
         k.workItems = sizeBinary(k.workItems, bounds[i], '*');
-        auto divisor = bounds[i].evaluate({});
+        auto divisor = bounds[i].constant;
         auto extent = divisor ? std::to_string(std::max<int64_t>(*divisor, 1))
                               : "max((long)(" + bounds[i].code + "),1L)";
         k.body += "long i" + std::to_string(i) + "=tid%" + extent +
@@ -661,7 +677,7 @@ private:
       indices[i] = "i" + std::to_string(i);
       auto size = it->second.sizes[i];
       k.workItems = sizeBinary(k.workItems, size, '*');
-      auto constant = size.evaluate({});
+      auto constant = size.constant;
       auto dim = constant ? std::to_string(std::max<int64_t>(*constant, 1))
                           : "max((long)(" + size.code + "),1L)";
       k.body += "long " + indices[i] + "=tid%" + dim + ";tid/=" + dim + ";\n";
@@ -675,246 +691,151 @@ private:
     return success();
   }
 };
-} // namespace
 
-struct OclSourceModule::Impl {
-  cl_context context = nullptr;
-  cl_device_id device = nullptr;
-  cl_program program = nullptr;
-  SmallVector<MemRefType> argTypes;
-  SmallVector<std::pair<size_t, size_t>> dynamicDims;
-  SmallVector<Buffer> buffers;
-  SmallVector<Kernel> kernels;
-  ~Impl() {
-    if (program) clReleaseProgram(program);
-    if (context) clReleaseContext(context);
+struct ConvertOclSource
+    : PassWrapper<ConvertOclSource, OperationPass<ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertOclSource)
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<gpu::GPUDialect, LLVM::LLVMDialect>();
+  }
+  void runOnOperation() override {
+    auto module = getOperation();
+    SourceBuilder source;
+    if (failed(source.build(module))) return signalPassFailure();
+    auto old = *module.getOps<func::FuncOp>().begin();
+    auto loc = old.getLoc();
+    OpBuilder b(old);
+    auto fn =
+        func::FuncOp::create(b, loc, old.getName(), old.getFunctionType());
+    b.setInsertionPointToStart(fn.addEntryBlock());
+    old.erase();
+    SymbolTable symbols(module);
+    SmallVector<Value> dimensions, buffers, allocations;
+    for (auto [arg, dim] : source.dynamicDims)
+      dimensions.push_back(
+          memref::DimOp::create(b, loc, fn.getArgument(arg), dim));
+    auto pointer = [&](Value memref) -> Value {
+      Value index =
+          memref::ExtractAlignedPointerAsIndexOp::create(b, loc, memref);
+      Value integer = arith::IndexCastOp::create(b, loc, b.getI64Type(), index);
+      return LLVM::IntToPtrOp::create(
+          b, loc, LLVM::LLVMPointerType::get(&getContext()), integer);
+    };
+    for (Value arg : fn.getArguments()) buffers.push_back(pointer(arg));
+    for (size_t i = buffers.size(); i < source.buffers.size(); ++i) {
+      auto &buffer = source.buffers[i];
+      Value size = buffer.bytes.materialize(b, loc, dimensions);
+      auto type = MemRefType::get({ShapedType::kDynamic}, b.getI8Type());
+      Value alloc = gpu::AllocOp::create(b, loc, type, Type(), ValueRange{},
+                                         ValueRange{size}, ValueRange{}, false)
+                        .getMemref();
+      allocations.push_back(alloc);
+      buffers.push_back(pointer(alloc));
+      if (!buffer.initial.empty()) {
+        auto globalType = MemRefType::get(
+            {static_cast<int64_t>(buffer.initial.size())}, b.getI8Type());
+        auto tensorType =
+            RankedTensorType::get(globalType.getShape(), b.getI8Type());
+        auto init = DenseElementsAttr::getFromRawBuffer(
+            tensorType, ArrayRef<char>(buffer.initial));
+        auto name = "gc_source_constant_" + std::to_string(i);
+        {
+          OpBuilder::InsertionGuard guard(b);
+          b.setInsertionPointToEnd(module.getBody());
+          auto global =
+              memref::GlobalOp::create(b, loc, name, b.getStringAttr("private"),
+                                       globalType, init, true, IntegerAttr());
+          name = symbols.insert(global).getValue().str();
+        }
+        Value global = memref::GetGlobalOp::create(b, loc, globalType, name);
+        auto staticType = MemRefType::get(globalType.getShape(), b.getI8Type());
+        Value target = memref::CastOp::create(b, loc, staticType, alloc);
+        gpu::MemcpyOp::create(b, loc, Type(), ValueRange{}, target, global);
+      }
+    }
+    std::string preamble = "// OpenCL C\n";
+    preamble +=
+        "#ifdef cl_khr_fp16\n#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
+        "typedef half gc_half;\n#define as_gc_half as_half\n#else\n"
+        "typedef ushort gc_half;\n#define as_gc_half as_ushort\n#endif\n";
+    if (source.needsFp16)
+      preamble += "#ifndef cl_khr_fp16\n#error OpenCL device does not support "
+                  "fp16 arithmetic\n#endif\n";
+    if (llvm::any_of(source.buffers,
+                     [](const Buffer &buffer) { return buffer.type.isF64(); }))
+      preamble += "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    preamble += "#pragma OPENCL FP_CONTRACT OFF\n"
+                "long gc_floor_div(long a,long b){long q=a/b;long r=a%b;return "
+                "q-((r!=0)&&((r<0)!=(b<0)));}\n";
+    SmallVector<StringRef> previous;
+    for (auto &kernel : source.kernels) {
+      std::string code = preamble + "__kernel void " + kernel.name + "(";
+      SmallVector<Value> args;
+      for (size_t i = 0; i < kernel.slots.size(); ++i) {
+        auto slot = kernel.slots[i];
+        code += (i ? "," : "") + std::string("__global ") +
+                typeName(source.buffers[slot].type) + " *b" +
+                std::to_string(slot);
+        args.push_back(buffers[slot]);
+      }
+      for (size_t i = 0; i < dimensions.size(); ++i) {
+        code += (i || !kernel.slots.empty() ? "," : "") +
+                std::string("long s") + std::to_string(i);
+        args.push_back(
+            arith::IndexCastOp::create(b, loc, b.getI64Type(), dimensions[i]));
+      }
+      code += "){\n" + kernel.body + "}\n";
+      gpu::GPUFuncOp entry;
+      StringRef moduleName;
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToEnd(module.getBody());
+        auto device = gpu::GPUModuleOp::create(b, loc, kernel.name);
+        moduleName = symbols.insert(device).getValue();
+        device->setAttr("gc.source", b.getStringAttr(code));
+        b.setInsertionPointToStart(device.getBody());
+        entry = gpu::GPUFuncOp::create(b, loc, kernel.name,
+                                       b.getFunctionType(TypeRange(args), {}));
+        entry->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
+                       b.getUnitAttr());
+        b.setInsertionPointToEnd(&entry.getBody().front());
+        gpu::ReturnOp::create(b, loc);
+      }
+      KernelAttrs(module, moduleName).setDepends(previous);
+      previous.push_back(moduleName);
+      Value work = kernel.workItems.materialize(b, loc, dimensions);
+      Value one = arith::ConstantIndexOp::create(b, loc, 1);
+      gpu::LaunchFuncOp::create(b, loc, entry, gpu::KernelDim3{work, one, one},
+                                gpu::KernelDim3{one, one, one}, Value(), args);
+    }
+    for (Value alloc : allocations)
+      gpu::DeallocOp::create(b, loc, Type(), ValueRange{}, alloc);
+    func::ReturnOp::create(b, loc);
+    module->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
+                    b.getUnitAttr());
+    for (auto global :
+         llvm::make_early_inc_range(module.getOps<memref::GlobalOp>()))
+      if (SymbolTable::symbolKnownUseEmpty(global, module)) global.erase();
   }
 };
+} // namespace
 
-bool useOclSourceBackend(cl_device_id device) {
-  (void)device;
-#if GC_ENABLE_IGC
-  cl_uint vendor = 0;
-  return clGetDeviceInfo(device, CL_DEVICE_VENDOR_ID, sizeof(vendor), &vendor,
-                         nullptr) != CL_SUCCESS ||
-         vendor != 0x8086;
-#else
-  return true;
-#endif
-}
-
-llvm::Expected<OclSourceModule> OclSourceModule::build(ModuleOp module,
-                                                       cl_device_id device,
-                                                       cl_context context) {
-  PassManager pm(module.getContext());
+void populateOclCompilationPipeline(OpPassManager &pm,
+                                    const GPUPipelineOptions &options) {
   populateOclSourcePipeline(pm);
-  if (failed(pm.run(module)))
-    return error("OpenCL source MLIR pipeline failed");
-  size_t extSize = 0;
-  if (clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, 0, nullptr, &extSize) !=
-      CL_SUCCESS)
-    return error("Cannot query OpenCL extensions");
-  std::string extensions(extSize, '\0');
-  if (clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, extSize, extensions.data(),
-                      nullptr) != CL_SUCCESS)
-    return error("Cannot query OpenCL extensions");
-  const bool fp16 = extensions.find("cl_khr_fp16") != std::string::npos;
-  SourceBuilder builder;
-  if (failed(builder.build(module, fp16)))
-    return error("OpenCL source generation failed");
-  auto impl = std::make_shared<Impl>();
-  if (clRetainContext(context) != CL_SUCCESS)
-    return error("Cannot retain OpenCL context");
-  impl->context = context;
-  impl->device = device;
-  impl->argTypes = std::move(builder.argTypes);
-  impl->dynamicDims = std::move(builder.dynamicDims);
-  impl->buffers = std::move(builder.buffers);
-  impl->kernels = std::move(builder.kernels);
-  std::string source;
-  source += fp16 ? "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
-                   "typedef half gc_half;\n#define as_gc_half as_half\n"
-                 : "typedef ushort gc_half;\n#define as_gc_half as_ushort\n";
-  if (llvm::any_of(impl->buffers,
-                   [](const Buffer &b) { return b.type.isF64(); })) {
-    if (extensions.find("cl_khr_fp64") == std::string::npos)
-      return error("OpenCL device does not support fp64");
-    source += "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-  }
-  source += "#pragma OPENCL FP_CONTRACT OFF\n";
-  source += "long gc_floor_div(long a,long b){long q=a/b;long r=a%b;return "
-            "q-((r!=0)&&((r<0)!=(b<0)));}\n";
-  for (auto &kernel : impl->kernels) {
-    source += "__kernel void " + kernel.name + "(";
-    for (size_t i = 0; i < kernel.slots.size(); ++i) {
-      auto slot = kernel.slots[i];
-      source += (i ? "," : "") + std::string("__global ") +
-                typeName(impl->buffers[slot].type) + " *b" +
-                std::to_string(slot);
-    }
-    for (size_t i = 0; i < impl->dynamicDims.size(); ++i)
-      source += (i || !kernel.slots.empty() ? "," : "") +
-                std::string("long s") + std::to_string(i);
-    source += "){\n" + kernel.body + "}\n";
-  }
-  if (impl->kernels.empty()) return OclSourceModule(impl);
-  const char *text = source.c_str();
-  size_t length = source.size();
-  cl_int status;
-  impl->program =
-      clCreateProgramWithSource(context, 1, &text, &length, &status);
-  if (status != CL_SUCCESS)
-    return error("clCreateProgramWithSource failed: " + std::to_string(status));
-  status = clBuildProgram(impl->program, 1, &device, "-cl-std=CL1.2", nullptr,
-                          nullptr);
-  if (status != CL_SUCCESS) {
-    size_t size = 0;
-    clGetProgramBuildInfo(impl->program, device, CL_PROGRAM_BUILD_LOG, 0,
-                          nullptr, &size);
-    std::string log(size, '\0');
-    if (size)
-      clGetProgramBuildInfo(impl->program, device, CL_PROGRAM_BUILD_LOG, size,
-                            log.data(), nullptr);
-    return error("OpenCL source build failed: " + std::to_string(status) +
-                 "\n" + log);
-  }
-  return OclSourceModule(impl);
+  pm.addPass(std::make_unique<ConvertOclSource>());
+  pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
+  GpuToLLVMConversionPassOptions host;
+  host.kernelBarePtrCallConv = true;
+  pm.addPass(createGpuToLLVMConversionPass(host));
+  pm.addPass(memref::createExpandStridedMetadataPass());
+  pm.addPass(createLowerAffinePass());
+  pm.addPass(createConvertToLLVMPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
+  pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createGpuToGcGpu({options.wait}));
+  pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
 }
-
-llvm::Error OclSourceModule::invoke(cl_command_queue queue,
-                                    llvm::ArrayRef<cl_mem> args,
-                                    llvm::ArrayRef<cl_event> waitList,
-                                    cl_event *completion) const {
-  return invoke(queue, args, {}, waitList, completion);
-}
-
-bool OclSourceModule::isStatic() const { return impl->dynamicDims.empty(); }
-
-llvm::Error
-OclSourceModule::invoke(cl_command_queue queue, llvm::ArrayRef<cl_mem> args,
-                        llvm::ArrayRef<llvm::ArrayRef<int64_t>> shapes,
-                        llvm::ArrayRef<cl_event> waitList,
-                        cl_event *completion) const {
-  const auto argCount = impl->argTypes.size();
-  if (args.size() != argCount)
-    return error("OpenCL source argument count mismatch");
-  if ((!shapes.empty() || !impl->dynamicDims.empty()) &&
-      shapes.size() != argCount)
-    return error("OpenCL source shape count mismatch");
-  for (size_t i = 0; i < shapes.size(); ++i) {
-    auto type = impl->argTypes[i];
-    if (shapes[i].size() != static_cast<size_t>(type.getRank()))
-      return error("OpenCL source argument rank mismatch");
-    for (int64_t j = 0; j < type.getRank(); ++j)
-      if (shapes[i][j] < 0 ||
-          (!type.isDynamicDim(j) && type.getDimSize(j) != shapes[i][j]))
-        return error("OpenCL source argument shape mismatch");
-  }
-  SmallVector<int64_t> dimensions;
-  for (auto [arg, dim] : impl->dynamicDims)
-    dimensions.push_back(shapes[arg][dim]);
-  SmallVector<size_t> bufferBytes, workSizes;
-  for (auto &buffer : impl->buffers) {
-    auto bytes = buffer.bytes.evaluate(dimensions);
-    if (!bytes || *bytes < 0)
-      return error("OpenCL source buffer size overflow");
-    bufferBytes.push_back(*bytes);
-  }
-  for (auto &kernel : impl->kernels) {
-    auto size = kernel.workItems.evaluate(dimensions);
-    if (!size || *size < 0) return error("OpenCL source work size overflow");
-    workSizes.push_back(*size);
-  }
-  cl_context context;
-  cl_device_id device;
-  if (clGetCommandQueueInfo(queue, CL_QUEUE_CONTEXT, sizeof(context), &context,
-                            nullptr) != CL_SUCCESS ||
-      clGetCommandQueueInfo(queue, CL_QUEUE_DEVICE, sizeof(device), &device,
-                            nullptr) != CL_SUCCESS ||
-      context != impl->context || device != impl->device)
-    return error("OpenCL source queue does not match the compiled module");
-  for (size_t i = 0; i < args.size(); ++i) {
-    size_t bytes = 0;
-    cl_context argContext = nullptr;
-    if (clGetMemObjectInfo(args[i], CL_MEM_SIZE, sizeof(bytes), &bytes,
-                           nullptr) != CL_SUCCESS ||
-        clGetMemObjectInfo(args[i], CL_MEM_CONTEXT, sizeof(argContext),
-                           &argContext, nullptr) != CL_SUCCESS ||
-        bytes < bufferBytes[i] || argContext != impl->context)
-      return error(
-          "OpenCL source requires buffers with matching size and context");
-  }
-  struct Invocation {
-    SmallVector<cl_mem> owned;
-    cl_event event = nullptr;
-    ~Invocation() {
-      if (event) clReleaseEvent(event);
-      for (auto buffer : owned) clReleaseMemObject(buffer);
-    }
-  } invocation;
-  SmallVector<cl_mem> buffers(args.begin(), args.end());
-  for (size_t i = argCount; i < impl->buffers.size(); ++i) {
-    auto &spec = impl->buffers[i];
-    cl_int status;
-    auto flags =
-        CL_MEM_READ_WRITE | (spec.initial.empty() ? 0 : CL_MEM_COPY_HOST_PTR);
-    cl_mem buffer = clCreateBuffer(
-        impl->context, flags, std::max<size_t>(bufferBytes[i], 1),
-        spec.initial.empty() ? nullptr
-                             : const_cast<char *>(spec.initial.data()),
-        &status);
-    if (status != CL_SUCCESS)
-      return error("OpenCL source allocation failed: " +
-                   std::to_string(status));
-    invocation.owned.push_back(buffer);
-    buffers.push_back(buffer);
-  }
-  for (size_t kernelIndex = 0; kernelIndex < impl->kernels.size();
-       ++kernelIndex) {
-    auto &spec = impl->kernels[kernelIndex];
-    size_t workItems = workSizes[kernelIndex];
-    if (!workItems) continue;
-    cl_int status;
-    auto kernel = clCreateKernel(impl->program, spec.name.c_str(), &status);
-    if (status != CL_SUCCESS)
-      return error("OpenCL source kernel creation failed: " +
-                   std::to_string(status));
-    for (size_t i = 0; i < spec.slots.size(); ++i) {
-      status =
-          clSetKernelArg(kernel, i, sizeof(cl_mem), &buffers[spec.slots[i]]);
-      if (status != CL_SUCCESS) break;
-    }
-    for (size_t i = 0; status == CL_SUCCESS && i < dimensions.size(); ++i)
-      status = clSetKernelArg(kernel, spec.slots.size() + i, sizeof(cl_long),
-                              &dimensions[i]);
-    cl_event next = nullptr;
-    if (status == CL_SUCCESS) {
-      auto count =
-          invocation.event ? 1u : static_cast<cl_uint>(waitList.size());
-      auto waits = invocation.event   ? &invocation.event
-                   : waitList.empty() ? nullptr
-                                      : waitList.data();
-      status = clEnqueueNDRangeKernel(queue, kernel, 1, nullptr, &workItems,
-                                      nullptr, count, waits, &next);
-    }
-    clReleaseKernel(kernel);
-    if (status != CL_SUCCESS)
-      return error("OpenCL source kernel launch failed: " +
-                   std::to_string(status));
-    if (invocation.event) clReleaseEvent(invocation.event);
-    invocation.event = next;
-  }
-  if (!invocation.event) {
-    auto status = clEnqueueMarkerWithWaitList(
-        queue, waitList.size(), waitList.empty() ? nullptr : waitList.data(),
-        &invocation.event);
-    if (status != CL_SUCCESS)
-      return error("OpenCL source marker failed: " + std::to_string(status));
-  }
-  if (completion) {
-    *completion = invocation.event;
-    invocation.event = nullptr;
-  }
-  return llvm::Error::success();
-}
-} // namespace mlir::gc::gpu
+} // namespace mlir::gc

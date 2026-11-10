@@ -1,8 +1,7 @@
 gc_add_mlir_library(
-  GcGpuOclSourceRuntime
-  OclSourceModule.cpp
+  GcOclRuntime
+  OclRuntime.cpp
   LINK_LIBS
   PUBLIC
   GcInterface
-  GcGpuCommonPasses
   OpenCL::OpenCL)

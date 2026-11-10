@@ -10,9 +10,14 @@ gc_add_mlir_library(
   TensorConcatToLinalg.cpp
   DEPENDS
   GraphCompilerPassIncGen
+  MLIRLinalgxOpsIncGen
   LINK_LIBS
   PUBLIC
   GcInterface)
+
+if(GC_ENABLE_OCL)
+  target_sources(obj.GcGpuCommonPasses PRIVATE OclSource.cpp)
+endif()
 
 if(NOT GC_ENABLE_IGC)
   return()
