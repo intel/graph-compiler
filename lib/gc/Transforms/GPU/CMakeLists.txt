@@ -7,7 +7,6 @@ gc_add_mlir_library(
   tiling/TileGroupedMatmul.cpp
   tiling/TileParallel.cpp
   GuardEmptyTiles.cpp
-  AddContextArg.cpp
   ApplyPaddingLevel.cpp
   TensorMaskingOpInterface.cpp
   Decomposition.cpp

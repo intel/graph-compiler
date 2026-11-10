@@ -87,3 +87,148 @@ func.func @grouped_matmul_max_group_size(%lhs: tensor<?x256xf16>, %wei: tensor<8
        outs(%1 : tensor<?x512xf16>) -> tensor<?x512xf16>
   return %2 : tensor<?x512xf16>
 }
+
+// -----
+
+// Two grouped matmuls use the same row boundaries and tokens, but different
+// weights.
+// Their workgroup and K loops can share a single iteration space.
+#mapL = affine_map<(e, m, n, k) -> (m, k)>
+#mapW = affine_map<(e, m, n, k) -> (e, n, k)>
+#mapO = affine_map<(e, m, n, k) -> (e)>
+#mapR = affine_map<(e, m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @sibling_grouped_matmul(
+// CHECK-SAME: attributes {gc.num_kernels = 1 : i32}
+// CHECK: = scf.forall (
+// CHECK: = scf.for
+// CHECK: linalg.matmul
+// CHECK: linalg.matmul
+// CHECK: scf.yield
+// CHECK-NOT: = scf.for
+// CHECK: scf.forall.in_parallel
+// CHECK-NOT: = scf.forall (
+// CHECK: return
+func.func @sibling_grouped_matmul(
+    %lhs: tensor<?x256xf16>, %w0: tensor<8x512x256xf16>,
+    %w1: tensor<8x512x256xf16>, %offs: tensor<8xi32>)
+    -> (tensor<?x512xf16>, tensor<?x512xf16>) {
+  %c0 = arith.constant 0 : index
+  %zero = arith.constant 0.000000e+00 : f16
+  %total = tensor.dim %lhs, %c0 : tensor<?x256xf16>
+  %dst0 = tensor.empty(%total) : tensor<?x512xf16>
+  %dst1 = tensor.empty(%total) : tensor<?x512xf16>
+  %init0 = linalg.fill ins(%zero : f16) outs(%dst0 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  %init1 = linalg.fill ins(%zero : f16) outs(%dst1 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  %a = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs, %w0, %offs : tensor<?x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       outs(%init0 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  %b = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs, %w1, %offs : tensor<?x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       outs(%init1 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  return %a, %b : tensor<?x512xf16>, tensor<?x512xf16>
+}
+
+// -----
+
+// Sharing weights is sufficient when both ops use the same offsets.
+#mapL = affine_map<(e, m, n, k) -> (m, k)>
+#mapW = affine_map<(e, m, n, k) -> (e, n, k)>
+#mapO = affine_map<(e, m, n, k) -> (e)>
+#mapR = affine_map<(e, m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @sibling_shared_weights(
+// CHECK-SAME: attributes {gc.num_kernels = 1 : i32}
+// CHECK: = scf.forall (
+// CHECK: = scf.for
+// CHECK: linalg.matmul
+// CHECK: linalg.matmul
+// CHECK-NOT: = scf.for
+// CHECK: scf.forall.in_parallel
+// CHECK-NOT: = scf.forall (
+// CHECK: return
+func.func @sibling_shared_weights(
+    %lhs0: tensor<?x256xf16>, %lhs1: tensor<?x256xf16>,
+    %wei: tensor<8x512x256xf16>, %offs: tensor<8xi32>, %max: index)
+    -> (tensor<?x512xf16>, tensor<?x512xf16>) {
+  %c0 = arith.constant 0 : index
+  %zero = arith.constant 0.000000e+00 : f16
+  %total = tensor.dim %lhs0, %c0 : tensor<?x256xf16>
+  %dst0 = tensor.empty(%total) : tensor<?x512xf16>
+  %dst1 = tensor.empty(%total) : tensor<?x512xf16>
+  %init0 = linalg.fill ins(%zero : f16) outs(%dst0 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  %init1 = linalg.fill ins(%zero : f16) outs(%dst1 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  %a = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs0, %wei, %offs : tensor<?x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       max_group_size(%max)
+       outs(%init0 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  %b = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs1, %wei, %offs : tensor<?x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       max_group_size(%max)
+       outs(%init1 : tensor<?x512xf16>) -> tensor<?x512xf16>
+  return %a, %b : tensor<?x512xf16>, tensor<?x512xf16>
+}
+
+// -----
+
+// Sharing tokens is insufficient when group boundaries are different.
+#mapL = affine_map<(e, m, n, k) -> (m, k)>
+#mapW = affine_map<(e, m, n, k) -> (e, n, k)>
+#mapO = affine_map<(e, m, n, k) -> (e)>
+#mapR = affine_map<(e, m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @different_offsets(
+// CHECK-SAME: attributes {gc.num_kernels = 2 : i32}
+// CHECK: = scf.forall (
+// CHECK: = scf.forall (
+// CHECK-NOT: = scf.forall (
+// CHECK: return
+func.func @different_offsets(
+    %lhs: tensor<64x256xf16>, %w0: tensor<8x512x256xf16>,
+    %w1: tensor<8x512x256xf16>, %offs0: tensor<8xi32>,
+    %offs1: tensor<8xi32>) -> (tensor<64x512xf16>, tensor<64x512xf16>) {
+  %zero = arith.constant 0.000000e+00 : f16
+  %dst0 = tensor.empty() : tensor<64x512xf16>
+  %dst1 = tensor.empty() : tensor<64x512xf16>
+  %init0 = linalg.fill ins(%zero : f16) outs(%dst0 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %init1 = linalg.fill ins(%zero : f16) outs(%dst1 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %a = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs, %w0, %offs0 : tensor<64x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       outs(%init0 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %b = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs, %w1, %offs1 : tensor<64x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       outs(%init1 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  return %a, %b : tensor<64x512xf16>, tensor<64x512xf16>
+}
+
+// -----
+
+// Sharing only offsets does not qualify the grouped matmuls for fusion.
+#mapL = affine_map<(e, m, n, k) -> (m, k)>
+#mapW = affine_map<(e, m, n, k) -> (e, n, k)>
+#mapO = affine_map<(e, m, n, k) -> (e)>
+#mapR = affine_map<(e, m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @offsets_only(
+// CHECK-SAME: attributes {gc.num_kernels = 2 : i32}
+// CHECK: = scf.forall (
+// CHECK: = scf.forall (
+// CHECK-NOT: = scf.forall (
+// CHECK: return
+func.func @offsets_only(
+    %lhs0: tensor<64x256xf16>, %lhs1: tensor<64x256xf16>,
+    %w0: tensor<8x512x256xf16>, %w1: tensor<8x512x256xf16>,
+    %offs: tensor<8xi32>) -> (tensor<64x512xf16>, tensor<64x512xf16>) {
+  %zero = arith.constant 0.000000e+00 : f16
+  %dst0 = tensor.empty() : tensor<64x512xf16>
+  %dst1 = tensor.empty() : tensor<64x512xf16>
+  %init0 = linalg.fill ins(%zero : f16) outs(%dst0 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %init1 = linalg.fill ins(%zero : f16) outs(%dst1 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %a = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs0, %w0, %offs : tensor<64x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       outs(%init0 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %b = linalgx.grouped_matmul <{indexing_maps = [#mapL, #mapW, #mapO, #mapR]}>
+       ins(%lhs1, %w1, %offs : tensor<64x256xf16>, tensor<8x512x256xf16>, tensor<8xi32>)
+       outs(%init1 : tensor<64x512xf16>) -> tensor<64x512xf16>
+  return %a, %b : tensor<64x512xf16>, tensor<64x512xf16>
+}

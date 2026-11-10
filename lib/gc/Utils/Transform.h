@@ -138,6 +138,14 @@ template <typename... Path> struct GcAttrs {
     std::get<NamedAttrList>(attrs).set(name, attr);
   }
 
+  void erase(StringRef name) {
+    if (!std::holds_alternative<NamedAttrList>(attrs)) {
+      load();
+      attrs = NamedAttrList(std::get<DictionaryAttr>(attrs));
+    }
+    std::get<NamedAttrList>(attrs).erase(name);
+  }
+
   bool exists() {
     load();
     return std::holds_alternative<DictionaryAttr>(attrs) &&
@@ -259,9 +267,16 @@ private:
   const xegpu::uArch::uArch *arch = nullptr;
 };
 
+struct KernelCollectionAttrs : public GcAttrs<const char *> {
+  static constexpr char PATH[] = "kernels";
+
+  KernelCollectionAttrs(Operation *op) : GcAttrs<const char *>(op, PATH) {}
+};
+
 struct KernelAttrs : public GcAttrs<const char *, StringRef> {
   KernelAttrs(Operation *op, StringRef name)
-      : GcAttrs<const char *, StringRef>(op, "kernels", name) {}
+      : GcAttrs<const char *, StringRef>(op, KernelCollectionAttrs::PATH,
+                                         name) {}
 
   std::optional<SmallVector<size_t>> getTiles() {
     return get<SmallVector<size_t>>(TILES);
