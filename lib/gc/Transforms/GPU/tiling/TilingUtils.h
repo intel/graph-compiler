@@ -34,9 +34,6 @@ using namespace mlir;
 using namespace mlir::gc;
 using namespace mlir::scf;
 
-// GC_ATTR_LEVEL and GC_ATTR_WG_TILE_SIZES are defined in gc/Utils/Transform.h.
-constexpr char GC_ATTR_NUM_KERNELS[] = "gc.num_kernels";
-
 // Indexing map for an op's result tensor (via its DPS init operand).
 inline AffineMap getResultIndexingMap(Operation *op, unsigned resultNum) {
   auto dst = dyn_cast<DestinationStyleOpInterface>(op);
