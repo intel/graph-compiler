@@ -63,11 +63,22 @@ def TileParallel : Pass<"tile-parallel", "func::FuncOp"> {
   }];
 }
 
-def AddContextArg : Pass<"add-ctx-arg", "func::FuncOp"> {
-  let summary = "Add a context argument.";
+def GuardEmptyTiles : Pass<"guard-empty-tiles", "func::FuncOp"> {
+  let summary = "Skip work-group tiles that have no elements.";
   let description = [{
-    Add a new memref argument to the function, that could be used to pass some context.
+    Wraps the body of an 'scf.forall' in 'scf.if' when a tile it writes through
+    'tensor.parallel_insert_slice' has a dynamic size that cannot be proven
+    positive, e.g. the rows of a grouped matmul tile whose expert has no tokens.
+    The guard covers the whole tile, including fused producers and consumers;
+    the else branch yields the untouched output slices. GPU block loads and
+    stores cannot describe a zero-sized surface, so an empty tile must not
+    access memory at all. The body is only guarded when skipping it is a no-op
+    for an empty tile: all output tiles must be empty under the same condition
+    and the body must be free of side effects; otherwise a warning is emitted
+    and the loop is left alone. Must run after the tiling passes.
   }];
+  let dependentDialects = ["arith::ArithDialect", "scf::SCFDialect",
+                           "tensor::TensorDialect"];
 }
 
 def Decomposition : Pass<"decomposition", "func::FuncOp"> {
@@ -286,6 +297,33 @@ def SimplifyIndexingMaps : Pass<"simplify-indexing-maps", "func::FuncOp"> {
     reads through the resulting tensor reshapes into vector shape casts.
   }];
   let dependentDialects = ["linalg::LinalgDialect", "tensor::TensorDialect"];
+}
+
+def NormalizeMemrefLayouts : Pass<"normalize-memref-layouts", "func::FuncOp"> {
+  let summary = "Access memrefs with a transposed strided layout through a row-major view.";
+  let description = [{
+    A memref whose innermost dimension is not the contiguous one, such as a
+    column-major matrix `memref<512x2048xf16, strided<[1, 512]>>` received from
+    the framework, cannot be accessed with 2D block loads and stores, so the
+    XeGPU lowering rejects every vector transfer on it.
+
+    This pass transposes the dims of such a memref into decreasing-stride
+    order with `memref.transpose`, which gives a row-major view of the same
+    memory, and redirects the vector transfers to that view. The transfers
+    reorder their indices and rename the dims in their permutation map, so the
+    access stays the same; only the dim order of the memref type changes.
+    For the matrix above, a read of the `[n, k]` tile becomes a transposing
+    read of a `[k, n]` tile of `memref<2048x512xf16>`, which the lowering
+    handles like any other transposed operand.
+
+    The view is created next to the definition of the memref, so for a
+    function argument it stays in the host code and the kernels receive the
+    row-major memref directly. Memrefs with no unit stride are left alone.
+    Explicit transfer masks and enclosing `vector.mask` masks are transposed
+    to match the new memref dimension order. Mask transposes are inserted
+    outside `vector.mask` regions to preserve their single-operation structure.
+  }];
+  let dependentDialects = ["memref::MemRefDialect", "vector::VectorDialect"];
 }
 
 #endif // GC_DIALECT_GC_PASSES

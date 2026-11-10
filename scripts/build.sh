@@ -176,8 +176,6 @@ build_llvm() {
       done
     fi
 
-    local enable_assert=ON
-    [ "$LLVM_BUILD_TYPE" = "Release" ] && enable_assert=OFF
     export LLVM_HASH=$(repo_hash "$LLVM_DIR" "$LLVM_INSTALL_DIR" $LLVM_BUILD_TYPE $GC_DYLINK $LLVM_CMAKE_ARGS)
     local hash_not_match=$(echo "$builds" | tr ':' '\n' | while read b; do
       [ "$(get_llvm_hash "$b")" = "$LLVM_HASH" ] || echo 1; done)
@@ -187,14 +185,24 @@ build_llvm() {
     mkdir -p "$LLVM_BUILD_DIR"
     rm -f "$LLVM_BUILD_DIR/CMakeCache.txt"
 
+    local rel_off=ON
+    [ "$LLVM_BUILD_TYPE" = "Release" ] && rel_off=OFF
     echo "Configuring LLVM..."
+    # LLVM_ENABLE_DUMP keeps the MLIR dump() methods in a release build. Since
+    # llvm/llvm-project@4d787f35aaba they are compiled only under
+    # !NDEBUG || LLVM_ENABLE_DUMP, and the OpenVINO GPU plugin still calls
+    # ModuleOp::dump(). Drop this once that caller switches to print().
     # Configure checks compile in random TryCompile-* dirs and always miss ccache.
     CCACHE_DISABLE=1 cmake -G Ninja -S llvm -B "$LLVM_BUILD_DIR" \
         -DCMAKE_BUILD_TYPE=$LLVM_BUILD_TYPE \
         -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
+        -DCMAKE_C_FLAGS_RELEASE="-Oz -DNDEBUG" \
+        -DCMAKE_CXX_FLAGS_RELEASE="-Oz -DNDEBUG" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-        -DLLVM_ENABLE_ASSERTIONS=$enable_assert \
-        -DLLVM_ENABLE_RTTI=ON \
+        -DLLVM_ENABLE_RTTI=OFF \
+        -DLLVM_ENABLE_ASSERTIONS=$rel_off \
+        -DLLVM_ENABLE_RELATIVE_OFFSETS=$rel_off \
+        -DLLVM_ENABLE_UNWIND_TABLES=$rel_off \
         -DLLVM_ENABLE_PROJECTS="mlir" \
         -DLLVM_TARGETS_TO_BUILD="X86" \
         -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD="SPIRV" \
@@ -202,16 +210,20 @@ build_llvm() {
         -DLLVM_LINK_LLVM_DYLIB=$GC_DYLINK \
         -DLLVM_INCLUDE_RUNTIMES=OFF \
         -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_TESTS=ON \
+        -DLLVM_INCLUDE_TESTS=OFF \
         -DLLVM_INCLUDE_BENCHMARKS=OFF \
         -DLLVM_INCLUDE_DOCS=OFF \
         -DLLVM_INSTALL_UTILS=ON \
-        -DLLVM_INSTALL_GTEST=ON \
+        -DLLVM_INSTALL_GTEST=OFF \
         -DLLVM_USE_PERF=OFF \
+        -DLLVM_ENABLE_DUMP=ON \
         -DLLVM_ENABLE_BINDINGS=OFF \
-        -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
+        -DMLIR_ENABLE_BINDINGS_PYTHON=OFF \
         -DPython3_EXECUTABLE=$(which python3) \
         -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF \
+        -DMLIR_ENABLE_PDL_IN_PATTERNMATCH=OFF \
+        -DLLVM_ENABLE_ZLIB=OFF \
+        -DLLVM_ENABLE_ZSTD=OFF \
         -DLLVM_FORCE_VC_REPOSITORY="$LLVM_URL" \
         -DCMAKE_INSTALL_PREFIX="$LLVM_INSTALL_DIR" \
         $LLVM_CMAKE_ARGS

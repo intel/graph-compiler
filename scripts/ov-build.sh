@@ -37,7 +37,7 @@ fi
 . "$PROJECT_DIR/scripts/build.sh"
 
 : ${OV_URL:='https://github.com/openvinotoolkit/openvino.git'}
-: ${OV_TAG:='e357b2c0ac8a9ee461fbd09655c16beebd21abed'}
+: ${OV_TAG:=$(head -n1 "$PROJECT_DIR/cmake/ov-version.txt")}
 : ${OV_DIR:="$GC_EXTERNALS_DIR/openvino"}
 : ${OV_BUILD_TYPE:=$GC_BUILD_TYPE}
 : ${OV_BUILD_SFX:="/$OV_BUILD_TYPE"}
@@ -65,6 +65,7 @@ build_ov() {
     fi
     git -C "$OV_DIR" submodule update --init --recursive --depth 1 --jobs "$MAX_JOBS"
     [ -z "$CLEANUP" ] || rm -rf "$OV_BUILD_DIR" "$OV_INSTALL_DIR"
+    rm -f "$OV_BUILD_DIR/CMakeCache.txt"
 
     local llvm_dir=$(realpath -m "$MLIR_DIR/../../../lib/cmake/llvm")
     : "${LLVM_HASH:=$(get_llvm_hash "$llvm_dir")}"

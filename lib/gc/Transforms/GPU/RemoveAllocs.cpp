@@ -16,11 +16,13 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "gc/Utils/Transform.h"
+#include <algorithm>
 
 using namespace mlir;
 using namespace mlir::gc;
@@ -505,6 +507,117 @@ private:
   }
 };
 
+static Value stripCasts(Value v) {
+  while (auto cast = v.getDefiningOp<memref::CastOp>()) v = cast.getSource();
+  return v;
+}
+
+// Whether two values denote the same buffer: the same value up to casts, or
+// subviews of the same source with the same offsets, sizes and strides.
+static bool isSameBuffer(Value a, Value b) {
+  a = stripCasts(a);
+  b = stripCasts(b);
+  if (a == b) return true;
+  auto subA = a.getDefiningOp<memref::SubViewOp>();
+  auto subB = b.getDefiningOp<memref::SubViewOp>();
+  return subA && subB &&
+         OperationEquivalence::isEquivalentTo(
+             subA, subB, OperationEquivalence::IgnoreLocations);
+}
+
+// Bufferization turns a guarded tile into an scf.if yielding either a
+// temporary buffer or the copy's destination (possibly as an equivalent
+// subview computed in the else branch). The copy is a no-op on the else path,
+// so move all result copies into the then branch and remove the unused results.
+// Keep the copies in block order in case their destinations depend on one
+// another. This exposes alloc-to-copy chains to FoldAllocCopyIntoDirectWrite.
+struct SinkCopyIntoGuard final : OpRewritePattern<memref::CopyOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::CopyOp copy,
+                                PatternRewriter &rewriter) const override {
+    auto ifOp = copy.getSource().getDefiningOp<scf::IfOp>();
+    if (!ifOp || ifOp.getNumResults() == 0 || ifOp.getElseRegion().empty() ||
+        ifOp->getBlock() != copy->getBlock())
+      return failure();
+
+    SmallVector<memref::CopyOp> copies;
+    for (OpResult result : ifOp.getResults()) {
+      if (!result.hasOneUse()) return failure();
+      auto user = dyn_cast<memref::CopyOp>(result.use_begin()->getOwner());
+      if (!user || user.getSource() != result ||
+          user->getBlock() != ifOp->getBlock() ||
+          !isSameBuffer(ifOp.elseYield().getOperand(result.getResultNumber()),
+                        user.getTarget()))
+        return failure();
+      copies.push_back(user);
+    }
+    for (Operation &op : ifOp.elseBlock()->without_terminator())
+      if (!isMemoryEffectFree(&op)) return failure();
+
+    std::sort(copies.begin(), copies.end(),
+              [](memref::CopyOp a, memref::CopyOp b) {
+                return a->isBeforeInBlock(b);
+              });
+    // Moving the copies before intervening reads or writes could change
+    // results. Only cross the selected copies and effect-free operations.
+    SmallPtrSet<Operation *, 4> copyOps;
+    for (memref::CopyOp selected : copies) copyOps.insert(selected);
+    for (Operation *op = ifOp->getNextNode();
+         op != copies.back().getOperation(); op = op->getNextNode())
+      if (!copyOps.contains(op) && !isMemoryEffectFree(op)) return failure();
+
+    scf::YieldOp thenYield = ifOp.thenYield();
+    scf::YieldOp elseYield = ifOp.elseYield();
+    SmallVector<std::pair<Value, Value>> sourcesAndTargets;
+    for (memref::CopyOp selected : copies) {
+      unsigned index = cast<OpResult>(selected.getSource()).getResultNumber();
+      sourcesAndTargets.emplace_back(stripCasts(thenYield.getOperand(index)),
+                                     stripCasts(elseYield.getOperand(index)));
+    }
+
+    rewriter.setInsertionPoint(ifOp);
+    auto guard = scf::IfOp::create(rewriter, ifOp.getLoc(), ifOp.getCondition(),
+                                   /*withElseRegion=*/false);
+    rewriter.eraseOp(elseYield);
+    rewriter.inlineBlockBefore(ifOp.elseBlock(), guard);
+    rewriter.setInsertionPoint(thenYield);
+    for (auto [src, dst] : sourcesAndTargets)
+      memref::CopyOp::create(rewriter, copy.getLoc(), src, dst);
+    rewriter.eraseOp(thenYield);
+    rewriter.inlineBlockBefore(ifOp.thenBlock(),
+                               guard.thenBlock()->getTerminator());
+    for (memref::CopyOp selected : copies) rewriter.eraseOp(selected);
+    rewriter.eraseOp(ifOp);
+    return success();
+  }
+};
+
+// A copy between two views of the same buffer is a no-op. This also applies
+// when an scf.if yields that same view from both branches.
+struct RemoveSameBufferCopy final : OpRewritePattern<memref::CopyOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::CopyOp copy,
+                                PatternRewriter &rewriter) const override {
+    bool sameBuffer = isSameBuffer(copy.getSource(), copy.getTarget());
+    if (!sameBuffer) {
+      auto result = dyn_cast<OpResult>(stripCasts(copy.getSource()));
+      auto ifOp = result ? dyn_cast<scf::IfOp>(result.getOwner()) : nullptr;
+      if (ifOp && !ifOp.getElseRegion().empty()) {
+        unsigned index = result.getResultNumber();
+        sameBuffer =
+            isSameBuffer(ifOp.thenYield().getOperand(index),
+                         copy.getTarget()) &&
+            isSameBuffer(ifOp.elseYield().getOperand(index), copy.getTarget());
+      }
+    }
+    if (!sameBuffer) return failure();
+    rewriter.eraseOp(copy);
+    return success();
+  }
+};
+
 struct RemoveAllocs final : ::mlir::gc::impl::RemoveAllocsBase<RemoveAllocs> {
 
   void runOnOperation() override {
@@ -514,9 +627,9 @@ struct RemoveAllocs final : ::mlir::gc::impl::RemoveAllocsBase<RemoveAllocs> {
     }
 
     RewritePatternSet patterns(&getContext());
-    patterns.add<RemoveCopyToArg, RemoveAllocDeallocPair,
-                 FoldAllocCopyIntoDirectWrite, FoldAllocWriteReshapeRead>(
-        &getContext());
+    patterns.add<RemoveCopyToArg, RemoveAllocDeallocPair, SinkCopyIntoGuard,
+                 RemoveSameBufferCopy, FoldAllocCopyIntoDirectWrite,
+                 FoldAllocWriteReshapeRead>(&getContext());
 
     if (failed(applyPatternsGreedily(fn, std::move(patterns)))) {
       signalPassFailure();

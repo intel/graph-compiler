@@ -100,34 +100,46 @@ else()
   set(MLIR_DIALECT_LIBS
       MLIRAffineDialect
       MLIRAffineTransforms
+      MLIRArithBufferDeallocationOpInterfaceImpl
+      MLIRArithBufferizableOpInterfaceImpl
       MLIRArithDialect
       MLIRArithTransforms
       MLIRArithValueBoundsOpInterfaceImpl
       MLIRBufferizationAllExtensions
+      MLIRBufferizationBufferizableOpInterfaceImpl
       MLIRBufferizationDialect
       MLIRBufferizationTransforms
+      MLIRControlFlowBufferDeallocationOpInterfaceImpl
+      MLIRControlFlowBufferizableOpInterfaceImpl
       MLIRControlFlowDialect
       MLIRControlFlowTransforms
       MLIRDLTIDialect
       MLIRFuncAllExtensions
       MLIRFuncDialect
+      MLIRGPUBufferDeallocationOpInterfaceImpl
       MLIRGPUDialect
       MLIRGPUPipelines
       MLIRGPUTransforms
+      MLIRGPUXeVMTransforms
       MLIRIndexDialect
       MLIRLinalgDialect
       MLIRLinalgTransforms
       MLIRMathDialect
+      MLIRMemRefAllocationOpInterfaceImpl
       MLIRMemRefDialect
       MLIRMemRefTransforms
+      MLIRSCFBufferDeallocationOpInterfaceImpl
+      MLIRSCFBufferizableOpInterfaceImpl
       MLIRSCFDialect
       MLIRSCFTransforms
       MLIRShapeDialect
       MLIRTensorAllExtensions
+      MLIRTensorBufferizableOpInterfaceImpl
       MLIRTensorDialect
       MLIRTensorInferTypeOpInterfaceImpl
       MLIRTensorTilingInterfaceImpl
       MLIRUBDialect
+      MLIRVectorBufferizableOpInterfaceImpl
       MLIRVectorDialect
       MLIRVectorTransforms
       MLIRXeGPUDialect
@@ -171,6 +183,5 @@ else()
               ${MLIR_EXECUTION_ENGINE}
               ${GC_LLVM_LIBS}
               LLVMX86CodeGen
-              LLVMX86AsmParser
               LLVMSPIRVCodeGen)
 endif()
