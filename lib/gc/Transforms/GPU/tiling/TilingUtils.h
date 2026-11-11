@@ -1,6 +1,7 @@
 #ifndef TILING_UTILS_H
 #define TILING_UTILS_H
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
@@ -18,6 +19,7 @@
 #include "gc/Utils/Misc.h"
 #include "gc/Utils/Transform.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -219,6 +221,96 @@ inline bool isParallel(Operation *op) {
 
 inline bool isReduction(Operation *op) {
   return allIterators(op, utils::IteratorType::reduction);
+}
+
+inline size_t getNarrowInputLoadWidth(
+    Value value, unsigned dim,
+    const xegpu::uArch::Subgroup2DBlockLoadInstruction *load) {
+  auto type = cast<RankedTensorType>(value.getType());
+  Type element = type.getElementType();
+  if (type.getRank() < 2 || !element.isIntOrFloat() ||
+      element.getIntOrFloatBitWidth() > 8)
+    return 1;
+  bool contiguous = llvm::all_of(type.getShape().drop_front(dim + 1),
+                                 [](int64_t size) { return size == 1; });
+  if (auto tensor = value.getDefiningOp<bufferization::ToTensorOp>()) {
+    auto memref = dyn_cast<MemRefType>(tensor.getBuffer().getType());
+    SmallVector<int64_t> strides;
+    int64_t offset;
+    contiguous = memref &&
+                 succeeded(memref.getStridesAndOffset(strides, offset)) &&
+                 strides[dim] == 1;
+  }
+  if (!contiguous) return 1;
+  auto shapes = load->getBlockWidthHeightCount(element, false, false);
+  if (!shapes || std::get<0>(*shapes).empty()) return 1;
+  return static_cast<size_t>(*llvm::min_element(std::get<0>(*shapes)));
+}
+
+inline size_t getInputLoadWidth(Value input, unsigned inputDim,
+                                const xegpu::uArch::uArch *uarch) {
+  auto *load = dyn_cast<xegpu::uArch::Subgroup2DBlockLoadInstruction>(
+      uarch->getInstruction(
+          xegpu::uArch::InstructionKind::Subgroup2DBlockLoad));
+  assert(load);
+  SmallVector<std::pair<Value, unsigned>> worklist{{input, inputDim}};
+  llvm::SmallDenseSet<std::pair<Value, unsigned>, 16> visited;
+  size_t width = 1;
+  while (!worklist.empty()) {
+    auto [value, dim] = worklist.pop_back_val();
+    if (!visited.insert({value, dim}).second) continue;
+    auto type = dyn_cast<RankedTensorType>(value.getType());
+    if (!type) continue;
+    Operation *def = value.getDefiningOp();
+    if (auto slice = dyn_cast_if_present<tensor::ExtractSliceOp>(def)) {
+      auto dropped = slice.getDroppedDims();
+      unsigned resultDim = 0;
+      for (unsigned sourceDim = 0; sourceDim < dropped.size(); ++sourceDim) {
+        if (dropped[sourceDim]) continue;
+        if (resultDim++ == dim) {
+          if (getConstantIntValue(slice.getMixedStrides()[sourceDim]) == 1)
+            worklist.emplace_back(slice.getSource(), sourceDim);
+          break;
+        }
+      }
+      continue;
+    }
+    if (auto cast = dyn_cast_if_present<tensor::CastOp>(def)) {
+      worklist.emplace_back(cast.getSource(), dim);
+      continue;
+    }
+    if (auto collapse = dyn_cast_if_present<tensor::CollapseShapeOp>(def)) {
+      for (auto sourceDim : collapse.getReassociationIndices()[dim])
+        worklist.emplace_back(collapse.getSrc(), sourceDim);
+      continue;
+    }
+    if (auto expand = dyn_cast_if_present<tensor::ExpandShapeOp>(def)) {
+      for (auto [sourceDim, group] :
+           llvm::enumerate(expand.getReassociationIndices())) {
+        auto pos = llvm::find(group, dim);
+        if (pos != group.end() &&
+            llvm::all_of(llvm::make_range(std::next(pos), group.end()),
+                         [&](int64_t d) { return type.getDimSize(d) == 1; }))
+          worklist.emplace_back(expand.getSrc(), sourceDim);
+      }
+      continue;
+    }
+    if (auto producer = dyn_cast_if_present<linalg::LinalgOp>(def);
+        producer && isParallel(def)) {
+      auto result = cast<OpResult>(value);
+      auto resultMap = getResultIndexingMap(def, result.getResultNumber());
+      auto iterDim = dyn_cast<AffineDimExpr>(resultMap.getResult(dim));
+      if (!iterDim) continue;
+      for (OpOperand *operand : producer.getDpsInputOperands()) {
+        auto map = producer.getMatchingIndexingMap(operand);
+        for (auto [sourceDim, expr] : llvm::enumerate(map.getResults()))
+          if (expr == iterDim) worklist.emplace_back(operand->get(), sourceDim);
+      }
+      continue;
+    }
+    width = std::lcm(width, getNarrowInputLoadWidth(value, dim, load));
+  }
+  return width;
 }
 
 // Tile size constraints of a single tiled dim, collected from the fusible
@@ -774,9 +866,44 @@ protected:
     return updatedLoop;
   }
 
-  virtual void computeWgTiles(Target &tg) { computeTiles(tg, false); }
+  SmallVector<size_t> getRequiredLoadWidths(Target &tg) {
+    SmallVector<size_t> widths(tg.tiles.size(), 1);
+    auto *op = tg.op.getOperation();
+    auto dst = dyn_cast<DestinationStyleOpInterface>(op);
+    auto idx = dyn_cast<IndexingMapOpInterface>(op);
+    if (!dst || !idx) return widths;
+    for (OpOperand *input : dst.getDpsInputOperands()) {
+      auto map = idx.getMatchingIndexingMap(input);
+      for (auto [inputDim, expr] : llvm::enumerate(map.getResults())) {
+        auto dim = dyn_cast<AffineDimExpr>(expr);
+        if (!dim) continue;
+        size_t width =
+            getInputLoadWidth(input->get(), inputDim, tg.devAttrs.getUarch());
+        auto &required = widths[dim.getPosition()];
+        required = std::lcm(required, width);
+      }
+    }
+    return widths;
+  }
 
-  virtual void computeSgTiles(Target &tg) { computeTiles(tg, true); }
+  void alignTilesToLoads(Target &tg) {
+    auto widths = getRequiredLoadWidths(tg);
+    for (auto [tile, sgTile, width] : llvm::zip(tg.tiles, tg.sgTiles, widths)) {
+      if (!tile || width == 1) continue;
+      sgTile = std::lcm(sgTile, width);
+      tile = std::lcm(tile, sgTile);
+    }
+  }
+
+  virtual void computeWgTiles(Target &tg) {
+    computeTiles(tg, false);
+    alignTilesToLoads(tg);
+  }
+
+  virtual void computeSgTiles(Target &tg) {
+    computeTiles(tg, true);
+    alignTilesToLoads(tg);
+  }
 
   // Tile the innermost 2 non-unit dims and set all leading dims to 1.
   virtual void computeTiles(Target &tg, bool reduction) {
@@ -981,7 +1108,7 @@ protected:
          llvm::zip(tg.tiles, tg.sgTiles, tg.sizes, tg.reductions)) {
       if (!r) {
         layout.push_back(wg / sg);
-        if (s != 1) nonUnit = layout.size();
+        if (s != 1 || wg > 1) nonUnit = layout.size();
       }
     }
     // The trailing unit dims are removed by the DropUnitDims pass.
