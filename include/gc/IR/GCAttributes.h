@@ -1,4 +1,4 @@
-//===-- Attributes.h - Graph Compiler IR attribute utilities --*- C++ -*-===//
+//===-- GCAttributes.h - Graph Compiler IR attributes ---------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef GC_IR_ATTRIBUTES_H
-#define GC_IR_ATTRIBUTES_H
+#ifndef GC_IR_GCATTRIBUTES_H
+#define GC_IR_GCATTRIBUTES_H
 
 #include <cstdint>
 #include <optional>
@@ -21,6 +21,7 @@
 #include <llvm/ADT/SmallVector.h>
 
 #include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/Dialect.h>
 #include <mlir/IR/OperationSupport.h>
 
 namespace mlir::xegpu::uArch {
@@ -335,4 +336,9 @@ private:
 };
 } // namespace mlir::gc
 
-#endif // GC_IR_ATTRIBUTES_H
+#include "gc/IR/GCAttributesDialect.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "gc/IR/GCAttributes.h.inc"
+
+#endif // GC_IR_GCATTRIBUTES_H

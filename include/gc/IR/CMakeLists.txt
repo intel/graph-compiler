@@ -1,0 +1,6 @@
+set(LLVM_TARGET_DEFINITIONS GCAttributes.td)
+mlir_tablegen(GCAttributesDialect.h.inc -gen-dialect-decls -dialect=gc)
+mlir_tablegen(GCAttributesDialect.cpp.inc -gen-dialect-defs -dialect=gc)
+mlir_tablegen(GCAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=gc)
+mlir_tablegen(GCAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=gc)
+add_public_tablegen_target(GcIRIncGen)

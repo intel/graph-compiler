@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/IR/Attributes.h"
+#include "gc/IR/GCAttributes.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Transforms/TensorMaskingOpInterface.h"
 

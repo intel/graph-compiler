@@ -90,6 +90,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
+#include "gc/IR/GCAttributes.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Transforms/TensorMaskingOpInterface.h"
 #include "gc/Utils/Misc.h"
@@ -161,12 +162,13 @@ DialectRegistry &getDialectRegistry() {
                     mlir::bufferization::BufferizationDialect,
                     mlir::cf::ControlFlowDialect, mlir::DLTIDialect,
                     mlir::func::FuncDialect, mlir::gpu::GPUDialect,
-                    mlir::index::IndexDialect, mlir::linalg::LinalgDialect,
-                    mlir::linalgx::LinalgxDialect, mlir::LLVM::LLVMDialect,
-                    mlir::math::MathDialect, mlir::memref::MemRefDialect,
-                    mlir::scf::SCFDialect, mlir::tensor::TensorDialect,
-                    mlir::ub::UBDialect, mlir::vector::VectorDialect,
-                    mlir::xegpu::XeGPUDialect, mlir::xevm::XeVMDialect>();
+                    mlir::gc::GCDialect, mlir::index::IndexDialect,
+                    mlir::linalg::LinalgDialect, mlir::linalgx::LinalgxDialect,
+                    mlir::LLVM::LLVMDialect, mlir::math::MathDialect,
+                    mlir::memref::MemRefDialect, mlir::scf::SCFDialect,
+                    mlir::tensor::TensorDialect, mlir::ub::UBDialect,
+                    mlir::vector::VectorDialect, mlir::xegpu::XeGPUDialect,
+                    mlir::xevm::XeVMDialect>();
     mlir::LLVM::registerInlinerInterface(registry);
     mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
     mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);

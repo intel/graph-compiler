@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/IR/Attributes.h"
+#include "gc/IR/GCAttributes.h"
 #include "mlir/Conversion/Passes.h"
 
 using namespace mlir;

@@ -28,7 +28,7 @@
 #include <mlir/Interfaces/LoopLikeInterface.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
-#include "gc/IR/Attributes.h"
+#include "gc/IR/GCAttributes.h"
 
 namespace mlir::gc {
 
