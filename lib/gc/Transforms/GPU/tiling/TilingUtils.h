@@ -164,14 +164,28 @@ inline void tagTileAndFuseResult(Operation *origConsumer,
        ++it, ++fp) {
     auto *tiledProd = *it;
     auto *origProd = *fp;
-    auto prodTi = dyn_cast<TilingInterface>(tiledProd);
+    // Rank-reducing fusion records a slice of the tiled producer's result.
+    while (auto slice = dyn_cast_or_null<tensor::ExtractSliceOp>(tiledProd))
+      tiledProd = slice.getSource().getDefiningOp();
+    auto prodTi = dyn_cast_or_null<TilingInterface>(tiledProd);
     if (!prodTi) continue;
     AffineMap consumerMap, prodMap;
     for (auto &operand : origConsumer->getOpOperands()) {
-      auto opRes = dyn_cast<OpResult>(operand.get());
+      Value source = operand.get();
+      SmallVector<tensor::ExtractSliceOp> slices;
+      while (auto slice = source.getDefiningOp<tensor::ExtractSliceOp>()) {
+        slices.push_back(slice);
+        source = slice.getSource();
+      }
+      auto opRes = dyn_cast<OpResult>(source);
       if (!opRes || opRes.getOwner() != origProd) continue;
       consumerMap = consumerIdx.getMatchingIndexingMap(&operand);
       prodMap = getResultIndexingMap(origProd, opRes.getResultNumber());
+      // Match the consumer's operand rank without losing the producer's
+      // iteration dimensions.
+      if (prodMap)
+        for (auto slice : llvm::reverse(slices))
+          prodMap = prodMap.dropResults(slice.getDroppedDims());
       break;
     }
     if (!consumerMap || !prodMap) {
@@ -1147,6 +1161,12 @@ protected:
       return this->fusionControl(tg, candidateSliceOp, originalProducer,
                                  isDestinationOperand);
     });
+    if (tg.level == Level::SG) {
+      // Expose producers behind the slices introduced by work-group tiling.
+      RewritePatternSet patterns(tg.fn.getContext());
+      tensor::populateMergeConsecutiveInsertExtractSlicePatterns(patterns);
+      opts.cleanupPatterns = FrozenRewritePatternSet(std::move(patterns));
+    }
 
     if (tg.hasReductions()) {
       SmallVector<unsigned> reductionDims;
@@ -1345,9 +1365,18 @@ private:
                       bool isConsumer = true) {
     if (op->getBlock() != loop->getBlock()) return false;
     if (containsMatmulOp(op)) return false;
-    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
-        linalgOp && !linalgOp.hasOnlyProjectedPermutations()) {
-      return false;
+    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
+      // Producer fusion derives input slices from a result tile. Consumer
+      // fusion instead inverts an input map to recover the iteration tile.
+      if (isConsumer) {
+        if (!linalgOp.hasOnlyProjectedPermutations()) return false;
+      } else if (!llvm::all_of(linalgOp.getDpsInitsMutable(),
+                               [&](OpOperand &init) {
+                                 return linalgOp.getMatchingIndexingMap(&init)
+                                     .isProjectedPermutation();
+                               })) {
+        return false;
+      }
     }
     if (isParallel(op)) return true;
     if (isa<linalg::PackOp, linalg::UnPackOp>(loop)) return true;
