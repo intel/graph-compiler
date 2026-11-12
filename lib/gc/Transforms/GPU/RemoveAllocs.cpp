@@ -360,7 +360,8 @@ struct FoldAllocCopyIntoDirectWrite final : OpRewritePattern<memref::CopyOp> {
   }
 };
 
-// Fold alloc → transfer_write → reshape → transfer_read into shape_cast:
+// Fold alloc → transfer_write → optional reshape → transfer_read into
+// shape_cast:
 //   %alloc = memref.alloc()
 //   vector.transfer_write %v, %alloc[0,0,...]
 //   %rs = memref.expand_shape / collapse_shape %alloc
@@ -376,16 +377,26 @@ struct FoldAllocWriteReshapeRead
       auto cst = getConstantIntValue(v);
       return cst && *cst == 0;
     };
-    if (!llvm::all_of(read.getIndices(), isZero)) return failure();
-
-    auto *reshape = read.getBase().getDefiningOp();
-    if (!isa_and_present<memref::ExpandShapeOp, memref::CollapseShapeOp>(
-            reshape))
+    if (!llvm::all_of(read.getIndices(), isZero) || read.getMask() ||
+        !read.getPermutationMap().isMinorIdentity() ||
+        !llvm::all_of(read.getInBoundsValues(),
+                      [](bool bound) { return bound; }))
       return failure();
 
-    auto reshapeInput = cast<ViewLikeOpInterface>(reshape).getViewSource();
-    auto alloc = reshapeInput.getDefiningOp<memref::AllocOp>();
-    if (!alloc) return failure();
+    auto *reshape = read.getBase().getDefiningOp();
+    Value allocValue = read.getBase();
+    if (isa_and_present<memref::ExpandShapeOp, memref::CollapseShapeOp>(
+            reshape)) {
+      if (!reshape->hasOneUse()) return failure();
+      allocValue = cast<ViewLikeOpInterface>(reshape).getViewSource();
+    } else {
+      reshape = nullptr;
+    }
+
+    auto alloc = allocValue.getDefiningOp<memref::AllocOp>();
+    if (!alloc || !alloc.getType().hasStaticShape() ||
+        !alloc.getType().getLayout().isIdentity())
+      return failure();
 
     // Find the single transfer_write into alloc.
     vector::TransferWriteOp write;
@@ -393,22 +404,40 @@ struct FoldAllocWriteReshapeRead
       if (auto w = dyn_cast<vector::TransferWriteOp>(use.getOwner())) {
         if (write || !llvm::all_of(w.getIndices(), isZero)) return failure();
         write = w;
-      } else if (!isa<memref::DeallocOp, memref::ExpandShapeOp,
-                      memref::CollapseShapeOp>(use.getOwner())) {
+      } else if (use.getOwner() != read.getOperation() &&
+                 use.getOwner() != reshape &&
+                 !isa<memref::DeallocOp>(use.getOwner())) {
         return failure(); // unexpected use
       }
     }
-    if (!write) return failure();
+    if (!write || write->getBlock() != read->getBlock() ||
+        !write->isBeforeInBlock(read) || write.getMask() ||
+        !write.getPermutationMap().isIdentity() ||
+        !llvm::all_of(write.getInBoundsValues(),
+                      [](bool bound) { return bound; }))
+      return failure();
 
     auto srcType = cast<VectorType>(write.getVector().getType());
     auto dstType = cast<VectorType>(read.getResult().getType());
-    if (srcType.getNumElements() != dstType.getNumElements()) return failure();
+    auto readType = cast<MemRefType>(read.getBase().getType());
+    if (srcType.isScalable() || dstType.isScalable() ||
+        srcType.getShape() != alloc.getType().getShape() ||
+        !readType.hasStaticShape() || !readType.getLayout().isIdentity() ||
+        dstType.getRank() > readType.getRank() ||
+        srcType.getNumElements() != dstType.getNumElements() ||
+        readType.getShape().take_back(dstType.getRank()) !=
+            dstType.getShape() ||
+        !llvm::all_of(readType.getShape().drop_back(dstType.getRank()),
+                      [](int64_t dim) { return dim == 1; }))
+      return failure();
 
     rw.replaceOpWithNewOp<vector::ShapeCastOp>(read, dstType,
                                                write.getVector());
-    if (reshape->use_empty()) rw.eraseOp(reshape);
-    if (write->use_empty()) rw.eraseOp(write);
-    if (alloc->use_empty()) rw.eraseOp(alloc);
+    if (reshape) rw.eraseOp(reshape);
+    rw.eraseOp(write);
+    SmallVector<Operation *> deallocs(alloc->getUsers());
+    for (Operation *dealloc : deallocs) rw.eraseOp(dealloc);
+    rw.eraseOp(alloc);
     return success();
   }
 };
