@@ -38,4 +38,5 @@ gc_add_mlir_library(
   GcTensorMaskingOpInterfaceIncGen
   LINK_LIBS
   PUBLIC
+  GcIR
   GcInterface)

@@ -21,8 +21,8 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include "gc/GpuCompiler.h"
+#include "gc/IR/Attributes.h"
 #include "gc/Runtime/GpuRuntime.h"
-#include "gc/Utils/Transform.h"
 
 using namespace mlir;
 // The runtime function names, see gc/Runtime/GpuRuntime.h.

@@ -7,10 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "gc/IR/Attributes.h"
 #include "gc/Transforms/Passes.h"
 #include "gc/Transforms/TensorMaskingOpInterface.h"
-#include "gc/Utils/Transform.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Interfaces/TilingInterface.h"
