@@ -43,8 +43,8 @@ fi
 : ${OV_BUILD_SFX:="/$OV_BUILD_TYPE"}
 : ${OV_BUILD_DIR:="$OV_DIR/build${OV_BUILD_SFX}"}
 : ${OV_INSTALL_DIR:="$OV_BUILD_DIR/install"}
-OV_BUILD_DIR=$(realpath -m "$OV_BUILD_DIR")
-OV_INSTALL_DIR=$(realpath -m "$OV_INSTALL_DIR")
+OV_BUILD_DIR=$(abspath "$OV_BUILD_DIR")
+OV_INSTALL_DIR=$(abspath "$OV_INSTALL_DIR")
 
 build_ov() {
     build_gc
@@ -63,17 +63,23 @@ build_ov() {
         git -C "$OV_DIR" reset --hard "$ref"
         [ -z "$CLEANUP" ] || git -C "$OV_DIR" clean -xffd
     fi
-    git -C "$OV_DIR" submodule update --init --recursive --depth 1 --jobs "$MAX_JOBS"
+    git -C "$OV_DIR" submodule update --init --recursive --depth 1 --jobs "$MAX_JOBS" ${RESET:+--force}
     [ -z "$CLEANUP" ] || rm -rf "$OV_BUILD_DIR" "$OV_INSTALL_DIR"
     rm -f "$OV_BUILD_DIR/CMakeCache.txt"
 
-    local llvm_dir=$(realpath -m "$MLIR_DIR/../../../lib/cmake/llvm")
+    local llvm_dir=$(abspath "$MLIR_DIR/../../../lib/cmake/llvm")
     : "${LLVM_HASH:=$(get_llvm_hash "$llvm_dir")}"
     : "${GC_HASH:=$(get_gc_hash "$GC_INSTALL_DIR")}"
     OV_HASH=$(repo_hash "$OV_DIR" "$LLVM_HASH" "$GC_HASH" \
         "$(sha1sum "$PROJECT_DIR/scripts/ov-build.sh")")
     local stamp_file="$OV_BUILD_DIR/ov_gc_build.stamp"
     [ "$(cat "$stamp_file" 2>/dev/null)" = "$OV_HASH" ] && echo "OpenVINO build is up-to-date" && return 0
+
+    local exe= lib='*.so*' ze='libze_loader.so*' sys_ocl=ON
+    local hpp="$OV_DIR/thirdparty/ocl/clhpp_headers/include"
+    set -- -DOpenCL_HPP_INCLUDE_DIR="$hpp" -DOpenCL_HPP="$hpp/CL/opencl.hpp"
+    # The bundled OpenCL target is exported, so it must not get the source-tree hpp dir.
+    [ "${OS:-}" != Windows_NT ] || { exe=.exe lib='*.dll' ze='ze_loader.dll' sys_ocl=OFF; set --; }
 
     CCACHE_DISABLE=1 cmake -G Ninja -S "$OV_DIR" -B "$OV_BUILD_DIR" \
         -DCMAKE_BUILD_TYPE=$OV_BUILD_TYPE \
@@ -90,13 +96,11 @@ build_ov() {
         -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
         -DENABLE_NCC_STYLE=OFF \
         -DENABLE_STRICT_DEPENDENCIES=OFF \
-        -DENABLE_SYSTEM_OPENCL=ON \
+        -DENABLE_SYSTEM_OPENCL=$sys_ocl \
         -DCPACK_GENERATOR=TGZ \
         -DCMAKE_CXX_FLAGS="-DOV_GPU_OPENCL_HPP_HAS_UUID -DOV_GPU_OPENCL_HPP_HAS_BUS_INFO" \
         -DGraphCompiler_DIR="$GC_INSTALL_DIR/lib/cmake/GraphCompiler" \
-        -DOpenCL_HPP_INCLUDE_DIR="$OV_DIR/thirdparty/ocl/clhpp_headers/include" \
-        -DOpenCL_HPP="$OV_DIR/thirdparty/ocl/clhpp_headers/include/CL/opencl.hpp" \
-        -DGPU_RT_TYPE=ZE
+        -DGPU_RT_TYPE=ZE "$@"
     cmake --build "$OV_BUILD_DIR" --parallel "$MAX_JOBS"
 
     local bin_src="$OV_DIR/bin/intel64/$OV_BUILD_TYPE"
@@ -104,10 +108,10 @@ build_ov() {
     local ovc=tools/ovc/openvino/tools/ovc
     mkdir -p "$bin_dir" "$OV_INSTALL_DIR/$ovc/moc_frontend" \
         "$OV_INSTALL_DIR/src/plugins/intel_gpu/tests/functional/mlir_op"
-    rm -f "$bin_dir"/libze_loader.so*
+    rm -f "$bin_dir"/$ze
     cp -r "$PROJECT_DIR/scripts" "$PROJECT_DIR/python/bench" "$OV_INSTALL_DIR"
-    cp -r "$bin_src/ov_gpu_func_tests" "$bin_src/python" "$bin_dir/"
-    find "$bin_src" -maxdepth 1 -name '*.so*' ! -name 'libze_loader.so*' -exec cp -t "$bin_dir/" {} +
+    cp -r "$bin_src/ov_gpu_func_tests$exe" "$bin_src/python" "$bin_dir/"
+    find "$bin_src" -maxdepth 1 -name "$lib" ! -name "$ze" -exec cp -t "$bin_dir/" {} +
     cp "$OV_DIR/$ovc/"*.py "$OV_INSTALL_DIR/$ovc"
     cp "$OV_DIR/$ovc/moc_frontend/"*.py "$OV_INSTALL_DIR/$ovc/moc_frontend"
     echo "$OV_HASH" > "$stamp_file"

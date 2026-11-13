@@ -34,6 +34,10 @@ def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
   let summary = "Tile contraction operations.";
   let description = [{
     Tile contraction operations and fuse their producers.
+    Respect the block-load widths of narrow inputs traced through elementwise
+    producers and slices, using their physical contiguous dimensions.
+    Producer fusion requires projected-permutation result maps, but allows
+    non-projected input maps.
   }];
 }
 
@@ -42,6 +46,10 @@ def TileGroupedMatmul : Pass<"tile-grouped-matmul", "func::FuncOp"> {
   let description = [{
     Tile 'linalgx.grouped_matmul' ops (work-group level) and the contractions
     they decompose into (sub-group level). Must run after 'tile-contract'.
+    Respect the shared narrow-input block-load constraints. Inputs contiguous
+    along K and the group offsets do not constrain the N split.
+    Fuse producers into sub-group reduction loops through rank-reducing
+    work-group slices.
   }];
 }
 

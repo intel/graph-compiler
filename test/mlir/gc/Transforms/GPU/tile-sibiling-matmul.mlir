@@ -339,3 +339,76 @@ func.func @indirect_unused_incompatible(
     outs(%live_init : tensor<?x32xf16>) -> tensor<?x32xf16>
   return %live : tensor<?x32xf16>
 }
+
+// -----
+
+#weights = affine_map<(n, k) -> (n, k)>
+#group = affine_map<(n, k) -> (n, k floordiv 64)>
+#lhs = affine_map<(m, n, k) -> (m, k)>
+#rhs = affine_map<(m, n, k) -> (n, k)>
+#out = affine_map<(m, n, k) -> (m, n)>
+
+// CHECK-LABEL: func.func @sibling_dequant(
+// CHECK-SAME: attributes {gc.num_kernels = 1 : i32}
+// CHECK-NOT: linalg.generic
+// CHECK: %[[WG:[^: ]+]]:2 = scf.forall
+// CHECK-NOT: linalg.generic
+// CHECK: %[[K:[^: ]+]]:2 = scf.for
+// CHECK-DAG: {{^        }}%[[GATE_W:.+]] = linalg.generic {{.*}} ins({{.*}} : tensor<64x64xi4>, tensor<64x1xf16>)
+// CHECK-DAG: {{^        }}%[[GATE:.+]] = linalg.matmul {{.*}} ins({{.*}}, %[[GATE_W]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK-DAG: {{^        }}%[[UP_W:.+]] = linalg.generic {{.*}} ins({{.*}} : tensor<64x64xi4>, tensor<64x1xf16>)
+// CHECK-DAG: {{^        }}%[[UP:.+]] = linalg.matmul {{.*}} ins({{.*}}, %[[UP_W]] : tensor<32x64xf16>, tensor<64x64xf16>)
+// CHECK: {{^        }}scf.yield %[[GATE]], %[[UP]] : tensor<32x64xf16>, tensor<32x64xf16>
+// CHECK-NEXT: {{^      }}}
+// CHECK-NOT: linalg.generic
+// CHECK-NOT: = scf.for
+// CHECK: scf.forall.in_parallel {
+// CHECK-NEXT: tensor.parallel_insert_slice %[[K]]#0 into
+// CHECK-NEXT: tensor.parallel_insert_slice %[[K]]#1 into
+// CHECK-NEXT: }
+// CHECK-NEXT: } {gc.kernel_name = "sibling_dequant_kernel"}
+// CHECK-NOT: = scf.forall
+// CHECK: return %[[WG]]#0, %[[WG]]#1
+func.func @sibling_dequant(%tokens: tensor<64x2048xf16>,
+                           %gate_weights: tensor<512x2048xi4>,
+                           %gate_scales: tensor<512x32xf16>,
+                           %up_weights: tensor<512x2048xi4>,
+                           %up_scales: tensor<512x32xf16>)
+    -> (tensor<64x512xf16>, tensor<64x512xf16>) {
+  %zero = arith.constant 0.0 : f16
+  %gate_w_dst = tensor.empty() : tensor<512x2048xf16>
+  %up_w_dst = tensor.empty() : tensor<512x2048xf16>
+  %gate_dst = tensor.empty() : tensor<64x512xf16>
+  %up_dst = tensor.empty() : tensor<64x512xf16>
+  %gate_init = linalg.fill ins(%zero : f16) outs(%gate_dst : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %up_init = linalg.fill ins(%zero : f16) outs(%up_dst : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %gate_w = linalg.generic {
+    indexing_maps = [#weights, #group, #weights],
+    iterator_types = ["parallel", "parallel"]}
+    ins(%gate_weights, %gate_scales : tensor<512x2048xi4>, tensor<512x32xf16>)
+    outs(%gate_w_dst : tensor<512x2048xf16>) {
+  ^bb0(%quantized: i4, %scale: f16, %unused: f16):
+    %extended = arith.extui %quantized : i4 to i32
+    %converted = arith.sitofp %extended : i32 to f16
+    %scaled = arith.mulf %converted, %scale : f16
+    linalg.yield %scaled : f16
+  } -> tensor<512x2048xf16>
+  %gate = linalg.matmul indexing_maps = [#lhs, #rhs, #out]
+    ins(%tokens, %gate_w : tensor<64x2048xf16>, tensor<512x2048xf16>)
+    outs(%gate_init : tensor<64x512xf16>) -> tensor<64x512xf16>
+  %up_w = linalg.generic {
+    indexing_maps = [#weights, #group, #weights],
+    iterator_types = ["parallel", "parallel"]}
+    ins(%up_weights, %up_scales : tensor<512x2048xi4>, tensor<512x32xf16>)
+    outs(%up_w_dst : tensor<512x2048xf16>) {
+  ^bb0(%quantized: i4, %scale: f16, %unused: f16):
+    %extended = arith.extui %quantized : i4 to i32
+    %converted = arith.sitofp %extended : i32 to f16
+    %scaled = arith.mulf %converted, %scale : f16
+    linalg.yield %scaled : f16
+  } -> tensor<512x2048xf16>
+  %up = linalg.matmul indexing_maps = [#lhs, #rhs, #out]
+    ins(%tokens, %up_w : tensor<64x2048xf16>, tensor<512x2048xf16>)
+    outs(%up_init : tensor<64x512xf16>) -> tensor<64x512xf16>
+  return %gate, %up : tensor<64x512xf16>, tensor<64x512xf16>
+}

@@ -44,7 +44,7 @@ setup(
     version="1.0.0",
     packages=[NAME],
     package_dir={NAME: "src"},
-    package_data={NAME: ["*.so", "__init__.py"]},
+    package_data={NAME: ["*.so", "*.pyd", "__init__.py"]},
     distclass=Dist,
     cmdclass={
         "build_py": BuildPyCommand,

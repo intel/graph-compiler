@@ -1,0 +1,3 @@
+# Git Bash on Windows fails on CRLF scripts; git apply needs the patches as is.
+*.sh text eol=lf
+*.patch -text
