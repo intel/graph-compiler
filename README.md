@@ -32,3 +32,21 @@ pytest python/test/test_torch.py -v -s
 ```bash
 ./build/bin/gc-opt --gpu-dev-props='arch=bmg' --gc-gpu-pipeline='dump' linalg_on_tensors.mlir
 ```
+
+## Portable GPU backends
+
+Set `-DGC_ENABLE_IGC=OFF` to use generic GPU-to-SPIR-V lowering without the
+XeGPU/XeVM pipeline. `GpuCompiler`, the host JIT, and `gc-opt` remain available.
+IGC defaults to OFF on macOS. To select SPIR-V in an IGC-enabled build, set
+`CompileOptions::spirv` or use `--gc-gpu-pipeline=spirv`. This path supports
+static shapes and requires a runtime that accepts OpenCL SPIR-V. The Level Zero
+runtime recognizes SPIR-V binaries automatically. Set `GC_ENABLE_ZE=OFF` if
+Level Zero is unavailable.
+
+`GC_ENABLE_OCL=ON` enables the optional OpenCL runtime and source backend.
+Create `gc::gpu::OclRuntime` from a command queue and compile with
+`GpuCompiler::compile<OclRuntime>()` and `CompileOptions::source=true`.
+Import external OpenCL buffers with `OclRuntime::importBuffer()` before passing
+them to `Program::main()`. The runtime accepts source, SPIR-V and native binaries.
+Source supports dynamic shapes and macOS. Attention materializes its score
+matrix. Python bindings require Level Zero.

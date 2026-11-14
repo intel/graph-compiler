@@ -10,8 +10,11 @@ gc_add_mlir_library(
   LINK_LIBS
   PUBLIC
   GcInterface
-  GcGpuPasses
+  GcGpuCommonPasses
   GcJitEngine)
+if(GC_ENABLE_IGC)
+  target_link_libraries(GcGpuCompiler PUBLIC GcGpuPasses)
+endif()
 
 get_property(GC_MLIR_LIBS GLOBAL PROPERTY GC_MLIR_LIBS)
 get_property(GC_PASS_LIBS GLOBAL PROPERTY GC_PASS_LIBS)
@@ -27,6 +30,9 @@ if(GC_DYLINK)
   target_link_libraries(${PROJECT_NAME} PUBLIC GcInterface)
   if(GC_ENABLE_ZE)
     target_link_libraries(${PROJECT_NAME} PRIVATE GcLevelZero)
+  endif()
+  if(GC_ENABLE_OCL)
+    target_link_libraries(${PROJECT_NAME} PRIVATE OpenCL::OpenCL)
   endif()
 else()
   add_library(${PROJECT_NAME} INTERFACE)

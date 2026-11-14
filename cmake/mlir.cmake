@@ -2,7 +2,7 @@ include_guard()
 
 find_package(MLIR REQUIRED CONFIG)
 
-if(NOT GC_DYLINK)
+if(NOT GC_DYLINK OR NOT GC_ENABLE_IGC)
   set(LLVM_LINK_LLVM_DYLIB OFF)
   set(MLIR_LINK_MLIR_DYLIB OFF)
 endif()
@@ -91,7 +91,7 @@ function(gc_remove_dylib_aggregate_deps)
   endwhile()
 endfunction()
 
-if(GC_DYLINK)
+if(GC_DYLINK AND GC_ENABLE_IGC)
   set(GC_LLVM_LINK_COMPONENTS LLVM)
   set(MLIR_LINK_COMPONENTS MLIR)
   set(MLIR_EXECUTION_ENGINE MLIRExecutionEngineShared)
@@ -111,6 +111,7 @@ else()
       MLIRBufferizationAllExtensions
       MLIRBufferizationBufferizableOpInterfaceImpl
       MLIRBufferizationDialect
+      MLIRBufferizationPipelines
       MLIRBufferizationTransforms
       MLIRControlFlowBufferDeallocationOpInterfaceImpl
       MLIRControlFlowBufferizableOpInterfaceImpl
@@ -121,9 +122,7 @@ else()
       MLIRFuncDialect
       MLIRGPUBufferDeallocationOpInterfaceImpl
       MLIRGPUDialect
-      MLIRGPUPipelines
       MLIRGPUTransforms
-      MLIRGPUXeVMTransforms
       MLIRIndexDialect
       MLIRLinalgDialect
       MLIRLinalgTransforms
@@ -145,11 +144,24 @@ else()
       MLIRVectorBufferizableOpInterfaceImpl
       MLIRVectorDialect
       MLIRVectorTransforms
+      MLIRSPIRVDialect
+      MLIRSPIRVTransforms
+      MLIRSPIRVTarget)
+  if(GC_ENABLE_OCL)
+    list(APPEND MLIR_DIALECT_LIBS MLIRTensorTransforms)
+  endif()
+  if(GC_ENABLE_IGC)
+    list(
+      APPEND
+      MLIR_DIALECT_LIBS
+      MLIRGPUPipelines
+      MLIRGPUXeVMTransforms
       MLIRXeGPUDialect
       MLIRXeGPUTransforms
       MLIRXeGPUUtils
       MLIRXeVMDialect
       MLIRXeVMTarget)
+  endif()
   set(MLIR_CONVERSION_LIBS
       MLIRArithToLLVM
       MLIRBuiltinToLLVMIRTranslation
@@ -163,14 +175,20 @@ else()
       MLIRMathToLLVM
       MLIRMemRefToLLVM
       MLIRSCFToGPU
+      MLIRSCFToControlFlow
+      MLIRReconcileUnrealizedCasts
       MLIRUBToLLVM
       MLIRVectorToLLVM
       MLIRVectorToLLVMPass
-      MLIRVectorToXeGPU
-      MLIRXeVMToLLVMIRTranslation)
+      MLIRGPUToSPIRV
+      MLIRMathToSPIRV)
+  if(GC_ENABLE_IGC)
+    list(APPEND MLIR_CONVERSION_LIBS MLIRVectorToXeGPU
+         MLIRXeVMToLLVMIRTranslation)
+  endif()
 endif()
 
-if(GC_DYLINK)
+if(GC_DYLINK AND GC_ENABLE_IGC)
   target_link_libraries(GcInterface INTERFACE LLVM MLIR
                                               ${MLIR_EXECUTION_ENGINE})
 else()
@@ -180,11 +198,9 @@ else()
   llvm_map_components_to_libnames(GC_LLVM_LIBS ${GC_LLVM_LINK_COMPONENTS})
   target_link_libraries(
     GcInterface
-    INTERFACE ${MLIR_LINK_COMPONENTS}
-              ${MLIR_DIALECT_LIBS}
-              ${MLIR_CONVERSION_LIBS}
-              ${MLIR_EXECUTION_ENGINE}
-              ${GC_LLVM_LIBS}
-              LLVMX86CodeGen
-              LLVMSPIRVCodeGen)
+    INTERFACE ${MLIR_LINK_COMPONENTS} ${MLIR_DIALECT_LIBS}
+              ${MLIR_CONVERSION_LIBS} ${MLIR_EXECUTION_ENGINE} ${GC_LLVM_LIBS})
+  if(GC_ENABLE_IGC)
+    target_link_libraries(GcInterface INTERFACE LLVMSPIRVCodeGen)
+  endif()
 endif()

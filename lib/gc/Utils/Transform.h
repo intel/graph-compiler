@@ -21,7 +21,9 @@
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#if GC_ENABLE_IGC
 #include <mlir/Dialect/XeGPU/uArch/uArchCommon.h>
+#endif
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/OperationSupport.h>
 #include <mlir/IR/Value.h>
