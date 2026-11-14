@@ -68,7 +68,7 @@ fi
 : ${GC_BUILD_TYPE:=Release}
 : ${GC_DYLINK:=OFF}
 : ${GC_EXTERNALS_DIR:="$PROJECT_DIR/externals"}
-GC_EXTERNALS_DIR=$(realpath -m "$GC_EXTERNALS_DIR")
+GC_EXTERNALS_DIR=$(abspath "$GC_EXTERNALS_DIR")
 
 : ${LLVM_URL:='https://github.com/llvm/llvm-project.git'}
 : ${LLVM_TAG:=$(head -n1 "$PROJECT_DIR/cmake/llvm-version.txt")}
@@ -78,16 +78,16 @@ GC_EXTERNALS_DIR=$(realpath -m "$GC_EXTERNALS_DIR")
 : ${LLVM_BUILD_DIR:="$LLVM_DIR/build${LLVM_BUILD_SFX}"}
 : ${LLVM_INSTALL_DIR:="$GC_EXTERNALS_DIR/llvm${LLVM_BUILD_SFX}"}
 : ${MLIR_DIR:=$([ "$LLVM_BUILD_TARGET" = install ] && echo "$LLVM_INSTALL_DIR" || echo "$LLVM_BUILD_DIR")/lib/cmake/mlir}
-LLVM_DIR=$(realpath -m "$LLVM_DIR")
-LLVM_BUILD_DIR=$(realpath -m "$LLVM_BUILD_DIR")
-LLVM_INSTALL_DIR=$(realpath -m "$LLVM_INSTALL_DIR")
-MLIR_DIR=$(realpath -m "$MLIR_DIR")
+LLVM_DIR=$(abspath "$LLVM_DIR")
+LLVM_BUILD_DIR=$(abspath "$LLVM_BUILD_DIR")
+LLVM_INSTALL_DIR=$(abspath "$LLVM_INSTALL_DIR")
+MLIR_DIR=$(abspath "$MLIR_DIR")
 
 : ${GC_BUILD_SFX:="/$GC_BUILD_TYPE"}
 : ${GC_BUILD_DIR:="$PROJECT_DIR/build${GC_BUILD_SFX}"}
 : ${GC_INSTALL_DIR:="$GC_BUILD_DIR/install"}
-GC_BUILD_DIR=$(realpath -m "$GC_BUILD_DIR")
-GC_INSTALL_DIR=$(realpath -m "$GC_INSTALL_DIR")
+GC_BUILD_DIR=$(abspath "$GC_BUILD_DIR")
+GC_INSTALL_DIR=$(abspath "$GC_INSTALL_DIR")
 
 : ${CMAKE_BUILD_PARALLEL_LEVEL:=$(nproc)}
 : ${MAX_JOBS:=$CMAKE_BUILD_PARALLEL_LEVEL}
@@ -97,7 +97,7 @@ repo_hash() {
   cd "$1"
   shift 1
   local rev=$(git rev-parse --short HEAD)
-  local hash=$( (echo "$PROJECT_DIR/scripts/build.sh" && \
+  local hash=$( (printf '%s\n' "$PROJECT_DIR/scripts/build.sh" "$PROJECT_DIR/cmake/llvm-opts.cmake" && \
     git ls-files --modified --others --exclude-standard && \
     git diff --name-only --cached) \
     | sort -u | xargs sha1sum 2>&1 || true)
@@ -105,7 +105,7 @@ repo_hash() {
 }
 
 get_cmake_var() {
-  [ -f "$1" ] && grep -oP "set *\(${2} \K[^)]+" "$1" || true
+  [ -f "$1" ] && sed -nE "s/.*set *\(${2} ([^)]+).*/\1/p" "$1" || true
 }
 
 set_cmake_var() {
@@ -134,14 +134,14 @@ set_gc_hash() {
 
 build_llvm() {
     [ -z "$LLVM_BUILD_SKIP" ] || return 0
-    local builds="$LLVM_BUILD_DIR"
+    set -- "$LLVM_BUILD_DIR"
 
     if [ "$GITHUB_ACTIONS" = 'true' ] && [ "$LLVM_BUILD_TARGET" = install ]; then
       if [ -f "$MLIR_DIR/MLIRConfig.cmake" ]; then
           echo "Using LLVM from CI cache $LLVM_INSTALL_DIR"
           return 0
       fi
-      builds="$builds:$LLVM_INSTALL_DIR"
+      set -- "$@" "$LLVM_INSTALL_DIR"
     fi
 
     local build_target
@@ -177,7 +177,7 @@ build_llvm() {
     fi
 
     export LLVM_HASH=$(repo_hash "$LLVM_DIR" "$LLVM_INSTALL_DIR" $LLVM_BUILD_TYPE $GC_DYLINK $LLVM_CMAKE_ARGS)
-    local hash_not_match=$(echo "$builds" | tr ':' '\n' | while read b; do
+    local hash_not_match=$(for b; do
       [ "$(get_llvm_hash "$b")" = "$LLVM_HASH" ] || echo 1; done)
     [ -z "$hash_not_match" ] && echo "LLVM build is up-to-date" && return 0
 
@@ -187,6 +187,7 @@ build_llvm() {
 
     local rel_off=ON
     [ "$LLVM_BUILD_TYPE" = "Release" ] && rel_off=OFF
+    PYTHON=$("$PYTHON" -c 'import sys, pathlib; print(pathlib.Path(sys.executable).as_posix())')
     echo "Configuring LLVM..."
     # LLVM_ENABLE_DUMP keeps the MLIR dump() methods in a release build. Since
     # llvm/llvm-project@4d787f35aaba they are compiled only under
@@ -195,9 +196,7 @@ build_llvm() {
     # Configure checks compile in random TryCompile-* dirs and always miss ccache.
     CCACHE_DISABLE=1 cmake -G Ninja -S llvm -B "$LLVM_BUILD_DIR" \
         -DCMAKE_BUILD_TYPE=$LLVM_BUILD_TYPE \
-        -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" \
-        -DCMAKE_C_FLAGS_RELEASE="-Oz -DNDEBUG" \
-        -DCMAKE_CXX_FLAGS_RELEASE="-Oz -DNDEBUG" \
+        -DCMAKE_PROJECT_LLVM_INCLUDE="$(abspath "$PROJECT_DIR/cmake/llvm-opts.cmake")" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DLLVM_ENABLE_RTTI=OFF \
         -DLLVM_ENABLE_ASSERTIONS=$rel_off \
@@ -219,7 +218,7 @@ build_llvm() {
         -DLLVM_ENABLE_DUMP=ON \
         -DLLVM_ENABLE_BINDINGS=OFF \
         -DMLIR_ENABLE_BINDINGS_PYTHON=OFF \
-        -DPython3_EXECUTABLE=$(which python3) \
+        -DPython3_EXECUTABLE="$PYTHON" \
         -DMLIR_ENABLE_LEVELZERO_RUNNER=OFF \
         -DMLIR_ENABLE_PDL_IN_PATTERNMATCH=OFF \
         -DLLVM_ENABLE_ZLIB=OFF \
@@ -229,9 +228,7 @@ build_llvm() {
         $LLVM_CMAKE_ARGS
     cmake --build "$LLVM_BUILD_DIR" --parallel $MAX_JOBS $build_target
     
-    echo "$builds" | tr ':' '\n' | while read b; do
-      set_llvm_hash "$b" "$LLVM_HASH"
-    done
+    for b; do set_llvm_hash "$b" "$LLVM_HASH"; done
 }
 
 build_gc() {
@@ -245,7 +242,8 @@ build_gc() {
   local lit_path="$LLVM_BUILD_DIR/bin/llvm-lit"
   # -s, not -f: the CI cache truncates unused bin/ files to 0 bytes.
   [ -s "$lit_path" ] || lit_path="$LLVM_INSTALL_DIR/bin/llvm-lit"
-  [ -s "$lit_path" ] || lit_path=$(which lit || true)
+  [ -s "$lit_path" ] || lit_path=$(command -v lit || true)
+  [ -z "$lit_path" ] || lit_path=$(abspath "$lit_path")
   [ -z "$LLVM_HASH" ] && LLVM_HASH=$(get_llvm_hash "$MLIR_DIR/../../..")
   GC_HASH=$(repo_hash . "$MLIR_DIR" "$lit_path" $LLVM_HASH $GC_BUILD_TYPE $GC_DYLINK $GC_CMAKE_ARGS)
   [ "$(get_gc_hash "$GC_INSTALL_DIR")" = "$GC_HASH" ] && echo "GC build is up-to-date" && return 0

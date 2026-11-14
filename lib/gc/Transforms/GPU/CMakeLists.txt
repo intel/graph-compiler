@@ -62,4 +62,5 @@ gc_add_mlir_library(
   LINK_LIBS
   PUBLIC
   GcGpuCommonPasses
+  GcIR
   GcInterface)

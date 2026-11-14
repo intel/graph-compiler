@@ -41,6 +41,9 @@ set(LLVM_TABLEGEN_FLAGS -I${PROJECT_BINARY_DIR}/include
                         -I${PROJECT_SOURCE_DIR}/include)
 
 string(REPLACE " " ";" GC_LLVM_DEFINITIONS ${LLVM_DEFINITIONS})
+# MSVC: LLVM switches Win32 APIs to the wide variants. Do not force it on
+# consumers, it breaks their ANSI API calls.
+list(REMOVE_ITEM GC_LLVM_DEFINITIONS -DUNICODE -D_UNICODE)
 target_compile_options(GcInterface INTERFACE ${GC_LLVM_DEFINITIONS})
 
 function(gc_remove_dylib_aggregate_deps)

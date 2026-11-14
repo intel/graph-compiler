@@ -61,8 +61,11 @@ if(NOT MSVC)
   )
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
       "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
+else()
+  # MLIR generated code exceeds the default COFF section limit.
+  add_compile_options(/bigobj)
 endif()
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
   add_compile_options(-Werror -Werror=missing-declarations)
 endif()
 
@@ -100,7 +103,9 @@ target_include_directories(
   INTERFACE $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
             $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>)
-if(NOT MSVC AND NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+if(NOT GC_DYLINK
+   AND NOT MSVC
+   AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(GcInterface INTERFACE -ffunction-sections
                                                -fdata-sections)
 endif()

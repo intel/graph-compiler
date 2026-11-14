@@ -79,6 +79,7 @@ macro(gc_add_mlir_tool name)
   llvm_update_compile_flags(${name})
   set_property(GLOBAL APPEND PROPERTY GC_TOOLS ${name})
   set_target_properties(${name} PROPERTIES EXCLUDE_FROM_ALL OFF)
+  # MSVC: /O2 implies /Gy and the release link implies /OPT:REF.
   if(NOT MSVC)
     target_compile_options(${name} PRIVATE -ffunction-sections -fdata-sections)
     if(APPLE)
