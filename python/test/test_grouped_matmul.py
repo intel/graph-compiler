@@ -39,8 +39,7 @@ def grouped_matmul_reference(tokens, weights, offsets):
     start = 0
     for expert, end in enumerate(offsets):
         result[start:end] = (
-            tokens[start:end].astype(np.float32)
-            @ weights[expert].astype(np.float32).T
+            tokens[start:end].astype(np.float32) @ weights[expert].astype(np.float32).T
         ).astype(tokens.dtype)
         start = int(end)
     return result
@@ -93,9 +92,9 @@ def test_grouped_matmul(counts, reduction, columns):
     pytest.importorskip("graph_compiler")
     rng = np.random.default_rng(0)
     tokens = (rng.standard_normal((sum(counts), reduction)) * 0.1).astype(np.float16)
-    weights = (
-        rng.standard_normal((len(counts), columns, reduction)) * 0.1
-    ).astype(np.float16)
+    weights = (rng.standard_normal((len(counts), columns, reduction)) * 0.1).astype(
+        np.float16
+    )
     offsets = np.cumsum(counts, dtype=np.int32)
     run_e2e(
         grouped_matmul_mlir(len(counts), reduction, columns),
