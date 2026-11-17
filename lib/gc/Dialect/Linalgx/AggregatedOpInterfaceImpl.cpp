@@ -1,6 +1,6 @@
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
-#include "gc/IR/Attributes.h"
+#include "gc/IR/GCAttributes.h"
 
 #include "IndexingUtils.h"
 

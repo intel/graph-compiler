@@ -1,4 +1,4 @@
-//===-- Attributes.cpp - Graph Compiler IR attribute utilities -*- C++ -*-===//
+//===-- GCAttributes.cpp - Graph Compiler IR attributes -------*- C++ -*-===//
 //
 // This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,9 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/IR/Attributes.h"
+#include "gc/IR/GCAttributes.h"
 #include "gc/Runtime/GpuRuntime.h"
 #include "mlir/Dialect/XeGPU/uArch/uArchCommon.h"
+
+#include "gc/IR/GCAttributesDialect.cpp.inc"
+#define GET_ATTRDEF_CLASSES
+#include "gc/IR/GCAttributes.cpp.inc"
+
+void mlir::gc::GCDialect::initialize() {
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "gc/IR/GCAttributes.cpp.inc"
+      >();
+}
 
 namespace mlir::gc {
 
