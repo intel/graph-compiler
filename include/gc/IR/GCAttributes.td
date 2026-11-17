@@ -21,14 +21,23 @@ def GCDialect : Dialect {
 
 def FusionGroupAttr : AttrDef<GCDialect, "FusionGroup"> {
   let mnemonic = "fusion_group";
-  let summary = "Identifier for a group of operations intended for one kernel";
+  let summary = "Fusion group identifier and intended operation tile sizes";
   let description = [{
     Operations in the same fusion group carry the same ID. The ID is unique
     within a function; checking group membership is the responsibility of the
     compiler pass that consumes this attribute.
+
+    The tile_sizes field is a dense i64 array containing the tile sizes intended
+    for tiling the operation carrying this attribute. It is written without an
+    explicit element type, for example:
+
+    ```mlir
+    #gc.fusion_group<42, tile_sizes = [32, 32]>
+    ```
   }];
-  let parameters = (ins "int64_t":$id);
-  let assemblyFormat = "`<` $id `>`";
+  let parameters = (ins "int64_t":$id,
+                        "::mlir::DenseI64ArrayAttr":$tile_sizes);
+  let assemblyFormat = "`<` $id `,` `tile_sizes` `=` $tile_sizes `>`";
 }
 
 #endif // GC_IR_GCATTRIBUTES_TD
