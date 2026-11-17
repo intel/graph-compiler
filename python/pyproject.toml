@@ -10,7 +10,11 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 test = ["pytest", "torch", "torch-mlir", "triton-xpu"]
+test-e2e = ["pytest", "numpy"]
 xpu = ["torch", "triton-xpu"]
+
+[tool.pytest.ini_options]
+markers = ["gpu: requires Graph Compiler built with Level Zero and a supported GPU"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-xpu" }
