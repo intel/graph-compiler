@@ -1,5 +1,4 @@
-// RUN: gc-opt %s --gpu-dev-props --tile-contract --split-input-file | FileCheck %s --check-prefix=CONTRACT
-// RUN: gc-opt %s --gpu-dev-props --tile-contract --tile-parallel --split-input-file | FileCheck %s --check-prefix=PARALLEL
+// RUN: gc-opt %s --gpu-dev-props --tile-contract --tile-parallel --split-input-file | FileCheck %s
 
 // Group membership compares IDs, not tile sizes. These describe the iteration
 // domains of exp(A), matmul, and the broadcast bias addition respectively.
@@ -12,23 +11,33 @@
 
 // exp(A) @ B + bias: the pre-op, fill, matmul, and post-op all fuse into one
 // workgroup. The exp is computed inside the reduction loop.
-// CONTRACT-LABEL: func.func @all_same_group(
-// CONTRACT-SAME: gc.num_kernels = 1 : i32
-// CONTRACT-NOT: __pre__
-// CONTRACT: scf.forall
-// CONTRACT: linalg.fill
-// CONTRACT: scf.for
-// CONTRACT: linalg.generic {{.*}}__pre__
-// CONTRACT: linalg.matmul
-// CONTRACT: linalg.generic {{.*}}__post__
-// CONTRACT: } {gc.kernel_name = "all_same_group_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT-NOT: linalg.generic
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @all_same_group(
-// PARALLEL-SAME: gc.num_kernels = 1 : i32
-// PARALLEL: scf.forall
-// PARALLEL-NOT: = scf.forall
-// PARALLEL: return
+// CHECK-LABEL: func.func @all_same_group(
+// CHECK-SAME:  gc.num_kernels = 1 :
+// CHECK-DAG:     %[[ZERO:.*]] = arith.constant 0 :
+// CHECK-DAG:     %[[K:.*]] = arith.constant 256 :
+// CHECK-DAG:     %[[STEP:.*]] = arith.constant 64 :
+// CHECK:         %[[RESULT:.*]] = scf.forall
+// CHECK:           %[[INIT:.*]] = linalg.fill
+// CHECK-NEXT:      %[[REDUCE:.*]] = scf.for {{.*}} = %[[ZERO]] to %[[K]] step %[[STEP]] iter_args(%[[ACC:.*]] = %[[INIT]])
+// CHECK:             %[[PRE:.*]] = linalg.generic
+// CHECK-NEXT:        ^bb0(%[[X:[^:]+]]:
+// CHECK-NEXT:          %[[EXP:.*]] = math.exp %[[X]]
+// CHECK-NEXT:          linalg.yield %[[EXP]]
+// CHECK-NEXT:        }
+// CHECK-NEXT:        %[[RHS:.*]] = tensor.extract_slice
+// CHECK-NEXT:        %[[MM:.*]] = linalg.matmul {{.*}}ins(%[[PRE]], %[[RHS]] {{.*}}outs(%[[ACC]]
+// CHECK-NEXT:        scf.yield %[[MM]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK:           %[[POST:.*]] = linalg.generic {{.*}}ins(%[[REDUCE]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "all_same_group_kernel", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT]]
 func.func @all_same_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
                           %bias: tensor<64xf16>) -> tensor<64x64xf16> {
   %zero = arith.constant 0.0 : f16
@@ -37,7 +46,7 @@ func.func @all_same_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     indexing_maps = [#identity, #identity],
     iterator_types = ["parallel", "parallel"]
   } ins(%a : tensor<64x256xf16>) outs(%pre_empty : tensor<64x256xf16>)
-    attrs = {__pre__, gc.fusion_group = #pre0} {
+    attrs = {gc.fusion_group = #pre0} {
   ^bb0(%x: f16, %out: f16):
     %exp = math.exp %x : f16
     linalg.yield %exp : f16
@@ -54,7 +63,7 @@ func.func @all_same_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty : tensor<64x64xf16>)
-    attrs = {__post__, gc.fusion_group = #post0} {
+    attrs = {gc.fusion_group = #post0} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -73,27 +82,36 @@ func.func @all_same_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
 // The pre-op belongs to another group and must stay outside the matmul loop.
 // The post-op still fuses. TileParallel subsequently creates a separate kernel
 // for the pre-op without crossing the boundary.
-// CONTRACT-LABEL: func.func @pre_other_group(
-// CONTRACT-SAME: gc.num_kernels = 1 : i32
-// CONTRACT: linalg.generic {{.*}}__pre__
-// CONTRACT: scf.forall
-// CONTRACT-NOT: __pre__
-// CONTRACT: linalg.matmul
-// CONTRACT-NOT: __pre__
-// CONTRACT: linalg.generic {{.*}}__post__
-// CONTRACT: } {gc.kernel_name = "pre_other_group_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @pre_other_group(
-// PARALLEL-SAME: gc.num_kernels = 2 : i32
-// PARALLEL: scf.forall
-// PARALLEL: linalg.generic {{.*}}__pre__
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : i64}
-// PARALLEL: scf.forall
-// PARALLEL-NOT: __pre__
-// PARALLEL: linalg.matmul
-// PARALLEL: linalg.generic {{.*}}__post__
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : i64}
-// PARALLEL: return
+// CHECK-LABEL: func.func @pre_other_group(
+// CHECK-SAME:  %[[A:[^:]+]]: {{[^,]+}}, %[[B:[^:]+]]:
+// CHECK-SAME:  gc.num_kernels = 2 :
+// CHECK:         %[[PRE_RESULT:.*]] = scf.forall
+// CHECK:           %[[PRE:.*]] = linalg.generic
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]:
+// CHECK-NEXT:        %[[EXP:.*]] = math.exp %[[X]]
+// CHECK-NEXT:        linalg.yield %[[EXP]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[PRE]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : {{[^,}]+}}}
+// CHECK:         %[[RESULT:.*]] = scf.forall
+// CHECK:           %[[REDUCE:.*]] = scf.for
+// CHECK-DAG:         %[[LHS:.*]] = tensor.extract_slice %[[PRE_RESULT]][
+// CHECK-DAG:         %[[RHS:.*]] = tensor.extract_slice %[[B]][
+// CHECK-NEXT:        %[[MM:.*]] = linalg.matmul {{.*}}ins(%[[LHS]], %[[RHS]]
+// CHECK-NEXT:        scf.yield %[[MM]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK:           %[[POST:.*]] = linalg.generic {{.*}}ins(%[[REDUCE]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT]]
 func.func @pre_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
                            %bias: tensor<64xf16>) -> tensor<64x64xf16> {
   %zero = arith.constant 0.0 : f16
@@ -102,7 +120,7 @@ func.func @pre_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     indexing_maps = [#identity, #identity],
     iterator_types = ["parallel", "parallel"]
   } ins(%a : tensor<64x256xf16>) outs(%pre_empty : tensor<64x256xf16>)
-    attrs = {__pre__, gc.fusion_group = #pre1} {
+    attrs = {gc.fusion_group = #pre1} {
   ^bb0(%x: f16, %out: f16):
     %exp = math.exp %x : f16
     linalg.yield %exp : f16
@@ -119,7 +137,7 @@ func.func @pre_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty : tensor<64x64xf16>)
-    attrs = {__post__, gc.fusion_group = #post0} {
+    attrs = {gc.fusion_group = #post0} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -137,25 +155,34 @@ func.func @pre_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
 #bias = affine_map<(m, n) -> (n)>
 
 // The post-op is in another group: it must not be moved into the matmul loop.
-// CONTRACT-LABEL: func.func @post_other_group(
-// CONTRACT-SAME: gc.num_kernels = 1 : i32
-// CONTRACT: scf.forall
-// CONTRACT: linalg.generic {{.*}}__pre__
-// CONTRACT: linalg.matmul
-// CONTRACT-NOT: __post__
-// CONTRACT: } {gc.kernel_name = "post_other_group_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT: linalg.generic {{.*}}__post__
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @post_other_group(
-// PARALLEL-SAME: gc.num_kernels = 2 : i32
-// PARALLEL: scf.forall
-// PARALLEL: linalg.matmul
-// PARALLEL-NOT: __post__
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : i64}
-// PARALLEL: scf.forall
-// PARALLEL: linalg.generic {{.*}}__post__
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : i64}
-// PARALLEL: return
+// CHECK-LABEL: func.func @post_other_group(
+// CHECK-SAME:  gc.num_kernels = 2 :
+// CHECK:         %[[MM_RESULT:.*]] = scf.forall
+// CHECK:           %[[REDUCE:.*]] = scf.for
+// CHECK:             %[[PRE:.*]] = linalg.generic
+// CHECK-NEXT:        ^bb0(%[[X:[^:]+]]:
+// CHECK-NEXT:          %[[EXP:.*]] = math.exp %[[X]]
+// CHECK-NEXT:          linalg.yield %[[EXP]]
+// CHECK-NEXT:        }
+// CHECK:             %[[MM:.*]] = linalg.matmul {{.*}}ins(%[[PRE]],
+// CHECK-NEXT:        scf.yield %[[MM]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK-NEXT:      scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[REDUCE]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK:         %[[RESULT:.*]] = scf.forall
+// CHECK:           %[[MM_TILE:.*]] = tensor.extract_slice %[[MM_RESULT]][
+// CHECK:           %[[POST:.*]] = linalg.generic {{.*}}ins(%[[MM_TILE]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT]]
 func.func @post_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
                             %bias: tensor<64xf16>) -> tensor<64x64xf16> {
   %zero = arith.constant 0.0 : f16
@@ -164,7 +191,7 @@ func.func @post_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     indexing_maps = [#identity, #identity],
     iterator_types = ["parallel", "parallel"]
   } ins(%a : tensor<64x256xf16>) outs(%pre_empty : tensor<64x256xf16>)
-    attrs = {__pre__, gc.fusion_group = #pre0} {
+    attrs = {gc.fusion_group = #pre0} {
   ^bb0(%x: f16, %out: f16):
     %exp = math.exp %x : f16
     linalg.yield %exp : f16
@@ -181,7 +208,7 @@ func.func @post_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty : tensor<64x64xf16>)
-    attrs = {__post__, gc.fusion_group = #post1} {
+    attrs = {gc.fusion_group = #post1} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -199,27 +226,42 @@ func.func @post_other_group(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
 #bias = affine_map<(m, n) -> (n)>
 
 // Three different groups become three kernels after both tiling passes.
-// CONTRACT-LABEL: func.func @all_different_groups(
-// CONTRACT: linalg.generic {{.*}}__pre__
-// CONTRACT: scf.forall
-// CONTRACT-NOT: __pre__
-// CONTRACT: linalg.matmul
-// CONTRACT-NOT: __post__
-// CONTRACT: } {gc.kernel_name = "all_different_groups_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT: linalg.generic {{.*}}__post__
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @all_different_groups(
-// PARALLEL-SAME: gc.num_kernels = 3 : i32
-// PARALLEL: scf.forall
-// PARALLEL: linalg.generic {{.*}}__pre__
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : i64}
-// PARALLEL: scf.forall
-// PARALLEL: linalg.matmul
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : i64}
-// PARALLEL: scf.forall
-// PARALLEL: linalg.generic {{.*}}__post__
-// PARALLEL: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 2 : i64}
-// PARALLEL: return
+// CHECK-LABEL: func.func @all_different_groups(
+// CHECK-SAME:  %[[A:[^:]+]]: {{[^,]+}}, %[[B:[^:]+]]:
+// CHECK-SAME:  gc.num_kernels = 3 :
+// CHECK:         %[[PRE_RESULT:.*]] = scf.forall
+// CHECK:           %[[PRE:.*]] = linalg.generic
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]:
+// CHECK-NEXT:        %[[EXP:.*]] = math.exp %[[X]]
+// CHECK-NEXT:        linalg.yield %[[EXP]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[PRE]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : {{[^,}]+}}}
+// CHECK:         %[[MM_RESULT:.*]] = scf.forall
+// CHECK:           %[[REDUCE:.*]] = scf.for
+// CHECK-DAG:         %[[LHS:.*]] = tensor.extract_slice %[[PRE_RESULT]][
+// CHECK-DAG:         %[[RHS:.*]] = tensor.extract_slice %[[B]][
+// CHECK-NEXT:        %[[MM:.*]] = linalg.matmul {{.*}}ins(%[[LHS]], %[[RHS]]
+// CHECK-NEXT:        scf.yield %[[MM]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK-NEXT:      scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[REDUCE]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK:         %[[RESULT:.*]] = scf.forall
+// CHECK:           %[[MM_TILE:.*]] = tensor.extract_slice %[[MM_RESULT]][
+// CHECK:           %[[POST:.*]] = linalg.generic {{.*}}ins(%[[MM_TILE]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 2 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT]]
 func.func @all_different_groups(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
                                 %bias: tensor<64xf16>) -> tensor<64x64xf16> {
   %zero = arith.constant 0.0 : f16
@@ -228,7 +270,7 @@ func.func @all_different_groups(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     indexing_maps = [#identity, #identity],
     iterator_types = ["parallel", "parallel"]
   } ins(%a : tensor<64x256xf16>) outs(%pre_empty : tensor<64x256xf16>)
-    attrs = {__pre__, gc.fusion_group = #pre1} {
+    attrs = {gc.fusion_group = #pre1} {
   ^bb0(%x: f16, %out: f16):
     %exp = math.exp %x : f16
     linalg.yield %exp : f16
@@ -245,7 +287,7 @@ func.func @all_different_groups(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty : tensor<64x64xf16>)
-    attrs = {__post__, gc.fusion_group = #post2} {
+    attrs = {gc.fusion_group = #post2} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -261,17 +303,42 @@ func.func @all_different_groups(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
 #bias = affine_map<(m, n) -> (n)>
 
 // An unannotated producer or consumer cannot join an annotated kernel.
-// CONTRACT-LABEL: func.func @mixed_annotations(
-// CONTRACT: linalg.generic {{.*}}__pre__
-// CONTRACT: scf.forall
-// CONTRACT-NOT: __pre__
-// CONTRACT: linalg.matmul
-// CONTRACT-NOT: __post__
-// CONTRACT: } {gc.kernel_name = "mixed_annotations_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT: linalg.generic {{.*}}__post__
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @mixed_annotations(
-// PARALLEL-SAME: gc.num_kernels = 3 : i32
+// CHECK-LABEL: func.func @mixed_annotations(
+// CHECK-SAME:  %[[A:[^:]+]]: {{[^,]+}}, %[[B:[^:]+]]:
+// CHECK-SAME:  gc.num_kernels = 3 :
+// CHECK:         %[[PRE_RESULT:.*]] = scf.forall
+// CHECK:           %[[PRE:.*]] = linalg.generic
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]:
+// CHECK-NEXT:        %[[EXP:.*]] = math.exp %[[X]]
+// CHECK-NEXT:        linalg.yield %[[EXP]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[PRE]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}"}
+// CHECK:         %[[MM_RESULT:.*]] = scf.forall
+// CHECK:           %[[REDUCE:.*]] = scf.for
+// CHECK-DAG:         %[[LHS:.*]] = tensor.extract_slice %[[PRE_RESULT]][
+// CHECK-DAG:         %[[RHS:.*]] = tensor.extract_slice %[[B]][
+// CHECK-NEXT:        %[[MM:.*]] = linalg.matmul {{.*}}ins(%[[LHS]], %[[RHS]]
+// CHECK-NEXT:        scf.yield %[[MM]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK-NEXT:      scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[REDUCE]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK:         %[[RESULT:.*]] = scf.forall
+// CHECK:           %[[MM_TILE:.*]] = tensor.extract_slice %[[MM_RESULT]][
+// CHECK:           %[[POST:.*]] = linalg.generic {{.*}}ins(%[[MM_TILE]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}"}
+// CHECK-NEXT:    return %[[RESULT]]
 func.func @mixed_annotations(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
                              %bias: tensor<64xf16>) -> tensor<64x64xf16> {
   %zero = arith.constant 0.0 : f16
@@ -279,8 +346,7 @@ func.func @mixed_annotations(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
   %pre = linalg.generic {
     indexing_maps = [#identity, #identity],
     iterator_types = ["parallel", "parallel"]
-  } ins(%a : tensor<64x256xf16>) outs(%pre_empty : tensor<64x256xf16>)
-    attrs = {__pre__} {
+  } ins(%a : tensor<64x256xf16>) outs(%pre_empty : tensor<64x256xf16>) {
   ^bb0(%x: f16, %out: f16):
     %exp = math.exp %x : f16
     linalg.yield %exp : f16
@@ -296,7 +362,7 @@ func.func @mixed_annotations(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
     indexing_maps = [#identity, #bias, #identity],
     iterator_types = ["parallel", "parallel"]
   } ins(%mm, %bias : tensor<64x64xf16>, tensor<64xf16>)
-    outs(%post_empty : tensor<64x64xf16>) attrs = {__post__} {
+    outs(%post_empty : tensor<64x64xf16>) {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -314,17 +380,31 @@ func.func @mixed_annotations(%a: tensor<64x256xf16>, %b: tensor<256x64xf16>,
 
 // Consumer fusion exposes another producer (the bias exp). The subsequent
 // fuseProducers() path must enforce the group boundary too.
-// CONTRACT-LABEL: func.func @post_input_other_group(
-// CONTRACT: linalg.generic {{.*}}__bias_pre__
-// CONTRACT: scf.forall
-// CONTRACT-NOT: __bias_pre__
-// CONTRACT: linalg.matmul
-// CONTRACT-NOT: __bias_pre__
-// CONTRACT: linalg.generic {{.*}}__post__
-// CONTRACT: } {gc.kernel_name = "post_input_other_group_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @post_input_other_group(
-// PARALLEL-SAME: gc.num_kernels = 2 : i32
+// CHECK-LABEL: func.func @post_input_other_group(
+// CHECK-SAME:  %[[A:[^:]+]]: {{[^,]+}}, %[[B:[^:]+]]:
+// CHECK-SAME:  gc.num_kernels = 2 :
+// CHECK:         %[[BIAS_PRE:.*]] = linalg.generic
+// CHECK-NEXT:    ^bb0(%[[X:[^:]+]]:
+// CHECK-NEXT:      %[[EXP:.*]] = math.exp %[[X]]
+// CHECK-NEXT:      linalg.yield %[[EXP]]
+// CHECK-NEXT:    }
+// CHECK:         %[[RESULT:.*]] = scf.forall
+// CHECK:           %[[REDUCE:.*]] = scf.for
+// CHECK-DAG:         %[[LHS:.*]] = tensor.extract_slice %[[A]][
+// CHECK-DAG:         %[[RHS:.*]] = tensor.extract_slice %[[B]][
+// CHECK-NEXT:        %[[MM:.*]] = linalg.matmul {{.*}}ins(%[[LHS]], %[[RHS]]
+// CHECK-NEXT:        scf.yield %[[MM]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK:           %[[POST:.*]] = linalg.generic {{.*}}ins(%[[REDUCE]], %[[BIAS_PRE]]
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "post_input_other_group_kernel", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT]]
 func.func @post_input_other_group(%a: tensor<64x256xf16>,
                                  %b: tensor<256x64xf16>,
                                  %bias: tensor<64xf16>) -> tensor<64x64xf16> {
@@ -333,7 +413,7 @@ func.func @post_input_other_group(%a: tensor<64x256xf16>,
   %bias_pre = linalg.generic {
     indexing_maps = [#vector, #vector], iterator_types = ["parallel"]
   } ins(%bias : tensor<64xf16>) outs(%bias_empty : tensor<64xf16>)
-    attrs = {__bias_pre__, gc.fusion_group = #gc.fusion_group<1, tile_sizes = [64]>} {
+    attrs = {gc.fusion_group = #gc.fusion_group<1, tile_sizes = [64]>} {
   ^bb0(%x: f16, %out: f16):
     %exp = math.exp %x : f16
     linalg.yield %exp : f16
@@ -350,7 +430,7 @@ func.func @post_input_other_group(%a: tensor<64x256xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm, %bias_pre : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty : tensor<64x64xf16>)
-    attrs = {__post__, gc.fusion_group = #post0} {
+    attrs = {gc.fusion_group = #post0} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -367,21 +447,32 @@ func.func @post_input_other_group(%a: tensor<64x256xf16>,
 
 // Independent matmuls with a shared input and the same group may merge their
 // workgroup and K loops. Both post-ops remain in that workgroup.
-// CONTRACT-LABEL: func.func @two_matmuls_same_group(
-// CONTRACT-SAME: gc.num_kernels = 1 : i32
-// CONTRACT: scf.forall
-// CONTRACT: scf.for
-// CONTRACT: linalg.matmul
-// CONTRACT: linalg.matmul
-// CONTRACT: scf.yield
-// CONTRACT-NOT: scf.for
-// CONTRACT: linalg.generic {{.*}}__post_a__
-// CONTRACT: linalg.generic {{.*}}__post_b__
-// CONTRACT: } {gc.kernel_name = "two_matmuls_same_group_kernel", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT-NOT: scf.forall
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @two_matmuls_same_group(
-// PARALLEL-SAME: gc.num_kernels = 1 : i32
+// CHECK-LABEL: func.func @two_matmuls_same_group(
+// CHECK-SAME:  gc.num_kernels = 1 :
+// CHECK:         %[[RESULT:.*]]:2 = scf.forall
+// CHECK:           %[[INIT_A:.*]] = linalg.fill
+// CHECK:           %[[INIT_B:.*]] = linalg.fill
+// CHECK-NEXT:      %[[REDUCE:.*]]:2 = scf.for {{.*}}iter_args(%[[ACC_A:.*]] = %[[INIT_A]], %[[ACC_B:.*]] = %[[INIT_B]])
+// CHECK-DAG:         %[[MM_A:.*]] = linalg.matmul {{.*}}outs(%[[ACC_A]]
+// CHECK-DAG:         %[[MM_B:.*]] = linalg.matmul {{.*}}outs(%[[ACC_B]]
+// CHECK-NEXT:        scf.yield %[[MM_A]], %[[MM_B]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK:           %[[POST_A:.*]] = linalg.generic {{.*}}ins(%[[REDUCE]]#0,
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           %[[POST_B:.*]] = linalg.generic {{.*}}ins(%[[REDUCE]]#1,
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-DAG:         tensor.parallel_insert_slice %[[POST_A]] into
+// CHECK-DAG:         tensor.parallel_insert_slice %[[POST_B]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "two_matmuls_same_group_kernel", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT]]#0, %[[RESULT]]#1
 func.func @two_matmuls_same_group(%a: tensor<64x256xf16>,
                                  %b: tensor<256x64xf16>,
                                  %c: tensor<256x64xf16>,
@@ -407,7 +498,7 @@ func.func @two_matmuls_same_group(%a: tensor<64x256xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm_a, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty_a : tensor<64x64xf16>)
-    attrs = {__post_a__, gc.fusion_group = #post0} {
+    attrs = {gc.fusion_group = #post0} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -417,7 +508,7 @@ func.func @two_matmuls_same_group(%a: tensor<64x256xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm_b, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty_b : tensor<64x64xf16>)
-    attrs = {__post_b__, gc.fusion_group = #post0} {
+    attrs = {gc.fusion_group = #post0} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -437,20 +528,37 @@ func.func @two_matmuls_same_group(%a: tensor<64x256xf16>,
 // Identical launch configurations and a shared input must not merge different
 // groups. Each deferred workgroup must restore its own ID before fusing its
 // post-op; otherwise one post-op would be left outside its workgroup.
-// CONTRACT-LABEL: func.func @two_matmuls_different_groups(
-// CONTRACT-SAME: gc.num_kernels = 2 : i32
-// CONTRACT: scf.forall
-// CONTRACT: linalg.matmul {{.*}}gc.fusion_group = #gc.fusion_group<0,
-// CONTRACT: linalg.generic {{.*}}__post_a__
-// CONTRACT: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : i64}
-// CONTRACT: scf.forall
-// CONTRACT: linalg.matmul {{.*}}gc.fusion_group = #gc.fusion_group<1,
-// CONTRACT: linalg.generic {{.*}}__post_b__
-// CONTRACT: } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : i64}
-// CONTRACT-NOT: linalg.generic
-// CONTRACT: return
-// PARALLEL-LABEL: func.func @two_matmuls_different_groups(
-// PARALLEL-SAME: gc.num_kernels = 2 : i32
+// CHECK-LABEL: func.func @two_matmuls_different_groups(
+// CHECK-SAME:  gc.num_kernels = 2 :
+// CHECK:         %[[RESULT_A:.*]] = scf.forall
+// CHECK:           %[[REDUCE_A:.*]] = scf.for
+// CHECK:             %[[MM_A:.*]] = linalg.matmul {{.*}}gc.fusion_group = #gc.fusion_group<0,
+// CHECK-NEXT:        scf.yield %[[MM_A]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 0 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK:           %[[POST_A:.*]] = linalg.generic {{.*}}ins(%[[REDUCE_A]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST_A]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 0 : {{[^,}]+}}}
+// CHECK-NEXT:    %[[RESULT_B:.*]] = scf.forall
+// CHECK:           %[[REDUCE_B:.*]] = scf.for
+// CHECK:             %[[MM_B:.*]] = linalg.matmul {{.*}}gc.fusion_group = #gc.fusion_group<1,
+// CHECK-NEXT:        scf.yield %[[MM_B]]
+// CHECK-NEXT:      } {gc.tiling.fusion_group_id = 1 : {{[^,}]+}}, gc.tiling.level = 1 : i8}
+// CHECK:           %[[POST_B:.*]] = linalg.generic {{.*}}ins(%[[REDUCE_B]],
+// CHECK-NEXT:      ^bb0(%[[X:[^:]+]]: {{[^,]+}}, %[[Y:[^:]+]]:
+// CHECK-NEXT:        %[[SUM:.*]] = arith.addf %[[X]], %[[Y]]
+// CHECK-NEXT:        linalg.yield %[[SUM]]
+// CHECK-NEXT:      }
+// CHECK:           scf.forall.in_parallel {
+// CHECK-NEXT:        tensor.parallel_insert_slice %[[POST_B]] into
+// CHECK-NEXT:      }
+// CHECK-NEXT:    } {gc.kernel_name = "{{[^"]+}}", gc.tiling.fusion_group_id = 1 : {{[^,}]+}}}
+// CHECK-NEXT:    return %[[RESULT_A]], %[[RESULT_B]]
 func.func @two_matmuls_different_groups(%a: tensor<64x256xf16>,
                                        %b: tensor<256x64xf16>,
                                        %c: tensor<256x64xf16>,
@@ -476,7 +584,7 @@ func.func @two_matmuls_different_groups(%a: tensor<64x256xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm_a, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty_a : tensor<64x64xf16>)
-    attrs = {__post_a__, gc.fusion_group = #post0} {
+    attrs = {gc.fusion_group = #post0} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
@@ -486,7 +594,7 @@ func.func @two_matmuls_different_groups(%a: tensor<64x256xf16>,
     iterator_types = ["parallel", "parallel"]
   } ins(%mm_b, %bias : tensor<64x64xf16>, tensor<64xf16>)
     outs(%post_empty_b : tensor<64x64xf16>)
-    attrs = {__post_b__, gc.fusion_group = #post1} {
+    attrs = {gc.fusion_group = #post1} {
   ^bb0(%x: f16, %bias_value: f16, %out: f16):
     %sum = arith.addf %x, %bias_value : f16
     linalg.yield %sum : f16
