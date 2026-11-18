@@ -48,8 +48,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT MSVC)
   set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+  # GCC supports -Oz only since 12.
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag(-Oz GC_HAS_OZ)
+  if(GC_HAS_OZ)
+    set(GC_SIZE_OPT_FLAG "-Oz")
+  else()
+    set(GC_SIZE_OPT_FLAG "-Os")
+  endif()
   set(CMAKE_CXX_FLAGS_RELEASE
-      "-Oz -DNDEBUG -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
+      "${GC_SIZE_OPT_FLAG} -DNDEBUG -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
   )
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
       "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
