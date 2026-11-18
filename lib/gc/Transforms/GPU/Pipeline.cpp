@@ -267,10 +267,6 @@ void populateGPUPipeline(OpPassManager &pm,
     pm.addPass(createPrintPass(name));
   };
 
-  GpuDevicePropsOptions deviceProps;
-  if (pipelineOpts.deviceProps) {
-    deviceProps = *pipelineOpts.deviceProps;
-  }
   // Command line options for the IGC compiler. They are stored in the xevm
   // target attached to the kernels and passed to the gpu-module-to-binary pass.
   std::string igcCmdOptions =
@@ -280,7 +276,9 @@ void populateGPUPipeline(OpPassManager &pm,
   if (dump) pm.addPass(createPrintPass("Initial"));
 
   phase("Preprocess", [&]() {
-    pm.addPass(createGpuDeviceProps(deviceProps));
+    GpuDevicePropsOptions devProps;
+    if (!pipelineOpts.arch.empty()) devProps.arch = pipelineOpts.arch;
+    pm.addPass(createGpuDeviceProps(devProps));
     pm.addNestedPass<func::FuncOp>(createTensorConcatToLinalg());
     pm.addNestedPass<func::FuncOp>(createTensorReshapeToLinalg());
   });
@@ -365,7 +363,8 @@ void populateGPUPipeline(OpPassManager &pm,
   phase("XeGpu", [&]() {
     gpu::GPUToXeVMPipelineOptions opts;
     opts.use64bitIndex = true;
-    opts.binaryFormat = "binary";
+    // If the GPU compiler is not found, skip the SPIR-V compilation.
+    opts.binaryFormat = getGpuCompilerInfo().empty() ? "isa" : "binary";
     opts.cmdOptions = igcCmdOptions;
     // The xevm target is attached by the GpuKernelOutline pass, with the chip
     // taken from the device attributes. The upstream pipeline would attach

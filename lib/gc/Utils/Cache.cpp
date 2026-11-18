@@ -6,7 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include <llvm/ADT/ScopeExit.h>
 #include <llvm/ADT/StringExtras.h>
@@ -14,10 +16,10 @@
 #include <llvm/Support/Chrono.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Path.h>
-#include <llvm/Support/Program.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include "gc/Utils/Cache.h"
+#include "gc/Utils/Log.h"
 #include "gc/Utils/Misc.h"
 #include "gc/Version.h"
 
@@ -27,36 +29,23 @@ namespace fs = llvm::sys::fs;
 namespace gc::cache {
 namespace {
 bool isFileCacheEnabled() {
-  static bool enabled = gcGetEnv("GC_FILE_CACHE_ON",
+  static bool enabled = []() {
+    bool env = gcGetEnv("GC_FILE_CACHE_ON",
 #ifdef GC_FILE_CACHE_ON
-                                 true
+                        true
 #else
-                                 false
+                        false
 #endif
-  );
-  return enabled;
-}
+    );
+    if (!env) return false;
 
-// Version of ocloc, that compiles GPU binaries. Only needed for the file cache.
-// Release builds link libocloc instead, normally from the same package.
-StringRef oclocVersion() {
-  static const std::string ver = []() -> std::string {
-    if (!isFileCacheEnabled()) return {};
-    SmallString<128> out;
-    if (auto ocloc = sys::findProgramByName("ocloc");
-        ocloc && !fs::createTemporaryFile("ocloc", "ver", out)) {
-      scope_exit rm([&] { fs::remove(out); });
-      std::optional<StringRef> redirects[] = {StringRef(), StringRef(out),
-                                              StringRef()};
-      if (!sys::ExecuteAndWait(*ocloc, {*ocloc, "--version"}, std::nullopt,
-                               redirects))
-        if (auto buf = MemoryBuffer::getFile(out))
-          return (*buf)->getBuffer().trim().str();
+    if (getGpuCompilerInfo().empty()) {
+      gcLogE("Failed to get the GPU compiler info, file cache disabled");
+      return false;
     }
-    gcLogD("Failed to get ocloc version");
-    return {};
+    return true;
   }();
-  return ver;
+  return enabled;
 }
 
 bool isChecksumEnabled() {
@@ -71,27 +60,66 @@ bool isChecksumEnabled() {
 }
 
 // Owned by the current user and not writable by group/others.
-bool isTrusted(const fs::file_status &st) {
+bool isTrusted([[maybe_unused]] const fs::file_status &st) {
+#ifdef _WIN32
+  return true;
+#else
   return st.getUser() == geteuid() &&
          !(st.permissions() & (fs::group_write | fs::others_write));
+#endif
+}
+
+void cacheCleanup(StringRef root, int cleanInterval) {
+  cleanInterval = gcGetEnv("GC_CACHE_CLEAN_INTERVAL", cleanInterval);
+  if (cleanInterval <= 0) return;
+
+  auto now = sys::TimePoint<>::clock::now();
+  { // Check/update the last cleanup timestamp
+    SmallString<128> stamp = root;
+    sys::path::append(stamp, "cleanup.stamp");
+    if (fs::file_status st;
+        !fs::status(stamp, st) && now - st.getLastModificationTime() <
+                                      std::chrono::hours(cleanInterval)) {
+      return;
+    }
+    std::error_code ec;
+    raw_fd_ostream os(stamp, ec);
+    if (ec) {
+      gcLogE("Failed to update cleanup stamp ", stamp.c_str());
+      return;
+    }
+  }
+
+  auto staleTime =
+      now - std::chrono::hours(gcGetEnv("GC_CACHE_MAX_HOURS", 24 * 30));
+  std::error_code ec;
+  for (fs::directory_iterator itr(root, ec, false), end; !ec && itr != end;
+       itr.increment(ec)) {
+    if (auto st = itr->status();
+        st && fs::is_directory(*st) && st->getLastAccessedTime() < staleTime) {
+      auto &dir = itr->path();
+      gcLogD("Removing stale cache folder ", dir.c_str());
+      if (fs::remove_directories(dir))
+        gcLogE("Failed to remove stale cache folder ", dir.c_str());
+    }
+  }
 }
 
 // Returns the cache root directory or an empty string, if the file cache is
 // disabled. Stale cache directories are removed on the first call.
 StringRef cacheRoot() {
-  if (!isFileCacheEnabled()) return {};
-
   static const auto root = []() -> SmallString<128> {
     SmallString<128> path;
-    size_t baseLen = 0; // Non-zero for the default directory only.
-    int cleanInterval = 0;
-    if (auto env = gcGetEnv("GC_CACHE_DIR")) {
+    if (!isFileCacheEnabled()) return path;
+
+    auto env = gcGetEnv("GC_CACHE_DIR");
+    if (env) {
       path = env;
+    } else if (sys::path::cache_directory(path)) {
+      sys::path::append(path, "intel", "graph-compiler");
     } else {
-      sys::path::cache_directory(path);
-      baseLen = path.size();
-      sys::path::append(path, "intel", "graph-compiler", GC_VERSION_STRING);
-      cleanInterval = 24;
+      gcLogE("Failed to resolve the cache directory, file cache disabled");
+      return {};
     }
 
     if (fs::create_directories(path, true, fs::owner_all)) {
@@ -100,58 +128,28 @@ StringRef cacheRoot() {
       return {};
     }
 
-    // GC_CACHE_DIR is trusted, the default directories must be owned and
+    // Resolve after creation, realpath() fails on non-existent paths.
+    if (SmallString<128> real; !fs::real_path(path, real)) {
+      path = real;
+    } else {
+      gcLogE("Failed to resolve the cache directory real path, file cache "
+             "disabled: ",
+             path.c_str());
+      return {};
+    }
+
+    // GC_CACHE_DIR is trusted, the internal cache dir must be owned and
     // writable by the user only.
-    for (StringRef dir = path; baseLen && dir.size() > baseLen;
-         dir = sys::path::parent_path(dir)) {
+    if (!env) {
       if (fs::file_status st;
-          fs::status(dir, st) || !fs::is_directory(st) || !isTrusted(st)) {
-        gcLogE("Untrusted cache directory, file cache disabled: ", dir);
+          fs::status(path, st) || !fs::is_directory(st) || !isTrusted(st)) {
+        gcLogE("Untrusted cache directory, file cache disabled: ",
+               path.c_str());
         return {};
       }
     }
 
-    // Clean up before resolving symlinks, so it never leaves the cache tree.
-    if (int interval = gcGetEnv("GC_CACHE_CLEAN_INTERVAL", cleanInterval);
-        interval > 0)
-      [&] {
-        SmallString<128> stamp = path;
-        sys::path::append(stamp, "cleanup.stamp");
-        auto now = sys::TimePoint<>::clock::now();
-        if (fs::file_status st;
-            !fs::status(stamp, st) &&
-            now - st.getLastModificationTime() < std::chrono::hours(interval))
-          return;
-        {
-          std::error_code ec;
-          raw_fd_ostream os(stamp, ec);
-          if (ec) gcLogE("Failed to update cleanup stamp ", stamp.c_str());
-        }
-
-        auto rmStaleDirs = [&now](StringRef root, std::chrono::hours staleTime,
-                                  StringRef skip = {}) {
-          std::error_code ec;
-          for (fs::directory_iterator itr(root, ec, false), end;
-               !ec && itr != end; itr.increment(ec)) {
-            if (itr->path() == skip) continue;
-            if (auto st = itr->status();
-                st && fs::is_directory(*st) &&
-                now - st->getLastAccessedTime() > staleTime) {
-              auto &dir = itr->path();
-              gcLogD("Removing stale cache folder ", dir.c_str());
-              if (fs::remove_directories(dir))
-                gcLogE("Failed to remove stale cache folder ", dir.c_str());
-            }
-          }
-        };
-        rmStaleDirs(
-            path, std::chrono::hours(gcGetEnv("GC_CACHE_MAX_HOURS", 24 * 30)));
-        if (baseLen)
-          rmStaleDirs(sys::path::parent_path(path), std::chrono::hours(24),
-                      path);
-      }();
-
-    if (SmallString<128> real; !fs::real_path(path, real, true)) path = real;
+    cacheCleanup(path, env ? 0 : 24);
     gcLogD("Cache directory: ", path.c_str());
     return path;
   }();
@@ -250,7 +248,7 @@ Key::Key(ArrayRef<StringRef> inputs) {
     h.update(s);
   };
   add(GC_VERSION_STRING);
-  add(oclocVersion());
+  add(getGpuCompilerInfo());
   add(isChecksumEnabled() ? "checksum" : "");
   for (auto &i : inputs) add(i);
   hash = h.final<std::tuple_size_v<decltype(hash)>>();

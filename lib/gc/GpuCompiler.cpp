@@ -12,6 +12,7 @@
 #include <utility>
 
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Error.h>
 
@@ -49,9 +50,7 @@ struct GpuCompiler::Impl {
       : ctx(std::make_unique<mlir::MLIRContext>(
             mlir::gc::getDialectRegistry())),
         cache(concurrency) {
-    mlir::gc::GpuDevicePropsOptions deviceProps;
     mlir::gc::GPUPipelineOptions pipelineOpts;
-    pipelineOpts.deviceProps = &deviceProps;
     pipelineOpts.enableAttentionPrefetch = true;
     mlir::PassManager pm(ctx.get());
     mlir::gc::populateGPUPipeline(pm, pipelineOpts);
@@ -61,49 +60,50 @@ struct GpuCompiler::Impl {
     ctx->loadAllAvailableDialects();
   }
 
-  // Either mod or text is the source.
+  // Either mod or ir (mlir string) is the source.
   FutureProgram compile(mlir::OwningOpRef<mlir::ModuleOp> mod,
-                        std::string_view text, Options opts,
+                        std::string_view ir, Options opts,
                         const RtSymbols &syms) {
-    static const Options defaults = [] {
-      Options o(mlir::gc::GpuDevicePropsOptions().arch);
-      o.igcOpts = mlir::gc::GPUPipelineOptions().igcCmdOptions;
-      return o;
-    }();
-    if (opts.arch.empty()) opts.arch = defaults.arch;
-    if (opts.igcOpts.empty()) opts.igcOpts = defaults.igcOpts;
-
     std::string input;
     if (mod) {
       llvm::raw_string_ostream os(input);
       mod->print(os);
-      text = input;
+      ir = input;
     }
-    gc::cache::Key key({
-        text,
-        opts.arch,
-        opts.igcOpts,
-        opts.wait ? "" : "!wait",
-    });
+
+    mlir::gc::GPUPipelineOptions pipelineOpts;
+    setPipelineOpts(pipelineOpts, opts);
+    llvm::SmallVector<llvm::StringRef> keyInputs;
+    keyInputs.push_back(ir);
+    pipelineOpts.addCacheKeyOpts(keyInputs);
+    gc::cache::Key key(keyInputs);
+
     return cache.get(key, [&] {
       // The async task owns the text and parses it into the internal context.
       // The sync one runs before return, viewing the caller's text.
       const bool async = cache.async();
       if (async) {
-        if (!mod) input = text;
-        text = {};
+        if (!mod) input = ir;
+        ir = {};
         mod = nullptr;
       }
       return [this, mod = std::move(mod),
-              input = async ? std::move(input) : std::string(), text,
+              input = async ? std::move(input) : std::string(), ir,
               opts = std::move(opts), &syms](Cache::Accessor &acc) mutable {
-        build(acc, std::move(mod), text.empty() ? input : text, opts, syms);
+        build(acc, std::move(mod), ir.empty() ? input : ir, opts, syms);
       };
     });
   }
 
 private:
   using Cache = gc::cache::FileCache<Program>;
+
+  static void setPipelineOpts(mlir::gc::GPUPipelineOptions &p,
+                              const Options &o) {
+    p.arch = o.arch;
+    p.igcCmdOptions = o.igcOpts;
+    p.wait = o.wait;
+  }
 
   // A null mod is parsed from input into the internal context. On failure,
   // put() is not called, so waiters get nullptr.
@@ -133,13 +133,9 @@ private:
         dumpIr || opts.dump ? 1 : 0
 #endif
         ;
-    mlir::gc::GpuDevicePropsOptions deviceProps;
-    deviceProps.arch = opts.arch;
     mlir::gc::GPUPipelineOptions pipelineOpts;
-    pipelineOpts.deviceProps = &deviceProps;
+    setPipelineOpts(pipelineOpts, opts);
     pipelineOpts.dump = dumpMode > 0;
-    pipelineOpts.igcCmdOptions = opts.igcOpts;
-    pipelineOpts.wait = opts.wait;
 
     std::string dump;
     {

@@ -103,14 +103,7 @@ template <typename E> struct AsyncCache {
     FutureEntry future;
     {
       std::lock_guard<std::mutex> lock(mux);
-      if (auto now = std::chrono::steady_clock::now();
-          now - lastCleanup >= std::chrono::minutes(1)) {
-        lastCleanup = now;
-        cache.remove_if([](auto &kv) {
-          auto *weak = std::get_if<std::weak_ptr<E>>(&kv.second);
-          return weak && weak->expired();
-        });
-      }
+      evictExpired(lock);
       auto [it, miss] = cache.try_emplace(key);
       if (!miss) {
         if (auto *f = std::get_if<FutureEntry>(&it->second)) {
@@ -137,6 +130,18 @@ template <typename E> struct AsyncCache {
   }
 
 private:
+  // Removes the expired entries at most once a minute. The lock argument
+  // ensures, that mux is held.
+  void evictExpired(const std::lock_guard<std::mutex> &) {
+    auto now = std::chrono::steady_clock::now();
+    if (now - lastCleanup < std::chrono::minutes(1)) return;
+    lastCleanup = now;
+    cache.remove_if([](auto &kv) {
+      auto *weak = std::get_if<std::weak_ptr<E>>(&kv.second);
+      return weak && weak->expired();
+    });
+  }
+
   std::mutex mux;
   // Pending entries are futures, completed ones are weak pointers.
   llvm::DenseMap<Key, std::variant<FutureEntry, std::weak_ptr<E>>> cache;

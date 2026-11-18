@@ -17,13 +17,13 @@
 #include <llvm/Support/Error.h>
 
 namespace mlir {
-struct ExecutionEngine;
+class ExecutionEngine;
 } // namespace mlir
 namespace llvm {
 class MemoryBuffer;
 } // namespace llvm
 namespace llvm::orc {
-struct LLJIT;
+class LLJIT;
 } // namespace llvm::orc
 
 namespace gc {
