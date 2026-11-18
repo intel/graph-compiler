@@ -14,6 +14,19 @@
 
 #include <llvm/ADT/StringRef.h>
 
+#include <mlir/Target/LLVM/XeVM/Utils.h>
+
+#include "gc/Utils/Log.h"
+
+inline llvm::StringRef getGpuCompilerInfo() {
+  static const std::string inf = []() {
+    auto i = mlir::xevm::SerializeGPUModuleBase::getCompilerInfo();
+    gcLogD("GPU compiler: ", i);
+    return i;
+  }();
+  return inf;
+}
+
 template <typename T = const char *>
 T gcGetEnv(const char *name, T defaultValue = T()) {
   auto env = std::getenv(name);

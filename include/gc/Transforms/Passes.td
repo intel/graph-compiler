@@ -17,10 +17,6 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
     Set module wide GPU device attributes.
   }];
   let options = [
-    Option<"id", "id", "size_t",
-           /*default=*/"0", "Device id.">,
-    Option<"name", "name", "std::string",
-           /*default=*/"", "Device name.">,
     Option<"arch", "arch", "std::string",
            /*default=*/"\"bmg\"", "GPU architecture.">,
     Option<"maxWgSize", "max-wg-size", "size_t",
