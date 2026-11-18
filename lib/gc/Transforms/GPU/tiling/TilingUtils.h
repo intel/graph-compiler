@@ -36,6 +36,16 @@ using namespace mlir;
 using namespace mlir::gc;
 using namespace mlir::scf;
 
+// Compare group IDs, not the full attributes: each operation's tile sizes
+// describe its own iteration domain. Two unannotated ops retain greedy fusion.
+inline std::optional<int64_t> getFusionGroupId(Operation *op) {
+  if (auto group = op->getAttrOfType<FusionGroupAttr>(GC_ATTR_FUSION_GROUP))
+    return group.getId();
+  if (auto id = op->getAttrOfType<IntegerAttr>(GC_ATTR_FUSION_GROUP_ID))
+    return id.getInt();
+  return std::nullopt;
+}
+
 // Indexing map for an op's result tensor (via its DPS init operand).
 inline AffineMap getResultIndexingMap(Operation *op, unsigned resultNum) {
   auto dst = dyn_cast<DestinationStyleOpInterface>(op);
@@ -362,6 +372,8 @@ public:
   SmallVector<size_t> tiles{};
   SmallVector<size_t> sgTiles{};
   SmallVector<bool> reductions{};
+  // The anchor may be erased by apply(), so keep the kernel's group by value.
+  std::optional<int64_t> fusionGroupId;
 
   Target(func::FuncOp fn)
       : kernelName(fn.getName()), fn(fn), rw(fn), devAttrs(fn),
@@ -381,6 +393,9 @@ public:
   bool set(TilingInterface &op, Level level) {
     this->op = op;
     this->level = level;
+    // Subgroup tiling belongs to the already selected workgroup, including
+    // when the workgroup's anchor decomposed into a different operation.
+    if (level == Level::WG) fusionGroupId = getFusionGroupId(op);
     mark(op.getOperation());
 
     if (level == Level::WG) {
@@ -453,6 +468,12 @@ public:
   }
 
   void mark(Operation *op) {
+    if (isa<LoopLikeOpInterface>(op)) {
+      if (fusionGroupId)
+        op->setDiscardableAttr(GC_ATTR_FUSION_GROUP_ID,
+                               createAttr(op->getContext(), *fusionGroupId));
+      else op->removeDiscardableAttr(GC_ATTR_FUSION_GROUP_ID);
+    }
     if (level == Level::WG && isa<ForallOp>(op)) {
       op->setDiscardableAttr(GC_ATTR_KERNEL_NAME,
                              createAttr(op->getContext(), kernelName));
@@ -471,6 +492,7 @@ struct TiledWorkgroup {
   SmallVector<size_t> tiles;
   SmallVector<size_t> sgTiles;
   std::string kernelName;
+  std::optional<int64_t> fusionGroupId;
 };
 
 // Independent ops of the same kind can become sibling workgroup loops. Keep
@@ -496,7 +518,8 @@ inline bool haveCompatibleKernelSettings(func::FuncOp fn,
                                          const TiledWorkgroup &b) {
   KernelCollectionAttrs kernels(fn);
   Attribute settings = kernels.getAttr(a.kernelName);
-  return a.tiles == b.tiles && a.sgTiles == b.sgTiles && settings &&
+  return a.fusionGroupId == b.fusionGroupId && a.tiles == b.tiles &&
+         a.sgTiles == b.sgTiles && settings &&
          settings == kernels.getAttr(b.kernelName);
 }
 
@@ -635,6 +658,7 @@ protected:
     }
     result.resultMap = getResultIndexingMap(op.getOperation(), 0);
     if (!tg.set(op, Level::WG)) return result;
+    result.fusionGroupId = tg.fusionGroupId;
     computeWgTiles(tg);
     tg.kernelAttrs.setThreads(computeThreads(tg));
     // Function-wide canonicalization can erase the other group members.
@@ -669,7 +693,8 @@ protected:
     for (size_t i = 1; i < loops.size(); ++i) {
       scf::ForOp earlier = loops[i - 1], later = loops[i];
       SmallVector<Operation *> deferredConsumers;
-      if (earlier.getUnsignedCmp() != later.getUnsignedCmp() ||
+      if (getFusionGroupId(earlier) != getFusionGroupId(later) ||
+          earlier.getUnsignedCmp() != later.getUnsignedCmp() ||
           !equalBound(earlier.getLowerBound(), later.getLowerBound()) ||
           !equalBound(earlier.getUpperBound(), later.getUpperBound()) ||
           !equalBound(earlier.getStep(), later.getStep()) ||
@@ -707,6 +732,7 @@ protected:
     tg.selectKernel(tiled.kernelName);
     tg.tiles = tiled.tiles;
     tg.sgTiles = tiled.sgTiles;
+    tg.fusionGroupId = tiled.fusionGroupId;
     tg.level = Level::WG;
     LoopLikeOpInterface loop = currentLoop;
     if (!fuseWgOperations(tg, loop, tiled.resultMap)) return false;
@@ -767,7 +793,8 @@ protected:
             !isSupportedOp(other) || !isHorizontallyFusible(other))
           return;
         if (llvm::all_of(group, [&](Operation *member) {
-              return areIndependentSiblingOps(member, candidate) &&
+              return getFusionGroupId(member) == getFusionGroupId(candidate) &&
+                     areIndependentSiblingOps(member, candidate) &&
                      isCompatibleForHorizontalFusion(
                          cast<TilingInterface>(member), other);
             }))
@@ -810,6 +837,7 @@ protected:
         tg.selectKernel(next.kernelName);
         tg.tiles = next.tiles;
         tg.sgTiles = next.sgTiles;
+        tg.fusionGroupId = next.fusionGroupId;
         tg.level = Level::WG;
         current.loop =
             fuseIndependentSiblingForallLoops(current.loop, next.loop, tg.rw);
@@ -981,6 +1009,7 @@ protected:
       if (!visited.insert(cur).second) continue;
       for (auto res : cur->getResults()) {
         for (auto *user : res.getUsers()) {
+          if (getFusionGroupId(user) != tg.fusionGroupId) continue;
           // For expand_shape: inner dims of a multi-dim group give innerProd.
           if (auto expand = dyn_cast<tensor::ExpandShapeOp>(user)) {
             auto dstType = expand.getResultType();
@@ -1247,11 +1276,12 @@ protected:
                 OpResult originalProducer, bool isDestinationOperand) {
     Operation *op = originalProducer.getOwner();
     if (!op) return std::nullopt;
+    if (getFusionGroupId(op) != tg.fusionGroupId) return std::nullopt;
     if (isDestinationOperand && tg.level == Level::SG) return std::nullopt;
 
     if (LoopLikeOpInterface loop = llvm::dyn_cast_or_null<LoopLikeOpInterface>(
             candidateSliceOp->getParentOp());
-        loop && !canFuse(loop, op, false)) {
+        loop && !canFuse(tg, loop, op, false)) {
       return std::nullopt;
     }
 
@@ -1268,7 +1298,9 @@ protected:
   static bool fuseConsumers(Target &tg, LoopLikeOpInterface &loop,
                             AffineMap prodMap) {
     std::function<bool(Operation *)> isFusible = [&](Operation *op) {
-      if (canFuse(loop, op)) return true;
+      // Check before the reshape fallback so it cannot cross group boundaries.
+      if (getFusionGroupId(op) != tg.fusionGroupId) return false;
+      if (canFuse(tg, loop, op)) return true;
       if (!isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(op))
         return false;
       for (auto user : op->getUsers()) {
@@ -1344,7 +1376,7 @@ protected:
     SmallVector<tensor::ExtractSliceOp> candidates;
     loop->walk([&](tensor::ExtractSliceOp slice) {
       auto producer = slice.getSource().getDefiningOp();
-      if (!producer || !canFuse(loop, producer, false)) return;
+      if (!producer || !canFuse(tg, loop, producer, false)) return;
       if (isOpDependsOnResult<0>(isMatmulOp, slice) &&
           isOperandDependsOnOp(isMatmulOp, slice))
         return;
@@ -1358,8 +1390,9 @@ protected:
   }
 
 private:
-  static bool canFuse(LoopLikeOpInterface loop, Operation *op,
+  static bool canFuse(Target &tg, LoopLikeOpInterface loop, Operation *op,
                       bool isConsumer = true) {
+    if (getFusionGroupId(op) != tg.fusionGroupId) return false;
     if (op->getBlock() != loop->getBlock()) return false;
     if (containsMatmulOp(op)) return false;
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {

@@ -34,6 +34,8 @@ namespace mlir::gc {
 constexpr char GC_ATTR_KERNEL_NAME[] = "gc.kernel_name";
 constexpr char GC_ATTR_LEVEL[] = "gc.tiling.level";
 constexpr char GC_ATTR_WG_TILE_SIZES[] = "gc.tiling.wg_tile_sizes";
+constexpr char GC_ATTR_FUSION_GROUP[] = "gc.fusion_group";
+constexpr char GC_ATTR_FUSION_GROUP_ID[] = "gc.tiling.fusion_group_id";
 constexpr char GC_ATTR_NUM_KERNELS[] = "gc.num_kernels";
 constexpr char GC_ATTR_LOOP_STAMP[] = "gc.loop.stamp";
 
