@@ -205,8 +205,11 @@ def SetKernelDepends : Pass<"set-kernel-depends", "func::FuncOp"> {
   let summary = "Set dependencies between GPU kernels.";
   let description = [{
     Collect dependencies between scf.forall operations annotated as GPU kernels.
+    Reject tensor.expand_shape and tensor.collapse_shape outside GPU kernel
+    loops before collecting dependencies. Indirect dependencies through these
+    untiled reshapes are not supported.
   }];
-  let dependentDialects = ["scf::SCFDialect"];
+  let dependentDialects = ["scf::SCFDialect", "tensor::TensorDialect"];
 }
 
 def MemrefCopyToGpu : Pass<"memref-copy-to-gpu", "ModuleOp"> {
