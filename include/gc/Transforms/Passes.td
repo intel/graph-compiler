@@ -30,6 +30,14 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
     ];
 }
 
+def PlanTileAndFuse : Pass<"plan-tile-and-fuse", "func::FuncOp"> {
+  let summary = "Plan tiling and fusion groups.";
+  let description = [{
+    Plan fusion groups for Linalg operations and supported Linalgx anchors.
+    This pass currently leaves the function unchanged.
+  }];
+}
+
 def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
   let summary = "Tile contraction operations.";
   let description = [{
