@@ -76,6 +76,11 @@ struct GpuCompiler {
                         const RtSymbols &syms) = delete;
   FutureProgram compile(std::string_view src, Options opts,
                         const RtSymbols &syms);
+
+  struct Impl;
+
+private:
+  std::unique_ptr<Impl> impl;
 };
 
 struct Program {
@@ -123,6 +128,7 @@ struct Program {
   ~Program();
 
 private:
+  friend GpuCompiler::Impl;
   uint32_t const evtNum;
   std::unique_ptr<::gc::JitEngine> jit;
 

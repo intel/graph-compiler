@@ -30,12 +30,6 @@ struct GpuDeviceProps final
   void runOnOperation() override {
     DevAttrs dev(getOperation());
 
-    if (!dev.getId() && id != 0) {
-      dev.setId(id);
-    }
-    if (!dev.getName() && !name.empty()) {
-      dev.setName(name);
-    }
     if (!dev.getArch()) {
       auto a = arch.c_str();
       if (auto id = dev.getId()) a = dev.getDeviceArch(*id).value_or(a);

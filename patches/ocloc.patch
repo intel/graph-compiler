@@ -1,0 +1,114 @@
+From 45d699cbf038f1714f3107764ceb9e3439dbd2a8 Mon Sep 17 00:00:00 2001
+From: Andrey Pavlenko <andrey.a.pavlenko@gmail.com>
+Date: Mon, 16 Nov 2026 23:24:06 +0000
+Subject: [PATCH] [MLIR][XeVM] Add SerializeGPUModuleBase::getCompilerInfo()
+
+Add a static method returning the GPU compiler version info.
+---
+ mlir/include/mlir/Target/LLVM/XeVM/Utils.h |  7 +++
+ mlir/lib/Target/LLVM/XeVM/Target.cpp       | 56 +++++++++++++++++++++-
+ 2 files changed, 62 insertions(+), 1 deletion(-)
+
+diff --git a/mlir/include/mlir/Target/LLVM/XeVM/Utils.h b/mlir/include/mlir/Target/LLVM/XeVM/Utils.h
+index b5fa0349839e..c4c839df97ab 100644
+--- a/mlir/include/mlir/Target/LLVM/XeVM/Utils.h
++++ b/mlir/include/mlir/Target/LLVM/XeVM/Utils.h
+@@ -43,6 +43,11 @@ public:
+   FailureOr<SmallVector<char, 0>> compileToBinary(StringRef asmStr,
+                                                   StringRef inputFormat);
+ 
++  /// Returns the GPU compiler version info, or an empty string if
++  // the compiler is not found.
++  static std::string
++  getCompilerInfo(const gpu::TargetOptions &targetOptions = {});
++
+ protected:
+   /// XeVM Target attribute.
+   XeVMTargetAttr xeTarget;
+@@ -53,6 +58,8 @@ protected:
+ 
+   /// Returns the path to the tool used for serialization.
+   std::optional<std::string> findTool(StringRef tool);
++  static std::optional<std::string>
++  findTool(StringRef tool, const gpu::TargetOptions &targetOptions);
+ 
+   /// Compiles to native code using the `ocloc` command-line tool, communicating
+   /// through temporary files.
+diff --git a/mlir/lib/Target/LLVM/XeVM/Target.cpp b/mlir/lib/Target/LLVM/XeVM/Target.cpp
+index 96e6a1c6a112..814e919b14d7 100644
+--- a/mlir/lib/Target/LLVM/XeVM/Target.cpp
++++ b/mlir/lib/Target/LLVM/XeVM/Target.cpp
+@@ -400,7 +400,56 @@ SerializeGPUModuleBase::compileToBinary(StringRef asmStr,
+ #endif
+ }
+ 
+-std::optional<std::string> SerializeGPUModuleBase::findTool(StringRef tool) {
++std::string SerializeGPUModuleBase::getCompilerInfo(
++    [[maybe_unused]] const gpu::TargetOptions &targetOptions) {
++  static constexpr const char *query = "OCL_DRIVER_VERSION";
++#if MLIR_XEVM_OCLOC_LIB_AVAILABLE
++  const char *argv[] = {"ocloc", "query", query};
++  uint32_t outputsNum = 0;
++  uint8_t **outputs = nullptr;
++  uint64_t *outputLengths = nullptr;
++  char **outputNames = nullptr;
++  auto freeOutputs = llvm::scope_exit([&]() {
++    oclocFreeOutput(&outputsNum, &outputs, &outputLengths, &outputNames);
++  });
++  if (oclocInvoke(std::size(argv), argv, /*numSources=*/0, nullptr, nullptr,
++                  nullptr, /*numHeaders=*/0, nullptr, nullptr, nullptr,
++                  &outputsNum, &outputs, &outputLengths,
++                  &outputNames) != OCLOC_SUCCESS)
++    return {};
++  for (uint32_t i = 0; i < outputsNum; ++i)
++    if (StringRef(outputNames[i]) == query)
++      return StringRef(reinterpret_cast<char *>(outputs[i]), outputLengths[i])
++          .rtrim('\0')
++          .trim()
++          .str();
++  return {};
++#else
++  std::optional<std::string> oclocPath = findTool("ocloc", targetOptions);
++  SmallString<128> out;
++  if (!oclocPath || llvm::sys::fs::createTemporaryFile("ocloc", "query", out))
++    return {};
++  llvm::FileRemover outRemover(out);
++  llvm::FileRemover queryRemover(query); // Remove the file created by ocloc
++  std::optional<StringRef> redirects[] = {std::nullopt, out.str(),
++                                          std::nullopt};
++  if (llvm::sys::ExecuteAndWait(*oclocPath, {"ocloc", "query", query},
++                                std::nullopt, redirects))
++    return {};
++  // Newer versions also print the result to stdout, older ones write only the
++  // file in the CWD.
++  for (StringRef file : {out.str(), StringRef(query)})
++    if (llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buf =
++            llvm::MemoryBuffer::getFile(file))
++      if (StringRef ver = (*buf)->getBuffer().rtrim('\0').trim(); !ver.empty())
++        return ver.str();
++  return {};
++#endif
++}
++
++std::optional<std::string>
++SerializeGPUModuleBase::findTool(StringRef tool,
++                                 const gpu::TargetOptions &targetOptions) {
+   // 1. Check the toolkit path given in the command line.
+   StringRef pathRef = targetOptions.getToolkitPath();
+   SmallVector<char, 256> path;
+@@ -413,7 +462,12 @@ std::optional<std::string> SerializeGPUModuleBase::findTool(StringRef tool) {
+   // 2. Check PATH.
+   if (llvm::ErrorOr<std::string> toolPath = llvm::sys::findProgramByName(tool))
+     return *toolPath;
++  return std::nullopt;
++}
+ 
++std::optional<std::string> SerializeGPUModuleBase::findTool(StringRef tool) {
++  if (std::optional<std::string> path = findTool(tool, targetOptions))
++    return path;
+   getGPUModuleOp().emitError()
+       << "Couldn't find the `" << tool
+       << "` binary. Please specify the toolkit "
+-- 
+2.43.0
+
