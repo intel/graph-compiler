@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"
 #include <algorithm>
 
@@ -27,12 +28,31 @@ namespace {
 struct SetKernelDepends final
     : ::mlir::gc::impl::SetKernelDependsBase<SetKernelDepends> {
   void runOnOperation() override {
+    // Dependency collection only follows direct users. Reject reshapes outside
+    // kernels before changing metadata, until indirect dependencies are
+    // handled.
+    auto validation =
+        getOperation().walk<WalkOrder::PreOrder>([&](Operation *op) {
+          if (!isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(op) ||
+              getKernelLoop(op))
+            return WalkResult::advance();
+          op->emitOpError(
+              "untiled reshape outside a GPU kernel; tile or fuse it before "
+              "collecting kernel dependencies");
+          return WalkResult::interrupt();
+        });
+    if (validation.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
+
     getOperation().walk([&](scf::ForallOp forallOp) {
       auto kernelName = dyn_cast_if_present<StringAttr>(
           forallOp->getAttr(GC_ATTR_KERNEL_NAME));
       if (!kernelName) return WalkResult::skip();
 
       for (auto result : forallOp.getResults()) {
+        // A result can feed multiple kernels, with multiple uses in each.
         for (auto user : result.getUsers()) {
           auto kernel = getKernelLoop(user);
           if (!kernel) continue;
@@ -45,7 +65,6 @@ struct SetKernelDepends final
             depends.push_back(kernelName.getValue());
             attrs.setDepends(depends);
           }
-          break;
         }
       }
 
