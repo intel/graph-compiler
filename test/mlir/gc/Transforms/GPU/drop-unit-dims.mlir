@@ -162,3 +162,67 @@ func.func @out_of_bounds_read(%source: memref<256x32x512xi4>, %expert: index, %g
   %read = vector.transfer_read %source[%expert, %group, %channel], %padding {in_bounds = [false, true, true]} : memref<256x32x512xi4>, vector<1x1x64xi4>
   return %read : vector<1x1x64xi4>
 }
+
+// -----
+
+// CHECK-LABEL: func.func @projected_broadcast_read(
+// CHECK: %[[VIEW:.*]] = memref.subview %arg0[0, 0, %arg3] [8, 512, 1] [1, 1, 1]
+// CHECK-SAME: to memref<8x512xf16, strided<[512, 1], offset: ?>>
+// CHECK: %[[READ:.*]] = vector.transfer_read %[[VIEW]][%arg1, %arg2]{{.*}}vector<64xf16>
+// CHECK: vector.broadcast %[[READ]] : vector<64xf16> to vector<64x64xf16>
+// CHECK: return
+func.func @projected_broadcast_read(%source: memref<8x512x1xf16>, %expert: index, %channel: index, %fixed: index) -> vector<1x64x64xf16> {
+  %padding = arith.constant 0.0 : f16
+  %read = vector.transfer_read %source[%expert, %channel, %fixed], %padding {in_bounds = [true, true, true], permutation_map = affine_map<(d0, d1, d2) -> (d0, d1, 0)>} : memref<8x512x1xf16>, vector<1x64x64xf16>
+  return %read : vector<1x64x64xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @extend_before_reshape(
+// CHECK: %[[READ:.*]] = vector.transfer_read {{.*}}vector<64x2xi4>
+// CHECK-NEXT: %[[EXT:.*]] = arith.extui %[[READ]] : vector<64x2xi4> to vector<64x2xi32>
+// CHECK: vector.broadcast %[[EXT]] : vector<64x2xi32> to vector<32x64x2xi32>
+// CHECK: vector.transpose {{.*}} : vector<32x64x2xi32> to vector<64x2x32xi32>
+// CHECK: vector.shape_cast {{.*}} : vector<64x2x32xi32> to vector<64x64xi32>
+// CHECK: return
+func.func @extend_before_reshape(%source: memref<8x512x8xi4, strided<[4096, 1, 512]>>, %expert: index, %channel: index, %group: index) -> vector<64x64xi32> {
+  %padding = arith.constant 0 : i4
+  %read = vector.transfer_read %source[%expert, %channel, %group], %padding {in_bounds = [true, true]} : memref<8x512x8xi4, strided<[4096, 1, 512]>>, vector<64x2xi4>
+  %broadcast = vector.broadcast %read : vector<64x2xi4> to vector<32x64x2xi4>
+  %transpose = vector.transpose %broadcast, [1, 2, 0] : vector<32x64x2xi4> to vector<64x2x32xi4>
+  %reshape = vector.shape_cast %transpose : vector<64x2x32xi4> to vector<64x64xi4>
+  %extended = arith.extui %reshape : vector<64x64xi4> to vector<64x64xi32>
+  return %extended : vector<64x64xi32>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @signed_extend_before_reshape(
+// CHECK: %[[READ:.*]] = vector.transfer_read {{.*}}vector<64x2xi4>
+// CHECK-NEXT: %[[EXT:.*]] = arith.extui %[[READ]] : vector<64x2xi4> to vector<64x2xi32>
+// CHECK: vector.broadcast %[[EXT]] : vector<64x2xi32> to vector<32x64x2xi32>
+// CHECK: arith.shli
+// CHECK: arith.shrsi
+// CHECK: vector.shape_cast {{.*}} : vector<64x2x32xi32> to vector<64x64xi32>
+// CHECK: return
+func.func @signed_extend_before_reshape(%source: memref<8x512x8xi4, strided<[4096, 1, 512]>>, %expert: index, %channel: index, %group: index) -> vector<64x64xi32> {
+  %padding = arith.constant 0 : i4
+  %read = vector.transfer_read %source[%expert, %channel, %group], %padding {in_bounds = [true, true]} : memref<8x512x8xi4, strided<[4096, 1, 512]>>, vector<64x2xi4>
+  %broadcast = vector.broadcast %read : vector<64x2xi4> to vector<32x64x2xi4>
+  %transpose = vector.transpose %broadcast, [1, 2, 0] : vector<32x64x2xi4> to vector<64x2x32xi4>
+  %reshape = vector.shape_cast %transpose : vector<64x2x32xi4> to vector<64x64xi4>
+  %extended = arith.extsi %reshape : vector<64x64xi4> to vector<64x64xi32>
+  return %extended : vector<64x64xi32>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @masked_broadcast_read(
+// CHECK: %[[READ:.*]] = vector.transfer_read {{.*}}, %arg4 {{.*}}vector<1x64x64xf16>
+// CHECK-NEXT: return %[[READ]]
+func.func @masked_broadcast_read(%source: memref<8x512x1xf16>, %expert: index, %channel: index, %fixed: index, %mask: vector<1x64xi1>) -> vector<1x64x64xf16> {
+  %padding = arith.constant 0.0 : f16
+  %read = vector.transfer_read %source[%expert, %channel, %fixed], %padding, %mask {in_bounds = [true, true, true], permutation_map = affine_map<(d0, d1, d2) -> (d0, d1, 0)>} : memref<8x512x1xf16>, vector<1x64x64xf16>
+  return %read : vector<1x64x64xf16>
+}

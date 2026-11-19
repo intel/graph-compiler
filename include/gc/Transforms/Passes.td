@@ -143,7 +143,8 @@ def DropUnitDims : Pass<"drop-unit-dims", "func::FuncOp"> {
   let description = [{
     Drop unit dims to allow some operations, like vector transfers, be properly lowered to XeGPU.
   }];
-  let dependentDialects = ["memref::MemRefDialect", "vector::VectorDialect"];
+  let dependentDialects = ["arith::ArithDialect", "memref::MemRefDialect",
+                           "vector::VectorDialect"];
 }
 
 def RemoveAllocs : Pass<"remove-allocs", "func::FuncOp"> {

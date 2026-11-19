@@ -6,10 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <type_traits>
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -37,6 +41,106 @@ static VectorType dropNonScalableUnitDims(VectorType type,
   }
   return VectorType::get(shape, type.getElementType(), scalableDims);
 }
+
+template <typename ExtensionOp>
+struct HoistSubByteExtension : OpRewritePattern<ExtensionOp> {
+  using OpRewritePattern<ExtensionOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ExtensionOp extension,
+                                PatternRewriter &rewriter) const override {
+    auto type = dyn_cast<VectorType>(extension.getIn().getType());
+    auto *producer = extension.getIn().getDefiningOp();
+    if (!type || !type.getElementType().isInteger(4) || !producer ||
+        !isa<vector::BroadcastOp, vector::TransposeOp, vector::ShapeCastOp>(
+            producer))
+      return failure();
+    Value origin = extension.getIn();
+    while (auto *definition = origin.getDefiningOp()) {
+      if (!isa<vector::BroadcastOp, vector::TransposeOp, vector::ShapeCastOp>(
+              definition))
+        break;
+      origin = definition->getOperand(0);
+    }
+    auto read = origin.getDefiningOp<vector::TransferReadOp>();
+    if (!read || llvm::count_if(read.getVectorType().getShape(),
+                                [](int64_t size) { return size != 1; }) < 2)
+      return failure();
+    auto sourceType = dyn_cast<VectorType>(producer->getOperand(0).getType());
+    if (!sourceType) return failure();
+    if (isa<vector::ShapeCastOp>(producer) &&
+        dropNonScalableUnitDims(type, type) ==
+            dropNonScalableUnitDims(sourceType, sourceType))
+      return failure();
+    auto resultType = cast<VectorType>(extension.getType());
+    auto extendedType = sourceType.clone(resultType.getElementType());
+    Value extended = arith::ExtUIOp::create(
+        rewriter, extension.getLoc(), extendedType, producer->getOperand(0));
+    if constexpr (std::is_same_v<ExtensionOp, arith::ExtSIOp>) {
+      auto shiftAmount = extendedType.getElementTypeBitWidth() - 4;
+      Value shift = arith::ConstantOp::create(
+          rewriter, extension.getLoc(), extendedType,
+          DenseElementsAttr::get(
+              extendedType, rewriter.getIntegerAttr(
+                                extendedType.getElementType(), shiftAmount)));
+      extended =
+          arith::ShLIOp::create(rewriter, extension.getLoc(), extended, shift);
+      extended =
+          arith::ShRSIOp::create(rewriter, extension.getLoc(), extended, shift);
+    }
+    IRMapping mapping;
+    mapping.map(producer->getOperand(0), extended);
+    auto *replacement = rewriter.clone(*producer, mapping);
+    replacement->getResult(0).setType(resultType);
+    rewriter.replaceOp(extension, replacement->getResults());
+    return success();
+  }
+};
+
+struct NormalizeBroadcastTransferRead
+    : OpRewritePattern<vector::TransferReadOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(vector::TransferReadOp read,
+                                PatternRewriter &rewriter) const override {
+    auto map = read.getPermutationMap();
+    auto type = read.getVectorType();
+    if (map.getBroadcastDims().empty() || read.getMask() || type.isScalable() ||
+        read.hasOutOfBoundsDim() || !map.isProjectedPermutation(true) ||
+        read.getTransferRank() != type.getRank() ||
+        isa<vector::MaskOp>(read->getParentOp()))
+      return failure();
+    SmallVector<AffineExpr> results;
+    SmallVector<int64_t> shape, broadcastShape, permutation(type.getRank());
+    int64_t broadcastRank = map.getBroadcastDims().size();
+    int64_t nextBroadcast = 0;
+    for (int64_t dim = 0; dim < type.getRank(); ++dim) {
+      auto expr = map.getResult(dim);
+      if (isa<AffineDimExpr>(expr)) {
+        permutation[dim] = broadcastRank + shape.size();
+        results.push_back(expr);
+        shape.push_back(type.getDimSize(dim));
+      } else {
+        permutation[dim] = nextBroadcast++;
+        broadcastShape.push_back(type.getDimSize(dim));
+      }
+    }
+    if (shape.empty()) return failure();
+    auto reducedType = VectorType::get(shape, type.getElementType());
+    auto reducedMap =
+        AffineMap::get(map.getNumDims(), 0, results, rewriter.getContext());
+    Value reduced = vector::TransferReadOp::create(
+        rewriter, read.getLoc(), reducedType, read.getBase(), read.getIndices(),
+        AffineMapAttr::get(reducedMap), read.getPadding(), Value{},
+        rewriter.getBoolArrayAttr(SmallVector<bool>(shape.size(), true)));
+    llvm::append_range(broadcastShape, shape);
+    auto broadcastType = VectorType::get(broadcastShape, type.getElementType());
+    Value broadcast = vector::BroadcastOp::create(rewriter, read.getLoc(),
+                                                  broadcastType, reduced);
+    rewriter.replaceOpWithNewOp<vector::TransposeOp>(read, broadcast,
+                                                     permutation);
+    return success();
+  }
+};
 
 struct DropTransferReadUnitDims : OpRewritePattern<vector::TransferReadOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -77,11 +181,20 @@ struct DropTransferReadUnitDims : OpRewritePattern<vector::TransferReadOp> {
           return failure();
         expectedStride *= memrefType.getDimSize(dim.getPosition());
       }
-      if (reducedType.getRank() > 1) {
+      bool trailingUnitDims = llvm::all_of(
+          llvm::seq<unsigned>(
+              cast<AffineDimExpr>(results.back()).getPosition() + 1,
+              memrefType.getRank()),
+          [&](unsigned dim) { return memrefType.getDimSize(dim) == 1; });
+      if (reducedType.getRank() > 1 ||
+          (strides.back() == 1 && trailingUnitDims)) {
         if (type.isScalable()) return failure();
         SmallVector<bool> retained(memrefType.getRank(), false);
         for (AffineExpr result : results)
           retained[cast<AffineDimExpr>(result).getPosition()] = true;
+        if (reducedType.getRank() == 1 &&
+            cast<AffineDimExpr>(results.front()).getPosition() > 0)
+          retained[0] = true;
         auto zero = rewriter.getIndexAttr(0);
         auto one = rewriter.getIndexAttr(1);
         SmallVector<OpFoldResult> offsets(memrefType.getRank(), zero);
@@ -205,6 +318,9 @@ struct DropUnitDims final : gc::impl::DropUnitDimsBase<DropUnitDims> {
   void runOnOperation() override {
     auto fn = getOperation();
     RewritePatternSet patterns(&getContext());
+    patterns.add<HoistSubByteExtension<arith::ExtUIOp>,
+                 HoistSubByteExtension<arith::ExtSIOp>>(&getContext());
+    patterns.add<NormalizeBroadcastTransferRead>(&getContext());
     patterns.add<DropTransferReadUnitDims>(&getContext(), PatternBenefit(2));
     vector::populateDropInnerMostUnitDimsXferOpPatterns(patterns);
     vector::populateVectorTransferDropUnitDimsPatterns(patterns);
