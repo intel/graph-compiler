@@ -12,12 +12,20 @@
 
 #include <llvm/ADT/SmallVector.h>
 #include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
 
 #include "gc/GpuCompiler.h"
 #include "gc/Runtime/ZeGpuRuntime.h"
 
 namespace nb = nanobind;
 using namespace gc::gpu;
+
+using HostArray = nb::ndarray<nb::numpy, nb::c_contig, nb::device::cpu>;
+
+static bool isArray(const nb::object &obj) {
+  HostArray array;
+  return nb::try_cast(obj, array, false);
+}
 
 static bool isTensor(const nb::object &obj) {
   static nb::object torchTensor = []() -> nb::object {
@@ -27,12 +35,14 @@ static bool isTensor(const nb::object &obj) {
       return nb::none();
     }
   }();
-  return torchTensor && nb::isinstance(obj, torchTensor);
+  return !torchTensor.is_none() && nb::isinstance(obj, torchTensor);
 }
 
 static size_t tensorSize(const nb::object &tensor) {
+  if (isArray(tensor)) return nb::cast<HostArray>(tensor).nbytes();
   if (!isTensor(tensor)) {
-    throw std::invalid_argument("Not a tensor!");
+    throw std::invalid_argument(
+        "Expected a tensor or writable C-contiguous NumPy array!");
   }
   return nb::cast<size_t>(tensor.attr("element_size")()) *
          nb::cast<size_t>(tensor.attr("nelement")());
@@ -60,6 +70,15 @@ struct Usm {
 
   explicit Usm(const nb::object &tensor, bool shared = false)
       : Usm(tensorSize(tensor), shared) {
+    if (isArray(tensor)) {
+      auto array = nb::cast<HostArray>(tensor);
+      for (size_t axis = 0; axis < array.ndim(); ++axis) {
+        shape.push_back(array.shape(axis));
+        strides.push_back(array.stride(axis));
+      }
+      copyFrom(array.data(), size);
+      return;
+    }
     nb::object cpu = tensor.attr("cpu")().attr("contiguous")();
     setLayout(cpu);
     auto addr = nb::cast<uintptr_t>(cpu.attr("data_ptr")());
@@ -89,6 +108,10 @@ struct Usm {
     auto tensorSize = ::tensorSize(tensor);
     if (tensorSize != size) {
       throw std::invalid_argument("Tensor size does not match USM size!");
+    }
+    if (isArray(tensor)) {
+      copyTo(nb::cast<HostArray>(tensor).data(), size);
+      return;
     }
     auto cpu = tensor.attr("cpu")().attr("contiguous")();
     size_t cpuAddr = nb::cast<size_t>(cpu.attr("data_ptr")());
@@ -177,8 +200,9 @@ NB_MODULE(graph_compiler, m) {
         for (size_t i = 0; i < args.size(); ++i) {
           nb::object arg = args[i];
           Usm *usm;
-          if (isTensor(arg)) {
-            nb::object cpu = arg.attr("cpu")().attr("contiguous")();
+          if (isArray(arg) || isTensor(arg)) {
+            nb::object cpu =
+                isArray(arg) ? arg : arg.attr("cpu")().attr("contiguous")();
             tensorUsms.emplace_back(std::make_unique<Usm>(cpu));
             usm = tensorUsms.back().get();
             tensors.push_back(std::move(arg));
@@ -199,7 +223,7 @@ NB_MODULE(graph_compiler, m) {
 
         for (size_t i = 0; i < tensors.size(); ++i) {
           tensorUsms[i]->to(cpus[i]);
-          tensors[i].attr("copy_")(cpus[i]);
+          if (isTensor(tensors[i])) tensors[i].attr("copy_")(cpus[i]);
         }
       });
 
