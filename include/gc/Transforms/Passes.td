@@ -33,9 +33,15 @@ def GpuDeviceProps : Pass<"gpu-dev-props", "ModuleOp"> {
 def PlanTileAndFuse : Pass<"plan-tile-and-fuse", "func::FuncOp"> {
   let summary = "Plan tiling and fusion groups.";
   let description = [{
-    Plan fusion groups for Linalg operations and supported Linalgx anchors.
-    This pass currently leaves the function unchanged.
+    Assign a singleton gc.fusion_group to each matmul, grouped matmul, and
+    attention anchor, then to each remaining operation with tensor semantics.
+    Function boundaries and terminators are excluded. IDs start at zero in
+    each function and follow IR walk order, with anchors assigned first.
+    Input operations are expected to have no fusion groups. Tile sizes are
+    left empty; tile selection and fusion are deferred.
   }];
+  let dependentDialects = ["gc::GCDialect",
+                           "bufferization::BufferizationDialect"];
 }
 
 def TileContraction : Pass<"tile-contract", "func::FuncOp"> {
