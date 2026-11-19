@@ -33,6 +33,7 @@ struct SetKernelDepends final
       if (!kernelName) return WalkResult::skip();
 
       for (auto result : forallOp.getResults()) {
+        // A result can feed multiple kernels, with multiple uses in each.
         for (auto user : result.getUsers()) {
           auto kernel = getKernelLoop(user);
           if (!kernel) continue;
@@ -45,7 +46,6 @@ struct SetKernelDepends final
             depends.push_back(kernelName.getValue());
             attrs.setDepends(depends);
           }
-          break;
         }
       }
 
