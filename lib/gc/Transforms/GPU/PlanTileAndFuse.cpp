@@ -32,6 +32,20 @@ static bool isAnchor(Operation *op) {
 
 struct PlanTileAndFuse final : gc::impl::PlanTileAndFuseBase<PlanTileAndFuse> {
   void runOnOperation() override {
+    // Validate the whole function before changing any annotations.
+    WalkResult result =
+        getOperation().walk<WalkOrder::PreOrder>([&](Operation *op) {
+          if (!op->hasAttr(gc::GC_ATTR_FUSION_GROUP))
+            return WalkResult::advance();
+          op->emitError("plan-tile-and-fuse requires input without "
+                        "gc.fusion_group attributes");
+          return WalkResult::interrupt();
+        });
+    if (result.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
+
     MLIRContext *ctx = &getContext();
     auto tileSizes = DenseI64ArrayAttr::get(ctx, {});
     int64_t nextGroupId = 0;

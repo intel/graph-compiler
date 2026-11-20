@@ -37,8 +37,8 @@ def PlanTileAndFuse : Pass<"plan-tile-and-fuse", "func::FuncOp"> {
     attention anchor, then to each remaining operation with tensor semantics.
     Function boundaries and terminators are excluded. IDs start at zero in
     each function and follow IR walk order, with anchors assigned first.
-    Input operations are expected to have no fusion groups. Tile sizes are
-    left empty; tile selection and fusion are deferred.
+    Reject input containing any gc.fusion_group attributes before assigning
+    groups. Tile sizes are left empty; tile selection and fusion are deferred.
   }];
   let dependentDialects = ["gc::GCDialect",
                            "bufferization::BufferizationDialect"];
