@@ -848,6 +848,50 @@ func.func @cycle_through_region_capture(
 
 // -----
 
+// Seeded contraction anchors can capture another anchor's result in their
+// payload. That dependency must remain visible through the owned group's
+// inputs: absorbing the joint consumer into group 0 would create a cycle
+// through group 1. The unsupported captured payload also prevents group 1
+// from absorbing the consumer, so it remains a singleton.
+// CHECK-LABEL: func.func @cycle_through_seeded_anchor_capture(
+// CHECK: %[[FIRST:.+]] = linalg.matmul
+// CHECK-SAME: gc.fusion_group<0, tile_sizes = []>
+// CHECK-NEXT: %[[SECOND:.+]] = linalg.generic
+// CHECK-SAME: gc.fusion_group<1, tile_sizes = []>
+// CHECK: tensor.extract %[[FIRST]]
+// CHECK-SAME: gc.fusion_group<2, tile_sizes = []>
+// CHECK: %[[CONSUMER:.+]] = linalg.elementwise <add>
+// CHECK-SAME: gc.fusion_group<3, tile_sizes = []>
+// CHECK-SAME: ins(%[[FIRST]], %[[SECOND]]
+// CHECK-NEXT: return %[[CONSUMER]]
+func.func @cycle_through_seeded_anchor_capture(
+    %a: tensor<4x4xf32>, %b: tensor<4x4xf32>, %out: tensor<4x4xf32>)
+    -> tensor<4x4xf32> {
+  %first = linalg.matmul
+    ins(%a, %b : tensor<4x4xf32>, tensor<4x4xf32>)
+    outs(%out : tensor<4x4xf32>) -> tensor<4x4xf32>
+  %second = linalg.generic {
+    indexing_maps = [affine_map<(m, n, k) -> (m, k)>,
+                     affine_map<(m, n, k) -> (k, n)>,
+                     affine_map<(m, n, k) -> (m, n)>],
+    iterator_types = ["parallel", "parallel", "reduction"]}
+    ins(%a, %b : tensor<4x4xf32>, tensor<4x4xf32>)
+    outs(%out : tensor<4x4xf32>) {
+  ^bb0(%x: f32, %y: f32, %acc: f32):
+    %c0 = arith.constant 0 : index
+    %captured = tensor.extract %first[%c0, %c0] : tensor<4x4xf32>
+    %product = arith.mulf %x, %y : f32
+    %sum = arith.addf %product, %acc : f32
+    linalg.yield %sum : f32
+  } -> tensor<4x4xf32>
+  %consumer = linalg.elementwise <add>
+    ins(%first, %second : tensor<4x4xf32>, tensor<4x4xf32>)
+    outs(%out : tensor<4x4xf32>) -> tensor<4x4xf32>
+  return %consumer : tensor<4x4xf32>
+}
+
+// -----
+
 // Supported Linalgx groups participate in expansion. Tensor operations that
 // produce scalars are supported, too, while the scalar constant stays outside.
 #gl = affine_map<(e, m, n, k) -> (m, k)>

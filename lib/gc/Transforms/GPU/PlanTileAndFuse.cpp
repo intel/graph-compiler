@@ -55,7 +55,7 @@ struct FusionGroup {
   const int64_t id;
   Operation *const anchor;
   llvm::SmallSetVector<Operation *, 8> members;
-  /// Values used by members but defined outside the group, including arguments.
+  /// External values used by members, including arguments and region captures.
   llvm::SmallSetVector<Value, 8> inputs;
   /// Member results with users outside the group (including returns).
   llvm::SmallSetVector<Value, 8> outputs;
@@ -285,9 +285,13 @@ static void recomputeBoundaries(FusionGroup &group) {
   group.inputs.clear();
   group.outputs.clear();
   for (Operation *member : group.members) {
-    for (Value operand : member->getOperands())
-      if (!group.contains(operand.getDefiningOp()))
-        group.inputs.insert(operand);
+    // Seeded anchors may have captures that legality checks would reject during
+    // expansion. Their dependencies must still be visible to other groups.
+    llvm::SetVector<Value> inputs;
+    inputs.insert(member->operand_begin(), member->operand_end());
+    getUsedValuesDefinedAbove(member->getRegions(), inputs);
+    for (Value input : inputs)
+      if (!group.contains(input.getDefiningOp())) group.inputs.insert(input);
 
     for (Value result : member->getResults())
       if (llvm::any_of(result.getUsers(),
