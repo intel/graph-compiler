@@ -31,6 +31,7 @@ gc_add_mlir_library(
   AttentionOptimizations/SetAttentionPrefetch.cpp
   AttentionOptimizations/HoistAttentionVLoad.cpp
   SetLayouts.cpp
+  FactorDequant.cpp
   SetGpuFastMath.cpp
   Pipeline.cpp
   DEPENDS

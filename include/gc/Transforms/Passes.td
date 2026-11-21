@@ -171,6 +171,34 @@ def TensorConcatToLinalg : Pass<"tensor-concat-to-linalg", "func::FuncOp"> {
   }];
 }
 
+def FactorDequant : Pass<"factor-dequant"> {
+  let summary = "Apply dequantization scales and zero points per output.";
+  let description = [{
+    Rewrites a loop that accumulates `vector.contract(x, (w - z) * s)`, where
+    the scale `s` and the zero point `z` do not change along the contraction
+    dimension within one iteration, into one that accumulates
+    `s * vector.contract(x, w - z)`. The scale is then applied once per output
+    and iteration, with an fma, instead of once per weight. The loop value is
+    carried in f32; the loop result keeps its original type.
+
+    This changes the rounding: `(w - z) * s` is no longer rounded to the
+    weight type, and the sum over iterations is kept in f32.
+
+    With `fold-zero-point`, the weights become the exact f16 values
+    `1536 + w`, whose bits are `w | 0x6600`, and the contraction starts at
+    `vector.contract(x, -(1536 + z))` instead of zero. This needs f16
+    operands and weights and zero points that are unsigned extensions of at
+    most 9 bits. Both sums then carry the offset `1536 * sum(x)`, so the error
+    grows with `sum(|x|)`, and an infinite `x` gives NaN.
+  }];
+  let options = [
+    Option<"foldZeroPoint", "fold-zero-point", "bool", /*default=*/"true",
+           "Fold the zero point into the contraction start value.">
+  ];
+  let dependentDialects = ["arith::ArithDialect", "math::MathDialect",
+                           "vector::VectorDialect"];
+}
+
 def SetLayouts : Pass<"set-layouts"> {
   let summary = "Set XeGPU layouts.";
   let description = [{
