@@ -169,8 +169,11 @@ public:
     auto supportedInScope = [&](Operation *op) {
       return op->getBlock() == block && isSupported(op);
     };
-    return success(supportedInScope(candidate.op) &&
-                   llvm::all_of(candidate.group.members, supportedInScope));
+    // Seeding bypasses legality checks, so validate the anchor. Other members
+    // passed this condition on admission, and expansion does not change the IR
+    // or move operations between blocks.
+    return success(supportedInScope(candidate.group.anchor) &&
+                   supportedInScope(candidate.op));
   }
 
 private:
@@ -281,6 +284,11 @@ public:
   }
 };
 
+// TODO: Maintain boundaries incrementally after additions to avoid quadratic
+// member visits on growing chains. Remove newly internal results from inputs,
+// add external operands and region captures, and update affected outputs using
+// external-use counts instead of rescanning user lists. Preserve deduplication
+// and deterministic traversal.
 static void recomputeBoundaries(FusionGroup &group) {
   group.inputs.clear();
   group.outputs.clear();
@@ -356,6 +364,10 @@ struct PlanTileAndFuse final : gc::impl::PlanTileAndFuseBase<PlanTileAndFuse> {
       groups.push_back(std::move(group));
     });
 
+    // TODO: Match the tiler's Linalg consumer indexing-map restriction before
+    // assigning ownership: require hasOnlyProjectedPermutations() for consumers
+    // so an unsupported consumer remains available to a later anchor as a
+    // producer. Producer fusion permits non-projected input maps.
     FusionLegalityConditionSet conditions;
     conditions.add<AnchorBoundaryCondition, SupportedOperationAndScopeCondition,
                    OwnershipCondition, BoundaryAdjacencyCondition,
