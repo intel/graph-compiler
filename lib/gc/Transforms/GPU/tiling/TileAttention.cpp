@@ -25,8 +25,15 @@ struct TileAttention final
     tg.tiles[tg.tiles.size() - 4] = 128;
   }
 
+  // Fewer query rows per subgroup for large head dims: the S/P tiles and the
+  // output accumulator stay in registers across the k-loop, so their size per
+  // subgroup must not grow with head_dim. The thresholds assume the Q tile is
+  // re-loaded inside the loop (SetAttentionLayouts q-in-loop).
   SmallVector<size_t> computeSgLayout(Target &tg) override {
-    return {128 / getSgSize(tg), 1};
+    auto n = tg.sizes.size();
+    size_t headDim = std::max(tg.sizes[n - 3], tg.sizes[n - 1]);
+    size_t rows = headDim <= 128 ? 16 : headDim <= 256 ? 8 : 4;
+    return {128 / rows, 1};
   }
 };
 } // namespace

@@ -12,12 +12,11 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/XeGPU/IR/XeGPU.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -30,121 +29,106 @@ namespace mlir::gc {
 
 namespace {
 
-// For Q-like tensors, derive sg_layout = [flatBlockSize / 16, 1].
-static FailureOr<SmallVector<int32_t>>
-computeQLikeSgLayout(ArrayRef<int64_t> shape, int flatBlockSize) {
-  if (shape.size() != 2) return failure();
-  if (flatBlockSize <= 0 || flatBlockSize % 16 != 0) return failure();
-  return SmallVector<int32_t>{static_cast<int32_t>(flatBlockSize / 16), 1};
-}
+// Tile sizes used for 2D block loads (inst_data) of f16 operands.
+constexpr int32_t kBlockRows = 32;
+constexpr int32_t kBlockCols = 32;
 
-// Set layouts on a DpasOp.
-static LogicalResult setDpasLayouts(xegpu::DpasOp dpas, int flatBlockSize) {
+// Layouts of the three dpas operands with query rows divided across subgroups.
+struct DpasLayouts {
+  xegpu::LayoutAttr a, b, cd;
+  SmallVector<int32_t> sgDataA, sgDataB, sgDataCD;
+};
+
+static FailureOr<DpasLayouts> makeDpasLayouts(xegpu::DpasOp dpas,
+                                              ArrayRef<int32_t> grid) {
   MLIRContext *ctx = dpas.getContext();
+  ArrayRef<int64_t> aShape = dpas.getLhsType().getShape();
+  ArrayRef<int64_t> bShape = dpas.getRhsType().getShape();
+  ArrayRef<int64_t> cShape = dpas.getResultType().getShape();
+  if (aShape.size() != 2 || bShape.size() != 2 || cShape.size() != 2)
+    return failure();
+  int64_t m = cShape[0], n = cShape[1], k = aShape[1];
+  if (m % grid[0] != 0 || n % grid[1] != 0) return failure();
 
-  // Already has layouts — skip.
+  DpasLayouts l;
+  l.sgDataA = {static_cast<int32_t>(m / grid[0]), static_cast<int32_t>(k)};
+  l.sgDataB = {static_cast<int32_t>(k), static_cast<int32_t>(n / grid[1])};
+  l.sgDataCD = {static_cast<int32_t>(m / grid[0]),
+                static_cast<int32_t>(n / grid[1])};
+  l.a = gc::attention::makeLayout(ctx, grid, l.sgDataA);
+  l.b = gc::attention::makeLayout(ctx, grid, l.sgDataB);
+  l.cd = gc::attention::makeLayout(ctx, grid, l.sgDataCD);
+  return l;
+}
+
+static xegpu::LayoutAttr withInstData(xegpu::LayoutAttr layout,
+                                      ArrayRef<int32_t> instData) {
+  MLIRContext *ctx = layout.getContext();
+  return xegpu::LayoutAttr::get(ctx, layout.getSgLayout(), layout.getSgData(),
+                                DenseI32ArrayAttr::get(ctx, instData),
+                                layout.getLaneLayout(), layout.getLaneData(),
+                                layout.getOrder());
+}
+
+// The Q K^T dpas consumes a transposed load (K); the P V dpas consumes the V
+// load directly.
+static bool isQKDpas(xegpu::DpasOp dpas) {
+  return dpas.getRhs().getDefiningOp<vector::TransposeOp>() != nullptr;
+}
+
+// Set the layouts on one dpas and on the loads feeding it. isTail marks dpas
+// ops of a peeled remainder iteration: its V load gets no inst_data. The
+// remainder is straight-line code where a 32x32 load tile keeps the whole V
+// block live and causes heavy register spilling, so blocking is left to pick
+// the tile from the dpas operand shape.
+static bool setDpasLayouts(xegpu::DpasOp dpas, ArrayRef<int32_t> grid,
+                           bool isTail) {
   if (dpas.getLayoutA() && dpas.getLayoutB() && dpas.getLayoutCd())
-    return failure();
+    return false;
+  auto layouts = makeDpasLayouts(dpas, grid);
+  if (failed(layouts)) return false;
 
-  VectorType lhsTy = dpas.getLhsType();
-  VectorType rhsTy = dpas.getRhsType();
-  VectorType resTy = dpas.getResultType();
+  dpas.setLayoutAAttr(layouts->a);
+  dpas.setLayoutBAttr(layouts->b);
+  dpas.setLayoutCdAttr(layouts->cd);
 
-  if (lhsTy.getRank() != 2 || rhsTy.getRank() != 2 || resTy.getRank() != 2)
-    return failure();
-
-  auto sgLayoutA = computeQLikeSgLayout(lhsTy.getShape(), flatBlockSize);
-  if (failed(sgLayoutA)) return failure();
-  SmallVector<int32_t> sgLayoutB = {1, 1};
-  auto sgLayoutCD = computeQLikeSgLayout(resTy.getShape(), flatBlockSize);
-  if (failed(sgLayoutCD)) return failure();
-
-  auto sgDataA = gc::attention::computeSgData(lhsTy.getShape(), *sgLayoutA);
-  auto sgDataB = gc::attention::computeSgData(rhsTy.getShape(), sgLayoutB);
-  auto sgDataCD = gc::attention::computeSgData(resTy.getShape(), *sgLayoutCD);
-
-  if (failed(sgDataA) || failed(sgDataB) || failed(sgDataCD)) return failure();
-
-  dpas.setLayoutAAttr(gc::attention::makeLayout(ctx, *sgLayoutA, *sgDataA));
-  dpas.setLayoutBAttr(gc::attention::makeLayout(ctx, sgLayoutB, *sgDataB));
-  dpas.setLayoutCdAttr(gc::attention::makeLayout(ctx, *sgLayoutCD, *sgDataCD));
-
-  return success();
-}
-
-// Set layout on a StoreNdOp.
-static LogicalResult setStoreLayout(xegpu::StoreNdOp store, int flatBlockSize) {
-  MLIRContext *ctx = store.getContext();
-
-  // Already has a layout — skip.
-  if (store.getLayoutAttr()) return failure();
-
-  auto valueTy = cast<VectorType>(store.getValue().getType());
-  if (valueTy.getRank() != 2) return failure();
-
-  auto sgLayout = computeQLikeSgLayout(valueTy.getShape(), flatBlockSize);
-  if (failed(sgLayout)) return failure();
-
-  auto sgData = gc::attention::computeSgData(valueTy.getShape(), *sgLayout);
-  if (failed(sgData)) return failure();
-
-  store.setLayoutAttr(gc::attention::makeLayout(ctx, *sgLayout, *sgData));
-  return success();
-}
-
-// Set layout on a LoadNdOp.
-// isLhs = true  → Q-like load:  sg_layout = [flatBlockSize/16, 1],
-//                               inst_data = [sgData[0], 32]
-// isLhs = false → K/V load:     sg_layout = [1, 1]
-//   K (has transpose user): order = [0, 1]
-//   V (no transpose user):  inst_data = [32, 32] inside the k-loop. Loads of
-//     a peeled remainder iteration (isTail) get no inst_data: the remainder
-//     is straight-line code where a 32x32 load tile keeps the whole V block
-//     live and causes heavy register spilling, so blocking is left to pick the
-//     tile from the dpas operand shape.
-static LogicalResult setLoadLayout(xegpu::LoadNdOp load, bool isLhs,
-                                   int flatBlockSize, bool isTail) {
-  MLIRContext *ctx = load.getContext();
-
-  // Already has a layout — skip.
-  if (load.getLayout()) return failure();
-
-  VectorType valueTy = load.getType();
-  if (valueTy.getRank() != 2) return failure();
-
-  ArrayRef<int64_t> shape = valueTy.getShape();
-  SmallVector<int32_t> sgLayout;
-  SmallVector<int32_t> instData;
-  SmallVector<int32_t> order;
-
-  if (isLhs) {
-    if (flatBlockSize <= 0 || flatBlockSize % 16 != 0 || shape[1] % 32 != 0)
-      return failure();
-    sgLayout = {static_cast<int32_t>(flatBlockSize / 16), 1};
-  } else {
-    // K/V load: sg_layout = [1, 1].
-    sgLayout = {1, 1};
-
-    // K path is consumed by vector.transpose and uses ordered layout.
-    bool hasTransposeUser = llvm::any_of(load->getUsers(), [](Operation *user) {
-      return isa<vector::TransposeOp>(user);
-    });
-    if (hasTransposeUser) {
-      order = {0, 1};
-    } else if (!isTail) {
-      if (shape[0] % 32 != 0 || shape[1] % 32 != 0) return failure();
-      instData = {32, 32};
-    }
+  // A operand: Q (loaded once outside the loop) or P (computed in the loop).
+  if (auto load = dpas.getLhs().getDefiningOp<xegpu::LoadNdOp>();
+      load && !load.getLayout()) {
+    int32_t rows = std::min(layouts->sgDataA[0], kBlockRows);
+    load.setLayoutAttr(withInstData(layouts->a, {rows, kBlockCols}));
   }
 
-  auto sgData = gc::attention::computeSgData(shape, sgLayout);
-  if (failed(sgData)) return failure();
+  // B operand: K through a transpose, or V directly.
+  Value rhs = dpas.getRhs();
+  if (auto transpose = rhs.getDefiningOp<vector::TransposeOp>()) {
+    if (auto load = transpose.getVector().getDefiningOp<xegpu::LoadNdOp>();
+        load && !load.getLayout()) {
+      auto kLayout = cast<xegpu::LayoutAttr>(
+          layouts->b.transposeDims(transpose.getPermutation()));
+      load.setLayoutAttr(kLayout);
+    }
+  } else if (auto load = rhs.getDefiningOp<xegpu::LoadNdOp>();
+             load && !load.getLayout()) {
+    xegpu::LayoutAttr vLayout = layouts->b;
+    if (!isTail && layouts->sgDataB[0] % kBlockRows == 0 &&
+        layouts->sgDataB[1] % kBlockCols == 0)
+      vLayout = withInstData(vLayout, {kBlockRows, kBlockCols});
+    load.setLayoutAttr(vLayout);
+  }
+  return true;
+}
 
-  if (isLhs) instData = {(*sgData)[0], 32};
-
-  load.setLayoutAttr(
-      gc::attention::makeLayout(ctx, sgLayout, *sgData, instData, order));
-  return success();
+// Set the output layout on a store.
+static bool setStoreLayout(xegpu::StoreNdOp store, ArrayRef<int32_t> grid) {
+  if (store.getLayoutAttr()) return false;
+  auto valueTy = cast<VectorType>(store.getValue().getType());
+  if (valueTy.getRank() != 2) return false;
+  auto sgData = gc::attention::computeSgData(valueTy.getShape(), grid);
+  if (failed(sgData)) return false;
+  store.setLayoutAttr(
+      gc::attention::makeLayout(store.getContext(), grid, *sgData));
+  return true;
 }
 
 static LogicalResult setPrefetchLayout(xegpu::PrefetchNdOp prefetch) {
@@ -169,46 +153,41 @@ static LogicalResult setPrefetchLayout(xegpu::PrefetchNdOp prefetch) {
   return success();
 }
 
-// Set layouts on a DpasOp and its producer loads. isTail marks dpas ops of a
-// peeled remainder iteration (see setLoadLayout).
-static bool setDpasAndLoadLayouts(xegpu::DpasOp dpas, int flatBlockSize,
-                                  bool isTail) {
+// Re-loading Q per iteration lets the backend stream it from L1 instead of
+// keeping it live alongside the accumulator across the whole loop.
+static bool sinkQLoadIntoLoop(scf::ForOp forOp) {
   bool changed = false;
-  if (succeeded(setDpasLayouts(dpas, flatBlockSize))) changed = true;
-
-  auto trySetLoad = [&](Value val, bool isLhs) {
-    if (auto load = val.getDefiningOp<xegpu::LoadNdOp>()) {
-      if (succeeded(setLoadLayout(load, isLhs, flatBlockSize, isTail)))
-        changed = true;
-      return;
-    }
-    if (auto transpose = val.getDefiningOp<vector::TransposeOp>()) {
-      if (auto load = transpose.getVector().getDefiningOp<xegpu::LoadNdOp>()) {
-        if (succeeded(
-                setLoadLayout(load, /*isLhs=*/false, flatBlockSize, isTail)))
-          changed = true;
-      }
-    }
-  };
-
-  trySetLoad(dpas.getLhs(), /*isLhs=*/true);
-  trySetLoad(dpas.getRhs(), /*isLhs=*/false);
+  forOp.getBody()->walk([&](xegpu::DpasOp dpas) {
+    if (!isQKDpas(dpas)) return;
+    auto load = dpas.getLhs().getDefiningOp<xegpu::LoadNdOp>();
+    if (!load || forOp.getBody()->findAncestorOpInBlock(*load)) return;
+    auto desc = load.getTensorDesc().getDefiningOp<xegpu::CreateNdDescOp>();
+    if (!desc) return;
+    OpBuilder b(dpas);
+    IRMapping map;
+    Operation *newDesc = b.clone(*desc, map);
+    map.map(desc.getResult(), newDesc->getResult(0));
+    Operation *newLoad = b.clone(*load, map);
+    dpas.getLhsMutable().assign(newLoad->getResult(0));
+    changed = true;
+  });
   return changed;
 }
 
-// Set layouts on all DpasOps and their producer loads inside a region.
-static bool setDpasAndLoadLayouts(Operation *root, int flatBlockSize,
+// Set layouts on all dpas ops (and their loads) inside a region. isTail marks
+// a peeled remainder iteration (see setDpasLayouts).
+static bool setDpasAndLoadLayouts(Operation *root, ArrayRef<int32_t> grid,
                                   bool isTail) {
   bool changed = false;
   root->walk([&](xegpu::DpasOp dpas) {
-    if (setDpasAndLoadLayouts(dpas, flatBlockSize, isTail)) changed = true;
+    if (setDpasLayouts(dpas, grid, isTail)) changed = true;
   });
   return changed;
 }
 
 // Find store_nd ops reachable transitively through users of the given values.
 static bool setStoreLayoutsForResults(ArrayRef<Value> roots,
-                                      int flatBlockSize) {
+                                      ArrayRef<int32_t> grid) {
   bool changed = false;
   for (auto startVal : roots) {
     SmallVector<Operation *> worklist;
@@ -221,7 +200,7 @@ static bool setStoreLayoutsForResults(ArrayRef<Value> roots,
       visited.push_back(op);
 
       if (auto store = dyn_cast<xegpu::StoreNdOp>(op)) {
-        if (succeeded(setStoreLayout(store, flatBlockSize))) changed = true;
+        if (setStoreLayout(store, grid)) changed = true;
       } else {
         for (auto res : op->getResults())
           for (auto *user : res.getUsers()) worklist.push_back(user);
@@ -252,14 +231,14 @@ static SmallVector<scf::IfOp> collectPeeledIfs(scf::ForOp forOp) {
 // Collect dpas ops of a peeled remainder iteration that was inlined into the
 // block of forOp. With static shapes the canonicalizer folds the guarding
 // scf.if away, so the remainder appears as plain ops after the loop. Walk
-// forward from the loop results and from the loop-invariant Q operand,
+// forward from the loop results and from the loop-invariant Q operand `q`,
 // staying within the same block and after forOp.
-static SmallVector<xegpu::DpasOp>
-collectInlinedPeeledDpas(scf::ForOp forOp, xegpu::DpasOp firstDpas) {
+static SmallVector<xegpu::DpasOp> collectInlinedPeeledDpas(scf::ForOp forOp,
+                                                           Value q) {
   Block *block = forOp->getBlock();
   SmallVector<Value> roots(forOp.getResults());
-  Value q = firstDpas.getLhs();
-  if (!forOp.getRegion().isAncestor(q.getParentRegion())) roots.push_back(q);
+  if (q && !forOp.getRegion().isAncestor(q.getParentRegion()))
+    roots.push_back(q);
 
   SmallVector<xegpu::DpasOp> result;
   DenseSet<Operation *> visited;
@@ -282,6 +261,7 @@ collectInlinedPeeledDpas(scf::ForOp forOp, xegpu::DpasOp firstDpas) {
 
 struct SetAttentionLayouts final
     : gc::impl::SetAttentionLayoutsBase<SetAttentionLayouts> {
+  using SetAttentionLayoutsBase::SetAttentionLayoutsBase;
 
   void runOnOperation() override {
     auto moduleOp = getOperation();
@@ -294,13 +274,28 @@ struct SetAttentionLayouts final
       if (!knownBlockSize.has_value()) return;
       const int flatBlockSize =
           static_cast<int>(llvm::product_of(knownBlockSize.value()));
+      if (flatBlockSize <= 0 || flatBlockSize % 16 != 0) return;
+      const int32_t numSg = flatBlockSize / 16;
 
       auto dpasOps = gc::attention::collectDpasOps(forOp);
       if (dpasOps.size() < 2) return;
 
+      SmallVector<int32_t> grid = {numSg, 1};
+
+      // The loop-invariant Q operand, taken before sinkQLoadIntoLoop rewires
+      // the Q K^T dpas to an in-loop copy: a peeled remainder inlined after
+      // the loop still consumes the original.
+      Value q;
+      for (auto dpas : dpasOps)
+        if (isQKDpas(dpas)) {
+          q = dpas.getLhs();
+          break;
+        }
+
       // Set layouts on dpas and loads inside the for loop.
-      if (setDpasAndLoadLayouts(forOp, flatBlockSize, /*isTail=*/false))
-        changed = true;
+      if (setDpasAndLoadLayouts(forOp, grid, /*isTail=*/false)) changed = true;
+
+      if (qInLoop && sinkQLoadIntoLoop(forOp)) changed = true;
 
       // Set layouts on prefetch_nd ops in the surrounding function.
       if (auto func = forOp->getParentOfType<FunctionOpInterface>()) {
@@ -312,14 +307,12 @@ struct SetAttentionLayouts final
       // Handle peeled remainder iterations (scf.if using for results).
       auto peeledIfs = collectPeeledIfs(forOp);
       for (auto ifOp : peeledIfs) {
-        if (setDpasAndLoadLayouts(ifOp, flatBlockSize, /*isTail=*/true))
-          changed = true;
+        if (setDpasAndLoadLayouts(ifOp, grid, /*isTail=*/true)) changed = true;
       }
 
       // Handle peeled remainder iterations inlined after the loop.
-      for (auto dpas : collectInlinedPeeledDpas(forOp, dpasOps.front())) {
-        if (setDpasAndLoadLayouts(dpas, flatBlockSize, /*isTail=*/true))
-          changed = true;
+      for (auto dpas : collectInlinedPeeledDpas(forOp, q)) {
+        if (setDpasLayouts(dpas, grid, /*isTail=*/true)) changed = true;
       }
 
       // Find store_nd ops reachable from for/if results.
@@ -329,8 +322,7 @@ struct SetAttentionLayouts final
         for (auto result : ifOp.getResults())
           storeSearchRoots.push_back(result);
 
-      if (setStoreLayoutsForResults(storeSearchRoots, flatBlockSize))
-        changed = true;
+      if (setStoreLayoutsForResults(storeSearchRoots, grid)) changed = true;
     });
 
     if (!changed) markAllAnalysesPreserved();

@@ -9,13 +9,13 @@
 // CHECK-LABEL: gpu.func @sdpa_kernel
 // CHECK:         %[[Q:.+]] = xegpu.load_nd {{.*}}sg_layout = [8, 1], sg_data = [16, 64]
 // CHECK:         %[[LOOP:.+]] = scf.for
-// CHECK:           xegpu.dpas %[[Q]], {{.*}}layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
+// CHECK:           xegpu.dpas {{.*}}layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
 // CHECK:           xegpu.dpas {{.*}}layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
 // CHECK:         }
-// CHECK:         xegpu.load_nd {{.*}}sg_layout = [1, 1], sg_data = [64, 64], order = [0, 1]
-// CHECK:         xegpu.dpas %[[Q]], {{.*}}layout_a = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>, layout_b = #xegpu.layout<sg_layout = [1, 1], sg_data = [64, 64]>, layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
-// CHECK:         xegpu.load_nd {{.*}}layout = #xegpu.layout<sg_layout = [1, 1], sg_data = [64, 64]>}>
-// CHECK:         xegpu.dpas {{.*}}%[[LOOP]] {{.*}}layout_a = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>, layout_b = #xegpu.layout<sg_layout = [1, 1], sg_data = [64, 64]>, layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
+// CHECK:         xegpu.load_nd {{.*}}sg_layout = [1, 8], sg_data = [64, 64], order = [0, 1]
+// CHECK:         xegpu.dpas %[[Q]], {{.*}}layout_a = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>, layout_b = #xegpu.layout<sg_layout = [8, 1], sg_data = [64, 64]>, layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
+// CHECK:         xegpu.load_nd {{.*}}layout = #xegpu.layout<sg_layout = [8, 1], sg_data = [64, 64]>}>
+// CHECK:         xegpu.dpas {{.*}}%[[LOOP]] {{.*}}layout_a = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>, layout_b = #xegpu.layout<sg_layout = [8, 1], sg_data = [64, 64]>, layout_cd = #xegpu.layout<sg_layout = [8, 1], sg_data = [16, 64]>
 // CHECK:         xegpu.store_nd {{.*}}sg_layout = [8, 1], sg_data = [16, 64]
 
 module attributes {gc.module = {kernels = {sdpa_kernel = {sg_layout = [4, 2]}}}, gpu.container_module} {

@@ -33,6 +33,11 @@ struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
       *this, "enable-attention-prefetch",
       llvm::cl::desc("Enable the SetAttentionPrefetch pass."),
       llvm::cl::init(false)};
+  Option<bool> attentionQInLoop{
+      *this, "attention-q-in-loop",
+      llvm::cl::desc("Re-load Q inside the attention k-loop instead of "
+                     "keeping it in registers."),
+      llvm::cl::init(true)};
   Option<std::string> igcCmdOptions{
       *this, "igc-cmd-options",
       llvm::cl::desc("Commandline options to pass to IGC compiler."),
