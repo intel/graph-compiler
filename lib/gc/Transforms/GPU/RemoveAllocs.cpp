@@ -390,39 +390,33 @@ struct FoldAllocWriteReshapeRead
     Value allocValue = read.getBase();
     if (isa_and_present<memref::ExpandShapeOp, memref::CollapseShapeOp>(
             reshape)) {
-      if (!reshape->hasOneUse())
-        return failure();
+      if (!reshape->hasOneUse()) return failure();
       allocValue = cast<ViewLikeOpInterface>(reshape).getViewSource();
     } else {
       reshape = nullptr;
     }
 
     auto alloc = allocValue.getDefiningOp<memref::AllocOp>();
-    if (!alloc)
-      return failure();
+    if (!alloc) return failure();
     bool allocHasStaticIdentityLayout =
         alloc.getType().hasStaticShape() &&
         alloc.getType().getLayout().isIdentity();
-    if (!allocHasStaticIdentityLayout)
-      return failure();
+    if (!allocHasStaticIdentityLayout) return failure();
 
     // Find the single transfer_write into alloc.
     vector::TransferWriteOp write;
     for (auto &use : alloc.getResult().getUses()) {
       if (auto w = dyn_cast<vector::TransferWriteOp>(use.getOwner())) {
-        if (write || !llvm::all_of(w.getIndices(), isZero))
-          return failure();
+        if (write || !llvm::all_of(w.getIndices(), isZero)) return failure();
         write = w;
       } else {
         bool isExpectedUse = use.getOwner() == read.getOperation() ||
                              use.getOwner() == reshape ||
                              isa<memref::DeallocOp>(use.getOwner());
-        if (!isExpectedUse)
-          return failure();
+        if (!isExpectedUse) return failure();
       }
     }
-    if (!write)
-      return failure();
+    if (!write) return failure();
     // Same-block ordering ensures the write executes before the read.
     bool writePrecedesRead =
         write->getBlock() == read->getBlock() && write->isBeforeInBlock(read);
@@ -447,8 +441,7 @@ struct FoldAllocWriteReshapeRead
 
     // The read must cover the same elements, possibly omitting leading unit
     // dimensions. Check the rank before slicing the read view's shape.
-    if (dstType.getRank() > readType.getRank())
-      return failure();
+    if (dstType.getRank() > readType.getRank()) return failure();
     bool preservesElementCount =
         srcType.getNumElements() == dstType.getNumElements();
     bool matchesTrailingShape =
@@ -462,8 +455,7 @@ struct FoldAllocWriteReshapeRead
 
     rw.replaceOpWithNewOp<vector::ShapeCastOp>(read, dstType,
                                                write.getVector());
-    if (reshape)
-      rw.eraseOp(reshape);
+    if (reshape) rw.eraseOp(reshape);
     rw.eraseOp(write);
     SmallVector<Operation *> deallocs(alloc->getUsers());
     for (Operation *dealloc : deallocs) rw.eraseOp(dealloc);
