@@ -69,21 +69,24 @@ func.func @wrapper_mask_read_and_write(%m: memref<16x32xf32, strided<[1, 16]>>, 
 // -----
 
 // Square masks still need a transpose even though their type does not change.
-// Both the wrapper mask and an explicit transfer mask must be updated.
+// Both wrapper masks and explicit transfer masks must be updated. vector.mask
+// rejects transfers that have a mask operand, so each form is a separate op.
 
 // CHECK-LABEL: @square_wrapper_and_transfer_masks
 // CHECK-SAME: %[[M:.*]]: memref<16x32xf32, strided<[1, 16]>>
 // CHECK-SAME: %[[OUTER:[a-z0-9]*]]: vector<8x8xi1>, %[[INNER:[a-z0-9]*]]: vector<8x8xi1>
 // CHECK: %[[VIEW:.*]] = memref.transpose %[[M]]
-// CHECK: %[[INNER_T:.*]] = vector.transpose %[[INNER]], [1, 0] : vector<8x8xi1> to vector<8x8xi1>
-// CHECK-NEXT: %[[OUTER_T:.*]] = vector.transpose %[[OUTER]], [1, 0] : vector<8x8xi1> to vector<8x8xi1>
-// CHECK-NEXT: %[[R:.*]] = vector.mask %[[OUTER_T]] { vector.transfer_read %[[VIEW]][%{{.*}}, %{{.*}}], %{{.*}}, %[[INNER_T]] {{.*}} } : vector<8x8xi1> -> vector<8x8xf32>
-// CHECK-NEXT: return %[[R]]
-func.func @square_wrapper_and_transfer_masks(%m: memref<16x32xf32, strided<[1, 16]>>, %outer: vector<8x8xi1>, %inner: vector<8x8xi1>) -> vector<8x8xf32> {
+// CHECK: %[[OUTER_T:.*]] = vector.transpose %[[OUTER]], [1, 0] : vector<8x8xi1> to vector<8x8xi1>
+// CHECK-NEXT: %[[R0:.*]] = vector.mask %[[OUTER_T]] { vector.transfer_read %[[VIEW]][%{{.*}}, %{{.*}}], %{{.*}} {{.*}} } : vector<8x8xi1> -> vector<8x8xf32>
+// CHECK-NEXT: %[[INNER_T:.*]] = vector.transpose %[[INNER]], [1, 0] : vector<8x8xi1> to vector<8x8xi1>
+// CHECK-NEXT: %[[R1:.*]] = vector.transfer_read %[[VIEW]][%{{.*}}, %{{.*}}], %{{.*}}, %[[INNER_T]] {{.*}} : memref<32x16xf32, strided<[16, 1]>>, vector<8x8xf32>
+// CHECK-NEXT: return %[[R0]], %[[R1]]
+func.func @square_wrapper_and_transfer_masks(%m: memref<16x32xf32, strided<[1, 16]>>, %outer: vector<8x8xi1>, %inner: vector<8x8xi1>) -> (vector<8x8xf32>, vector<8x8xf32>) {
   %c0 = arith.constant 0 : index
   %pad = arith.constant 0.0 : f32
-  %r = vector.mask %outer { vector.transfer_read %m[%c0, %c0], %pad, %inner {in_bounds = [true, true]} : memref<16x32xf32, strided<[1, 16]>>, vector<8x8xf32> } : vector<8x8xi1> -> vector<8x8xf32>
-  return %r : vector<8x8xf32>
+  %r0 = vector.mask %outer { vector.transfer_read %m[%c0, %c0], %pad {in_bounds = [true, true]} : memref<16x32xf32, strided<[1, 16]>>, vector<8x8xf32> } : vector<8x8xi1> -> vector<8x8xf32>
+  %r1 = vector.transfer_read %m[%c0, %c0], %pad, %inner {in_bounds = [true, true]} : memref<16x32xf32, strided<[1, 16]>>, vector<8x8xf32>
+  return %r0, %r1 : vector<8x8xf32>, vector<8x8xf32>
 }
 
 // -----

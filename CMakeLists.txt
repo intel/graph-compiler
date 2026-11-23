@@ -46,13 +46,26 @@ set(LLVM_DIR
 # ############################# Cmake options ##################################
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
-set(CMAKE_CXX_FLAGS_RELEASE
-    "-Oz -DNDEBUG -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
-)
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(NOT MSVC)
+  set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+  # GCC supports -Oz only since 12.
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag(-Oz GC_HAS_OZ)
+  if(GC_HAS_OZ)
+    set(GC_SIZE_OPT_FLAG "-Oz")
+  else()
+    set(GC_SIZE_OPT_FLAG "-Os")
+  endif()
+  set(CMAKE_CXX_FLAGS_RELEASE
+      "${GC_SIZE_OPT_FLAG} -DNDEBUG -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables"
+  )
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
+      "-O2 -g -DNDEBUG -ffunction-sections -fdata-sections")
+else()
+  # MLIR generated code exceeds the default COFF section limit.
+  add_compile_options(/bigobj)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
   add_compile_options(-Werror -Werror=missing-declarations)
 endif()
 
@@ -87,7 +100,9 @@ target_include_directories(
   INTERFACE $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
             $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>)
-if(NOT GC_DYLINK AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+if(NOT GC_DYLINK
+   AND NOT MSVC
+   AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
   target_compile_options(GcInterface INTERFACE -ffunction-sections
                                                -fdata-sections)
 endif()

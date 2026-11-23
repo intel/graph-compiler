@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Utils/Transform.h"
+#include "gc/IR/Attributes.h"
 #include "mlir/Conversion/Passes.h"
 
 using namespace mlir;

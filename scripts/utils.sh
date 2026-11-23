@@ -17,6 +17,16 @@
 [ "${_GC_UTILS_SH_ONCE:-}" ] && return || _GC_UTILS_SH_ONCE=1
 set -e
 
+# Windows (Git Bash): venvs have no python3, executables are in Scripts.
+# Absolute paths are mixed (C:/...), valid both in Git Bash and in native tools.
+if [ "${OS:-}" = Windows_NT ]; then
+  : ${PYTHON:=python} ${VENV_BIN:=Scripts}
+  abspath() { cygpath -m "$(realpath -m "$1")"; }
+else
+  : ${PYTHON:=python3} ${VENV_BIN:=bin}
+  abspath() { realpath -m "$1"; }
+fi
+
 # Set a GitHub Actions environment variable if the value is not empty.
 set_gh_env_var() {
   [ "$#" -eq 2 ] || return 0

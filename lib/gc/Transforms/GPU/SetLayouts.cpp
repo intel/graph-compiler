@@ -13,7 +13,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "gc/Utils/Transform.h"
+#include "gc/IR/Attributes.h"
 #include <optional>
 #include <utility>
 

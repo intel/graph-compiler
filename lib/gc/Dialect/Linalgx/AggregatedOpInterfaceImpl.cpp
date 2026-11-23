@@ -1,6 +1,6 @@
 #include "gc/Dialect/Linalgx/LinalgxDialect.h"
 #include "gc/Dialect/Linalgx/LinalgxOps.h"
-#include "gc/Utils/Transform.h"
+#include "gc/IR/Attributes.h"
 
 #include "IndexingUtils.h"
 
@@ -319,6 +319,11 @@ FailureOr<SmallVector<Value>> AttentionOp::decomposeOperation(OpBuilder &b) {
         }
 
         // rowMax = max(scaled, dim=1); mCur = max(mPrev, rowMax).
+        // Use maxnumf, not maximumf. The GPU needs extra NaN and sign checks
+        // for maximumf. The two ops differ only on NaN inputs and on -0 vs
+        // +0. In this decomposition neither changes the output: a NaN score
+        // still makes exp(scaled - mCur) NaN, and both zero signs give the
+        // same exp.
         Value maxInit = createFilled(nb, loc, {seqDim}, accElemType, minusInf);
         tag(maxInit.getDefiningOp(), {M});
         auto rowMaxOp = linalg::ReduceOp::create(
@@ -326,7 +331,7 @@ FailureOr<SmallVector<Value>> AttentionOp::decomposeOperation(OpBuilder &b) {
             [&](OpBuilder &rb, Location rl, ValueRange args) {
               linalg::YieldOp::create(
                   rb, rl,
-                  arith::MaximumFOp::create(rb, rl, args[0], args[1])
+                  arith::MaxNumFOp::create(rb, rl, args[0], args[1])
                       .getResult());
             });
         tag(rowMaxOp, {M, K2});
@@ -334,7 +339,7 @@ FailureOr<SmallVector<Value>> AttentionOp::decomposeOperation(OpBuilder &b) {
             nb, loc, ValueRange{mPrev, rowMaxOp.getResult(0)},
             createEmpty(nb, loc, {seqDim}, accElemType),
             [](OpBuilder &eb, Location el, ValueRange args) {
-              return arith::MaximumFOp::create(eb, el, args[0], args[1])
+              return arith::MaxNumFOp::create(eb, el, args[0], args[1])
                   .getResult();
             });
         Value mCur = mCurOp.getResult(0);

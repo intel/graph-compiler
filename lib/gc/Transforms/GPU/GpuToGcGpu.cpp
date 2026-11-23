@@ -14,6 +14,7 @@
 #include <mlir/Conversion/LLVMCommon/Pattern.h>
 #include <mlir/Conversion/Passes.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Dominance.h>
@@ -21,8 +22,8 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include "gc/GpuCompiler.h"
+#include "gc/IR/Attributes.h"
 #include "gc/Runtime/GpuRuntime.h"
-#include "gc/Utils/Transform.h"
 
 using namespace mlir;
 // The runtime function names, see gc/Runtime/GpuRuntime.h.

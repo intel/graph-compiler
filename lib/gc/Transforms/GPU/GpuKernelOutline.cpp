@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "gc/Utils/Transform.h"
+#include "gc/IR/Attributes.h"
 
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
