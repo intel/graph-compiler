@@ -14,6 +14,7 @@
 #include <mlir/Conversion/LLVMCommon/Pattern.h>
 #include <mlir/Conversion/Passes.h>
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Dominance.h>
