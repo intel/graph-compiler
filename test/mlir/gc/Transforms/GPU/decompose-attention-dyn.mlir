@@ -26,11 +26,14 @@
 // CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 0, 64>
 // QK matmul: iteration (m, k2, k1) -> [128, 64, 0]
 // CHECK:           linalg.matmul {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128, 64, 0>
+// The row max and the running max use maxnumf, not maximumf.
 // CHECK:           linalg.reduce
 // CHECK-SAME:        gc.tiling.wg_tile_sizes = array<i64: 128, 64>
+// CHECK-NEXT:        ({{.*}}) {
+// CHECK-NEXT:          %{{.*}} = arith.maxnumf
 // CHECK:           linalg.generic {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128>
 // CHECK-NEXT:      ^bb0
-// CHECK-NEXT:        %{{.*}} = arith.maximumf
+// CHECK-NEXT:        %{{.*}} = arith.maxnumf
 // PV matmul: iteration (m, n, k2) -> [128, 0, 64]
 // CHECK:           linalg.matmul {{.*}}gc.tiling.wg_tile_sizes = array<i64: 128, 0, 64>
 // CHECK:         } {gc.tiling.level = 1 : i8, gc.tiling.wg_tile_sizes = array<i64: 1, 1, 128, 0, 0, 0>}
