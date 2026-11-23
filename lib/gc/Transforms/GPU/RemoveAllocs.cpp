@@ -377,63 +377,93 @@ struct FoldAllocWriteReshapeRead
       auto cst = getConstantIntValue(v);
       return cst && *cst == 0;
     };
-    if (!llvm::all_of(read.getIndices(), isZero) || read.getMask() ||
-        !read.getPermutationMap().isMinorIdentity() ||
-        !llvm::all_of(read.getInBoundsValues(),
-                      [](bool bound) { return bound; }))
+    // A shape cast cannot reproduce masking, padding, or permuted reads.
+    bool readAtOrigin = llvm::all_of(read.getIndices(), isZero);
+    bool readUnmaskedAndInBounds =
+        !read.getMask() && llvm::all_of(read.getInBoundsValues(),
+                                        [](bool bound) { return bound; });
+    bool readHasMinorIdentityMap = read.getPermutationMap().isMinorIdentity();
+    if (!readAtOrigin || !readUnmaskedAndInBounds || !readHasMinorIdentityMap)
       return failure();
 
     auto *reshape = read.getBase().getDefiningOp();
     Value allocValue = read.getBase();
     if (isa_and_present<memref::ExpandShapeOp, memref::CollapseShapeOp>(
             reshape)) {
-      if (!reshape->hasOneUse()) return failure();
+      if (!reshape->hasOneUse())
+        return failure();
       allocValue = cast<ViewLikeOpInterface>(reshape).getViewSource();
     } else {
       reshape = nullptr;
     }
 
     auto alloc = allocValue.getDefiningOp<memref::AllocOp>();
-    if (!alloc || !alloc.getType().hasStaticShape() ||
-        !alloc.getType().getLayout().isIdentity())
+    if (!alloc)
+      return failure();
+    bool allocHasStaticIdentityLayout =
+        alloc.getType().hasStaticShape() &&
+        alloc.getType().getLayout().isIdentity();
+    if (!allocHasStaticIdentityLayout)
       return failure();
 
     // Find the single transfer_write into alloc.
     vector::TransferWriteOp write;
     for (auto &use : alloc.getResult().getUses()) {
       if (auto w = dyn_cast<vector::TransferWriteOp>(use.getOwner())) {
-        if (write || !llvm::all_of(w.getIndices(), isZero)) return failure();
+        if (write || !llvm::all_of(w.getIndices(), isZero))
+          return failure();
         write = w;
-      } else if (use.getOwner() != read.getOperation() &&
-                 use.getOwner() != reshape &&
-                 !isa<memref::DeallocOp>(use.getOwner())) {
-        return failure(); // unexpected use
+      } else {
+        bool isExpectedUse = use.getOwner() == read.getOperation() ||
+                             use.getOwner() == reshape ||
+                             isa<memref::DeallocOp>(use.getOwner());
+        if (!isExpectedUse)
+          return failure();
       }
     }
-    if (!write || write->getBlock() != read->getBlock() ||
-        !write->isBeforeInBlock(read) || write.getMask() ||
-        !write.getPermutationMap().isIdentity() ||
-        !llvm::all_of(write.getInBoundsValues(),
-                      [](bool bound) { return bound; }))
+    if (!write)
+      return failure();
+    // Same-block ordering ensures the write executes before the read.
+    bool writePrecedesRead =
+        write->getBlock() == read->getBlock() && write->isBeforeInBlock(read);
+    bool writeUnmaskedAndInBounds =
+        !write.getMask() && llvm::all_of(write.getInBoundsValues(),
+                                         [](bool bound) { return bound; });
+    bool writeHasIdentityMap = write.getPermutationMap().isIdentity();
+    if (!writePrecedesRead || !writeUnmaskedAndInBounds || !writeHasIdentityMap)
       return failure();
 
     auto srcType = cast<VectorType>(write.getVector().getType());
     auto dstType = cast<VectorType>(read.getResult().getType());
     auto readType = cast<MemRefType>(read.getBase().getType());
-    if (srcType.isScalable() || dstType.isScalable() ||
-        srcType.getShape() != alloc.getType().getShape() ||
-        !readType.hasStaticShape() || !readType.getLayout().isIdentity() ||
-        dstType.getRank() > readType.getRank() ||
-        srcType.getNumElements() != dstType.getNumElements() ||
-        readType.getShape().take_back(dstType.getRank()) !=
-            dstType.getShape() ||
-        !llvm::all_of(readType.getShape().drop_back(dstType.getRank()),
-                      [](int64_t dim) { return dim == 1; }))
+    // Forward only a complete allocation with fixed-size vectors and a
+    // contiguous, statically shaped read view.
+    bool fixedSizeVectors = !srcType.isScalable() && !dstType.isScalable();
+    bool writesWholeAlloc = srcType.getShape() == alloc.getType().getShape();
+    bool readHasStaticIdentityLayout =
+        readType.hasStaticShape() && readType.getLayout().isIdentity();
+    if (!fixedSizeVectors || !writesWholeAlloc || !readHasStaticIdentityLayout)
+      return failure();
+
+    // The read must cover the same elements, possibly omitting leading unit
+    // dimensions. Check the rank before slicing the read view's shape.
+    if (dstType.getRank() > readType.getRank())
+      return failure();
+    bool preservesElementCount =
+        srcType.getNumElements() == dstType.getNumElements();
+    bool matchesTrailingShape =
+        readType.getShape().take_back(dstType.getRank()) == dstType.getShape();
+    bool dropsOnlyLeadingUnitDims =
+        llvm::all_of(readType.getShape().drop_back(dstType.getRank()),
+                     [](int64_t dim) { return dim == 1; });
+    if (!preservesElementCount || !matchesTrailingShape ||
+        !dropsOnlyLeadingUnitDims)
       return failure();
 
     rw.replaceOpWithNewOp<vector::ShapeCastOp>(read, dstType,
                                                write.getVector());
-    if (reshape) rw.eraseOp(reshape);
+    if (reshape)
+      rw.eraseOp(reshape);
     rw.eraseOp(write);
     SmallVector<Operation *> deallocs(alloc->getUsers());
     for (Operation *dealloc : deallocs) rw.eraseOp(dealloc);
