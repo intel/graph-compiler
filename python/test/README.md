@@ -6,7 +6,7 @@ Graph Compiler uses complementary test layers:
   and FileCheck.
 - Direct-MLIR Python tests in this directory compile explicit MLIR, execute the
   generated GPU program, and compare numerical results with a NumPy reference.
-- PyTorch integration tests in `test_torch.py` exercise the Python integration,
+- PyTorch integration tests in `pytorch/` exercise the Python integration,
   including model export through torch-mlir where supported.
 
 The shared direct-MLIR infrastructure is operation-independent. Each test supplies
@@ -15,7 +15,8 @@ its MLIR, inputs, reference computation, and comparison tolerances.
 ```text
 python/test/
   conftest.py                 # cache policy and debug options
-  test_torch.py              # existing PyTorch integration tests
+  pytorch/
+    test_torch.py            # existing PyTorch integration tests
   e2e/
     conftest.py              # configured runner fixture
     runner.py                # standalone numerical execution helper
@@ -58,7 +59,7 @@ python -m pytest -v python/test/e2e/tests/test_grouped_matmul.py
 Run the separate PyTorch integration suite when its dependencies are installed:
 
 ```sh
-python -m pytest -v python/test/test_torch.py
+python -m pytest -v python/test/pytorch
 ```
 
 The shared autouse fixture sets `GC_FILE_CACHE_ON=0` for every Python test.
