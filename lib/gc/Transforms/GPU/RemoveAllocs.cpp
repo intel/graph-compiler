@@ -366,7 +366,8 @@ struct FoldAllocCopyIntoDirectWrite final : OpRewritePattern<memref::CopyOp> {
 //   vector.transfer_write %v, %alloc[0,0,...]
 //   %rs = memref.expand_shape / collapse_shape %alloc
 //   %r  = vector.transfer_read %rs[0,0,...]
-// → %r = vector.shape_cast %v  (+ erase alloc, write, reshape)
+// → %r = vector.shape_cast %v  (+ erase alloc, write, reshape once all reads
+//                               are forwarded)
 struct FoldAllocWriteReshapeRead
     : public OpRewritePattern<vector::TransferReadOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -390,7 +391,6 @@ struct FoldAllocWriteReshapeRead
     Value allocValue = read.getBase();
     if (isa_and_present<memref::ExpandShapeOp, memref::CollapseShapeOp>(
             reshape)) {
-      if (!reshape->hasOneUse()) return failure();
       allocValue = cast<ViewLikeOpInterface>(reshape).getViewSource();
     } else {
       reshape = nullptr;
@@ -403,29 +403,42 @@ struct FoldAllocWriteReshapeRead
         alloc.getType().getLayout().isIdentity();
     if (!allocHasStaticIdentityLayout) return failure();
 
-    // Find the single transfer_write into alloc.
-    vector::TransferWriteOp write;
+    // The alloc may be reused by several write/read pairs. Apart from writes,
+    // it may only be read, directly or through a reshape.
+    SmallVector<Operation *> writes;
     for (auto &use : alloc.getResult().getUses()) {
-      if (auto w = dyn_cast<vector::TransferWriteOp>(use.getOwner())) {
-        if (write || !llvm::all_of(w.getIndices(), isZero)) return failure();
-        write = w;
+      Operation *user = use.getOwner();
+      if (auto w = dyn_cast<vector::TransferWriteOp>(user)) {
+        if (!llvm::all_of(w.getIndices(), isZero)) return failure();
+        writes.push_back(w);
       } else {
-        bool isExpectedUse = use.getOwner() == read.getOperation() ||
-                             use.getOwner() == reshape ||
-                             isa<memref::DeallocOp>(use.getOwner());
+        bool isReshapeForReads =
+            isa<memref::ExpandShapeOp, memref::CollapseShapeOp>(user) &&
+            llvm::all_of(user->getUsers(),
+                         llvm::IsaPred<vector::TransferReadOp>);
+        bool isExpectedUse =
+            isReshapeForReads ||
+            isa<vector::TransferReadOp, memref::DeallocOp>(user);
         if (!isExpectedUse) return failure();
       }
     }
+    // Find the last 'unconditional' (within the same block) write before the
+    // 'read', i.e. the last write that dominates the read, ignoring any writes
+    // in other blocks.
+    Operation *lastWriter = nullptr;
+    for (Operation *w : writes) {
+      Operation *ancestor = read->getBlock()->findAncestorOpInBlock(*w);
+      if (ancestor && ancestor->isBeforeInBlock(read) &&
+          (!lastWriter || lastWriter->isBeforeInBlock(ancestor)))
+        lastWriter = ancestor;
+    }
+    auto write = dyn_cast_or_null<vector::TransferWriteOp>(lastWriter);
     if (!write) return failure();
-    // Same-block ordering ensures the write executes before the read.
-    bool writePrecedesRead =
-        write->getBlock() == read->getBlock() && write->isBeforeInBlock(read);
     bool writeUnmaskedAndInBounds =
         !write.getMask() && llvm::all_of(write.getInBoundsValues(),
                                          [](bool bound) { return bound; });
     bool writeHasIdentityMap = write.getPermutationMap().isIdentity();
-    if (!writePrecedesRead || !writeUnmaskedAndInBounds || !writeHasIdentityMap)
-      return failure();
+    if (!writeUnmaskedAndInBounds || !writeHasIdentityMap) return failure();
 
     auto srcType = cast<VectorType>(write.getVector().getType());
     auto dstType = cast<VectorType>(read.getResult().getType());
@@ -455,10 +468,14 @@ struct FoldAllocWriteReshapeRead
 
     rw.replaceOpWithNewOp<vector::ShapeCastOp>(read, dstType,
                                                write.getVector());
-    if (reshape) rw.eraseOp(reshape);
-    rw.eraseOp(write);
-    SmallVector<Operation *> deallocs(alloc->getUsers());
-    for (Operation *dealloc : deallocs) rw.eraseOp(dealloc);
+    if (reshape && reshape->use_empty()) rw.eraseOp(reshape);
+    // Once the last read is forwarded, the alloc is only written: erase it.
+    bool allocIsWriteOnly =
+        llvm::all_of(alloc->getUsers(),
+                     llvm::IsaPred<vector::TransferWriteOp, memref::DeallocOp>);
+    if (!allocIsWriteOnly) return success();
+    SmallVector<Operation *> users(alloc->getUsers());
+    for (Operation *user : users) rw.eraseOp(user);
     rw.eraseOp(alloc);
     return success();
   }
