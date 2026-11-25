@@ -161,3 +161,50 @@ func.func @multiple_reads(%tile: vector<1x4x4xf16>, %mask: vector<4x4xi1>) -> (v
   memref.dealloc %alloc : memref<1x4x4xf16>
   return %read, %masked : vector<4x4xf16>, vector<4x4xf16>
 }
+// -----
+
+// A single buffer reused by two write/read pairs (CSE'd tensor.empty before
+// bufferization): each read is forwarded from the closest preceding write.
+// CHECK-LABEL: func.func @reused_alloc(
+// CHECK-NOT: memref.alloc
+// CHECK: scf.for
+// CHECK-NOT: vector.transfer
+// CHECK: vector.shape_cast %arg0 : vector<1x4x4xf16> to vector<4x4xf16>
+// CHECK: vector.shape_cast %arg1 : vector<1x4x4xf16> to vector<4x4xf16>
+// CHECK: scf.yield
+func.func @reused_alloc(%a: vector<1x4x4xf16>, %b: vector<1x4x4xf16>, %count: index, %init: vector<4x4xf16>) -> vector<4x4xf16> {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %padding = arith.constant 0.0 : f16
+  %alloc = memref.alloc() : memref<1x4x4xf16>
+  %result = scf.for %step = %c0 to %count step %c1 iter_args(%acc = %init) -> vector<4x4xf16> {
+    vector.transfer_write %a, %alloc[%c0, %c0, %c0] {in_bounds = [true, true, true]} : vector<1x4x4xf16>, memref<1x4x4xf16>
+    %ra = vector.transfer_read %alloc[%c0, %c0, %c0], %padding {in_bounds = [true, true]} : memref<1x4x4xf16>, vector<4x4xf16>
+    %s0 = arith.addf %acc, %ra : vector<4x4xf16>
+    vector.transfer_write %b, %alloc[%c0, %c0, %c0] {in_bounds = [true, true, true]} : vector<1x4x4xf16>, memref<1x4x4xf16>
+    %rb = vector.transfer_read %alloc[%c0, %c0, %c0], %padding {in_bounds = [true, true]} : memref<1x4x4xf16>, vector<4x4xf16>
+    %s1 = arith.addf %s0, %rb : vector<4x4xf16>
+    scf.yield %s1 : vector<4x4xf16>
+  }
+  memref.dealloc %alloc : memref<1x4x4xf16>
+  return %result : vector<4x4xf16>
+}
+
+// -----
+
+// The first read has no preceding write in its block: keep the buffer.
+// CHECK-LABEL: func.func @read_before_write(
+// CHECK: memref.alloc
+// CHECK: vector.transfer_read
+// CHECK: vector.transfer_write
+// CHECK: vector.transfer_read
+func.func @read_before_write(%a: vector<1x4x4xf16>) -> (vector<4x4xf16>, vector<4x4xf16>) {
+  %c0 = arith.constant 0 : index
+  %padding = arith.constant 0.0 : f16
+  %alloc = memref.alloc() : memref<1x4x4xf16>
+  %r0 = vector.transfer_read %alloc[%c0, %c0, %c0], %padding {in_bounds = [true, true]} : memref<1x4x4xf16>, vector<4x4xf16>
+  vector.transfer_write %a, %alloc[%c0, %c0, %c0] {in_bounds = [true, true, true]} : vector<1x4x4xf16>, memref<1x4x4xf16>
+  %r1 = vector.transfer_read %alloc[%c0, %c0, %c0], %padding {in_bounds = [true, true]} : memref<1x4x4xf16>, vector<4x4xf16>
+  memref.dealloc %alloc : memref<1x4x4xf16>
+  return %r0, %r1 : vector<4x4xf16>, vector<4x4xf16>
+}
