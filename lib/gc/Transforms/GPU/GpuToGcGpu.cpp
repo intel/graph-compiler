@@ -268,7 +268,7 @@ struct Helper final {
     for (auto &[call, events] : calls) {
       rewriter.setInsertionPoint(call);
       auto callLoc = call.getLoc();
-      for (auto [slot, event] : llvm::zip_first(slots, events))
+      for (auto [event, slot] : llvm::zip_first(events, slots))
         LLVM::StoreOp::create(rewriter, callLoc, event, slot);
       auto index = call.getNumOperands() - 2;
       call.setOperand(index, arr);
