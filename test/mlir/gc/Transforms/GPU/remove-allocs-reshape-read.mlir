@@ -146,11 +146,12 @@ func.func @conditional_write(%tile: vector<1x4x4xf16>, %condition: i1) -> vector
 
 // -----
 
+// The unmasked read is forwarded; the masked one keeps the buffer alive.
 // CHECK-LABEL: func.func @multiple_reads(
 // CHECK: memref.alloc
 // CHECK: vector.transfer_write
-// CHECK: vector.transfer_read
-// CHECK: vector.transfer_read
+// CHECK: vector.shape_cast %arg0 : vector<1x4x4xf16> to vector<4x4xf16>
+// CHECK: vector.transfer_read {{.*}}, %arg1
 func.func @multiple_reads(%tile: vector<1x4x4xf16>, %mask: vector<4x4xi1>) -> (vector<4x4xf16>, vector<4x4xf16>) {
   %c0 = arith.constant 0 : index
   %padding = arith.constant 0.0 : f16
@@ -161,6 +162,7 @@ func.func @multiple_reads(%tile: vector<1x4x4xf16>, %mask: vector<4x4xi1>) -> (v
   memref.dealloc %alloc : memref<1x4x4xf16>
   return %read, %masked : vector<4x4xf16>, vector<4x4xf16>
 }
+
 // -----
 
 // A single buffer reused by two write/read pairs (CSE'd tensor.empty before
@@ -192,12 +194,14 @@ func.func @reused_alloc(%a: vector<1x4x4xf16>, %b: vector<1x4x4xf16>, %count: in
 
 // -----
 
-// The first read has no preceding write in its block: keep the buffer.
+// The first read has no preceding write in its block: keep it and the buffer,
+// but forward the second read.
 // CHECK-LABEL: func.func @read_before_write(
 // CHECK: memref.alloc
 // CHECK: vector.transfer_read
 // CHECK: vector.transfer_write
-// CHECK: vector.transfer_read
+// CHECK-NOT: vector.transfer_read
+// CHECK: vector.shape_cast %arg0 : vector<1x4x4xf16> to vector<4x4xf16>
 func.func @read_before_write(%a: vector<1x4x4xf16>) -> (vector<4x4xf16>, vector<4x4xf16>) {
   %c0 = arith.constant 0 : index
   %padding = arith.constant 0.0 : f16
