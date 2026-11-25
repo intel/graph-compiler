@@ -403,9 +403,8 @@ struct FoldAllocWriteReshapeRead
         alloc.getType().getLayout().isIdentity();
     if (!allocHasStaticIdentityLayout) return failure();
 
-    // The alloc may be reused by several write/read pairs (e.g. identical
-    // tensor.empty ops CSE'd before bufferization). Apart from writes, it may
-    // only be read, directly or through a reshape.
+    // The alloc may be reused by several write/read pairs. Apart from writes,
+    // it may only be read, directly or through a reshape.
     SmallVector<Operation *> writes;
     for (auto &use : alloc.getResult().getUses()) {
       Operation *user = use.getOwner();
@@ -423,9 +422,9 @@ struct FoldAllocWriteReshapeRead
         if (!isExpectedUse) return failure();
       }
     }
-    // The read observes the closest preceding write in its block. A write
-    // nested in a region of that block (e.g. scf.if) is conditional, so the
-    // closest preceding op containing a write must be the write itself.
+    // Find the last 'unconditional' (within the same block) write before the 'read',
+    // i.e. the last write that dominates the read, ignoring any writes in
+    // other blocks.
     Operation *lastWriter = nullptr;
     for (Operation *w : writes) {
       Operation *ancestor = read->getBlock()->findAncestorOpInBlock(*w);
