@@ -422,9 +422,9 @@ struct FoldAllocWriteReshapeRead
         if (!isExpectedUse) return failure();
       }
     }
-    // Find the last 'unconditional' (within the same block) write before the 'read',
-    // i.e. the last write that dominates the read, ignoring any writes in
-    // other blocks.
+    // Find the last 'unconditional' (within the same block) write before the
+    // 'read', i.e. the last write that dominates the read, ignoring any writes
+    // in other blocks.
     Operation *lastWriter = nullptr;
     for (Operation *w : writes) {
       Operation *ancestor = read->getBlock()->findAncestorOpInBlock(*w);
