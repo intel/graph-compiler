@@ -21,7 +21,7 @@ endif()
 
 gc_add_mlir_tool(gc-opt GcOpt.cpp)
 target_link_libraries(gc-opt PRIVATE ${PROJECT_NAME})
-if(NOT GC_DYLINK)
+if(NOT GC_DYLINK OR NOT GC_ENABLE_IGC)
   target_link_libraries(gc-opt PRIVATE MLIROptLib MLIRLinalgTransformOps
                                        MLIRTransformDialectTransforms)
 endif()

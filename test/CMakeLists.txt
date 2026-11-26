@@ -3,4 +3,7 @@ if(NOT GC_ENABLE_TEST)
   return()
 endif()
 
-add_subdirectory(mlir)
+if(GC_ENABLE_IGC)
+  add_subdirectory(mlir)
+endif()
+add_subdirectory(runtime)
