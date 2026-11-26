@@ -322,6 +322,13 @@ struct KernelAttrs : public GcAttrs<const char *, StringRef> {
     set(SG_SIZE, static_cast<T>(sgSize));
   }
 
+  // Grid mapping policy of the kernel: "outermost-first" (the default) or
+  // "innermost-first", as in the gpu-map-parallel-loops pass.
+  std::optional<StringRef> getGridMapping() {
+    return get<StringRef>(GRID_MAPPING);
+  }
+  void setGridMapping(StringRef policy) { set(GRID_MAPPING, policy); }
+
 private:
   static constexpr char TILES[] = "tiles";
   static constexpr char THREADS[] = "threads";
@@ -332,6 +339,7 @@ private:
   static constexpr char ARGS_MAP[] = "args_map";
   static constexpr char ARG_SIZES[] = "arg_sizes";
   static constexpr char BLOCKS[] = "blocks";
+  static constexpr char GRID_MAPPING[] = "grid_mapping";
 };
 } // namespace mlir::gc
 
