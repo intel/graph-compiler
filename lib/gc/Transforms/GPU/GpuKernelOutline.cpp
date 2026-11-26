@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/ParallelLoopMapper.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/GPU/Transforms/XeVM/Passes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -39,6 +40,26 @@ namespace mlir::gc {
 } // namespace mlir::gc
 
 namespace {
+
+// Map the first three dimensions of a kernel's parallel loop to the block IDs
+// in reverse order: the third dimension goes to block x, the first to block z.
+// With fewer dimensions, use only x, or x and y. Later dimensions stay
+// sequential, as in gpu-map-parallel-loops.
+static LogicalResult mapInnermostFirst(scf::ParallelOp loop) {
+  constexpr gpu::Processor blocks[] = {
+      gpu::Processor::BlockX, gpu::Processor::BlockY, gpu::Processor::BlockZ};
+  Builder b(loop.getContext());
+  int numLoops = static_cast<int>(loop.getNumLoops());
+  int numMapped = std::min(numLoops, 3);
+  SmallVector<gpu::ParallelLoopDimMappingAttr> attrs;
+  for (int i = 0; i < numLoops; ++i) {
+    gpu::Processor processor =
+        i < numMapped ? blocks[numMapped - 1 - i] : gpu::Processor::Sequential;
+    attrs.push_back(b.getAttr<gpu::ParallelLoopDimMappingAttr>(
+        processor, b.getDimIdentityMap(), b.getDimIdentityMap()));
+  }
+  return gpu::setMappingAttr(loop, attrs);
+}
 
 struct GpuKernelOutline final
     : ::mlir::gc::impl::GpuKernelOutlineBase<GpuKernelOutline> {
@@ -79,9 +100,39 @@ struct GpuKernelOutline final
 
       if (result.wasInterrupted()) return WalkResult::interrupt();
 
+      // Map every parallel loop with the default policy, which also maps the
+      // loops nested in a kernel to threads. Then remap the grid of the
+      // kernels that ask for innermost-first.
+      OpPassManager mapPm(funcOp->getName().getIdentifier(),
+                          OpPassManager::Nesting::Implicit);
+      mapPm.addPass(createGpuMapParallelLoopsPass());
+      if (failed(runPipeline(mapPm, funcOp))) {
+        signalPassFailure();
+        return WalkResult::interrupt();
+      }
+      auto mapResult = funcOp.walk([&](scf::ParallelOp parallelOp) {
+        auto kernelName =
+            parallelOp->getAttrOfType<StringAttr>(GC_ATTR_KERNEL_NAME);
+        if (!kernelName || parallelOp->getParentOfType<scf::ParallelOp>())
+          return WalkResult::advance();
+        auto mapping = KernelAttrs(op, kernelName.getValue()).getGridMapping();
+        if (!mapping || *mapping == "outermost-first")
+          return WalkResult::advance();
+        if (*mapping != "innermost-first") {
+          parallelOp.emitError() << "unknown grid_mapping: " << *mapping;
+          return WalkResult::interrupt();
+        }
+        if (failed(mapInnermostFirst(parallelOp)))
+          return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+      if (mapResult.wasInterrupted()) {
+        signalPassFailure();
+        return WalkResult::interrupt();
+      }
+
       OpPassManager pm(funcOp->getName().getIdentifier(),
                        OpPassManager::Nesting::Implicit);
-      pm.addPass(createGpuMapParallelLoopsPass());
       pm.addPass(createConvertParallelLoopToGpuPass());
       pm.addPass(createGpuLaunchSinkIndexComputationsPass());
       if (failed(runPipeline(pm, funcOp))) {

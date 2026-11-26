@@ -56,6 +56,9 @@ struct TileGroupedMatmul final
     using GMM = linalgx::GroupedMatmulOp;
     tg.tiles[GMM::kExpertDim] = 1;
     tg.sgTiles[GMM::kExpertDim] = 1;
+    // Map the column tiles to block x and the experts to block z. The column
+    // tiles of one row tile read the same token rows.
+    tg.kernelAttrs.setGridMapping("innermost-first");
   }
 
   void computeSgTiles(Target &tg) override {

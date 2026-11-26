@@ -14,6 +14,8 @@
 // CHECK-DAG:   #[[MAP_A:.+]] = affine_map<(d0, d1, d2) -> (d0, d2)>
 // CHECK-DAG:   #[[MAP_B:.+]] = affine_map<(d0, d1, d2) -> (d1, d2)>
 // CHECK-DAG:   #[[MAP_C:.+]] = affine_map<(d0, d1, d2) -> (d0, d1)>
+//                The kernel requests column tiles on block x.
+// CHECK:       grouped_matmul_kernel = {grid_mapping = "innermost-first"
 // CHECK-LABEL: func.func @grouped_matmul
 // CHECK-SAME:    %[[LHS:[^:]+]]: tensor<?x256xf16>, %[[WEI:[^:]+]]: tensor<8x512x256xf16>, %[[OFFS:[^:]+]]: tensor<8xi32>
 // CHECK:         scf.forall (%[[E:[^,]+]], %[[M:[^,]+]], %[[N:[^)]+]]) = (0, 0, 0) to (8, %[[TOTAL:[^,]+]], 512) step (1, [[#TM:]], [[#TN:]])
