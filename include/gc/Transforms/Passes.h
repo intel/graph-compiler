@@ -45,6 +45,16 @@ struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
   Option<bool> dump{*this, "dump",
                     llvm::cl::desc("Dump the IR after each phase."),
                     llvm::cl::init(false)};
+  Option<bool> factorDequant{
+      *this, "factor-dequant",
+      llvm::cl::desc("Apply dequantization scales and zero points per output "
+                     "(the factor-dequant pass). Changes the rounding."),
+      llvm::cl::init(true)};
+  Option<bool> factorDequantFoldZeroPoint{
+      *this, "factor-dequant-fold-zero-point",
+      llvm::cl::desc("In factor-dequant, fold the zero point into the "
+                     "contraction start value (f16 magic number)."),
+      llvm::cl::init(true)};
   llvm::raw_ostream *dumpStream = nullptr;
   const GpuDevicePropsOptions *deviceProps = nullptr;
 };

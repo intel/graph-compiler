@@ -316,6 +316,9 @@ void populateGPUPipeline(OpPassManager &pm,
   phase("Vectorization", [&]() {
     pm.addNestedPass<func::FuncOp>(createSimplifyIndexingMaps());
     pm.addNestedPass<func::FuncOp>(createVectorize());
+    if (pipelineOpts.factorDequant)
+      pm.addNestedPass<func::FuncOp>(createFactorDequant(
+          {/*foldZeroPoint=*/pipelineOpts.factorDequantFoldZeroPoint}));
     pm.addNestedPass<func::FuncOp>(createHoistForLoopTransferRead());
     pm.addNestedPass<func::FuncOp>(createPeeledForToIf());
   });
