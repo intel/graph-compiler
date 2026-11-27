@@ -9,6 +9,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "gc/Runtime/GpuRuntime.h"
 
@@ -48,6 +50,18 @@ public:
   Event *memcpy(const void *src, void *dst, size_t size, Event *const *deps,
                 uint32_t nDeps) override;
   void wait(Event *const *events, uint32_t nEvents) override;
+
+  // The device execution time of a kernel launch.
+  struct KernelTime {
+    std::string kernel;
+    double ns;
+  };
+  // While enabled, the kernels are launched with the L0 kernel timestamp
+  // events, the execution time is collected when the events are waited for.
+  void setProfiling(bool enable);
+  bool isProfiling() const;
+  // Returns and clears the collected kernel times, in the order of completion.
+  std::vector<KernelTime> takeKernelTimes();
 
 private:
   struct Impl;

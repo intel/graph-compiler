@@ -18,7 +18,10 @@
 """SD3.5 transformer latency benchmark with optional per-op GPU profiling.
 
 Usage:
-    sd3.5.py [--static] [--profile] [--result out.json]
+    sd3.5.py [--static] [--profile] [--result out.json] [--name NAME]
+
+With --profile, the result also contains the per-inference time of each node
+type in "by_type", and the MLIROp time in "mlir_ms" and "mlir_count".
 
     # Graph Compiler (MLIR) path
     OV_GPU_ENABLE_MLIR=1 sd3.5.py
@@ -128,10 +131,17 @@ def profile(core, model, inputs, args, mean_ms):
     for p in executed:
         per_type[p.node_type][0] += us[p.node_name]
         per_type[p.node_type][1] += 1
+    per_type = sorted(per_type.items(), key=lambda kv: -kv[1][0])
     print("\nBy node_type:")
     print(f"  {'node_type':30s} {'ms':>12s} {'%':>6s} {'count':>7s}")
-    for t, (sum_us, n) in sorted(per_type.items(), key=lambda kv: -kv[1][0]):
+    for t, (sum_us, n) in per_type:
         print(f"  {t:30s} {sum_us / 1e3:12.2f} {sum_us / total * 100:6.2f} {n:7d}")
+
+    # Per-inference times, ms, of the PERF_COUNT instance.
+    return {
+        "profile_sum_ms": total / 1e3,
+        "by_type": {t: {"ms": sum_us / 1e3, "count": n} for t, (sum_us, n) in per_type},
+    }
 
 
 def positive(value):
@@ -171,6 +181,7 @@ def parse_args():
         "--top", type=positive, default=40, help="number of ops to print with --profile"
     )
     ap.add_argument("--result", metavar="FILE", help="write latency stats as JSON")
+    ap.add_argument("--name", default="", help="benchmark name, saved in the result")
     return ap.parse_args()
 
 
@@ -228,21 +239,23 @@ def main():
         + f" n={len(lat)}"
     )
 
-    if args.result:
-        Path(args.result).write_text(
-            json.dumps(
-                {
-                    "model": args.model,
-                    "device": args.device,
-                    "ov_version": ov.get_version(),
-                    **stats,
-                },
-                indent=2,
-            )
-        )
-
+    result = {
+        "name": args.name,
+        "model": args.model,
+        "device": args.device,
+        "static": args.static,
+        "ov_version": ov.get_version(),
+        **stats,
+    }
     if args.profile:
-        profile(core, model, inputs, args, stats["mean_ms"])
+        prof = profile(core, model, inputs, args, stats["mean_ms"])
+        result.update(prof)
+        mlir = prof["by_type"].get("MLIROp")
+        result["mlir_ms"] = mlir["ms"] if mlir else None
+        result["mlir_count"] = mlir["count"] if mlir else 0
+
+    if args.result:
+        Path(args.result).write_text(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
