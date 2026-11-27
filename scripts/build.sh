@@ -168,8 +168,12 @@ build_llvm() {
     fi
 
     if ! is_true "$LLVM_NO_PATCH"; then
-      for patch in "$PROJECT_DIR/patches/"*.patch; do
-        if [ -f "$patch" ]; then
+      for patch in "$PROJECT_DIR/patches/"*; do
+        if [[ "$patch" == *.ignore ]]; then
+          echo "Skipping ignored patch: $patch"
+          continue
+        fi
+        if [ -f "$patch" ] && [[ "$patch" == *.patch ]]; then
           echo "Applying patch: $patch"
           git apply --whitespace=fix "$patch"
         fi
