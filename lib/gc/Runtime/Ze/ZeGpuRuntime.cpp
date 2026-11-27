@@ -20,6 +20,7 @@
 #include <level_zero/ze_ddi.h>
 
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 
@@ -160,10 +161,12 @@ ze_event_handle_t *waitList(ze_event_handle_t const *deps, uint32_t nDeps) {
 
 struct EventPool {
   static constexpr uint32_t maxCapacity = 32 * 1024;
-  EventPool(ze_device_handle_t device, ze_context_handle_t context) {
+  EventPool(ze_device_handle_t device, ze_context_handle_t context,
+            bool timestamps = false) {
     ze_event_pool_desc_t pd{};
     pd.stype = ZE_STRUCTURE_TYPE_EVENT_POOL_DESC;
     pd.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+    if (timestamps) pd.flags |= ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
     pd.count = maxCapacity;
     ZE_CHECKR(zeEventPoolCreate(context, &pd, 1, &device, &handle),
               "Failed to create event pool.");
@@ -210,8 +213,9 @@ private:
 namespace gc::gpu {
 struct ZeKernel {
   ZeKernel(ze_module_handle_t module, ze_kernel_handle_t kernel,
-           std::vector<uint8_t> argSizes)
-      : module(module), kernel(kernel), argSizes(std::move(argSizes)) {}
+           std::string name, std::vector<uint8_t> argSizes)
+      : module(module), kernel(kernel), name(std::move(name)),
+        argSizes(std::move(argSizes)) {}
   ~ZeKernel() {
     ZE_CHECKL(zeKernelDestroy(kernel), "Failed to destroy kernel.");
     ZE_CHECKL(zeModuleDestroy(module), "Failed to destroy module.");
@@ -221,6 +225,7 @@ struct ZeKernel {
 
   ze_module_handle_t module;
   ze_kernel_handle_t kernel;
+  std::string name;
   // Only used if launchWithArgs is not supported.
   std::vector<uint8_t> argSizes;
   std::array<uint32_t, 3> groupSize{};
@@ -240,8 +245,9 @@ struct ZeGpuRuntime::Impl {
   ~Impl() {
     ZE_CHECKL(zeCommandListHostSynchronize(cmdList, UINT64_MAX),
               "Failed to synchronize command list.");
-    // Members are destroyed after the body, the pool must go before context.
+    // Members are destroyed after the body, the pools must go before context.
     eventPool.reset();
+    tsPool.reset();
     ZE_CHECKL(zeCommandListDestroy(cmdList), "Failed to destroy command list.");
     if (destroyContext)
       ZE_CHECKL(zeContextDestroy(context), "Failed to destroy context.");
@@ -249,6 +255,44 @@ struct ZeGpuRuntime::Impl {
 
   Impl(const Impl &) = delete;
   Impl &operator=(const Impl &) = delete;
+
+  // Must be called under the mutex.
+  ze_event_handle_t launchEvent(const ZeKernel *kernel) {
+    if (!profiling) return eventPool->get();
+    if (!tsPool) {
+      ze_device_properties_t props{};
+      props.stype = ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES;
+      ZE_CHECKR(zeDeviceGetProperties(device, &props),
+                "Failed to get device properties.");
+      // With ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES the resolution is in ns.
+      nsPerTick = static_cast<double>(props.timerResolution);
+      tsMask = props.kernelTimestampValidBits >= 64
+                   ? UINT64_MAX
+                   : (uint64_t{1} << props.kernelTimestampValidBits) - 1;
+      tsPool = std::make_unique<EventPool>(device, context, true);
+    }
+    auto *ev = tsPool->get();
+    tsEvents[ev] = kernel;
+    return ev;
+  }
+
+  // Must be called under the mutex, after the event is complete.
+  void release(ze_event_handle_t ev) {
+    if (!tsEvents.empty()) {
+      if (auto it = tsEvents.find(ev); it != tsEvents.end()) {
+        ze_kernel_timestamp_result_t ts{};
+        ZE_CHECKR(zeEventQueryKernelTimestamp(ev, &ts),
+                  "Failed to query kernel timestamp.");
+        // The counter may wrap around, the mask handles it.
+        auto ticks = (ts.global.kernelEnd - ts.global.kernelStart) & tsMask;
+        kernelTimes.push_back({it->second->name, ticks * nsPerTick});
+        tsEvents.erase(it);
+        tsPool->release(ev);
+        return;
+      }
+    }
+    eventPool->release(ev);
+  }
 
   std::mutex mux;
   ze_device_handle_t device;
@@ -259,6 +303,16 @@ struct ZeGpuRuntime::Impl {
   // nullptr if not supported by the driver.
   ze_pfnCommandListAppendLaunchKernelWithArguments_t launchWithArgs;
   std::unique_ptr<EventPool> eventPool;
+
+  // Kernel profiling, see ZeGpuRuntime::setProfiling().
+  bool profiling{false};
+  // Lazily created on the first profiled launch.
+  std::unique_ptr<EventPool> tsPool;
+  // The pending timestamp events and their kernels.
+  llvm::DenseMap<ze_event_handle_t, const ZeKernel *> tsEvents;
+  std::vector<KernelTime> kernelTimes;
+  double nsPerTick{1};
+  uint64_t tsMask{UINT64_MAX};
 };
 
 ZeGpuRuntime::ZeGpuRuntime(std::unique_ptr<Impl> impl)
@@ -304,7 +358,7 @@ ZeGpuRuntime::Kernel *ZeGpuRuntime::createKernel(const uint8_t *data,
   std::vector<uint8_t> argSizes(impl->launchWithArgs ? 0 : nArgs);
   std::transform(argTypes, argTypes + argSizes.size(), argSizes.begin(),
                  argSize);
-  return new Kernel(module, kernel, std::move(argSizes));
+  return new Kernel(module, kernel, name, std::move(argSizes));
 }
 
 ZeGpuRuntime::Event *ZeGpuRuntime::launch(Kernel *kernel, void **args,
@@ -316,7 +370,7 @@ ZeGpuRuntime::Event *ZeGpuRuntime::launch(Kernel *kernel, void **args,
   ze_group_count_t counts{gridX, gridY, gridZ};
   auto &s = *impl;
   std::lock_guard<std::mutex> lock(s.mux);
-  auto *ev = s.eventPool->get();
+  auto *ev = s.launchEvent(kernel);
   if (s.launchWithArgs) {
     ze_group_size_t sizes{blockX, blockY, blockZ};
     ZE_CHECKR(s.launchWithArgs(s.cmdList, kernel->kernel, counts, sizes, args,
@@ -402,7 +456,22 @@ void ZeGpuRuntime::wait(Event *const *events, uint32_t nEvents) {
     ZE_CHECKR(zeEventHostSynchronize(e, UINT64_MAX),
               "Failed to wait for event.");
   std::lock_guard<std::mutex> lock(impl->mux);
-  for (auto *e : evs) impl->eventPool->release(e);
+  for (auto *e : evs) impl->release(e);
+}
+
+void ZeGpuRuntime::setProfiling(bool enable) {
+  std::lock_guard<std::mutex> lock(impl->mux);
+  impl->profiling = enable;
+}
+
+bool ZeGpuRuntime::isProfiling() const {
+  std::lock_guard<std::mutex> lock(impl->mux);
+  return impl->profiling;
+}
+
+std::vector<ZeGpuRuntime::KernelTime> ZeGpuRuntime::takeKernelTimes() {
+  std::lock_guard<std::mutex> lock(impl->mux);
+  return std::exchange(impl->kernelTimes, {});
 }
 
 std::shared_ptr<ZeGpuRuntime> ZeGpuRuntime::create() {

@@ -13,6 +13,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/string.h>
 
 #include "gc/GpuCompiler.h"
 #include "gc/Runtime/ZeGpuRuntime.h"
@@ -162,9 +163,10 @@ struct GpuModule {
     if (std::holds_alternative<FutureProgram>(prog)) {
       std::shared_ptr<Program> p = std::get<FutureProgram>(prog).get();
       prog = p;
-      return p.get();
     }
-    return std::get<std::shared_ptr<Program>>(prog).get();
+    auto *p = std::get<std::shared_ptr<Program>>(prog).get();
+    if (!p) throw std::runtime_error("GPU module compilation failed");
+    return p;
   }
 
 private:
@@ -179,6 +181,25 @@ NB_MODULE(graph_compiler, m) {
       [](size_t size, bool shared = false) { return Usm(size, shared); },
       nb::arg("size"), nb::arg("shared") = false,
       "Allocate USM memory of the given size.");
+
+  m.def(
+      "set_profiling", [](bool enable) { getRuntime()->setProfiling(enable); },
+      nb::arg("enable"),
+      "Enable or disable the kernel execution time profiling with the L0 "
+      "kernel timestamps.");
+  m.def(
+      "is_profiling", [] { return getRuntime()->isProfiling(); },
+      "Whether the kernel profiling is enabled.");
+  m.def(
+      "take_kernel_times",
+      [] {
+        nb::list result;
+        for (auto &t : getRuntime()->takeKernelTimes())
+          result.append(nb::make_tuple(t.kernel, t.ns));
+        return result;
+      },
+      "Return and clear the (kernel name, execution time in ns) pairs of the "
+      "kernels, completed while the profiling was enabled.");
 
   nb::class_<GpuModule>(m, "GpuModule")
       .def(nb::new_([](nb::str mlir, bool dump = false) {
