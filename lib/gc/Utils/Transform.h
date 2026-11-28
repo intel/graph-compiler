@@ -10,6 +10,8 @@
 #ifndef GC_TRANSFORM_H
 #define GC_TRANSFORM_H
 
+#include <atomic>
+
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallSet.h>
@@ -177,7 +179,7 @@ inline void canonicalizeLoop(LoopLikeOpInterface &loop) {
     scf::ForOp::getCanonicalizationPatterns(patterns, ctx);
   }
 
-  static size_t stamp = 0;
+  static std::atomic<size_t> stamp = 0;
   auto st = ++stamp;
   // The loop's operation can be replaced by the patterns. Using a stamp
   // to find it again.

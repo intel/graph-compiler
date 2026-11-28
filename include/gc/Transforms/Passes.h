@@ -25,10 +25,9 @@ class OpPassManager;
 namespace gc {
 struct GpuDevicePropsOptions;
 struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
-  Option<bool> truncate{
-      *this, "truncate-bin",
-      llvm::cl::desc("Truncate large binary blobs in the dumps."),
-      llvm::cl::init(true)};
+  Option<std::string> arch{*this, "arch",
+                           llvm::cl::desc("GPU architecture name."),
+                           llvm::cl::init("")};
   Option<bool> enableAttentionPrefetch{
       *this, "enable-attention-prefetch",
       llvm::cl::desc("Enable the SetAttentionPrefetch pass."),
@@ -42,11 +41,24 @@ struct GPUPipelineOptions : PassPipelineOptions<GPUPipelineOptions> {
       llvm::cl::desc("Wait for all the GPU events at the end of the main "
                      "function instead of returning them to the caller."),
       llvm::cl::init(true)};
+
+  // Add options that affect the compilation result. They are used as a salt for
+  // the file cache key calculations.
+  // IMPORTANT: All new options must be added here!
+  void addCacheKeyOpts(llvm::SmallVectorImpl<llvm::StringRef> &opts) const {
+    opts.append({arch, igcCmdOptions, enableAttentionPrefetch ? "1" : "0",
+                 wait ? "1" : "0"});
+  }
+
+  // The following options do not impact the compilation result
   Option<bool> dump{*this, "dump",
                     llvm::cl::desc("Dump the IR after each phase."),
                     llvm::cl::init(false)};
+  Option<bool> truncate{
+      *this, "truncate-bin",
+      llvm::cl::desc("Truncate large binary blobs in the dumps."),
+      llvm::cl::init(true)};
   llvm::raw_ostream *dumpStream = nullptr;
-  const GpuDevicePropsOptions *deviceProps = nullptr;
 };
 
 DialectRegistry &getDialectRegistry();

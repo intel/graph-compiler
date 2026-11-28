@@ -17,10 +17,13 @@
 #include <llvm/Support/Error.h>
 
 namespace mlir {
-struct ExecutionEngine;
+class ExecutionEngine;
 } // namespace mlir
+namespace llvm {
+class MemoryBuffer;
+} // namespace llvm
 namespace llvm::orc {
-struct LLJIT;
+class LLJIT;
 } // namespace llvm::orc
 
 namespace gc {
@@ -29,6 +32,10 @@ struct JitEngine {
   explicit JitEngine(std::unique_ptr<llvm::orc::LLJIT> jit);
   ~JitEngine();
   JitEngine(JitEngine &&) = default;
+
+  static std::unique_ptr<JitEngine>
+  load(std::unique_ptr<llvm::MemoryBuffer> obj);
+  bool saveToFile(llvm::StringRef filename);
 
   llvm::Expected<void *> lookup(llvm::StringRef name) const;
   llvm::Expected<void (*)(void **)> lookupPacked(llvm::StringRef name) const;
